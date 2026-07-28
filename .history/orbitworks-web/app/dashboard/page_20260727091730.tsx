@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   collection,
   onSnapshot,
@@ -87,97 +86,12 @@ export default function DashboardOverviewPage() {
 
   const recentActivity = events.slice(0, 10);
 
-  // Widget: last 8 distinct employees seen in activity, regardless of in/out
-  const recentEmployees: ClockEvent[] = [];
-  const seenEmployeeIds = new Set<string>();
-  for (const event of events) {
-    if (seenEmployeeIds.has(event.employeeId)) continue;
-    seenEmployeeIds.add(event.employeeId);
-    recentEmployees.push(event);
-    if (recentEmployees.length >= 8) break;
-  }
-
-  // Widget: job sites with at least one person currently clocked in, with headcount
-  const activeSiteCounts = new Map<string, number>();
-  for (const event of currentlyClockedIn) {
-    const key = event.siteName || "Not specified";
-    activeSiteCounts.set(key, (activeSiteCounts.get(key) ?? 0) + 1);
-  }
-  const activeSites = Array.from(activeSiteCounts.entries()).sort(
-    (a, b) => b[1] - a[1]
-  );
-
   return (
     <div>
       <h1 className="text-xl font-semibold text-gray-950">Overview</h1>
       <p className="mt-1 text-sm text-gray-600">
         Who&apos;s clocked in right now, across all job sites.
       </p>
-
-      {/* Widgets: recently active employees + active job sites */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <Link
-          href="/dashboard/employees"
-          className="block rounded-lg border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300"
-        >
-          <h2 className="text-sm font-semibold text-gray-950">
-            Recently active employees
-          </h2>
-          {loading ? (
-            <p className="mt-3 text-sm text-gray-600">Loading…</p>
-          ) : recentEmployees.length === 0 ? (
-            <p className="mt-3 text-sm text-gray-600">No activity yet.</p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {recentEmployees.map((event) => (
-                <li
-                  key={event.employeeId}
-                  className="flex items-center justify-between text-sm"
-                >
-                  <span className="text-gray-950">{event.employeeName}</span>
-                  <span
-                    className={`text-xs font-medium ${
-                      event.type === "in" ? "text-green-700" : "text-gray-600"
-                    }`}
-                  >
-                    {event.type === "in" ? "Clocked in" : "Clocked out"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Link>
-
-        <Link
-          href="/dashboard/sites"
-          className="block rounded-lg border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300"
-        >
-          <h2 className="text-sm font-semibold text-gray-950">
-            Active job sites
-          </h2>
-          {loading ? (
-            <p className="mt-3 text-sm text-gray-600">Loading…</p>
-          ) : activeSites.length === 0 ? (
-            <p className="mt-3 text-sm text-gray-600">
-              No sites currently staffed.
-            </p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {activeSites.map(([siteName, count]) => (
-                <li
-                  key={siteName}
-                  className="flex items-center justify-between text-sm"
-                >
-                  <span className="text-gray-950">{siteName}</span>
-                  <span className="text-xs font-medium text-gray-600">
-                    {count} {count === 1 ? "person" : "people"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Link>
-      </div>
 
       {/* Currently clocked in */}
       <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">

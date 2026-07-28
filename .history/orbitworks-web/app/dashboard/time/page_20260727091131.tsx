@@ -48,7 +48,6 @@ export default function TimeTrackingPage() {
 
   const [employeeId, setEmployeeId] = useState("");
   const [siteId, setSiteId] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
   const [type, setType] = useState<"in" | "out">("in");
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -124,15 +123,15 @@ export default function TimeTrackingPage() {
     return unsubscribe;
   }, [userData?.companyId]);
 
-  // Job site filter narrows the employee list to make finding someone faster —
-  // it's a filter, not a requirement. Search box narrows further by name.
-  const filteredEmployees = employees
-    .filter((e) => (siteId ? e.assignedSiteIds?.includes(siteId) : true))
-    .filter((e) =>
-      searchQuery.trim()
-        ? e.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
-        : true
-    );
+  // Sort sites so the employee's own assigned sites show up first (convenience,
+  // not a restriction — employees can work sites outside their usual assignment).
+  const sortedSitesForEmployee = (() => {
+    const employee = employees.find((emp) => emp.id === employeeId);
+    if (!employee) return sites;
+    const assigned = sites.filter((s) => employee.assignedSiteIds?.includes(s.id));
+    const others = sites.filter((s) => !employee.assignedSiteIds?.includes(s.id));
+    return [...assigned, ...others];
+  })();
 
   async function handleManualClock(e: FormEvent) {
     e.preventDefault();
@@ -172,7 +171,6 @@ export default function TimeTrackingPage() {
       setSuccess(`Clocked ${type === "in" ? "in" : "out"}: ${employee.name}`);
       setEmployeeId("");
       setSiteId("");
-      setSearchQuery("");
       setNote("");
       setType("in");
     } catch (err) {
@@ -224,75 +222,48 @@ export default function TimeTrackingPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label
+              htmlFor="employeeSelect"
+              className="mb-1.5 block text-sm font-medium text-gray-950"
+            >
+              Employee
+            </label>
+            <select
+              id="employeeSelect"
+              required
+              value={employeeId}
+              onChange={(e) => setEmployeeId(e.target.value)}
+              className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            >
+              <option value="">Select an employee…</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
               htmlFor="siteSelect"
               className="mb-1.5 block text-sm font-medium text-gray-950"
             >
-              Job site
+              Job site (optional)
             </label>
             <select
               id="siteSelect"
               value={siteId}
-              onChange={(e) => {
-                setSiteId(e.target.value);
-                setEmployeeId(""); // filter changed, so clear the current pick
-              }}
+              onChange={(e) => setSiteId(e.target.value)}
               className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             >
-              <option value="">All sites</option>
-              {sites.map((site) => (
+              <option value="">Not specified</option>
+              {sortedSitesForEmployee.map((site) => (
                 <option key={site.id} value={site.id}>
                   {site.name}
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-gray-600">
-              Narrows the employee list below — not required.
-            </p>
           </div>
-
-          <div>
-            <label
-              htmlFor="employeeSearch"
-              className="mb-1.5 block text-sm font-medium text-gray-950"
-            >
-              Search by name
-            </label>
-            <input
-              id="employeeSearch"
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-              placeholder="Start typing a name…"
-            />
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <label
-            htmlFor="employeeSelect"
-            className="mb-1.5 block text-sm font-medium text-gray-950"
-          >
-            Employee
-          </label>
-          <select
-            id="employeeSelect"
-            required
-            value={employeeId}
-            onChange={(e) => setEmployeeId(e.target.value)}
-            className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          >
-            <option value="">
-              {filteredEmployees.length === 0
-                ? "No matching employees"
-                : "Select an employee…"}
-            </option>
-            {filteredEmployees.map((emp) => (
-              <option key={emp.id} value={emp.id}>
-                {emp.name}
-              </option>
-            ))}
-          </select>
         </div>
 
         <div className="mt-4">
