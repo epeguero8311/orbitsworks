@@ -1,18 +1,17 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { signOut } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/employees", label: "Employees" },
   { href: "/dashboard/sites", label: "Job Sites" },
-  { href: "/dashboard/time", label: "Time Tracking" },
+  { href: "/dashboard/time", label: "Hours" },
   { href: "/dashboard/reports", label: "Reports" },
   { href: "/dashboard/settings", label: "Settings" },
 ];
@@ -21,23 +20,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { currentUser, userData, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const [companyName, setCompanyName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !currentUser) {
       router.push("/login");
     }
   }, [loading, currentUser, router]);
-
-  // Live company name — updates instantly if it's changed in Settings
-  useEffect(() => {
-    if (!userData?.companyId) return;
-    const companyRef = doc(db, "companies", userData.companyId);
-    const unsubscribe = onSnapshot(companyRef, (snapshot) => {
-      setCompanyName(snapshot.exists() ? snapshot.data().name ?? null : null);
-    });
-    return unsubscribe;
-  }, [userData?.companyId]);
 
   if (loading) {
     return (
@@ -91,7 +79,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         <div className="border-t border-gray-200 px-3 py-3">
           <div className="mb-2 px-2">
             <p className="truncate text-sm font-medium text-gray-950">
-              {companyName ?? "…"}
+              {userData?.email ?? currentUser.email}
             </p>
             <p className="text-xs capitalize text-gray-600">
               {userData?.role ?? "…"}
