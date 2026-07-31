@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -23,13 +23,15 @@ export default function EmployeesPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-gray-950">Employees</h1>
-      <p className="mt-1 text-sm text-gray-600">
+      <h1 className="text-2xl font-semibold text-gray-950">Employees</h1>
+      <p className="mt-1.5 text-sm text-gray-600">
         Add employees, assign job sites, and upload a reference photo for
         face matching.
       </p>
 
-      <AddEmployeeForm sites={activeSites} />
+      <div className="mt-8">
+        <AddEmployeeForm sites={activeSites} />
+      </div>
 
       <div className="mt-6">
         <EmployeesTable
@@ -40,7 +42,9 @@ export default function EmployeesPage() {
         />
       </div>
 
-      <SupervisorInvites sites={activeSites} />
+      <div className="mt-10">
+        <SupervisorInvites sites={activeSites} />
+      </div>
 
       {employeeForModal && (
         <EmployeeModal

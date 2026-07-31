@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { doc, updateDoc } from "firebase/firestore";
@@ -53,13 +53,7 @@ export function EmployeeModal({
     setIsSaving(true);
 
     try {
-      const employeeRef = doc(
-        db,
-        "companies",
-        companyId,
-        "employees",
-        employee.id
-      );
+      const employeeRef = doc(db, "companies", companyId, "employees", employee.id);
 
       const updates: Record<string, unknown> = {
         name: name.trim(),
@@ -95,11 +89,11 @@ export function EmployeeModal({
       onClick={onClose}
     >
       <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-gray-200 bg-white p-6 shadow-lg"
+        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border border-gray-200 bg-white p-6 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-start justify-between">
-          <h2 className="text-lg font-semibold text-gray-950">
+        <div className="mb-5 flex items-start justify-between">
+          <h2 className="text-xl font-semibold text-gray-950">
             Edit employee
           </h2>
           <button
@@ -111,7 +105,7 @@ export function EmployeeModal({
           </button>
         </div>
 
-        <div className="mb-4 flex items-center gap-4">
+        <div className="mb-5 flex items-center gap-4">
           {photoPreview || employee.photoUrl ? (
             <img
               src={photoPreview ?? employee.photoUrl}
@@ -126,7 +120,7 @@ export function EmployeeModal({
           <div>
             <label
               htmlFor="editPhoto"
-              className="cursor-pointer rounded-md border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-950 hover:border-gray-300"
+              className="cursor-pointer rounded-lg border border-gray-200 px-3.5 py-2 text-sm font-medium text-gray-950 hover:border-gray-300"
             >
               Change photo
             </label>
@@ -140,31 +134,31 @@ export function EmployeeModal({
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-5 sm:grid-cols-2">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-950">
+            <label className="mb-2 block text-sm font-medium text-gray-950">
               Full name
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-950">
+            <label className="mb-2 block text-sm font-medium text-gray-950">
               Job title
             </label>
             <input
               type="text"
               value={jobTitle}
               onChange={(e) => setJobTitle(e.target.value)}
-              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-950">
+            <label className="mb-2 block text-sm font-medium text-gray-950">
               Hourly rate
             </label>
             <input
@@ -173,11 +167,11 @@ export function EmployeeModal({
               min="0"
               value={hourlyRate}
               onChange={(e) => setHourlyRate(e.target.value)}
-              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-950">
+            <label className="mb-2 block text-sm font-medium text-gray-950">
               Phone number
             </label>
             <input
@@ -185,24 +179,24 @@ export function EmployeeModal({
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="(555) 555-5555"
-              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-950">
+            <label className="mb-2 block text-sm font-medium text-gray-950">
               Date of birth
             </label>
             <input
               type="date"
               value={dob}
               onChange={(e) => setDob(e.target.value)}
-              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
         </div>
 
-        <div className="mt-4">
-          <span className="mb-1.5 block text-sm font-medium text-gray-950">
+        <div className="mt-5">
+          <span className="mb-2 block text-sm font-medium text-gray-950">
             Assigned job sites
           </span>
           {sites.length === 0 ? (
@@ -212,7 +206,7 @@ export function EmployeeModal({
               {sites.map((site) => (
                 <label
                   key={site.id}
-                  className={`cursor-pointer rounded-full border px-3 py-1 text-sm transition-colors ${
+                  className={`cursor-pointer rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
                     selectedSiteIds.includes(site.id)
                       ? "border-accent bg-accent/10 text-accent"
                       : "border-gray-200 text-gray-600 hover:border-gray-300"
@@ -231,22 +225,22 @@ export function EmployeeModal({
           )}
         </div>
 
-        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-        {success && <p className="mt-3 text-sm text-green-700">{success}</p>}
+        {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+        {success && <p className="mt-4 text-sm text-green-700">{success}</p>}
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-6 flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="rounded-md border border-gray-200 px-4 py-2 text-sm font-medium text-gray-950 hover:border-gray-300"
+            className="rounded-lg border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-950 hover:border-gray-300"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={isSaving}
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
+            className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
           >
-            {isSaving ? "Saving…" : "Save changes"}
+            {isSaving ? "Saving..." : "Save changes"}
           </button>
         </div>
       </div>

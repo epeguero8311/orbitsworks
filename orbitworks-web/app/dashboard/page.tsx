@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -10,6 +10,7 @@ import {
   limit,
   where,
   getDocs,
+  doc,
   Timestamp,
 } from "firebase/firestore";
 import {
@@ -20,8 +21,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import {
+  Users,
+  Building2,
+  Clock,
+  Download,
+  UserPlus,
+} from "lucide-react";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import { useEmployees } from "@/lib/hooks/useEmployees";
 
 type ClockEvent = {
   id: string;
@@ -36,7 +45,7 @@ type ClockEvent = {
 };
 
 type DayAttendance = {
-  label: string; // e.g. "Mon"
+  label: string;
   count: number;
 };
 
@@ -51,12 +60,57 @@ function timeAgo(date: Date) {
   return `${days}d ago`;
 }
 
+function StatCard({
+  icon: Icon,
+  iconBg,
+  iconColor,
+  label,
+  value,
+  loading,
+}: {
+  icon: React.ElementType;
+  iconBg: string;
+  iconColor: string;
+  label: string;
+  value: string | number;
+  loading: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-5">
+      <div className="flex items-center gap-4">
+        <div
+          className={`flex h-12 w-12 items-center justify-center rounded-xl ${iconBg}`}
+        >
+          <Icon className={`h-6 w-6 ${iconColor}`} />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-gray-600">{label}</p>
+          <p className="text-2xl font-semibold text-gray-950">
+            {loading ? "-" : value}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardOverviewPage() {
   const { userData } = useAuth();
+  const { employees, loading: loadingEmployees } = useEmployees();
+  const [companyName, setCompanyName] = useState<string | null>(null);
   const [events, setEvents] = useState<ClockEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [weeklyAttendance, setWeeklyAttendance] = useState<DayAttendance[]>([]);
   const [loadingChart, setLoadingChart] = useState(true);
+
+  useEffect(() => {
+    if (!userData?.companyId) return;
+    const companyRef = doc(db, "companies", userData.companyId);
+    const unsubscribe = onSnapshot(companyRef, (snapshot) => {
+      setCompanyName(snapshot.exists() ? snapshot.data().name ?? null : null);
+    });
+    return unsubscribe;
+  }, [userData?.companyId]);
 
   useEffect(() => {
     if (!userData?.companyId) return;
@@ -66,8 +120,6 @@ export default function DashboardOverviewPage() {
       userData.companyId,
       "clockEvents"
     );
-    // Pull a decently large recent window — enough to find each employee's
-    // latest event without querying every employee individually.
     const q = query(eventsRef, orderBy("timestamp", "desc"), limit(200));
 
     const unsubscribe = onSnapshot(
@@ -90,7 +142,6 @@ export default function DashboardOverviewPage() {
     return unsubscribe;
   }, [userData?.companyId]);
 
-  // Weekly attendance chart: unique employees clocked in per day, last 7 days
   useEffect(() => {
     if (!userData?.companyId) return;
 
@@ -115,7 +166,6 @@ export default function DashboardOverviewPage() {
         );
         const snapshot = await getDocs(q);
 
-        // Bucket by calendar day, tracking unique employees per day
         const dayBuckets = new Map<string, Set<string>>();
         const dayLabels: string[] = [];
         for (let i = 0; i < 7; i++) {
@@ -154,7 +204,6 @@ export default function DashboardOverviewPage() {
     loadWeeklyAttendance();
   }, [userData?.companyId]);
 
-  // Latest event per employee, in order of most-recently-seen employee first
   const latestByEmployee = new Map<string, ClockEvent>();
   for (const event of events) {
     if (!latestByEmployee.has(event.employeeId)) {
@@ -167,20 +216,18 @@ export default function DashboardOverviewPage() {
   );
   const clockedInDisplay = currentlyClockedIn.slice(0, 8);
   const clockedInOverflow = currentlyClockedIn.length - clockedInDisplay.length;
+  const totalClockedIn = currentlyClockedIn.length;
 
-  const recentActivity = events.slice(0, 10);
+  const avgHoursWorked = (() => {
+    if (currentlyClockedIn.length === 0) return "0h";
+    const totalHours = currentlyClockedIn.reduce((sum, event) => {
+      if (!event.timestamp) return sum;
+      const elapsedMs = Date.now() - event.timestamp.toDate().getTime();
+      return sum + elapsedMs / (1000 * 60 * 60);
+    }, 0);
+    return `${(totalHours / currentlyClockedIn.length).toFixed(1)}h`;
+  })();
 
-  // Widget: last 8 distinct employees seen in activity, regardless of in/out
-  const recentEmployees: ClockEvent[] = [];
-  const seenEmployeeIds = new Set<string>();
-  for (const event of events) {
-    if (seenEmployeeIds.has(event.employeeId)) continue;
-    seenEmployeeIds.add(event.employeeId);
-    recentEmployees.push(event);
-    if (recentEmployees.length >= 8) break;
-  }
-
-  // Widget: job sites with at least one person currently clocked in, with headcount
   const activeSiteCounts = new Map<string, number>();
   for (const event of currentlyClockedIn) {
     const key = event.siteName || "Not specified";
@@ -192,218 +239,215 @@ export default function DashboardOverviewPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-gray-950">Overview</h1>
-      <p className="mt-1 text-sm text-gray-600">
-        Who&apos;s clocked in right now, across all job sites.
-      </p>
-
-      {/* Widgets: recently active employees + active job sites */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <Link
-          href="/dashboard/employees"
-          className="block rounded-lg border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300"
-        >
-          <h2 className="text-sm font-semibold text-gray-950">
-            Recently active employees
-          </h2>
-          {loading ? (
-            <p className="mt-3 text-sm text-gray-600">Loading…</p>
-          ) : recentEmployees.length === 0 ? (
-            <p className="mt-3 text-sm text-gray-600">No activity yet.</p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {recentEmployees.map((event) => (
-                <li
-                  key={event.employeeId}
-                  className="flex items-center justify-between text-sm"
-                >
-                  <span className="text-gray-950">{event.employeeName}</span>
-                  <span
-                    className={`text-xs font-medium ${
-                      event.type === "in" ? "text-green-700" : "text-gray-600"
-                    }`}
-                  >
-                    {event.type === "in" ? "Clocked in" : "Clocked out"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Link>
-
-        <Link
-          href="/dashboard/sites"
-          className="block rounded-lg border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300"
-        >
-          <h2 className="text-sm font-semibold text-gray-950">
-            Active job sites
-          </h2>
-          {loading ? (
-            <p className="mt-3 text-sm text-gray-600">Loading…</p>
-          ) : activeSites.length === 0 ? (
-            <p className="mt-3 text-sm text-gray-600">
-              No sites currently staffed.
-            </p>
-          ) : (
-            <ul className="mt-3 space-y-2">
-              {activeSites.map(([siteName, count]) => (
-                <li
-                  key={siteName}
-                  className="flex items-center justify-between text-sm"
-                >
-                  <span className="text-gray-950">{siteName}</span>
-                  <span className="text-xs font-medium text-gray-600">
-                    {count} {count === 1 ? "person" : "people"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Link>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-950">
+            Welcome, {companyName ?? "..."}
+          </h1>
+          <p className="mt-1.5 text-sm text-gray-600">
+            Here's what's happening across your job sites today.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <Link
+            href="/dashboard/reports"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-950 transition-colors hover:border-gray-300"
+          >
+            <Download className="h-4 w-4" />
+            Download Report
+          </Link>
+          <Link
+            href="/dashboard/employees"
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+          >
+            <UserPlus className="h-4 w-4" />
+            Add Employee
+          </Link>
+        </div>
       </div>
 
-      {/* Currently clocked in */}
-      <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
-        <div className="border-b border-gray-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-gray-950">
-            Currently clocked in
-            {!loading && (
-              <span className="ml-2 font-normal text-gray-600">
-                ({currentlyClockedIn.length})
-              </span>
-            )}
+      <div className="mt-8 grid gap-5 sm:grid-cols-3">
+        <StatCard
+          icon={Building2}
+          iconBg="bg-purple-50"
+          iconColor="text-purple-600"
+          label="Active job sites"
+          value={activeSites.length}
+          loading={loading}
+        />
+        <StatCard
+          icon={Users}
+          iconBg="bg-blue-50"
+          iconColor="text-blue-600"
+          label="Active employees"
+          value={totalClockedIn}
+          loading={loading}
+        />
+        <StatCard
+          icon={Clock}
+          iconBg="bg-green-50"
+          iconColor="text-green-600"
+          label="Avg. hrs worked / employee"
+          value={avgHoursWorked}
+          loading={loading}
+        />
+      </div>
+
+      <div className="mt-6 grid gap-5 lg:grid-cols-3">
+        <div className="rounded-xl border border-gray-200 bg-white p-6 lg:col-span-2">
+          <h2 className="text-base font-semibold text-gray-950">
+            Weekly attendance
           </h2>
+          <p className="mt-1 text-sm text-gray-600">
+            Unique employees clocked in each day, last 7 days.
+          </p>
+          <div className="mt-6 h-64">
+            {loadingChart ? (
+              <p className="text-sm text-gray-600">Loading...</p>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={weeklyAttendance}>
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 13, fill: "#6b7280" }}
+                    axisLine={{ stroke: "#e5e7eb" }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: 13, fill: "#6b7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={28}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "#fafafa" }}
+                    contentStyle={{
+                      fontSize: 13,
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                    }}
+                  />
+                  <Bar dataKey="count" fill="#3b6fe0" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-gray-200 bg-white p-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-gray-950">
+              Job site breakdown
+            </h2>
+            <Link
+              href="/dashboard/sites"
+              className="text-sm font-medium text-accent hover:underline"
+            >
+              View all
+            </Link>
+          </div>
+          <p className="mt-1 text-sm text-gray-600">
+            Live headcount per location.
+          </p>
+          <div className="mt-6 space-y-5">
+            {loading ? (
+              <p className="text-sm text-gray-600">Loading...</p>
+            ) : activeSites.length === 0 ? (
+              <p className="text-sm text-gray-600">
+                No sites currently staffed.
+              </p>
+            ) : (
+              activeSites.map(([siteName, count]) => {
+                const pct = totalClockedIn
+                  ? Math.round((count / totalClockedIn) * 100)
+                  : 0;
+                return (
+                  <div key={siteName}>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium text-gray-950">
+                        {siteName}
+                      </span>
+                      <span className="text-gray-600">
+                        {count} {count === 1 ? "person" : "people"}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className="h-full rounded-full bg-accent"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <h2 className="text-base font-semibold text-gray-950">
+            Employees clocked in
+          </h2>
+          <Link
+            href="/dashboard/time"
+            className="text-sm font-medium text-accent hover:underline"
+          >
+            View all
+          </Link>
         </div>
 
         {loading ? (
-          <p className="p-4 text-sm text-gray-600">Loading…</p>
+          <p className="p-6 text-sm text-gray-600">Loading...</p>
         ) : currentlyClockedIn.length === 0 ? (
-          <p className="p-4 text-sm text-gray-600">
+          <p className="p-6 text-sm text-gray-600">
             No one is currently clocked in.
           </p>
         ) : (
-          <>
-            <ul className="divide-y divide-gray-200">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-gray-200 text-gray-600">
+              <tr>
+                <th className="px-6 py-3 font-medium">Employee</th>
+                <th className="px-6 py-3 font-medium">Job site</th>
+                <th className="px-6 py-3 font-medium">Since</th>
+                <th className="px-6 py-3 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
               {clockedInDisplay.map((event) => (
-                <li
+                <tr
                   key={event.employeeId}
-                  className="flex items-center justify-between px-4 py-3"
+                  className="border-b border-gray-200 last:border-0"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="relative flex h-2.5 w-2.5">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+                  <td className="px-6 py-4 font-medium text-gray-950">
+                    {event.employeeName}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600">
+                    {event.siteName}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600">
+                    {event.timestamp ? timeAgo(event.timestamp.toDate()) : "-"}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="inline-flex items-center rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
+                      Active
                     </span>
-                    <div>
-                      <p className="text-sm font-medium text-gray-950">
-                        {event.employeeName}
-                      </p>
-                      <p className="text-xs text-gray-600">{event.siteName}</p>
-                    </div>
-                  </div>
-                  <span className="text-xs text-gray-600">
-                    {event.timestamp
-                      ? `since ${timeAgo(event.timestamp.toDate())}`
-                      : ""}
-                  </span>
-                </li>
+                  </td>
+                </tr>
               ))}
-            </ul>
-            {clockedInOverflow > 0 && (
-              <Link
-                href="/dashboard/time"
-                className="block border-t border-gray-200 px-4 py-2.5 text-center text-sm font-medium text-accent hover:underline"
-              >
-                +{clockedInOverflow} more
-              </Link>
-            )}
-          </>
+            </tbody>
+          </table>
         )}
-      </div>
 
-      {/* Weekly attendance chart */}
-      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-gray-950">
-          Weekly attendance
-        </h2>
-        <p className="mt-1 text-xs text-gray-600">
-          Unique employees clocked in each day, last 7 days.
-        </p>
-        <div className="mt-4 h-48">
-          {loadingChart ? (
-            <p className="text-sm text-gray-600">Loading…</p>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={weeklyAttendance}>
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontSize: 12, fill: "#6b7280" }}
-                  axisLine={{ stroke: "#e5e7eb" }}
-                  tickLine={false}
-                />
-                <YAxis
-                  allowDecimals={false}
-                  tick={{ fontSize: 12, fill: "#6b7280" }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={24}
-                />
-                <Tooltip
-                  cursor={{ fill: "#fafafa" }}
-                  contentStyle={{
-                    fontSize: 12,
-                    borderRadius: 6,
-                    border: "1px solid #e5e7eb",
-                  }}
-                />
-                <Bar dataKey="count" fill="#3b6fe0" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
-
-      {/* Recent activity feed */}
-      <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
-        <div className="border-b border-gray-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-gray-950">
-            Recent activity
-          </h2>
-        </div>
-
-        {loading ? (
-          <p className="p-4 text-sm text-gray-600">Loading…</p>
-        ) : recentActivity.length === 0 ? (
-          <p className="p-4 text-sm text-gray-600">
-            No activity yet. Once employees clock in and out, it&apos;ll show
-            up here.
-          </p>
-        ) : (
-          <ul className="divide-y divide-gray-200">
-            {recentActivity.map((event) => (
-              <li
-                key={event.id}
-                className="flex items-center justify-between px-4 py-3 text-sm"
-              >
-                <span className="text-gray-950">
-                  <span className="font-medium">{event.employeeName}</span>{" "}
-                  <span
-                    className={
-                      event.type === "in" ? "text-green-700" : "text-gray-600"
-                    }
-                  >
-                    clocked {event.type === "in" ? "in" : "out"}
-                  </span>{" "}
-                  <span className="text-gray-600">at {event.siteName}</span>
-                </span>
-                <span className="whitespace-nowrap font-mono text-xs text-gray-600">
-                  {event.timestamp
-                    ? event.timestamp.toDate().toLocaleString()
-                    : "—"}
-                </span>
-              </li>
-            ))}
-          </ul>
+        {clockedInOverflow > 0 && (
+          <Link
+            href="/dashboard/time"
+            className="block border-t border-gray-200 px-6 py-3 text-center text-sm font-medium text-accent hover:underline"
+          >
+            +{clockedInOverflow} more
+          </Link>
         )}
       </div>
     </div>

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -31,7 +31,7 @@ export function EmployeesTable({
   }
 
   function siteNames(ids: string[]) {
-    if (ids.length === 0) return "—";
+    if (ids.length === 0) return "-";
     return ids
       .map((id) => sites.find((s) => s.id === id)?.name)
       .filter(Boolean)
@@ -39,23 +39,34 @@ export function EmployeesTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className="border-b border-gray-200 px-6 py-4">
+        <h2 className="text-base font-semibold text-gray-950">
+          All employees
+          {!loading && (
+            <span className="ml-2 font-normal text-gray-600">
+              ({employees.length})
+            </span>
+          )}
+        </h2>
+      </div>
+
       {loading ? (
-        <p className="p-4 text-sm text-gray-600">Loading…</p>
+        <p className="p-6 text-sm text-gray-600">Loading...</p>
       ) : employees.length === 0 ? (
-        <p className="p-4 text-sm text-gray-600">
+        <p className="p-6 text-sm text-gray-600">
           No employees yet. Add one above to get started.
         </p>
       ) : (
         <table className="w-full text-left text-sm">
           <thead className="border-b border-gray-200 text-gray-600">
             <tr>
-              <th className="px-4 py-2 font-medium">Name</th>
-              <th className="px-4 py-2 font-medium">Job title</th>
-              <th className="px-4 py-2 font-medium">Rate</th>
-              <th className="px-4 py-2 font-medium">Job sites</th>
-              <th className="px-4 py-2 font-medium">Status</th>
-              <th className="px-4 py-2 font-medium"></th>
+              <th className="px-6 py-3 font-medium">Name</th>
+              <th className="px-6 py-3 font-medium">Job title</th>
+              <th className="px-6 py-3 font-medium">Rate</th>
+              <th className="px-6 py-3 font-medium">Job sites</th>
+              <th className="px-6 py-3 font-medium">Status</th>
+              <th className="px-6 py-3 font-medium"></th>
             </tr>
           </thead>
           <tbody>
@@ -65,37 +76,35 @@ export function EmployeesTable({
                 onClick={() => onSelect(employee)}
                 className="cursor-pointer border-b border-gray-200 transition-colors last:border-0 hover:bg-gray-50"
               >
-                <td className="px-4 py-2.5 text-gray-950">
+                <td className="px-6 py-4 font-medium text-gray-950">
                   <span className="flex items-center gap-2">
                     {employee.photoUrl ? (
                       <img
                         src={employee.photoUrl}
                         alt={employee.name}
-                        className="h-6 w-6 rounded-full object-cover"
+                        className="h-7 w-7 rounded-full object-cover"
                       />
                     ) : null}
                     {employee.name}
                     {employee.isSupervisor && (
-                      <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                      <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
                         Supervisor
                       </span>
                     )}
                   </span>
                 </td>
-                <td className="px-4 py-2.5 text-gray-600">
-                  {employee.jobTitle || "—"}
+                <td className="px-6 py-4 text-gray-600">
+                  {employee.jobTitle || "-"}
                 </td>
-                <td className="px-4 py-2.5 text-gray-600">
-                  {employee.hourlyRate
-                    ? `$${employee.hourlyRate.toFixed(2)}/hr`
-                    : "—"}
+                <td className="px-6 py-4 text-gray-600">
+                  {employee.hourlyRate ? `$${employee.hourlyRate.toFixed(2)}/hr` : "-"}
                 </td>
-                <td className="px-4 py-2.5 text-gray-600">
+                <td className="px-6 py-4 text-gray-600">
                   {siteNames(employee.assignedSiteIds)}
                 </td>
-                <td className="px-4 py-2.5">
+                <td className="px-6 py-4">
                   <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
                       employee.active
                         ? "bg-green-50 text-green-700"
                         : "bg-gray-100 text-gray-600"
@@ -104,7 +113,7 @@ export function EmployeesTable({
                     {employee.active ? "Active" : "Inactive"}
                   </span>
                 </td>
-                <td className="px-4 py-2.5 text-right">
+                <td className="px-6 py-4 text-right">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

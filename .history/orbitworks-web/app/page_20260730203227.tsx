@@ -10,7 +10,6 @@ import {
   limit,
   where,
   getDocs,
-  doc,
   Timestamp,
 } from "firebase/firestore";
 import {
@@ -21,14 +20,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import {
-  Users,
-  Building2,
-  Clock,
-  Download,
-  UserPlus,
-  AlertTriangle,
-} from "lucide-react";
+import { Users, Building2, Briefcase, Download, UserPlus } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
@@ -46,11 +38,9 @@ type ClockEvent = {
 };
 
 type DayAttendance = {
-  label: string;
+  label: string; // e.g. "Mon"
   count: number;
 };
-
-const LONG_SHIFT_HOURS = 8;
 
 function timeAgo(date: Date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -75,7 +65,7 @@ function StatCard({
   iconBg: string;
   iconColor: string;
   label: string;
-  value: string | number;
+  value: number;
   loading: boolean;
 }) {
   return (
@@ -100,20 +90,10 @@ function StatCard({
 export default function DashboardOverviewPage() {
   const { userData } = useAuth();
   const { employees, loading: loadingEmployees } = useEmployees();
-  const [companyName, setCompanyName] = useState<string | null>(null);
   const [events, setEvents] = useState<ClockEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [weeklyAttendance, setWeeklyAttendance] = useState<DayAttendance[]>([]);
   const [loadingChart, setLoadingChart] = useState(true);
-
-  useEffect(() => {
-    if (!userData?.companyId) return;
-    const companyRef = doc(db, "companies", userData.companyId);
-    const unsubscribe = onSnapshot(companyRef, (snapshot) => {
-      setCompanyName(snapshot.exists() ? snapshot.data().name ?? null : null);
-    });
-    return unsubscribe;
-  }, [userData?.companyId]);
 
   useEffect(() => {
     if (!userData?.companyId) return;
@@ -219,45 +199,25 @@ export default function DashboardOverviewPage() {
   );
   const clockedInDisplay = currentlyClockedIn.slice(0, 8);
   const clockedInOverflow = currentlyClockedIn.length - clockedInDisplay.length;
-  const totalClockedIn = currentlyClockedIn.length;
 
-  const avgHoursWorked = (() => {
-    if (currentlyClockedIn.length === 0) return "0h";
-    const totalHours = currentlyClockedIn.reduce((sum, event) => {
-      if (!event.timestamp) return sum;
-      const elapsedMs = Date.now() - event.timestamp.toDate().getTime();
-      return sum + elapsedMs / (1000 * 60 * 60);
-    }, 0);
-    return `${(totalHours / currentlyClockedIn.length).toFixed(1)}h`;
-  })();
-
-  const longShiftAlerts = currentlyClockedIn
-    .filter((event) => {
-      if (!event.timestamp) return false;
-      const elapsedHours =
-        (Date.now() - event.timestamp.toDate().getTime()) / (1000 * 60 * 60);
-      return elapsedHours >= LONG_SHIFT_HOURS;
-    })
-    .map((event) => {
-      const elapsedHours =
-        (Date.now() - event.timestamp!.toDate().getTime()) / (1000 * 60 * 60);
-      return { ...event, elapsedHours };
-    })
-    .sort((a, b) => b.elapsedHours - a.elapsedHours);
+  const recentActivity = events.slice(0, 8);
 
   const activeSiteCounts = new Map<string, number>();
   for (const event of currentlyClockedIn) {
     const key = event.siteName || "Not specified";
     activeSiteCounts.set(key, (activeSiteCounts.get(key) ?? 0) + 1);
   }
-  const activeSites = Array.from(activeSiteCounts.entries());
+  const activeSites = Array.from(activeSiteCounts.entries()).sort(
+    (a, b) => b[1] - a[1]
+  );
+  const totalClockedIn = currentlyClockedIn.length;
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-gray-950">
-            Welcome, {companyName ?? "…"}
+            Welcome back{userData?.name ? `, ${userData.name.split(" ")[0]}` : ""}
           </h1>
           <p className="mt-1 text-sm text-gray-600">
             Here&apos;s what&apos;s happening across your job sites today.
@@ -269,7 +229,7 @@ export default function DashboardOverviewPage() {
             className="inline-flex items-center gap-2 rounded-md border border-gray-200 px-4 py-2 text-sm font-medium text-gray-950 transition-colors hover:border-gray-300"
           >
             <Download className="h-4 w-4" />
-            Download Report
+            Reports
           </Link>
           <Link
             href="/dashboard/employees"
@@ -283,6 +243,14 @@ export default function DashboardOverviewPage() {
 
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <StatCard
+          icon={Users}
+          iconBg="bg-blue-50"
+          iconColor="text-blue-600"
+          label="Employees clocked in"
+          value={totalClockedIn}
+          loading={loading}
+        />
+        <StatCard
           icon={Building2}
           iconBg="bg-purple-50"
           iconColor="text-purple-600"
@@ -291,20 +259,12 @@ export default function DashboardOverviewPage() {
           loading={loading}
         />
         <StatCard
-          icon={Users}
-          iconBg="bg-blue-50"
-          iconColor="text-blue-600"
-          label="Active employees"
-          value={totalClockedIn}
-          loading={loading}
-        />
-        <StatCard
-          icon={Clock}
+          icon={Briefcase}
           iconBg="bg-green-50"
           iconColor="text-green-600"
-          label="Avg. hrs worked / employee"
-          value={avgHoursWorked}
-          loading={loading}
+          label="Total employees"
+          value={employees.length}
+          loading={loadingEmployees}
         />
       </div>
 
@@ -351,33 +311,44 @@ export default function DashboardOverviewPage() {
         </div>
 
         <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-gray-950">Alerts</h2>
-          <p className="mt-1 text-xs text-gray-600">
-            Anything that needs your attention.
-          </p>
-          <div className="mt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-950">
+              Job site breakdown
+            </h2>
+            <Link
+              href="/dashboard/sites"
+              className="text-xs font-medium text-accent hover:underline"
+            >
+              View all
+            </Link>
+          </div>
+          <div className="mt-4 space-y-4">
             {loading ? (
               <p className="text-sm text-gray-600">Loading…</p>
-            ) : longShiftAlerts.length === 0 ? (
-              <p className="text-sm text-gray-600">No alerts right now.</p>
+            ) : activeSites.length === 0 ? (
+              <p className="text-sm text-gray-600">
+                No sites currently staffed.
+              </p>
             ) : (
-              longShiftAlerts.map((alert) => (
-                <div
-                  key={alert.employeeId}
-                  className="flex items-start gap-2 rounded-md bg-amber-50 p-2.5"
-                >
-                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
-                  <div>
-                    <p className="text-sm font-medium text-gray-950">
-                      {alert.employeeName}
-                    </p>
-                    <p className="text-xs text-gray-600">
-                      Clocked in for {alert.elapsedHours.toFixed(1)}h — check
-                      in?
-                    </p>
+              activeSites.map(([siteName, count]) => {
+                const pct = totalClockedIn
+                  ? Math.round((count / totalClockedIn) * 100)
+                  : 0;
+                return (
+                  <div key={siteName}>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-950">{siteName}</span>
+                      <span className="font-medium text-gray-600">{pct}%</span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                      <div
+                        className="h-full rounded-full bg-accent"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -386,7 +357,12 @@ export default function DashboardOverviewPage() {
       <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
         <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
           <h2 className="text-sm font-semibold text-gray-950">
-            Employees clocked in
+            Currently clocked in
+            {!loading && (
+              <span className="ml-2 font-normal text-gray-600">
+                ({currentlyClockedIn.length})
+              </span>
+            )}
           </h2>
           <Link
             href="/dashboard/time"
@@ -403,41 +379,33 @@ export default function DashboardOverviewPage() {
             No one is currently clocked in.
           </p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 text-gray-600">
-              <tr>
-                <th className="px-4 py-2 font-medium">Employee</th>
-                <th className="px-4 py-2 font-medium">Job site</th>
-                <th className="px-4 py-2 font-medium">Since</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clockedInDisplay.map((event) => (
-                <tr
-                  key={event.employeeId}
-                  className="border-b border-gray-200 last:border-0"
-                >
-                  <td className="px-4 py-2.5 text-gray-950">
-                    {event.employeeName}
-                  </td>
-                  <td className="px-4 py-2.5 text-gray-600">
-                    {event.siteName}
-                  </td>
-                  <td className="px-4 py-2.5 text-gray-600">
-                    {event.timestamp ? timeAgo(event.timestamp.toDate()) : "—"}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
-                      Active
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ul className="divide-y divide-gray-200">
+            {clockedInDisplay.map((event) => (
+              <li
+                key={event.employeeId}
+                className="flex items-center justify-between px-4 py-3"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium text-gray-950">
+                      {event.employeeName}
+                    </p>
+                    <p className="text-xs text-gray-600">{event.siteName}</p>
+                  </div>
+                </div>
+                <span className="text-xs text-gray-600">
+                  {event.timestamp
+                    ? `since ${timeAgo(event.timestamp.toDate())}`
+                    : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
-
         {clockedInOverflow > 0 && (
           <Link
             href="/dashboard/time"
@@ -445,6 +413,55 @@ export default function DashboardOverviewPage() {
           >
             +{clockedInOverflow} more
           </Link>
+        )}
+      </div>
+
+      <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+          <h2 className="text-sm font-semibold text-gray-950">
+            Recent activity
+          </h2>
+          <Link
+            href="/dashboard/time"
+            className="text-xs font-medium text-accent hover:underline"
+          >
+            View all
+          </Link>
+        </div>
+
+        {loading ? (
+          <p className="p-4 text-sm text-gray-600">Loading…</p>
+        ) : recentActivity.length === 0 ? (
+          <p className="p-4 text-sm text-gray-600">
+            No activity yet. Once employees clock in and out, it&apos;ll show
+            up here.
+          </p>
+        ) : (
+          <ul className="divide-y divide-gray-200">
+            {recentActivity.map((event) => (
+              <li
+                key={event.id}
+                className="flex items-center justify-between px-4 py-3 text-sm"
+              >
+                <span className="text-gray-950">
+                  <span className="font-medium">{event.employeeName}</span>{" "}
+                  <span
+                    className={
+                      event.type === "in" ? "text-green-700" : "text-gray-600"
+                    }
+                  >
+                    clocked {event.type === "in" ? "in" : "out"}
+                  </span>{" "}
+                  <span className="text-gray-600">at {event.siteName}</span>
+                </span>
+                <span className="whitespace-nowrap font-mono text-xs text-gray-600">
+                  {event.timestamp
+                    ? event.timestamp.toDate().toLocaleString()
+                    : "—"}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>

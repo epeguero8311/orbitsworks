@@ -46,10 +46,12 @@ type ClockEvent = {
 };
 
 type DayAttendance = {
-  label: string;
+  label: string; // e.g. "Mon"
   count: number;
 };
 
+// Long-shift warning threshold, in hours. A simple starting point — could
+// later become a per-company setting alongside the weekly OT threshold.
 const LONG_SHIFT_HOURS = 8;
 
 function timeAgo(date: Date) {
@@ -106,6 +108,7 @@ export default function DashboardOverviewPage() {
   const [weeklyAttendance, setWeeklyAttendance] = useState<DayAttendance[]>([]);
   const [loadingChart, setLoadingChart] = useState(true);
 
+  // Company name for the welcome header
   useEffect(() => {
     if (!userData?.companyId) return;
     const companyRef = doc(db, "companies", userData.companyId);
@@ -145,6 +148,7 @@ export default function DashboardOverviewPage() {
     return unsubscribe;
   }, [userData?.companyId]);
 
+  // Weekly attendance chart: unique employees clocked in per day, last 7 days
   useEffect(() => {
     if (!userData?.companyId) return;
 
@@ -207,6 +211,7 @@ export default function DashboardOverviewPage() {
     loadWeeklyAttendance();
   }, [userData?.companyId]);
 
+  // Latest event per employee
   const latestByEmployee = new Map<string, ClockEvent>();
   for (const event of events) {
     if (!latestByEmployee.has(event.employeeId)) {
@@ -221,6 +226,9 @@ export default function DashboardOverviewPage() {
   const clockedInOverflow = currentlyClockedIn.length - clockedInDisplay.length;
   const totalClockedIn = currentlyClockedIn.length;
 
+  // Average hours worked so far, across employees currently on the clock.
+  // This reflects in-progress shifts only — it's not a full-day average,
+  // since that would need completed-session math like the Reports page does.
   const avgHoursWorked = (() => {
     if (currentlyClockedIn.length === 0) return "0h";
     const totalHours = currentlyClockedIn.reduce((sum, event) => {
@@ -231,6 +239,7 @@ export default function DashboardOverviewPage() {
     return `${(totalHours / currentlyClockedIn.length).toFixed(1)}h`;
   })();
 
+  // Alerts: employees clocked in for longer than the long-shift threshold
   const longShiftAlerts = currentlyClockedIn
     .filter((event) => {
       if (!event.timestamp) return false;
@@ -254,6 +263,7 @@ export default function DashboardOverviewPage() {
 
   return (
     <div>
+      {/* Welcome header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-gray-950">
@@ -281,6 +291,7 @@ export default function DashboardOverviewPage() {
         </div>
       </div>
 
+      {/* Stat cards */}
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <StatCard
           icon={Building2}
@@ -308,6 +319,7 @@ export default function DashboardOverviewPage() {
         />
       </div>
 
+      {/* Chart + alerts */}
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         <div className="rounded-lg border border-gray-200 bg-white p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-gray-950">
@@ -383,6 +395,7 @@ export default function DashboardOverviewPage() {
         </div>
       </div>
 
+      {/* Employees clocked in (table) */}
       <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
         <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
           <h2 className="text-sm font-semibold text-gray-950">
