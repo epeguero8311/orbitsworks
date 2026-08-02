@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, FormEvent } from "react";
 import {
@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 
 type Employee = {
   id: string;
@@ -41,6 +42,7 @@ type ClockEvent = {
 
 export default function TimeTrackingPage() {
   const { currentUser, userData } = useAuth();
+  const { settings } = useCompanySettings();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [sites, setSites] = useState<JobSite[]>([]);
   const [events, setEvents] = useState<ClockEvent[]>([]);
@@ -55,7 +57,6 @@ export default function TimeTrackingPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Live employees (active only)
   useEffect(() => {
     if (!userData?.companyId) return;
     const employeesRef = collection(
@@ -74,7 +75,6 @@ export default function TimeTrackingPage() {
     return unsubscribe;
   }, [userData?.companyId]);
 
-  // Live job sites (active only)
   useEffect(() => {
     if (!userData?.companyId) return;
     const sitesRef = collection(
@@ -93,7 +93,6 @@ export default function TimeTrackingPage() {
     return unsubscribe;
   }, [userData?.companyId]);
 
-  // Live recent clock events (most recent 50)
   useEffect(() => {
     if (!userData?.companyId) return;
     const eventsRef = collection(
@@ -124,8 +123,6 @@ export default function TimeTrackingPage() {
     return unsubscribe;
   }, [userData?.companyId]);
 
-  // Job site filter narrows the employee list to make finding someone faster —
-  // it's a filter, not a requirement. Search box narrows further by name.
   const filteredEmployees = employees
     .filter((e) => (siteId ? e.assignedSiteIds?.includes(siteId) : true))
     .filter((e) =>
@@ -143,9 +140,41 @@ export default function TimeTrackingPage() {
     setIsSubmitting(true);
     try {
       const employee = employees.find((emp) => emp.id === employeeId);
-      const site = sites.find((s) => s.id === siteId); // optional — may be undefined
+      const site = sites.find((s) => s.id === siteId);
       if (!employee) {
         setError("Select an employee.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const now = new Date();
+      const [openH, openM] = settings.businessHours.open.split(":").map(Number);
+      const [closeH, closeM] = settings.businessHours.close.split(":").map(Number);
+      const businessOpenToday = new Date(now);
+      businessOpenToday.setHours(openH, openM, 0, 0);
+      const businessCloseToday = new Date(now);
+      businessCloseToday.setHours(closeH, closeM, 0, 0);
+
+      if (
+        type === "in" &&
+        !settings.attendanceRules.allowEarlyClockIn &&
+        now < businessOpenToday
+      ) {
+        setError(
+          `Early clock-in isn't allowed before ${settings.businessHours.open}. Enable it in Settings if needed.`
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (
+        type === "out" &&
+        !settings.attendanceRules.allowLateClockOut &&
+        now > businessCloseToday
+      ) {
+        setError(
+          `Late clock-out isn't allowed after ${settings.businessHours.close}. Enable it in Settings if needed.`
+        );
         setIsSubmitting(false);
         return;
       }
@@ -199,24 +228,23 @@ export default function TimeTrackingPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-gray-950">Hours</h1>
+      <h1 className="text-xl font-semibold text-gray-950">Time Tracking</h1>
       <p className="mt-1 text-sm text-gray-600">
         View clock events, and manually clock an employee in or out when the
-        normal selfie flow isn&apos;t available.
+        normal selfie flow isn't available.
       </p>
 
-      {/* Manual clock in/out form */}
       <form
         onSubmit={handleManualClock}
         className="mt-6 rounded-lg border border-gray-200 bg-white p-4"
       >
         <div className="mb-1 flex items-center gap-2">
           <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
-            Manual entry — exception use only
+            Manual entry - exception use only
           </span>
         </div>
         <p className="mb-4 text-sm text-gray-600">
-          Use this when a supervisor&apos;s tablet or connection is down. This
+          Use this when a supervisor's tablet or connection is down. This
           entry will be clearly logged as admin-entered, separate from
           face-matched clock events.
         </p>
@@ -234,7 +262,7 @@ export default function TimeTrackingPage() {
               value={siteId}
               onChange={(e) => {
                 setSiteId(e.target.value);
-                setEmployeeId(""); // filter changed, so clear the current pick
+                setEmployeeId("");
               }}
               className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             >
@@ -246,7 +274,7 @@ export default function TimeTrackingPage() {
               ))}
             </select>
             <p className="mt-1 text-xs text-gray-600">
-              Narrows the employee list below — not required.
+              Narrows the employee list below - not required.
             </p>
           </div>
 
@@ -263,7 +291,7 @@ export default function TimeTrackingPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-              placeholder="Start typing a name…"
+              placeholder="Start typing a name..."
             />
           </div>
         </div>
@@ -285,7 +313,7 @@ export default function TimeTrackingPage() {
             <option value="">
               {filteredEmployees.length === 0
                 ? "No matching employees"
-                : "Select an employee…"}
+                : "Select an employee..."}
             </option>
             {filteredEmployees.map((emp) => (
               <option key={emp.id} value={emp.id}>
@@ -350,11 +378,10 @@ export default function TimeTrackingPage() {
           disabled={isSubmitting}
           className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
         >
-          {isSubmitting ? "Recording…" : "Record clock event"}
+          {isSubmitting ? "Recording..." : "Record clock event"}
         </button>
       </form>
 
-      {/* Recent events log */}
       <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
         <div className="border-b border-gray-200 px-4 py-3">
           <h2 className="text-sm font-semibold text-gray-950">
@@ -362,11 +389,11 @@ export default function TimeTrackingPage() {
           </h2>
         </div>
         {loadingEvents ? (
-          <p className="p-4 text-sm text-gray-600">Loading…</p>
+          <p className="p-4 text-sm text-gray-600">Loading...</p>
         ) : events.length === 0 ? (
           <p className="p-4 text-sm text-gray-600">
             No clock events yet. Once employees start clocking in on mobile,
-            or you record a manual entry above, they&apos;ll show up here.
+            or you record a manual entry above, they'll show up here.
           </p>
         ) : (
           <table className="w-full text-left text-sm">
@@ -408,7 +435,7 @@ export default function TimeTrackingPage() {
                     <td className="px-4 py-2.5 font-mono text-xs text-gray-600">
                       {event.timestamp
                         ? event.timestamp.toDate().toLocaleString()
-                        : "—"}
+                        : "-"}
                     </td>
                     <td className="px-4 py-2.5">
                       <span
@@ -418,7 +445,7 @@ export default function TimeTrackingPage() {
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-gray-600">
-                      {event.note || "—"}
+                      {event.note || "-"}
                     </td>
                   </tr>
                 );

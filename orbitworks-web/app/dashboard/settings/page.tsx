@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
@@ -7,22 +7,76 @@ import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 
 type AuthMode = "individual" | "shared";
-type PayPeriod = "weekly" | "biweekly" | "semimonthly" | "monthly";
 
-const CURRENCIES = [
-  { code: "USD", label: "USD ($)" },
-  { code: "CAD", label: "CAD ($)" },
-  { code: "MXN", label: "MXN ($)" },
-  { code: "EUR", label: "EUR (€)" },
-  { code: "GBP", label: "GBP (£)" },
-];
+type AttendanceRules = {
+  allowEarlyClockIn: boolean;
+  allowLateClockOut: boolean;
+  autoClockOut: boolean;
+};
 
-const PAY_PERIODS: { value: PayPeriod; label: string }[] = [
-  { value: "weekly", label: "Weekly" },
-  { value: "biweekly", label: "Biweekly" },
-  { value: "semimonthly", label: "Semimonthly" },
-  { value: "monthly", label: "Monthly" },
-];
+type Alerts = {
+  maxHoursWarning: boolean;
+  overtimeWarning: boolean;
+  lateEmployeeAlert: boolean;
+  noShowAlert: boolean;
+  missedClockOutAlert: boolean;
+  missedBreakAlert: boolean;
+  lowStaffingAlert: boolean;
+};
+
+const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
+  allowEarlyClockIn: true,
+  allowLateClockOut: true,
+  autoClockOut: false,
+};
+
+const DEFAULT_ALERTS: Alerts = {
+  maxHoursWarning: true,
+  overtimeWarning: true,
+  lateEmployeeAlert: true,
+  noShowAlert: true,
+  missedClockOutAlert: true,
+  missedBreakAlert: true,
+  lowStaffingAlert: true,
+};
+
+function Toggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between py-3.5">
+      <div className="pr-4">
+        <p className="text-sm font-medium text-gray-950">{label}</p>
+        {description && (
+          <p className="mt-0.5 text-xs text-gray-600">{description}</p>
+        )}
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+          checked ? "bg-accent" : "bg-gray-200"
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+            checked ? "translate-x-6" : "translate-x-1"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const { userData } = useAuth();
@@ -33,11 +87,13 @@ export default function SettingsPage() {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
-  const [currency, setCurrency] = useState("USD");
-  const [payPeriod, setPayPeriod] = useState<PayPeriod>("biweekly");
   const [businessOpen, setBusinessOpen] = useState("08:00");
   const [businessClose, setBusinessClose] = useState("17:00");
   const [otThreshold, setOtThreshold] = useState("40");
+  const [attendanceRules, setAttendanceRules] = useState<AttendanceRules>(
+    DEFAULT_ATTENDANCE_RULES
+  );
+  const [alerts, setAlerts] = useState<Alerts>(DEFAULT_ALERTS);
 
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
@@ -55,8 +111,6 @@ export default function SettingsPage() {
           setCompanyName(data.name ?? "");
           setAuthMode((data.authMode as AuthMode) ?? "individual");
           setLogoUrl(data.logoUrl ?? null);
-          setCurrency(data.currency ?? "USD");
-          setPayPeriod((data.payPeriod as PayPeriod) ?? "biweekly");
           setBusinessOpen(data.businessHours?.open ?? "08:00");
           setBusinessClose(data.businessHours?.close ?? "17:00");
           setOtThreshold(
@@ -64,6 +118,14 @@ export default function SettingsPage() {
               ? String(data.weeklyOvertimeThreshold)
               : "40"
           );
+          setAttendanceRules({
+            ...DEFAULT_ATTENDANCE_RULES,
+            ...(data.attendanceRules ?? {}),
+          });
+          setAlerts({
+            ...DEFAULT_ALERTS,
+            ...(data.alerts ?? {}),
+          });
         }
       } catch (err) {
         console.error("Load company error:", err);
@@ -104,8 +166,6 @@ export default function SettingsPage() {
         name: companyName.trim(),
         authMode,
         logoUrl: newLogoUrl,
-        currency,
-        payPeriod,
         businessHours: {
           open: businessOpen,
           close: businessClose,
@@ -113,6 +173,8 @@ export default function SettingsPage() {
         weeklyOvertimeThreshold: otThreshold.trim()
           ? parseFloat(otThreshold.trim())
           : 40,
+        attendanceRules,
+        alerts,
       });
 
       setLogoUrl(newLogoUrl);
@@ -129,171 +191,207 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-gray-950">Settings</h1>
-      <p className="mt-1 text-sm text-gray-600">
-        Manage your company&apos;s account settings.
+      <h1 className="text-2xl font-semibold text-gray-950">Settings</h1>
+      <p className="mt-1.5 text-sm text-gray-600">
+        Manage your company's account settings.
       </p>
 
       {loading ? (
-        <p className="mt-6 text-sm text-gray-600">Loading…</p>
+        <p className="mt-8 text-sm text-gray-600">Loading...</p>
       ) : (
-        <div className="mt-6 max-w-lg rounded-lg border border-gray-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-gray-950">
-            Company profile
-          </h2>
+        <div className="mt-8 max-w-2xl space-y-6">
+          {/* Company profile */}
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <h2 className="text-base font-semibold text-gray-950">
+              Company profile
+            </h2>
 
-          {/* Logo */}
-          <div className="mt-4 flex items-center gap-4">
-            {logoPreview || logoUrl ? (
-              <img
-                src={logoPreview ?? logoUrl ?? undefined}
-                alt="Company logo"
-                className="h-16 w-16 rounded-md border border-gray-200 object-cover"
-              />
-            ) : (
-              <div className="flex h-16 w-16 items-center justify-center rounded-md border border-gray-200 bg-gray-50 text-xs text-gray-600">
-                No logo
+            <div className="mt-5 flex items-center gap-4">
+              {logoPreview || logoUrl ? (
+                <img
+                  src={logoPreview ?? logoUrl ?? undefined}
+                  alt="Company logo"
+                  className="h-16 w-16 rounded-lg border border-gray-200 object-cover"
+                />
+              ) : (
+                <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-xs text-gray-600">
+                  No logo
+                </div>
+              )}
+              <div>
+                <label
+                  htmlFor="companyLogo"
+                  className="cursor-pointer rounded-lg border border-gray-200 px-3.5 py-2 text-sm font-medium text-gray-950 hover:border-gray-300"
+                >
+                  {logoUrl ? "Change logo" : "Upload logo"}
+                </label>
+                <input
+                  id="companyLogo"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handleLogoChange(e.target.files?.[0] ?? null)}
+                  className="hidden"
+                />
               </div>
-            )}
-            <div>
+            </div>
+
+            <div className="mt-5">
               <label
-                htmlFor="companyLogo"
-                className="cursor-pointer rounded-md border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-950 hover:border-gray-300"
+                htmlFor="companyName"
+                className="mb-2 block text-sm font-medium text-gray-950"
               >
-                {logoUrl ? "Change logo" : "Upload logo"}
+                Company name
               </label>
               <input
-                id="companyLogo"
-                type="file"
-                accept="image/*"
-                onChange={(e) => handleLogoChange(e.target.files?.[0] ?? null)}
-                className="hidden"
+                id="companyName"
+                type="text"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
               />
             </div>
           </div>
 
-          {/* Company name */}
-          <div className="mt-4">
-            <label
-              htmlFor="companyName"
-              className="mb-1.5 block text-sm font-medium text-gray-950"
-            >
-              Company name
-            </label>
-            <input
-              id="companyName"
-              type="text"
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            />
-          </div>
-
-          {/* Currency + Pay period */}
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div>
-              <label
-                htmlFor="currency"
-                className="mb-1.5 block text-sm font-medium text-gray-950"
-              >
-                Currency
-              </label>
-              <select
-                id="currency"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-                className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-              >
-                {CURRENCIES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label
-                htmlFor="payPeriod"
-                className="mb-1.5 block text-sm font-medium text-gray-950"
-              >
-                Pay period
-              </label>
-              <select
-                id="payPeriod"
-                value={payPeriod}
-                onChange={(e) => setPayPeriod(e.target.value as PayPeriod)}
-                className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-              >
-                {PAY_PERIODS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Business hours */}
-          <div className="mt-4">
-            <span className="mb-1.5 block text-sm font-medium text-gray-950">
+          {/* Business hours + OT threshold */}
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <h2 className="text-base font-semibold text-gray-950">
               Business hours
-            </span>
-            <p className="mb-2 text-xs text-gray-600">
-              Applies company-wide for now — per-site hours can be added
-              later if needed.
+            </h2>
+            <p className="mt-1 text-xs text-gray-600">
+              Applies company-wide for now.
             </p>
-            <div className="flex items-center gap-2">
+            <div className="mt-4 flex items-center gap-2">
               <input
                 type="time"
                 value={businessOpen}
                 onChange={(e) => setBusinessOpen(e.target.value)}
-                className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                className="rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
               />
               <span className="text-sm text-gray-600">to</span>
               <input
                 type="time"
                 value={businessClose}
                 onChange={(e) => setBusinessClose(e.target.value)}
-                className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                className="rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              />
+            </div>
+
+            <div className="mt-5">
+              <label
+                htmlFor="otThreshold"
+                className="mb-2 block text-sm font-medium text-gray-950"
+              >
+                Weekly hours before overtime
+              </label>
+              <input
+                id="otThreshold"
+                type="number"
+                min="0"
+                step="0.5"
+                value={otThreshold}
+                onChange={(e) => setOtThreshold(e.target.value)}
+                className="w-32 rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
               />
             </div>
           </div>
 
-          {/* Overtime threshold */}
-          <div className="mt-4">
-            <label
-              htmlFor="otThreshold"
-              className="mb-1.5 block text-sm font-medium text-gray-950"
-            >
-              Weekly hours before overtime
-            </label>
-            <input
-              id="otThreshold"
-              type="number"
-              min="0"
-              step="0.5"
-              value={otThreshold}
-              onChange={(e) => setOtThreshold(e.target.value)}
-              className="w-32 rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            />
+          {/* Time & Attendance Rules */}
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <h2 className="text-base font-semibold text-gray-950">
+              Time & Attendance Rules
+            </h2>
+            <p className="mt-1 text-xs text-gray-600">
+              These are on/off for now - the actual enforcement gets wired up
+              once the mobile clock-in flow is built.
+            </p>
+            <div className="mt-2 divide-y divide-gray-100">
+              <Toggle
+                label="Allow early clock in"
+                description="Employees can clock in before their scheduled start time."
+                checked={attendanceRules.allowEarlyClockIn}
+                onChange={(v) =>
+                  setAttendanceRules((prev) => ({ ...prev, allowEarlyClockIn: v }))
+                }
+              />
+              <Toggle
+                label="Allow late clock out"
+                description="Employees can clock out after their scheduled end time."
+                checked={attendanceRules.allowLateClockOut}
+                onChange={(v) =>
+                  setAttendanceRules((prev) => ({ ...prev, allowLateClockOut: v }))
+                }
+              />
+              <Toggle
+                label="Auto clock out"
+                description="Automatically clock out employees who forget to."
+                checked={attendanceRules.autoClockOut}
+                onChange={(v) =>
+                  setAttendanceRules((prev) => ({ ...prev, autoClockOut: v }))
+                }
+              />
+            </div>
+          </div>
+
+          {/* Alerts */}
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <h2 className="text-base font-semibold text-gray-950">Alerts</h2>
+            <p className="mt-1 text-xs text-gray-600">
+              Choose which alerts you want to see on the Overview dashboard.
+            </p>
+            <div className="mt-2 divide-y divide-gray-100">
+              <Toggle
+                label="Max hours warning"
+                checked={alerts.maxHoursWarning}
+                onChange={(v) => setAlerts((prev) => ({ ...prev, maxHoursWarning: v }))}
+              />
+              <Toggle
+                label="Overtime warning"
+                checked={alerts.overtimeWarning}
+                onChange={(v) => setAlerts((prev) => ({ ...prev, overtimeWarning: v }))}
+              />
+              <Toggle
+                label="Late employee alert"
+                checked={alerts.lateEmployeeAlert}
+                onChange={(v) => setAlerts((prev) => ({ ...prev, lateEmployeeAlert: v }))}
+              />
+              <Toggle
+                label="No show alert"
+                checked={alerts.noShowAlert}
+                onChange={(v) => setAlerts((prev) => ({ ...prev, noShowAlert: v }))}
+              />
+              <Toggle
+                label="Missed clock out alert"
+                checked={alerts.missedClockOutAlert}
+                onChange={(v) => setAlerts((prev) => ({ ...prev, missedClockOutAlert: v }))}
+              />
+              <Toggle
+                label="Missed break alert"
+                checked={alerts.missedBreakAlert}
+                onChange={(v) => setAlerts((prev) => ({ ...prev, missedBreakAlert: v }))}
+              />
+              <Toggle
+                label="Low staffing alert"
+                checked={alerts.lowStaffingAlert}
+                onChange={(v) => setAlerts((prev) => ({ ...prev, lowStaffingAlert: v }))}
+              />
+            </div>
           </div>
 
           {/* Supervisor login type */}
-          <div className="mt-4">
-            <label className="mb-1.5 block text-sm font-medium text-gray-950">
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <h2 className="text-base font-semibold text-gray-950">
               Supervisor login type
-            </label>
-            <p className="mb-2 text-xs text-gray-600">
+            </h2>
+            <p className="mt-1 text-xs text-gray-600">
               Individual logins let each supervisor use their own email and
               password. Shared login gives every supervisor at this company
               the same credentials on a single device.
             </p>
-            <div className="flex gap-2">
+            <div className="mt-4 flex gap-2">
               <button
                 type="button"
                 onClick={() => setAuthMode("individual")}
-                className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors ${
+                className={`rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${
                   authMode === "individual"
                     ? "border-accent bg-accent/10 text-accent"
                     : "border-gray-200 text-gray-600 hover:border-gray-300"
@@ -304,7 +402,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={() => setAuthMode("shared")}
-                className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors ${
+                className={`rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${
                   authMode === "shared"
                     ? "border-accent bg-accent/10 text-accent"
                     : "border-gray-200 text-gray-600 hover:border-gray-300"
@@ -315,15 +413,15 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-          {success && <p className="mt-3 text-sm text-green-700">{success}</p>}
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          {success && <p className="text-sm text-green-700">{success}</p>}
 
           <button
             onClick={handleSave}
             disabled={isSaving}
-            className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
+            className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
           >
-            {isSaving ? "Saving…" : "Save changes"}
+            {isSaving ? "Saving..." : "Save changes"}
           </button>
         </div>
       )}
