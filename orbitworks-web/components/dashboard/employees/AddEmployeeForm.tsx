@@ -1,11 +1,12 @@
 ﻿"use client";
 
 import { useState, FormEvent } from "react";
-import { collection, addDoc, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, doc, updateDoc, getDocs, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import type { JobSite } from "@/lib/types";
+import { generateUniquePin } from "@/lib/pinUtils";
 
 export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
   const { userData } = useAuth();
@@ -16,6 +17,7 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [createdPin, setCreatedPin] = useState<string | null>(null);
 
   function toggleSite(siteId: string) {
     setSelectedSiteIds((prev) =>
@@ -29,6 +31,7 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
     e.preventDefault();
     if (!userData?.companyId) return;
     setError("");
+    setCreatedPin(null);
     setIsSubmitting(true);
 
     try {
@@ -39,12 +42,22 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
         "employees"
       );
 
+      // Check existing PINs company-wide so the new one is guaranteed unique.
+      const existingSnapshot = await getDocs(employeesRef);
+      const existingPins = new Set(
+        existingSnapshot.docs
+          .map((d) => (d.data() as { pin?: string }).pin)
+          .filter((p): p is string => !!p)
+      );
+      const pin = generateUniquePin(existingPins);
+
       const employeeDoc = await addDoc(employeesRef, {
         name: name.trim(),
         jobTitle: jobTitle.trim(),
         assignedSiteIds: selectedSiteIds,
         hourlyRate: hourlyRate.trim() ? parseFloat(hourlyRate.trim()) : null,
         active: true,
+        pin,
         createdAt: serverTimestamp(),
       });
 
@@ -58,6 +71,7 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
         await updateDoc(employeeDoc, { photoUrl });
       }
 
+      setCreatedPin(pin);
       setName("");
       setJobTitle("");
       setHourlyRate("");
@@ -183,6 +197,18 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
       </div>
 
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+
+      {createdPin && (
+        <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+          <p className="text-sm text-green-800">
+            Employee added. Backup clock-in PIN:{" "}
+            <span className="font-mono text-base font-semibold">{createdPin}</span>
+          </p>
+          <p className="mt-1 text-xs text-green-700">
+            You can look this up again anytime in the employees table below.
+          </p>
+        </div>
+      )}
 
       <button
         type="submit"

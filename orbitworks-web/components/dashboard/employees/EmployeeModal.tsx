@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useState } from "react";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import type { Employee, JobSite } from "@/lib/types";
@@ -32,6 +32,10 @@ export function EmployeeModal({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   function toggleSite(siteId: string) {
     setSelectedSiteIds((prev) =>
@@ -83,6 +87,22 @@ export function EmployeeModal({
     }
   }
 
+  async function handleDelete() {
+    if (!companyId) return;
+    setDeleteError("");
+    setIsDeleting(true);
+
+    try {
+      const employeeRef = doc(db, "companies", companyId, "employees", employee.id);
+      await deleteDoc(employeeRef);
+      onClose();
+    } catch (err) {
+      console.error("Delete employee error:", err);
+      setDeleteError("Couldn't delete this employee. Try again.");
+      setIsDeleting(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4"
@@ -131,6 +151,12 @@ export function EmployeeModal({
               onChange={(e) => handlePhotoChange(e.target.files?.[0] ?? null)}
               className="hidden"
             />
+          </div>
+          <div className="ml-auto rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-right">
+            <p className="text-xs font-medium text-gray-600">Backup PIN</p>
+            <p className="font-mono text-lg font-semibold text-gray-950">
+              {employee.pin ?? "-"}
+            </p>
           </div>
         </div>
 
@@ -228,20 +254,54 @@ export function EmployeeModal({
         {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
         {success && <p className="mt-4 text-sm text-green-700">{success}</p>}
 
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-950 hover:border-gray-300"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
-          >
-            {isSaving ? "Saving..." : "Save changes"}
-          </button>
+        <div className="mt-6 flex items-center justify-between gap-3">
+          <div>
+            {!confirmingDelete ? (
+              <button
+                onClick={() => setConfirmingDelete(true)}
+                className="rounded-lg border border-red-200 px-5 py-2.5 text-sm font-medium text-red-700 hover:border-red-300 hover:bg-red-50"
+              >
+                Delete employee
+              </button>
+            ) : (
+              <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5">
+                <p className="text-sm text-red-800">
+                  Delete {employee.name}? This can't be undone.
+                </p>
+                <button
+                  onClick={() => setConfirmingDelete(false)}
+                  disabled={isDeleting}
+                  className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-950 hover:border-gray-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  {isDeleting ? "Deleting..." : "Yes, delete"}
+                </button>
+              </div>
+            )}
+            {deleteError && <p className="mt-2 text-sm text-red-600">{deleteError}</p>}
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="rounded-lg border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-950 hover:border-gray-300"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
+            >
+              {isSaving ? "Saving..." : "Save changes"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

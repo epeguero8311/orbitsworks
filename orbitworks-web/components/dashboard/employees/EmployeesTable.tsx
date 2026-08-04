@@ -65,6 +65,7 @@ export function EmployeesTable({
               <th className="px-6 py-3 font-medium">Job title</th>
               <th className="px-6 py-3 font-medium">Rate</th>
               <th className="px-6 py-3 font-medium">Job sites</th>
+              <th className="px-6 py-3 font-medium">PIN</th>
               <th className="px-6 py-3 font-medium">Status</th>
               <th className="px-6 py-3 font-medium"></th>
             </tr>
@@ -101,6 +102,9 @@ export function EmployeesTable({
                 </td>
                 <td className="px-6 py-4 text-gray-600">
                   {siteNames(employee.assignedSiteIds)}
+                </td>
+                <td className="px-6 py-4 font-mono text-gray-950">
+                  {employee.pin ?? "-"}
                 </td>
                 <td className="px-6 py-4">
                   <span

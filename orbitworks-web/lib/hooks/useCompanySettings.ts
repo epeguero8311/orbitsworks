@@ -9,6 +9,7 @@ export type AttendanceRules = {
   allowEarlyClockIn: boolean;
   allowLateClockOut: boolean;
   autoClockOut: boolean;
+  gracePeriodMinutes: number;
 };
 
 export type Alerts = {
@@ -34,6 +35,7 @@ const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
   allowEarlyClockIn: true,
   allowLateClockOut: true,
   autoClockOut: false,
+  gracePeriodMinutes: 0,
 };
 
 const DEFAULT_ALERTS: Alerts = {
