@@ -19,14 +19,6 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    },
-    "plugins": [
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "OrbitWorks needs camera access to capture proof photos for clock-ins."
-        }
-      ]
-    ]
+    }
   }
 }

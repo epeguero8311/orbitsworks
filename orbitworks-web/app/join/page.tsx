@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, FormEvent, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -18,6 +18,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { generateUniquePin } from "@/lib/pinUtils";
 
 function JoinForm() {
   const router = useRouter();
@@ -82,6 +83,16 @@ function JoinForm() {
         createdAt: serverTimestamp(),
       });
 
+      // 3a. Generate a unique backup clock-in PIN, same as regular employees get.
+      const employeesRef = collection(db, "companies", invite.companyId, "employees");
+      const existingSnapshot = await getDocs(employeesRef);
+      const existingPins = new Set(
+        existingSnapshot.docs
+          .map((d) => (d.data() as { pin?: string }).pin)
+          .filter((p): p is string => !!p)
+      );
+      const pin = generateUniquePin(existingPins);
+
       // 3b. Also create a matching employee record (same id, so they're linked) —
       // supervisors are still people who clock in and out like anyone else.
       // We use the uid as the employee doc id specifically so the two records
@@ -96,6 +107,7 @@ function JoinForm() {
           active: true,
           linkedUserId: uid,
           isSupervisor: true,
+          pin,
           createdAt: serverTimestamp(),
         }
       );

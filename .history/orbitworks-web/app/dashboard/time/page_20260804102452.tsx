@@ -216,8 +216,6 @@ export default function TimeTrackingPage() {
     switch (source) {
       case "faceMatch":
         return { text: "Face match", className: "bg-green-50 text-green-700" };
-      case "pin":
-        return { text: "PIN", className: "bg-purple-50 text-purple-700" };
       case "supervisorOverride":
         return {
           text: "Supervisor override",
@@ -225,8 +223,6 @@ export default function TimeTrackingPage() {
         };
       case "adminManual":
         return { text: "Admin manual", className: "bg-blue-50 text-blue-700" };
-      default:
-        return { text: "Unknown", className: "bg-gray-50 text-gray-600" };
     }
   }
 
