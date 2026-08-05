@@ -1,8 +1,11 @@
 ﻿import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
+import { ThemeProvider } from "./lib/ThemeContext";
 import LoginScreen from "./screens/LoginScreen";
 import DashboardScreen from "./screens/DashboardScreen";
+import SettingsScreen from "./screens/SettingsScreen";
+import EmployeeListScreen from "./screens/EmployeeListScreen";
 import PinEntryScreen from "./screens/PinEntryScreen";
 import ClockCameraScreen from "./screens/ClockCameraScreen";
 import ClockConfirmScreen from "./screens/ClockConfirmScreen";
@@ -27,6 +30,8 @@ function RootNavigator() {
         {currentUser ? (
           <>
             <Stack.Screen name="Dashboard" component={DashboardScreen} />
+            <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="EmployeeList" component={EmployeeListScreen} />
             <Stack.Screen name="PinEntry" component={PinEntryScreen} />
             <Stack.Screen name="ClockCamera" component={ClockCameraScreen} />
             <Stack.Screen name="ClockConfirm" component={ClockConfirmScreen} />
@@ -41,8 +46,10 @@ function RootNavigator() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <RootNavigator />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <RootNavigator />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

@@ -1,125 +1,138 @@
-﻿import { useState } from "react";
-import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-} from "react-native";
-import { signOut } from "firebase/auth";
-import { auth } from "../lib/firebase";
+﻿import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Image } from "react-native";
 import { useAuth } from "../lib/AuthContext";
+import { useTheme } from "../lib/ThemeContext";
 import { useTodayShift } from "../lib/hooks/useTodayShift";
 
 export default function DashboardScreen({ navigation }) {
-  const { userData } = useAuth();
+  const { userData, currentUser } = useAuth();
+  const { colors } = useTheme();
   const { employees, sites, loading } = useTodayShift(
     userData?.companyId,
     userData?.assignedSiteIds
   );
 
   const clockedInCount = employees.filter((e) => e.status === "in").length;
+  const supervisor = employees.find((e) => e.id === currentUser?.uid);
+  const siteLabel =
+    sites.length > 0 ? sites.map((s) => s.name).join(", ") : "No site assigned";
+  const displayName = supervisor?.name ?? currentUser?.email ?? "";
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#3b6fe0" />
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
-        <Text style={styles.siteName}>
-          {sites.length > 0 ? sites.map((s) => s.name).join(", ") : "No site assigned"}
+        <View>
+          <Text style={[styles.greeting, { color: colors.subtext }]}>
+            Welcome back
+          </Text>
+          <Text style={[styles.name, { color: colors.text }]}>{displayName}</Text>
+        </View>
+
+        <TouchableOpacity onPress={() => navigation.navigate("Settings")}>
+          {supervisor?.photoUrl ? (
+            <Image source={{ uri: supervisor.photoUrl }} style={styles.avatar} />
+          ) : (
+            <View
+              style={[
+                styles.avatarPlaceholder,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+            >
+              <Text style={{ color: colors.subtext, fontWeight: "700" }}>
+                {displayName.charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      <View
+        style={[
+          styles.countCard,
+          { backgroundColor: colors.card, borderColor: colors.border },
+        ]}
+      >
+        <Text style={[styles.countNumber, { color: colors.text }]}>
+          {clockedInCount}
         </Text>
-        <Text style={styles.summary}>
-          {clockedInCount} of {employees.length} clocked in
+        <Text style={[styles.countLabel, { color: colors.subtext }]}>
+          of {employees.length} clocked in at {siteLabel}
         </Text>
       </View>
 
       <TouchableOpacity
-        style={styles.clockButton}
+        style={[styles.clockButton, { backgroundColor: colors.accent }]}
         onPress={() => navigation.navigate("PinEntry")}
       >
         <Text style={styles.clockButtonText}>Clock In / Out</Text>
       </TouchableOpacity>
 
-      <FlatList
-        data={employees}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <View style={styles.row}>
-            <View
-              style={[
-                styles.dot,
-                { backgroundColor: item.status === "in" ? "#22c55e" : "#d1d5db" },
-              ]}
-            />
-            <View style={styles.rowText}>
-              <Text style={styles.name}>{item.name}</Text>
-              <Text style={styles.jobTitle}>{item.jobTitle}</Text>
-            </View>
-            <Text style={styles.statusLabel}>
-              {item.status === "in" ? "Clocked In" : "Clocked Out"}
-            </Text>
-          </View>
-        )}
-        ListEmptyComponent={
-          <Text style={styles.empty}>No employees assigned to this site.</Text>
-        }
-      />
-
-      <TouchableOpacity style={styles.logoutButton} onPress={() => signOut(auth)}>
-        <Text style={styles.logoutText}>Log Out</Text>
+      <TouchableOpacity
+        style={[styles.findButton, { borderColor: colors.border }]}
+        onPress={() => navigation.navigate("EmployeeList")}
+      >
+        <Text style={[styles.findButtonText, { color: colors.text }]}>
+          Find Employee
+        </Text>
       </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
+  container: { flex: 1, paddingHorizontal: 20 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: {
-    paddingTop: 60,
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  siteName: { fontSize: 22, fontWeight: "700", color: "#111" },
-  summary: { fontSize: 14, color: "#666", marginTop: 4 },
-  clockButton: {
-    backgroundColor: "#3b6fe0",
-    marginHorizontal: 20,
-    marginTop: 16,
-    padding: 16,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  clockButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  list: { paddingHorizontal: 20, paddingTop: 16 },
-  row: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f1f1f1",
+    paddingTop: 60,
+    marginBottom: 28,
   },
-  dot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
-  rowText: { flex: 1 },
-  name: { fontSize: 16, fontWeight: "600", color: "#111" },
-  jobTitle: { fontSize: 13, color: "#888", marginTop: 2 },
-  statusLabel: { fontSize: 13, color: "#666" },
-  empty: { textAlign: "center", color: "#999", marginTop: 40 },
-  logoutButton: {
-    padding: 16,
+  greeting: { fontSize: 13 },
+  name: { fontSize: 22, fontWeight: "700", marginTop: 2 },
+  avatar: { width: 48, height: 48, borderRadius: 24 },
+  avatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: "center",
-    borderTopWidth: 1,
-    borderTopColor: "#eee",
+    justifyContent: "center",
+    borderWidth: 1,
   },
-  logoutText: { color: "#ef4444", fontWeight: "600" },
+  countCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingVertical: 36,
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  countNumber: { fontSize: 56, fontWeight: "800" },
+  countLabel: {
+    fontSize: 14,
+    marginTop: 6,
+    textAlign: "center",
+    paddingHorizontal: 20,
+  },
+  clockButton: {
+    borderRadius: 14,
+    paddingVertical: 20,
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  clockButtonText: { color: "#fff", fontSize: 18, fontWeight: "700" },
+  findButton: {
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  findButtonText: { fontSize: 15, fontWeight: "600" },
 });
