@@ -8,15 +8,17 @@ function startOfToday() {
   return d;
 }
 
-export function useTodayShift(companyId, assignedSiteIds) {
+export function useTodayShift(companyId) {
   const [employees, setEmployees] = useState([]);
   const [sites, setSites] = useState([]);
+  const [todayInEvents, setTodayInEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!companyId || !assignedSiteIds || assignedSiteIds.length === 0) {
+    if (!companyId) {
       setEmployees([]);
       setSites([]);
+      setTodayInEvents([]);
       setLoading(false);
       return;
     }
@@ -28,9 +30,17 @@ export function useTodayShift(companyId, assignedSiteIds) {
       const todayStart = startOfToday();
 
       const latestEventByEmployee = {};
+      const todayIns = [];
+
       eventsData.forEach((evt) => {
         const ts = evt.timestamp?.toDate ? evt.timestamp.toDate() : null;
-        if (!ts || ts < todayStart) return;
+        if (!ts) return;
+
+        if (ts >= todayStart && evt.type === "in") {
+          todayIns.push({ employeeId: evt.employeeId, timestamp: ts });
+        }
+
+        if (ts < todayStart) return;
         const existing = latestEventByEmployee[evt.employeeId];
         if (!existing || ts > existing.ts) {
           latestEventByEmployee[evt.employeeId] = { type: evt.type, ts };
@@ -43,15 +53,12 @@ export function useTodayShift(companyId, assignedSiteIds) {
       }));
 
       setEmployees(merged);
+      setTodayInEvents(todayIns);
       setLoading(false);
     };
 
     const employeesRef = collection(db, "companies", companyId, "employees");
-    const employeesQuery = query(
-      employeesRef,
-      where("active", "==", true),
-      where("assignedSiteIds", "array-contains-any", assignedSiteIds)
-    );
+    const employeesQuery = query(employeesRef, where("active", "==", true));
 
     const unsubEmployees = onSnapshot(employeesQuery, (snap) => {
       employeesData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -59,9 +66,7 @@ export function useTodayShift(companyId, assignedSiteIds) {
     });
 
     const eventsRef = collection(db, "companies", companyId, "clockEvents");
-    const eventsQuery = query(eventsRef);
-
-    const unsubEvents = onSnapshot(eventsQuery, (snap) => {
+    const unsubEvents = onSnapshot(query(eventsRef), (snap) => {
       eventsData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       applyStatus();
     });
@@ -70,8 +75,7 @@ export function useTodayShift(companyId, assignedSiteIds) {
     const sitesQuery = query(sitesRef, where("active", "==", true));
 
     const unsubSites = onSnapshot(sitesQuery, (snap) => {
-      const allSites = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setSites(allSites.filter((s) => assignedSiteIds.includes(s.id)));
+      setSites(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
 
     return () => {
@@ -79,7 +83,7 @@ export function useTodayShift(companyId, assignedSiteIds) {
       unsubEvents();
       unsubSites();
     };
-  }, [companyId, JSON.stringify(assignedSiteIds)]);
+  }, [companyId]);
 
-  return { employees, sites, loading };
+  return { employees, sites, todayInEvents, loading };
 }

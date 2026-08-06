@@ -24,8 +24,6 @@ export async function findEmployeeByPin(companyId, pin) {
   return { id: docSnap.id, ...docSnap.data() };
 }
 
-// Most recent event EVER for this employee, not just today —
-// this is what makes missed-clock-out days still count as "in".
 export async function getLatestClockEvent(companyId, employeeId) {
   const eventsRef = collection(db, "companies", companyId, "clockEvents");
   const q = query(
@@ -51,14 +49,14 @@ export async function uploadClockPhoto(companyId, employeeId, photoUri) {
   return getDownloadURL(photoRef);
 }
 
-// Returns the resulting type ("in" or "out") so the confirm screen
-// can show the right message.
 export async function submitClockEvent({
   companyId,
   employee,
   photoUri,
   source,
   createdByUid,
+  siteId,
+  siteName,
 }) {
   const latest = await getLatestClockEvent(companyId, employee.id);
   const nextType = latest?.type === "in" ? "out" : "in";
@@ -69,7 +67,8 @@ export async function submitClockEvent({
   await addDoc(eventsRef, {
     employeeId: employee.id,
     employeeName: employee.name,
-    siteId: employee.assignedSiteIds?.[0] ?? null,
+    siteId: siteId ?? null,
+    siteName: siteName ?? "Not specified",
     type: nextType,
     source,
     photoUrl,

@@ -4,6 +4,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
+import { useSiteSession } from "../lib/SiteSessionContext";
 import { findEmployeeByPin } from "../lib/clockLogic";
 import ScreenHeader from "../components/ScreenHeader";
 
@@ -12,9 +13,16 @@ const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
 export default function PinEntryScreen({ navigation }) {
   const { userData } = useAuth();
   const { colors } = useTheme();
+  const { selectedSite } = useSiteSession();
   const [pin, setPin] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
+
+  const siteLabel = selectedSite
+    ? selectedSite.id === "none"
+      ? "No Site"
+      : selectedSite.name
+    : "All Sites";
 
   const handleKeyPress = async (key) => {
     if (checking) return;
@@ -54,6 +62,11 @@ export default function PinEntryScreen({ navigation }) {
       <ScreenHeader title="Clock In / Out" onBack={() => navigation.goBack()} />
 
       <View style={styles.content}>
+        <View style={[styles.sitePill, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Feather name="map-pin" size={13} color={colors.accent} />
+          <Text style={[styles.sitePillText, { color: colors.accent }]}>{siteLabel}</Text>
+        </View>
+
         <Text style={[styles.title, { color: colors.text }]}>Enter your PIN</Text>
 
         <View style={styles.dotsRow}>
@@ -95,24 +108,17 @@ export default function PinEntryScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { alignItems: "center", paddingTop: 32 },
+  content: { alignItems: "center", paddingTop: 24 },
+  sitePill: {
+    flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14,
+    paddingVertical: 7, borderRadius: 20, borderWidth: 1, marginBottom: 20,
+  },
+  sitePillText: { fontSize: 13, fontWeight: "600" },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 24 },
   dotsRow: { flexDirection: "row", marginBottom: 8 },
-  dot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginHorizontal: 8,
-  },
+  dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 1, marginHorizontal: 8 },
   error: { marginTop: 12 },
-  keypad: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    width: 280,
-    marginTop: 32,
-    justifyContent: "center",
-  },
+  keypad: { flexDirection: "row", flexWrap: "wrap", width: 280, marginTop: 32, justifyContent: "center" },
   key: { width: 80, height: 80, justifyContent: "center", alignItems: "center" },
   keyHidden: { opacity: 0 },
   keyText: { fontSize: 26, fontWeight: "600" },

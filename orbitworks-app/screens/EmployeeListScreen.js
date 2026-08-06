@@ -1,5 +1,5 @@
 ﻿import { useState } from "react";
-import { View, Text, TextInput, FlatList, StyleSheet } from "react-native";
+import { View, Text, TextInput, FlatList, StyleSheet, Image } from "react-native";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { useTodayShift } from "../lib/hooks/useTodayShift";
@@ -8,10 +8,7 @@ import ScreenHeader from "../components/ScreenHeader";
 export default function EmployeeListScreen({ navigation }) {
   const { userData } = useAuth();
   const { colors } = useTheme();
-  const { employees } = useTodayShift(
-    userData?.companyId,
-    userData?.assignedSiteIds
-  );
+  const { employees } = useTodayShift(userData?.companyId);
   const [search, setSearch] = useState("");
 
   const filtered = employees.filter((e) =>
@@ -24,10 +21,7 @@ export default function EmployeeListScreen({ navigation }) {
 
       <View style={styles.searchWrap}>
         <TextInput
-          style={[
-            styles.search,
-            { borderColor: colors.border, color: colors.text, backgroundColor: colors.card },
-          ]}
+          style={[styles.search, { borderColor: colors.border, color: colors.text, backgroundColor: colors.card }]}
           placeholder="Search by name"
           placeholderTextColor={colors.subtext}
           value={search}
@@ -41,28 +35,28 @@ export default function EmployeeListScreen({ navigation }) {
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
           <View style={[styles.row, { borderBottomColor: colors.border }]}>
-            <View
-              style={[
-                styles.dot,
-                { backgroundColor: item.status === "in" ? colors.green : colors.dotOff },
-              ]}
-            />
+            {item.photoUrl ? (
+              <Image source={{ uri: item.photoUrl }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatarPlaceholder, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <Text style={{ color: colors.subtext, fontWeight: "700" }}>
+                  {item.name?.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
             <View style={styles.rowText}>
               <Text style={[styles.name, { color: colors.text }]}>{item.name}</Text>
-              <Text style={[styles.jobTitle, { color: colors.subtext }]}>
-                {item.jobTitle}
+              <Text style={[styles.jobTitle, { color: colors.subtext }]}>{item.jobTitle}</Text>
+            </View>
+            <View style={styles.statusWrap}>
+              <View style={[styles.dot, { backgroundColor: item.status === "in" ? colors.green : colors.dotOff }]} />
+              <Text style={[styles.statusLabel, { color: colors.subtext }]}>
+                {item.status === "in" ? "In" : "Out"}
               </Text>
             </View>
-            <Text style={[styles.statusLabel, { color: colors.subtext }]}>
-              {item.status === "in" ? "Clocked In" : "Clocked Out"}
-            </Text>
           </View>
         )}
-        ListEmptyComponent={
-          <Text style={[styles.empty, { color: colors.subtext }]}>
-            No employees found.
-          </Text>
-        }
+        ListEmptyComponent={<Text style={[styles.empty, { color: colors.subtext }]}>No employees found.</Text>}
       />
     </View>
   );
@@ -71,24 +65,16 @@ export default function EmployeeListScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   searchWrap: { paddingHorizontal: 20, paddingTop: 16 },
-  search: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 15,
-  },
+  search: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15 },
   list: { paddingHorizontal: 20, paddingTop: 8 },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-  },
-  dot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
+  row: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, gap: 12 },
+  avatar: { width: 42, height: 42, borderRadius: 21 },
+  avatarPlaceholder: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   rowText: { flex: 1 },
   name: { fontSize: 16, fontWeight: "600" },
   jobTitle: { fontSize: 13, marginTop: 2 },
+  statusWrap: { flexDirection: "row", alignItems: "center", gap: 6 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
   statusLabel: { fontSize: 13 },
   empty: { textAlign: "center", marginTop: 40 },
 });
