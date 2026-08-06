@@ -179,9 +179,4 @@ const styles = StyleSheet.create({
   },
   statLabel: { color: "#fff", fontSize: 14, fontWeight: "600", lineHeight: 18 },
   statPercent: { color: "#fff", fontSize: 30, fontWeight: "800" },
-  hoursRow: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    marginTop: 16, marginBottom: 20, justifyContent: "center",
-  },
-  hoursText: { fontSize: 12, fontWeight: "500" },
 });

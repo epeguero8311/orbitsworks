@@ -141,13 +141,6 @@ export default function DashboardScreen({ navigation }) {
           {onTimePercent === null ? "—" : `${onTimePercent}%`}
         </Text>
       </View>
-
-      <View style={[styles.hoursRow, { borderColor: colors.border }]}>
-        <Feather name="clock" size={14} color={colors.subtext} />
-        <Text style={[styles.hoursText, { color: colors.subtext }]}>
-          Business hours: {hoursLabel}
-        </Text>
-      </View>
     </View>
   );
 }
@@ -179,9 +172,4 @@ const styles = StyleSheet.create({
   },
   statLabel: { color: "#fff", fontSize: 14, fontWeight: "600", lineHeight: 18 },
   statPercent: { color: "#fff", fontSize: 30, fontWeight: "800" },
-  hoursRow: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    marginTop: 16, marginBottom: 20, justifyContent: "center",
-  },
-  hoursText: { fontSize: 12, fontWeight: "500" },
 });

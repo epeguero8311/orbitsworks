@@ -1,7 +1,8 @@
 ﻿import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { StatusBar } from "expo-status-bar";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
-import { ThemeProvider } from "./lib/ThemeContext";
+import { ThemeProvider, useTheme } from "./lib/ThemeContext";
 import { SiteSessionProvider } from "./lib/SiteSessionContext";
 import LoginScreen from "./screens/LoginScreen";
 import DashboardScreen from "./screens/DashboardScreen";
@@ -18,6 +19,7 @@ const Stack = createNativeStackNavigator();
 
 function RootNavigator() {
   const { currentUser, loading } = useAuth();
+  const { isDark } = useTheme();
 
   if (loading) {
     return (
@@ -29,6 +31,7 @@ function RootNavigator() {
 
   return (
     <NavigationContainer>
+      <StatusBar style={isDark ? "light" : "dark"} />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {currentUser ? (
           <>

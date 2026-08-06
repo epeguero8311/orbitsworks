@@ -1,5 +1,4 @@
-﻿import { useState, useCallback } from "react";
-import { useFocusEffect } from "@react-navigation/native";
+﻿import { useEffect, useState } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Image,
 } from "react-native";
@@ -21,13 +20,11 @@ export default function DashboardScreen({ navigation }) {
   const { settings } = useCompanySettings(userData?.companyId);
   const [askSite, setAskSite] = useState(true);
 
-  useFocusEffect(
-    useCallback(() => {
-      AsyncStorage.getItem(ASK_SITE_KEY).then((val) => {
-        if (val !== null) setAskSite(val === "true");
-      });
-    }, [])
-  );
+  useEffect(() => {
+    AsyncStorage.getItem(ASK_SITE_KEY).then((val) => {
+      if (val !== null) setAskSite(val === "true");
+    });
+  }, []);
 
   const isNoneSite = selectedSite?.id === "none";
   const filteredEmployees =
@@ -42,15 +39,6 @@ export default function DashboardScreen({ navigation }) {
   const displayName = supervisor?.name ?? currentUser?.email ?? "";
 
   const siteLabel = selectedSite ? (isNoneSite ? "No Site" : selectedSite.name) : "All Sites";
-
-  const formatHour = (time24) => {
-    const [h, m] = time24.split(":").map(Number);
-    const period = h >= 12 ? "PM" : "AM";
-    const hour12 = h % 12 === 0 ? 12 : h % 12;
-    return m === 0 ? `${hour12}${period}` : `${hour12}:${String(m).padStart(2, "0")}${period}`;
-  };
-
-  const hoursLabel = `${formatHour(settings.businessHours.open)} - ${formatHour(settings.businessHours.close)}`;
 
   const onTimePercent = (() => {
     if (todayInEvents.length === 0) return null;
@@ -141,13 +129,6 @@ export default function DashboardScreen({ navigation }) {
           {onTimePercent === null ? "—" : `${onTimePercent}%`}
         </Text>
       </View>
-
-      <View style={[styles.hoursRow, { borderColor: colors.border }]}>
-        <Feather name="clock" size={14} color={colors.subtext} />
-        <Text style={[styles.hoursText, { color: colors.subtext }]}>
-          Business hours: {hoursLabel}
-        </Text>
-      </View>
     </View>
   );
 }
@@ -179,9 +160,4 @@ const styles = StyleSheet.create({
   },
   statLabel: { color: "#fff", fontSize: 14, fontWeight: "600", lineHeight: 18 },
   statPercent: { color: "#fff", fontSize: 30, fontWeight: "800" },
-  hoursRow: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    marginTop: 16, marginBottom: 20, justifyContent: "center",
-  },
-  hoursText: { fontSize: 12, fontWeight: "500" },
 });
