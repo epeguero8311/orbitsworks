@@ -35,8 +35,10 @@ export interface ClockEvent {
   siteId: string | null;
   siteName: string;
   type: "in" | "out";
-  source: "faceMatch" | "supervisorOverride" | "adminManual";
+  source: "faceMatch" | "pin" | "supervisorOverride" | "adminManual";
   note?: string;
+  photoUrl?: string;
+  location?: { lat: number; lng: number } | string;
   timestamp?: Timestamp;
 }
 
