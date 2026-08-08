@@ -135,17 +135,9 @@ async function downloadWorkbook(workbook: any, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export async function exportTimesheetsExcel(
-  sessions: SessionRecord[],
-  summaries: EmployeeSummary[],
-  companyName: string,
-  startDate: string,
-  endDate: string
-) {
-  const ExcelJS = await getExcelJS();
-  const workbook = new ExcelJS.Workbook();
+// ---- Reusable sheet builders, each adds one (or more) sheets to a given workbook ----
 
-  // --- Detail sheet: one row per clock-in/clock-out pair, proof of what happened each day ---
+function addDetailSheet(workbook: any, sessions: SessionRecord[]) {
   const detailSheet = workbook.addWorksheet("Detail");
 
   detailSheet.columns = [
@@ -188,8 +180,14 @@ export async function exportTimesheetsExcel(
   styleHeaderRow(detailSheet.getRow(1));
   styleDataRows(detailSheet);
   detailSheet.views = [{ state: "frozen", ySplit: 1 }];
+}
 
-  // --- Summary sheet: one row per employee, total hours for the selected range ---
+function addSummarySheet(
+  workbook: any,
+  summaries: EmployeeSummary[],
+  startDate: string,
+  endDate: string
+) {
   const summarySheet = workbook.addWorksheet("Summary");
   const rangeLabel = formatDateRangeLabel(startDate, endDate);
 
@@ -222,8 +220,9 @@ export async function exportTimesheetsExcel(
 
   styleDataRows(summarySheet, 2);
   summarySheet.views = [{ state: "frozen", ySplit: 2 }];
+}
 
-  // --- Photos sheet: embedded clock-in / clock-out proof photos per session ---
+async function addPhotosSheet(workbook: any, sessions: SessionRecord[]) {
   const photosSheet = workbook.addWorksheet("Photos");
   const THUMB_SIZE = 90;
 
@@ -286,19 +285,9 @@ export async function exportTimesheetsExcel(
   }
 
   photosSheet.views = [{ state: "frozen", ySplit: 1 }];
-
-  await downloadWorkbook(
-    workbook,
-    buildExportFilename(companyName, "Timesheets", "xlsx", startDate, endDate)
-  );
 }
 
-export async function exportEmployeesExcel(
-  employeeRecords: EmployeeExportRecord[],
-  companyName: string
-) {
-  const ExcelJS = await getExcelJS();
-  const workbook = new ExcelJS.Workbook();
+function addEmployeesSheet(workbook: any, employeeRecords: EmployeeExportRecord[]) {
   const sheet = workbook.addWorksheet("Employees");
 
   sheet.columns = [
@@ -324,21 +313,9 @@ export async function exportEmployeesExcel(
   styleHeaderRow(sheet.getRow(1));
   styleDataRows(sheet);
   sheet.getColumn("hourlyRate").numFmt = '"$"#,##0.00';
-
-  await downloadWorkbook(
-    workbook,
-    buildExportFilename(companyName, "Employees", "xlsx")
-  );
 }
 
-export async function exportPayrollExcel(
-  summaries: EmployeeSummary[],
-  companyName: string,
-  startDate: string,
-  endDate: string
-) {
-  const ExcelJS = await getExcelJS();
-  const workbook = new ExcelJS.Workbook();
+function addPayrollSheet(workbook: any, summaries: EmployeeSummary[]) {
   const sheet = workbook.addWorksheet("Payroll Hours");
 
   sheet.columns = [
@@ -367,21 +344,9 @@ export async function exportPayrollExcel(
   sheet.getColumn("estimatedPay").numFmt = '"$"#,##0.00';
   sheet.getColumn("totalHours").numFmt = "0.00";
   sheet.views = [{ state: "frozen", ySplit: 1 }];
-
-  await downloadWorkbook(
-    workbook,
-    buildExportFilename(companyName, "Payroll", "xlsx", startDate, endDate)
-  );
 }
 
-export async function exportAttendanceExcel(
-  attendanceRecords: AttendanceRecord[],
-  companyName: string,
-  startDate: string,
-  endDate: string
-) {
-  const ExcelJS = await getExcelJS();
-  const workbook = new ExcelJS.Workbook();
+function addAttendanceSheet(workbook: any, attendanceRecords: AttendanceRecord[]) {
   const sheet = workbook.addWorksheet("Attendance");
 
   sheet.columns = [
@@ -405,9 +370,103 @@ export async function exportAttendanceExcel(
   styleHeaderRow(sheet.getRow(1));
   styleDataRows(sheet);
   sheet.views = [{ state: "frozen", ySplit: 1 }];
+}
+
+// ---- Standalone per-report exports (unchanged behavior, each its own file) ----
+
+export async function exportTimesheetsExcel(
+  sessions: SessionRecord[],
+  summaries: EmployeeSummary[],
+  companyName: string,
+  startDate: string,
+  endDate: string
+) {
+  const ExcelJS = await getExcelJS();
+  const workbook = new ExcelJS.Workbook();
+
+  addDetailSheet(workbook, sessions);
+  addSummarySheet(workbook, summaries, startDate, endDate);
+  await addPhotosSheet(workbook, sessions);
+
+  await downloadWorkbook(
+    workbook,
+    buildExportFilename(companyName, "Timesheets", "xlsx", startDate, endDate)
+  );
+}
+
+export async function exportEmployeesExcel(
+  employeeRecords: EmployeeExportRecord[],
+  companyName: string
+) {
+  const ExcelJS = await getExcelJS();
+  const workbook = new ExcelJS.Workbook();
+
+  addEmployeesSheet(workbook, employeeRecords);
+
+  await downloadWorkbook(
+    workbook,
+    buildExportFilename(companyName, "Employees", "xlsx")
+  );
+}
+
+export async function exportPayrollExcel(
+  summaries: EmployeeSummary[],
+  companyName: string,
+  startDate: string,
+  endDate: string
+) {
+  const ExcelJS = await getExcelJS();
+  const workbook = new ExcelJS.Workbook();
+
+  addPayrollSheet(workbook, summaries);
+
+  await downloadWorkbook(
+    workbook,
+    buildExportFilename(companyName, "Payroll", "xlsx", startDate, endDate)
+  );
+}
+
+export async function exportAttendanceExcel(
+  attendanceRecords: AttendanceRecord[],
+  companyName: string,
+  startDate: string,
+  endDate: string
+) {
+  const ExcelJS = await getExcelJS();
+  const workbook = new ExcelJS.Workbook();
+
+  addAttendanceSheet(workbook, attendanceRecords);
 
   await downloadWorkbook(
     workbook,
     buildExportFilename(companyName, "Attendance", "xlsx", startDate, endDate)
+  );
+}
+
+// ---- Combined export: all four reports, six sheets, one workbook, in order ----
+
+export async function exportAllReportsExcel(
+  sessions: SessionRecord[],
+  summaries: EmployeeSummary[],
+  employeeRecords: EmployeeExportRecord[],
+  attendanceRecords: AttendanceRecord[],
+  companyName: string,
+  startDate: string,
+  endDate: string
+) {
+  const ExcelJS = await getExcelJS();
+  const workbook = new ExcelJS.Workbook();
+
+  // Order: Timesheets (Detail, Summary, Photos) -> Employees -> Payroll -> Attendance
+  addDetailSheet(workbook, sessions);
+  addSummarySheet(workbook, summaries, startDate, endDate);
+  await addPhotosSheet(workbook, sessions);
+  addEmployeesSheet(workbook, employeeRecords);
+  addPayrollSheet(workbook, summaries);
+  addAttendanceSheet(workbook, attendanceRecords);
+
+  await downloadWorkbook(
+    workbook,
+    buildExportFilename(companyName, "FullReport", "xlsx", startDate, endDate)
   );
 }

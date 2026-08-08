@@ -6,10 +6,12 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useReports } from "@/lib/hooks/useReports";
 import { dateKey, startOfWeek } from "@/lib/reportUtils";
+import { toTimesheetsCsv, downloadCsv } from "@/lib/reportUtils";
+import { buildExportFilename, exportAllReportsExcel } from "@/lib/reportExcelUtils";
 import AttendanceCards from "@/components/reports/AttendanceCards";
 import TimeTrendsCharts from "@/components/reports/TimeTrendsCharts";
 import PayrollTable from "@/components/reports/PayrollTable";
-import ExportMenu from "@/components/reports/ExportMenu";
+import ExportMenu, { ExportDropdown } from "@/components/reports/ExportMenu";
 
 export default function ReportsPage() {
   const { userData } = useAuth();
@@ -53,10 +55,36 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-gray-950">Reports</h1>
-      <p className="mt-1 text-sm text-gray-600">
-        Attendance, time trends, and payroll.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-gray-950">Reports</h1>
+          <p className="mt-1 text-sm text-gray-600">
+            Attendance, time trends, and payroll.
+          </p>
+        </div>
+        {summaries && (
+          <ExportDropdown
+            label="Export"
+            onExcel={() =>
+              exportAllReportsExcel(
+                sessions,
+                summaries,
+                employeeRecords,
+                attendanceRecords,
+                companyName,
+                startDate,
+                endDate
+              )
+            }
+            onCsv={() =>
+              downloadCsv(
+                toTimesheetsCsv(sessions, startDate, endDate),
+                buildExportFilename(companyName, "Timesheets", "csv", startDate, endDate)
+              )
+            }
+          />
+        )}
+      </div>
 
       <div className="mt-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 sm:flex-row sm:items-end">
         <div>

@@ -23,7 +23,7 @@ import {
   exportAttendanceExcel,
 } from "@/lib/reportExcelUtils";
 
-function ExportDropdown({
+export function ExportDropdown({
   label,
   onExcel,
   onCsv,
