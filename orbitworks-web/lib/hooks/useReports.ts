@@ -148,6 +148,7 @@ export function useReports() {
                   clockIn: pendingIn.timestamp.toDate().toISOString(),
                   clockOut: null,
                   hours: null,
+                  clockInPhotoUrl: pendingIn.photoUrl,
                 });
               }
               pendingIn = event;
@@ -165,6 +166,8 @@ export function useReports() {
                   clockIn: pendingIn.timestamp.toDate().toISOString(),
                   clockOut: event.timestamp.toDate().toISOString(),
                   hours: hrs,
+                  clockInPhotoUrl: pendingIn.photoUrl,
+                  clockOutPhotoUrl: event.photoUrl,
                 });
 
                 const weekKey = dateKey(startOfWeek(pendingIn.timestamp.toDate()));
@@ -192,6 +195,7 @@ export function useReports() {
               clockIn: pendingIn.timestamp.toDate().toISOString(),
               clockOut: null,
               hours: null,
+              clockInPhotoUrl: pendingIn.photoUrl,
             });
           }
 

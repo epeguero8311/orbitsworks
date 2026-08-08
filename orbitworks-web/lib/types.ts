@@ -88,6 +88,8 @@ export interface SessionRecord {
   clockIn: string;
   clockOut: string | null;
   hours: number | null;
+  clockInPhotoUrl?: string;
+  clockOutPhotoUrl?: string;
 }
 
 export interface EmployeeExportRecord {

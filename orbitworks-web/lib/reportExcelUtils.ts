@@ -79,6 +79,22 @@ async function getExcelJS() {
   return (mod as any).default ?? mod;
 }
 
+async function fetchImageAsBuffer(
+  url: string
+): Promise<{ buffer: ArrayBuffer; extension: "jpeg" | "png" } | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const contentType = res.headers.get("content-type") || "";
+    const extension = contentType.includes("png") ? "png" : "jpeg";
+    const buffer = await res.arrayBuffer();
+    return { buffer, extension };
+  } catch (err) {
+    console.error("Photo fetch error (embedding will show 'No photo' instead):", err);
+    return null;
+  }
+}
+
 function styleHeaderRow(row: any) {
   row.eachCell((cell: any) => {
     cell.font = { bold: true, color: { argb: HEADER_FONT_COLOR } };
@@ -206,6 +222,70 @@ export async function exportTimesheetsExcel(
 
   styleDataRows(summarySheet, 2);
   summarySheet.views = [{ state: "frozen", ySplit: 2 }];
+
+  // --- Photos sheet: embedded clock-in / clock-out proof photos per session ---
+  const photosSheet = workbook.addWorksheet("Photos");
+  const THUMB_SIZE = 90;
+
+  photosSheet.columns = [
+    { header: "Employee", key: "employeeName", width: 22 },
+    { header: "Date", key: "date", width: 14 },
+    { header: "Clock In", key: "clockInPhoto", width: 20 },
+    { header: "Clock Out", key: "clockOutPhoto", width: 20 },
+  ];
+  styleHeaderRow(photosSheet.getRow(1));
+
+  for (let i = 0; i < sessions.length; i++) {
+    const s = sessions[i];
+    const rowNumber = i + 2;
+    const clockInDate = parseMaybeDate(s.clockIn);
+    const dateLabel = clockInDate ? formatDatePart(clockInDate) : "-";
+
+    const row = photosSheet.getRow(rowNumber);
+    row.getCell(1).value = s.employeeName;
+    row.getCell(2).value = dateLabel;
+    row.height = THUMB_SIZE * 0.78;
+    row.getCell(1).alignment = { vertical: "middle" };
+    row.getCell(2).alignment = { vertical: "middle" };
+
+    if (s.clockInPhotoUrl) {
+      const img = await fetchImageAsBuffer(s.clockInPhotoUrl);
+      if (img) {
+        const imageId = workbook.addImage({
+          buffer: img.buffer,
+          extension: img.extension,
+        });
+        photosSheet.addImage(imageId, {
+          tl: { col: 2, row: rowNumber - 1 },
+          ext: { width: THUMB_SIZE, height: THUMB_SIZE },
+        });
+      } else {
+        row.getCell(3).value = "No photo";
+      }
+    } else {
+      row.getCell(3).value = "No photo";
+    }
+
+    if (s.clockOutPhotoUrl) {
+      const img = await fetchImageAsBuffer(s.clockOutPhotoUrl);
+      if (img) {
+        const imageId = workbook.addImage({
+          buffer: img.buffer,
+          extension: img.extension,
+        });
+        photosSheet.addImage(imageId, {
+          tl: { col: 3, row: rowNumber - 1 },
+          ext: { width: THUMB_SIZE, height: THUMB_SIZE },
+        });
+      } else {
+        row.getCell(4).value = "No photo";
+      }
+    } else {
+      row.getCell(4).value = "No photo";
+    }
+  }
+
+  photosSheet.views = [{ state: "frozen", ySplit: 1 }];
 
   await downloadWorkbook(
     workbook,
