@@ -384,8 +384,8 @@ export async function exportTimesheetsExcel(
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
 
-  addDetailSheet(workbook, sessions);
   addSummarySheet(workbook, summaries, startDate, endDate);
+  addDetailSheet(workbook, sessions);
   await addPhotosSheet(workbook, sessions);
 
   await downloadWorkbook(
@@ -458,8 +458,8 @@ export async function exportAllReportsExcel(
   const workbook = new ExcelJS.Workbook();
 
   // Order: Timesheets (Detail, Summary, Photos) -> Employees -> Payroll -> Attendance
-  addDetailSheet(workbook, sessions);
   addSummarySheet(workbook, summaries, startDate, endDate);
+  addDetailSheet(workbook, sessions);
   await addPhotosSheet(workbook, sessions);
   addEmployeesSheet(workbook, employeeRecords);
   addPayrollSheet(workbook, summaries);
@@ -470,3 +470,4 @@ export async function exportAllReportsExcel(
     buildExportFilename(companyName, "FullReport", "xlsx", startDate, endDate)
   );
 }
+
