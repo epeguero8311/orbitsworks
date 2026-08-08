@@ -1,6 +1,9 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { useAuth } from "@/lib/AuthContext";
 import { useReports } from "@/lib/hooks/useReports";
 import { dateKey, startOfWeek } from "@/lib/reportUtils";
 import AttendanceCards from "@/components/reports/AttendanceCards";
@@ -9,6 +12,20 @@ import PayrollTable from "@/components/reports/PayrollTable";
 import ExportMenu from "@/components/reports/ExportMenu";
 
 export default function ReportsPage() {
+  const { userData } = useAuth();
+  const [companyName, setCompanyName] = useState("OrbitWorks");
+
+  useEffect(() => {
+    if (!userData?.companyId) return;
+    const companyRef = doc(db, "companies", userData.companyId);
+    const unsubscribe = onSnapshot(companyRef, (snapshot) => {
+      if (snapshot.exists() && snapshot.data().name) {
+        setCompanyName(snapshot.data().name);
+      }
+    });
+    return unsubscribe;
+  }, [userData?.companyId]);
+
   const today = dateKey(new Date());
   const weekStart = dateKey(startOfWeek(new Date()));
 
@@ -85,6 +102,7 @@ export default function ReportsPage() {
             attendanceRecords={attendanceRecords}
             startDate={startDate}
             endDate={endDate}
+            companyName={companyName}
           />
           <AttendanceCards attendance={attendance} />
           <TimeTrendsCharts
