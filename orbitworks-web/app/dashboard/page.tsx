@@ -413,23 +413,6 @@ export default function DashboardOverviewPage() {
     }
   }
 
-  if (settings.alerts.lowStaffingAlert) {
-    const [openH, openM] = settings.businessHours.open.split(":").map(Number);
-    const [closeH, closeM] = settings.businessHours.close.split(":").map(Number);
-    const openToday = new Date(now);
-    openToday.setHours(openH, openM, 0, 0);
-    const closeToday = new Date(now);
-    closeToday.setHours(closeH, closeM, 0, 0);
-
-    if (now >= openToday && now <= closeToday && totalClockedIn === 0) {
-      alertItems.push({
-        key: "low-staffing",
-        label: "No one is clocked in",
-        detail: "It's currently within business hours.",
-      });
-    }
-  }
-
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-4">

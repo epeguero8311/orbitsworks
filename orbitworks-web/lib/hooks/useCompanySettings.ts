@@ -15,11 +15,7 @@ export type AttendanceRules = {
 export type Alerts = {
   maxHoursWarning: boolean;
   overtimeWarning: boolean;
-  lateEmployeeAlert: boolean;
-  noShowAlert: boolean;
   missedClockOutAlert: boolean;
-  missedBreakAlert: boolean;
-  lowStaffingAlert: boolean;
 };
 
 export type CompanySettings = {
@@ -31,21 +27,17 @@ export type CompanySettings = {
   alerts: Alerts;
 };
 
-const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
+export const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
   allowEarlyClockIn: true,
   allowLateClockOut: true,
   autoClockOut: false,
   gracePeriodMinutes: 0,
 };
 
-const DEFAULT_ALERTS: Alerts = {
+export const DEFAULT_ALERTS: Alerts = {
   maxHoursWarning: true,
   overtimeWarning: true,
-  lateEmployeeAlert: true,
-  noShowAlert: true,
   missedClockOutAlert: true,
-  missedBreakAlert: true,
-  lowStaffingAlert: true,
 };
 
 const DEFAULT_SETTINGS: CompanySettings = {

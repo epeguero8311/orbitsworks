@@ -5,40 +5,14 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import {
+  AttendanceRules,
+  Alerts,
+  DEFAULT_ATTENDANCE_RULES,
+  DEFAULT_ALERTS,
+} from "@/lib/hooks/useCompanySettings";
 
 type AuthMode = "individual" | "shared";
-
-type AttendanceRules = {
-  allowEarlyClockIn: boolean;
-  allowLateClockOut: boolean;
-  autoClockOut: boolean;
-};
-
-type Alerts = {
-  maxHoursWarning: boolean;
-  overtimeWarning: boolean;
-  lateEmployeeAlert: boolean;
-  noShowAlert: boolean;
-  missedClockOutAlert: boolean;
-  missedBreakAlert: boolean;
-  lowStaffingAlert: boolean;
-};
-
-const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
-  allowEarlyClockIn: true,
-  allowLateClockOut: true,
-  autoClockOut: false,
-};
-
-const DEFAULT_ALERTS: Alerts = {
-  maxHoursWarning: true,
-  overtimeWarning: true,
-  lateEmployeeAlert: true,
-  noShowAlert: true,
-  missedClockOutAlert: true,
-  missedBreakAlert: true,
-  lowStaffingAlert: true,
-};
 
 function Toggle({
   label,
@@ -304,6 +278,37 @@ export default function SettingsPage() {
               These are on/off for now - the actual enforcement gets wired up
               once the mobile clock-in flow is built.
             </p>
+
+            <div className="mt-5">
+              <label
+                htmlFor="gracePeriod"
+                className="mb-2 block text-sm font-medium text-gray-950"
+              >
+                Grace period (minutes)
+              </label>
+              <input
+                id="gracePeriod"
+                type="number"
+                min="0"
+                step="1"
+                value={attendanceRules.gracePeriodMinutes}
+                onChange={(e) =>
+                  setAttendanceRules((prev) => ({
+                    ...prev,
+                    gracePeriodMinutes: e.target.value
+                      ? parseInt(e.target.value, 10)
+                      : 0,
+                  }))
+                }
+                className="w-32 rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              />
+              <p className="mt-2 text-xs text-gray-600">
+                Minutes after the scheduled start time before a clock-in
+                counts as late. E.g. a 5 minute grace period on an 8:00 start
+                means 8:05 still counts as on time, 8:06 counts as late.
+              </p>
+            </div>
+
             <div className="mt-2 divide-y divide-gray-100">
               <Toggle
                 label="Allow early clock in"
@@ -350,29 +355,9 @@ export default function SettingsPage() {
                 onChange={(v) => setAlerts((prev) => ({ ...prev, overtimeWarning: v }))}
               />
               <Toggle
-                label="Late employee alert"
-                checked={alerts.lateEmployeeAlert}
-                onChange={(v) => setAlerts((prev) => ({ ...prev, lateEmployeeAlert: v }))}
-              />
-              <Toggle
-                label="No show alert"
-                checked={alerts.noShowAlert}
-                onChange={(v) => setAlerts((prev) => ({ ...prev, noShowAlert: v }))}
-              />
-              <Toggle
                 label="Missed clock out alert"
                 checked={alerts.missedClockOutAlert}
                 onChange={(v) => setAlerts((prev) => ({ ...prev, missedClockOutAlert: v }))}
-              />
-              <Toggle
-                label="Missed break alert"
-                checked={alerts.missedBreakAlert}
-                onChange={(v) => setAlerts((prev) => ({ ...prev, missedBreakAlert: v }))}
-              />
-              <Toggle
-                label="Low staffing alert"
-                checked={alerts.lowStaffingAlert}
-                onChange={(v) => setAlerts((prev) => ({ ...prev, lowStaffingAlert: v }))}
               />
             </div>
           </div>

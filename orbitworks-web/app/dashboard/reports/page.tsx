@@ -5,7 +5,6 @@ import { useReports } from "@/lib/hooks/useReports";
 import { dateKey, startOfWeek } from "@/lib/reportUtils";
 import AttendanceCards from "@/components/reports/AttendanceCards";
 import TimeTrendsCharts from "@/components/reports/TimeTrendsCharts";
-import JobSiteReportTable from "@/components/reports/JobSiteReportTable";
 import PayrollTable from "@/components/reports/PayrollTable";
 import ExportMenu from "@/components/reports/ExportMenu";
 
@@ -24,8 +23,6 @@ export default function ReportsPage() {
     hoursPerWeek,
     employeesPerDay,
     avgHoursPerEmployee,
-    jobSiteReports,
-    activeJobSiteCount,
     sessions,
     employeeRecords,
     attendanceRecords,
@@ -41,7 +38,7 @@ export default function ReportsPage() {
     <div>
       <h1 className="text-xl font-semibold text-gray-950">Reports</h1>
       <p className="mt-1 text-sm text-gray-600">
-        Attendance, time trends, job site breakdowns, and payroll.
+        Attendance, time trends, and payroll.
       </p>
 
       <div className="mt-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 sm:flex-row sm:items-end">
@@ -94,10 +91,6 @@ export default function ReportsPage() {
             hoursPerWeek={hoursPerWeek}
             employeesPerDay={employeesPerDay}
             avgHoursPerEmployee={avgHoursPerEmployee}
-          />
-          <JobSiteReportTable
-            jobSiteReports={jobSiteReports}
-            activeJobSiteCount={activeJobSiteCount}
           />
           <PayrollTable summaries={summaries} startDate={startDate} endDate={endDate} />
         </div>
