@@ -1,7 +1,6 @@
 ﻿import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "../lib/ThemeContext";
-import Logo from "./Logo";
 
 export default function ScreenHeader({ title, onBack, right }) {
   const { colors } = useTheme();
@@ -27,7 +26,7 @@ export default function ScreenHeader({ title, onBack, right }) {
       <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
         {title}
       </Text>
-      <View style={styles.side}>{right ?? <Logo size={20} />}</View>
+      <View style={styles.side}>{right}</View>
     </View>
   );
 }

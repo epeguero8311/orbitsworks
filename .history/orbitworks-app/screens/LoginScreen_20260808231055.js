@@ -36,11 +36,8 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-        <View style={{ alignItems: "center", marginBottom: 8 }}>
-          <Logo size={40} />
-        </View>
-        <Text style={styles.title}>OrbitsWorks</Text>
-        <Text style={styles.subtitle}>Supervisor Login</Text>
+      <Text style={styles.title}>OrbitWorks</Text>
+      <Text style={styles.subtitle}>Supervisor Login</Text>
 
       <TextInput
         style={styles.input}

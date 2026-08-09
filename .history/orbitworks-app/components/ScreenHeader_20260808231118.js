@@ -27,7 +27,7 @@ export default function ScreenHeader({ title, onBack, right }) {
       <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
         {title}
       </Text>
-      <View style={styles.side}>{right ?? <Logo size={20} />}</View>
+      <View style={styles.side}>{right}</View>
     </View>
   );
 }
