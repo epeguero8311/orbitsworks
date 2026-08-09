@@ -14,8 +14,10 @@ export type AttendanceRules = {
 
 export type Alerts = {
   maxHoursWarning: boolean;
+  maxHoursThreshold: number;
   overtimeWarning: boolean;
   missedClockOutAlert: boolean;
+  missedClockOutMinutes: number;
 };
 
 export type CompanySettings = {
@@ -36,8 +38,10 @@ export const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
 
 export const DEFAULT_ALERTS: Alerts = {
   maxHoursWarning: true,
+  maxHoursThreshold: 8,
   overtimeWarning: true,
   missedClockOutAlert: true,
+  missedClockOutMinutes: 30,
 };
 
 const DEFAULT_SETTINGS: CompanySettings = {

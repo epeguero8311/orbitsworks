@@ -52,6 +52,33 @@ function Toggle({
   );
 }
 
+function ThresholdField({
+  label,
+  suffix,
+  value,
+  onChange,
+}: {
+  label: string;
+  suffix: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 pb-3.5">
+      <label className="text-xs text-gray-600">{label}</label>
+      <input
+        type="number"
+        min="0"
+        step="1"
+        value={value}
+        onChange={(e) => onChange(e.target.value ? parseInt(e.target.value, 10) : 0)}
+        className="w-20 rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+      />
+      <span className="text-xs text-gray-600">{suffix}</span>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { userData } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -226,7 +253,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Business hours + OT threshold */}
+          {/* Business hours */}
           <div className="rounded-xl border border-gray-200 bg-white p-6">
             <h2 className="text-base font-semibold text-gray-950">
               Business hours
@@ -247,24 +274,6 @@ export default function SettingsPage() {
                 value={businessClose}
                 onChange={(e) => setBusinessClose(e.target.value)}
                 className="rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-              />
-            </div>
-
-            <div className="mt-5">
-              <label
-                htmlFor="otThreshold"
-                className="mb-2 block text-sm font-medium text-gray-950"
-              >
-                Weekly hours before overtime
-              </label>
-              <input
-                id="otThreshold"
-                type="number"
-                min="0"
-                step="0.5"
-                value={otThreshold}
-                onChange={(e) => setOtThreshold(e.target.value)}
-                className="w-32 rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
               />
             </div>
           </div>
@@ -344,21 +353,83 @@ export default function SettingsPage() {
               Choose which alerts you want to see on the Overview dashboard.
             </p>
             <div className="mt-2 divide-y divide-gray-100">
-              <Toggle
-                label="Max hours warning"
-                checked={alerts.maxHoursWarning}
-                onChange={(v) => setAlerts((prev) => ({ ...prev, maxHoursWarning: v }))}
-              />
-              <Toggle
-                label="Overtime warning"
-                checked={alerts.overtimeWarning}
-                onChange={(v) => setAlerts((prev) => ({ ...prev, overtimeWarning: v }))}
-              />
-              <Toggle
-                label="Missed clock out alert"
-                checked={alerts.missedClockOutAlert}
-                onChange={(v) => setAlerts((prev) => ({ ...prev, missedClockOutAlert: v }))}
-              />
+              <div className="py-1">
+                <Toggle
+                  label="Max hours warning"
+                  checked={alerts.maxHoursWarning}
+                  onChange={(v) => setAlerts((prev) => ({ ...prev, maxHoursWarning: v }))}
+                />
+                <ThresholdField
+                  label="Warning at:"
+                  suffix="hours"
+                  value={alerts.maxHoursThreshold}
+                  onChange={(v) => setAlerts((prev) => ({ ...prev, maxHoursThreshold: v }))}
+                />
+              </div>
+
+              <div className="py-1">
+                <Toggle
+                  label="Overtime warning"
+                  checked={alerts.overtimeWarning}
+                  onChange={(v) => setAlerts((prev) => ({ ...prev, overtimeWarning: v }))}
+                />
+                <ThresholdField
+                  label="Warning at:"
+                  suffix="hours/week"
+                  value={otThreshold ? parseFloat(otThreshold) : 40}
+                  onChange={(v) => setOtThreshold(String(v))}
+                />
+              </div>
+
+              <div className="py-1">
+                <Toggle
+                  label="Missed clock out alert"
+                  checked={alerts.missedClockOutAlert}
+                  onChange={(v) => setAlerts((prev) => ({ ...prev, missedClockOutAlert: v }))}
+                />
+                <ThresholdField
+                  label="Alert after:"
+                  suffix="minutes"
+                  value={alerts.missedClockOutMinutes}
+                  onChange={(v) => setAlerts((prev) => ({ ...prev, missedClockOutMinutes: v }))}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Supervisor login type */}
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <h2 className="text-base font-semibold text-gray-950">
+              Supervisor login type
+            </h2>
+            <p className="mt-1 text-xs text-gray-600">
+              Individual logins let each supervisor use their own email and
+              password. Shared login gives every supervisor at this company
+              the same credentials on a single device.
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setAuthMode("individual")}
+                className={`rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${
+                  authMode === "individual"
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-gray-200 text-gray-600 hover:border-gray-300"
+                }`}
+              >
+                Individual logins
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthMode("shared")}
+                className={`rounded-lg border px-4 py-2.5 text-sm font-medium transition-colors ${
+                  authMode === "shared"
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-gray-200 text-gray-600 hover:border-gray-300"
+                }`}
+              >
+                Shared login
+              </button>
             </div>
           </div>
 
