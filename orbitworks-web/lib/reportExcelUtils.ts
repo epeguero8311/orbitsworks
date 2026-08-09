@@ -3,6 +3,7 @@
   SessionRecord,
   EmployeeExportRecord,
   AttendanceRecord,
+  ShiftNote,
 } from "@/lib/types";
 
 const HEADER_FILL = "FF3B6FE0";
@@ -180,6 +181,31 @@ function addDetailSheet(workbook: any, sessions: SessionRecord[]) {
   styleHeaderRow(detailSheet.getRow(1));
   styleDataRows(detailSheet);
   detailSheet.views = [{ state: "frozen", ySplit: 1 }];
+}
+
+function addNotesSheet(workbook: any, shiftNotes: ShiftNote[]) {
+  const sheet = workbook.addWorksheet("Notes");
+
+  sheet.columns = [
+    { header: "Date", key: "date", width: 18 },
+    { header: "Site", key: "siteName", width: 20 },
+    { header: "Note", key: "note", width: 50 },
+    { header: "Written By", key: "createdByName", width: 22 },
+  ];
+
+  shiftNotes.forEach((n) => {
+    const row = sheet.addRow({
+      date: n.timestamp ? n.timestamp.toDate().toLocaleString() : "-",
+      siteName: n.siteName,
+      note: n.note,
+      createdByName: n.createdByName,
+    });
+    row.getCell("note").alignment = { wrapText: true, vertical: "middle" };
+  });
+
+  styleHeaderRow(sheet.getRow(1));
+  styleDataRows(sheet);
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
 }
 
 function addSummarySheet(
@@ -377,6 +403,7 @@ function addAttendanceSheet(workbook: any, attendanceRecords: AttendanceRecord[]
 export async function exportTimesheetsExcel(
   sessions: SessionRecord[],
   summaries: EmployeeSummary[],
+  shiftNotes: ShiftNote[],
   companyName: string,
   startDate: string,
   endDate: string
@@ -386,6 +413,7 @@ export async function exportTimesheetsExcel(
 
   addSummarySheet(workbook, summaries, startDate, endDate);
   addDetailSheet(workbook, sessions);
+  addNotesSheet(workbook, shiftNotes);
   await addPhotosSheet(workbook, sessions);
 
   await downloadWorkbook(
@@ -450,6 +478,7 @@ export async function exportAllReportsExcel(
   summaries: EmployeeSummary[],
   employeeRecords: EmployeeExportRecord[],
   attendanceRecords: AttendanceRecord[],
+  shiftNotes: ShiftNote[],
   companyName: string,
   startDate: string,
   endDate: string
@@ -457,9 +486,10 @@ export async function exportAllReportsExcel(
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
 
-  // Order: Timesheets (Detail, Summary, Photos) -> Employees -> Payroll -> Attendance
+  // Order: Timesheets (Summary, Detail, Notes, Photos) -> Employees -> Payroll -> Attendance
   addSummarySheet(workbook, summaries, startDate, endDate);
   addDetailSheet(workbook, sessions);
+  addNotesSheet(workbook, shiftNotes);
   await addPhotosSheet(workbook, sessions);
   addEmployeesSheet(workbook, employeeRecords);
   addPayrollSheet(workbook, summaries);
@@ -470,4 +500,3 @@ export async function exportAllReportsExcel(
     buildExportFilename(companyName, "FullReport", "xlsx", startDate, endDate)
   );
 }
-

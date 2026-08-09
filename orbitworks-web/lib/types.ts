@@ -110,3 +110,13 @@ export interface AttendanceRecord {
   departureTime: string | null;
   status: "On Time" | "Late";
 }
+
+export interface ShiftNote {
+  id: string;
+  note: string;
+  siteId: string | null;
+  siteName: string;
+  createdByUid: string;
+  createdByName: string;
+  timestamp?: Timestamp;
+}

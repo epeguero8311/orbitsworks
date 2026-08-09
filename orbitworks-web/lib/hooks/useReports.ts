@@ -22,6 +22,7 @@ import type {
   SessionRecord,
   EmployeeExportRecord,
   AttendanceRecord,
+  ShiftNote,
 } from "@/lib/types";
 import {
   dateKey,
@@ -49,6 +50,7 @@ export function useReports() {
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [employeeRecords, setEmployeeRecords] = useState<EmployeeExportRecord[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [shiftNotes, setShiftNotes] = useState<ShiftNote[]>([]);
 
   const runReport = useCallback(
     async (startDate: string, endDate: string) => {
@@ -116,6 +118,44 @@ export function useReports() {
           };
         });
         setEmployeeRecords(employeeRecordsOut);
+
+        // ---- Shift notes (supervisor-written, scoped to the same date range) ----
+        const usersRef = collection(db, "users");
+        const usersQuery = query(usersRef, where("companyId", "==", userData.companyId));
+        const usersSnapshot = await getDocs(usersQuery);
+        const nameByUid = new Map<string, string>();
+        usersSnapshot.docs.forEach((d) => {
+          const data = d.data() as { name?: string };
+          nameByUid.set(d.id, data.name ?? "Unknown");
+        });
+
+        const notesRef = collection(db, "companies", userData.companyId, "shiftNotes");
+        const notesQuery = query(
+          notesRef,
+          where("timestamp", ">=", Timestamp.fromDate(start)),
+          where("timestamp", "<=", Timestamp.fromDate(end)),
+          orderBy("timestamp", "asc")
+        );
+        const notesSnapshot = await getDocs(notesQuery);
+        const shiftNotesOut: ShiftNote[] = notesSnapshot.docs.map((d) => {
+          const data = d.data() as {
+            note?: string;
+            siteId?: string | null;
+            siteName?: string;
+            createdByUid?: string;
+            timestamp?: Timestamp;
+          };
+          return {
+            id: d.id,
+            note: data.note ?? "",
+            siteId: data.siteId ?? null,
+            siteName: data.siteName ?? "Not specified",
+            createdByUid: data.createdByUid ?? "",
+            createdByName: nameByUid.get(data.createdByUid ?? "") ?? "Unknown",
+            timestamp: data.timestamp,
+          };
+        });
+        setShiftNotes(shiftNotesOut);
 
         // ---- Payroll summaries + sessions + weekly hours buckets ----
         const byEmployee = new Map<string, EventWithDate[]>();
@@ -374,6 +414,7 @@ export function useReports() {
     sessions,
     employeeRecords,
     attendanceRecords,
+    shiftNotes,
     runReport,
   };
 }

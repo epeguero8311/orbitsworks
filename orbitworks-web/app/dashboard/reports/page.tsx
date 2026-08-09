@@ -11,6 +11,7 @@ import { buildExportFilename, exportAllReportsExcel } from "@/lib/reportExcelUti
 import AttendanceCards from "@/components/reports/AttendanceCards";
 import TimeTrendsCharts from "@/components/reports/TimeTrendsCharts";
 import PayrollTable from "@/components/reports/PayrollTable";
+import ShiftNotesTable from "@/components/reports/ShiftNotesTable";
 import ExportMenu, { ExportDropdown } from "@/components/reports/ExportMenu";
 
 export default function ReportsPage() {
@@ -45,6 +46,7 @@ export default function ReportsPage() {
     sessions,
     employeeRecords,
     attendanceRecords,
+    shiftNotes,
     runReport,
   } = useReports();
 
@@ -71,6 +73,7 @@ export default function ReportsPage() {
                 summaries,
                 employeeRecords,
                 attendanceRecords,
+                shiftNotes,
                 companyName,
                 startDate,
                 endDate
@@ -128,6 +131,7 @@ export default function ReportsPage() {
             sessions={sessions}
             employeeRecords={employeeRecords}
             attendanceRecords={attendanceRecords}
+            shiftNotes={shiftNotes}
             startDate={startDate}
             endDate={endDate}
             companyName={companyName}
@@ -139,6 +143,7 @@ export default function ReportsPage() {
             avgHoursPerEmployee={avgHoursPerEmployee}
           />
           <PayrollTable summaries={summaries} startDate={startDate} endDate={endDate} />
+          <ShiftNotesTable notes={shiftNotes} />
         </div>
       )}
     </div>

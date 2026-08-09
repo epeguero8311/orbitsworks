@@ -7,6 +7,7 @@ import type {
   SessionRecord,
   EmployeeExportRecord,
   AttendanceRecord,
+  ShiftNote,
 } from "@/lib/types";
 import {
   toPayrollCsv,
@@ -83,6 +84,7 @@ export default function ExportMenu({
   sessions,
   employeeRecords,
   attendanceRecords,
+  shiftNotes,
   startDate,
   endDate,
   companyName,
@@ -91,6 +93,7 @@ export default function ExportMenu({
   sessions: SessionRecord[];
   employeeRecords: EmployeeExportRecord[];
   attendanceRecords: AttendanceRecord[];
+  shiftNotes: ShiftNote[];
   startDate: string;
   endDate: string;
   companyName: string;
@@ -99,7 +102,14 @@ export default function ExportMenu({
     {
       label: "Timesheets",
       onExcel: () =>
-        exportTimesheetsExcel(sessions, summaries, companyName, startDate, endDate),
+        exportTimesheetsExcel(
+          sessions,
+          summaries,
+          shiftNotes,
+          companyName,
+          startDate,
+          endDate
+        ),
       onCsv: () =>
         downloadCsv(
           toTimesheetsCsv(sessions, startDate, endDate),
