@@ -14,8 +14,27 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Orbitsworks",
-  description: "Employee time tracking, powered by face recognition",
+  metadataBase: new URL("https://orbitsworks.com"),
+  title: {
+    default: "Orbitsworks - Job Site Workforce Tracking",
+    template: "%s | Orbitsworks",
+  },
+  description:
+    "Face-verified time tracking for job-site crews. Clock employees in and out with photo verification, manage job sites, and get payroll-ready reports.",
+  openGraph: {
+    title: "Orbitsworks - Job Site Workforce Tracking",
+    description:
+      "Face-verified time tracking for job-site crews. Clock employees in and out with photo verification, manage job sites, and get payroll-ready reports.",
+    url: "https://orbitsworks.com",
+    siteName: "Orbitsworks",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Orbitsworks - Job Site Workforce Tracking",
+    description:
+      "Face-verified time tracking for job-site crews. Clock employees in and out with photo verification, manage job sites, and get payroll-ready reports.",
+  },
 };
 
 export default function RootLayout({
