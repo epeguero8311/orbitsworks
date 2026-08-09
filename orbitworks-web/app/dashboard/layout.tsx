@@ -14,6 +14,8 @@ import {
   Settings as SettingsIcon,
   LogOut,
   Orbit,
+  Menu,
+  X,
 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
@@ -33,6 +35,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !currentUser) {
@@ -50,6 +53,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     });
     return unsubscribe;
   }, [userData?.companyId]);
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
 
   if (loading) {
     return (
@@ -70,10 +77,30 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-full flex-1 bg-gray-50">
-      <aside className="flex w-60 flex-shrink-0 flex-col border-r border-gray-200 bg-white">
-        <div className="flex items-center gap-2 border-b border-gray-200 px-6 py-5">
-          <Orbit className="h-5 w-5 text-accent" />
-          <span className="text-base font-semibold text-gray-950">OrbitWorks</span>
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 -translate-x-full flex-col border-r border-gray-200 bg-white transition-transform duration-200 lg:static lg:w-60 lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : ""
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2 border-b border-gray-200 px-6 py-5">
+          <div className="flex items-center gap-2">
+            <Orbit className="h-5 w-5 text-accent" />
+            <span className="text-base font-semibold text-gray-950">Orbitsworks</span>
+          </div>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="rounded-md p-1 text-gray-600 hover:bg-gray-50 lg:hidden"
+            aria-label="Close menu"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         <nav className="flex-1 space-y-1 px-4 py-5">
@@ -112,8 +139,16 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto">
-        <div className="sticky top-0 z-10 flex items-center justify-end border-b border-gray-200 bg-white px-8 py-3">
+      <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3 sm:px-6 lg:justify-end lg:px-8">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-md p-1.5 text-gray-600 hover:bg-gray-50 lg:hidden"
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+
           {logoUrl && (
             <img
               src={logoUrl}
@@ -123,7 +158,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           )}
         </div>
 
-        <div className="mx-auto max-w-6xl px-10 py-10">{children}</div>
+        <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
+          {children}
+        </div>
       </main>
     </div>
   );
