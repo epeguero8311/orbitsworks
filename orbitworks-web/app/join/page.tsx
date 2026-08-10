@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, FormEvent, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -6,19 +6,10 @@ import Link from "next/link";
 import {
   createUserWithEmailAndPassword,
   deleteUser,
+  User,
 } from "firebase/auth";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  doc,
-  setDoc,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
-import { generateUniquePin } from "@/lib/pinUtils";
+import { httpsCallable } from "firebase/functions";
+import { auth, functions } from "@/lib/firebase";
 
 function JoinForm() {
   const router = useRouter();
@@ -41,6 +32,7 @@ function JoinForm() {
     setIsSubmitting(true);
 
     const normalizedEmail = email.trim().toLowerCase();
+    let user: User | null = null;
 
     try {
       // 1. Create the Firebase Auth account
@@ -49,79 +41,9 @@ function JoinForm() {
         normalizedEmail,
         password
       );
-      const uid = credential.user.uid;
-
-      // 2. Look for a matching pending invite
-      const invitesRef = collection(db, "invites");
-      const q = query(
-        invitesRef,
-        where("email", "==", normalizedEmail),
-        where("status", "==", "pending")
-      );
-      const snapshot = await getDocs(q);
-
-      if (snapshot.empty) {
-        // No invite found — roll back the account we just created
-        await deleteUser(credential.user);
-        setError(
-          "No pending invite found for that email. Ask your admin to invite you first."
-        );
-        setIsSubmitting(false);
-        return;
-      }
-
-      const inviteDoc = snapshot.docs[0];
-      const invite = inviteDoc.data();
-
-      // 3. Create the supervisor's user doc (for login + permissions)
-      await setDoc(doc(db, "users", uid), {
-        role: "supervisor",
-        companyId: invite.companyId,
-        assignedSiteIds: invite.assignedSiteIds ?? [],
-        name,
-        email: normalizedEmail,
-        createdAt: serverTimestamp(),
-      });
-
-      // 3a. Generate a unique backup clock-in PIN, same as regular employees get.
-      const employeesRef = collection(db, "companies", invite.companyId, "employees");
-      const existingSnapshot = await getDocs(employeesRef);
-      const existingPins = new Set(
-        existingSnapshot.docs
-          .map((d) => (d.data() as { pin?: string }).pin)
-          .filter((p): p is string => !!p)
-      );
-      const pin = generateUniquePin(existingPins);
-
-      // 3b. Also create a matching employee record (same id, so they're linked) —
-      // supervisors are still people who clock in and out like anyone else.
-      // We use the uid as the employee doc id specifically so the two records
-      // stay tied together (and so a supervisor never accidentally gets a
-      // duplicate, separate employee entry created for them).
-      await setDoc(
-        doc(db, "companies", invite.companyId, "employees", uid),
-        {
-          name,
-          jobTitle: "Supervisor",
-          assignedSiteIds: invite.assignedSiteIds ?? [],
-          active: true,
-          linkedUserId: uid,
-          isSupervisor: true,
-          pin,
-          createdAt: serverTimestamp(),
-        }
-      );
-
-      // 4. Mark the invite as accepted
-      await updateDoc(doc(db, "invites", inviteDoc.id), {
-        status: "accepted",
-        acceptedByUid: uid,
-        acceptedAt: serverTimestamp(),
-      });
-
-      router.push("/dashboard");
+      user = credential.user;
     } catch (err: any) {
-      console.error("Join error:", err);
+      console.error("Join auth error:", err);
       if (err.code === "auth/email-already-in-use") {
         setError(
           "An account with that email already exists. Try signing in instead."
@@ -131,7 +53,39 @@ function JoinForm() {
       } else {
         setError("Something went wrong. Try again.");
       }
-    } finally {
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      // 2. Look up the pending invite and finish setup server-side. This
+      // looks up the invite by the VERIFIED email on the auth token, not
+      // anything the client supplies, and rolls back the auth account
+      // itself if no matching invite is found.
+      const acceptInvite = httpsCallable(functions, "acceptInvite");
+      await acceptInvite({ name });
+
+      // 3. Refresh the ID token so the new custom claims (role, companyId)
+      // are active before we land on the dashboard.
+      await user.getIdToken(true);
+
+      router.push("/dashboard");
+    } catch (err: any) {
+      console.error("Join setup error:", err);
+      if (err.code === "functions/not-found") {
+        setError(
+          "No pending invite found for that email. Ask your admin to invite you first."
+        );
+      } else {
+        // Best-effort cleanup for anything other than the "no invite"
+        // case, which the function already rolls back server-side.
+        try {
+          await deleteUser(user);
+        } catch (cleanupErr) {
+          console.error("Rollback failed:", cleanupErr);
+        }
+        setError(err.message || "Something went wrong. Try again.");
+      }
       setIsSubmitting(false);
     }
   }
@@ -219,7 +173,7 @@ function JoinForm() {
             disabled={isSubmitting}
             className="w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
           >
-            {isSubmitting ? "Creating account…" : "Accept invite & sign in"}
+            {isSubmitting ? "Creating account..." : "Accept invite & sign in"}
           </button>
 
           <p className="mt-4 text-center text-sm text-gray-600">

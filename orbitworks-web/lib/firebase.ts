@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions";
 import { isSupported, getAnalytics } from "firebase/analytics";
 
 const firebaseConfig = {
@@ -20,8 +21,9 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const functions = getFunctions(app);
 
-// Analytics only works in the browser, and only if supported —
+// Analytics only works in the browser, and only if supported -
 // calling getAnalytics() during server rendering will throw.
 export const analyticsPromise = (async () => {
   if (typeof window === "undefined") return null;

@@ -1,11 +1,15 @@
-﻿"use client";
+"use client";
 
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { collection, doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import {
+  createUserWithEmailAndPassword,
+  deleteUser,
+  User,
+} from "firebase/auth";
+import { httpsCallable } from "firebase/functions";
+import { auth, functions } from "@/lib/firebase";
 import { Orbit } from "lucide-react";
 
 function GoogleIcon() {
@@ -46,6 +50,8 @@ export default function SignupPage() {
     setError("");
     setIsSubmitting(true);
 
+    let user: User | null = null;
+
     try {
       // 1. Create the Firebase Auth user
       const credential = await createUserWithEmailAndPassword(
@@ -53,28 +59,9 @@ export default function SignupPage() {
         email,
         password
       );
-      const uid = credential.user.uid;
-
-      // 2. Create a new company document
-      const companyRef = doc(collection(db, "companies"));
-      await setDoc(companyRef, {
-        name: companyName,
-        createdAt: serverTimestamp(),
-        authMode: "individual", // vs. "shared" - decided later in Settings
-      });
-
-      // 3. Create the matching user doc (admin, tied to the new company)
-      await setDoc(doc(db, "users", uid), {
-        role: "admin",
-        companyId: companyRef.id,
-        name,
-        email,
-        createdAt: serverTimestamp(),
-      });
-
-      router.push("/dashboard");
+      user = credential.user;
     } catch (err: any) {
-      console.error("Signup error:", err);
+      console.error("Signup auth error:", err);
       if (err.code === "auth/email-already-in-use") {
         setError("An account with that email already exists.");
       } else if (err.code === "auth/weak-password") {
@@ -82,7 +69,32 @@ export default function SignupPage() {
       } else {
         setError("Something went wrong creating your account. Try again.");
       }
-    } finally {
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      // 2. Create the company + admin user doc server-side, with a fresh
+      // companyId the client never gets to choose or influence.
+      const createCompany = httpsCallable(functions, "createCompany");
+      await createCompany({ companyName, name });
+
+      // 3. Refresh the ID token so the new custom claims (role, companyId)
+      // are active before we land on the dashboard.
+      await user.getIdToken(true);
+
+      router.push("/dashboard");
+    } catch (err: any) {
+      console.error("Signup setup error:", err);
+      // Roll back the auth account so the person can cleanly retry.
+      try {
+        await deleteUser(user);
+      } catch (cleanupErr) {
+        console.error("Rollback failed:", cleanupErr);
+      }
+      setError(
+        err.message || "Something went wrong setting up your company. Try again."
+      );
       setIsSubmitting(false);
     }
   }
