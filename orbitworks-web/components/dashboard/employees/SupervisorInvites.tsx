@@ -9,7 +9,7 @@ import type { JobSite } from "@/lib/types";
 
 export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
   const { currentUser, userData } = useAuth();
-  const { invites, loading: loadingInvites } = useInvites();
+  const { invites, loading: loadingInvites, cancelInvite } = useInvites();
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteSiteIds, setInviteSiteIds] = useState<string[]>([]);
@@ -17,6 +17,9 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
   const [inviteError, setInviteError] = useState("");
   const [inviteSuccess, setInviteSuccess] = useState("");
   const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState("");
 
   function toggleInviteSite(siteId: string) {
     setInviteSiteIds((prev) =>
@@ -83,6 +86,20 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
     await navigator.clipboard.writeText(link);
     setCopiedInviteId(inviteId);
     setTimeout(() => setCopiedInviteId(null), 2000);
+  }
+
+  async function handleConfirmDelete(inviteId: string) {
+    setDeleteError("");
+    setDeletingId(inviteId);
+    try {
+      await cancelInvite(inviteId);
+    } catch (err) {
+      console.error("Cancel invite error:", err);
+      setDeleteError("Couldn't remove that invite. Try again.");
+    } finally {
+      setDeletingId(null);
+      setConfirmDeleteId(null);
+    }
   }
 
   return (
@@ -169,6 +186,11 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
             Supervisor invites
           </h3>
         </div>
+        {deleteError && (
+          <p className="border-b border-gray-200 px-6 py-3 text-sm text-red-600">
+            {deleteError}
+          </p>
+        )}
         {loadingInvites ? (
           <p className="p-6 text-sm text-gray-600">Loading...</p>
         ) : invites.length === 0 ? (
@@ -207,17 +229,52 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    {invite.status === "pending" && (
-                      <button
-                        onClick={() =>
-                          copyInviteLink(invite.email, invite.id)
-                        }
-                        className="text-sm font-medium text-accent hover:underline"
-                      >
-                        {copiedInviteId === invite.id
-                          ? "Copied!"
-                          : "Copy invite link"}
-                      </button>
+                    {confirmDeleteId === invite.id ? (
+                      <span className="inline-flex items-center gap-3">
+                        <span className="text-xs text-gray-600">
+                          {invite.status === "pending"
+                            ? "Cancel this invite?"
+                            : "Remove from this list?"}
+                        </span>
+                        <button
+                          onClick={() => handleConfirmDelete(invite.id)}
+                          disabled={deletingId === invite.id}
+                          className="text-sm font-medium text-red-600 hover:underline disabled:opacity-60"
+                        >
+                          {deletingId === invite.id
+                            ? "Removing..."
+                            : "Confirm"}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="text-sm font-medium text-gray-600 hover:underline"
+                        >
+                          Keep
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-4">
+                        {invite.status === "pending" && (
+                          <button
+                            onClick={() =>
+                              copyInviteLink(invite.email, invite.id)
+                            }
+                            className="text-sm font-medium text-accent hover:underline"
+                          >
+                            {copiedInviteId === invite.id
+                              ? "Copied!"
+                              : "Copy invite link"}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setConfirmDeleteId(invite.id)}
+                          className="text-sm font-medium text-gray-600 hover:text-red-600 hover:underline"
+                        >
+                          {invite.status === "pending"
+                            ? "Cancel invite"
+                            : "Remove"}
+                        </button>
+                      </span>
                     )}
                   </td>
                 </tr>

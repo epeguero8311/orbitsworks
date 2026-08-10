@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 
@@ -28,18 +28,15 @@ export function useTodayShift(companyId) {
 
     const applyStatus = () => {
       const todayStart = startOfToday();
-
       const latestEventByEmployee = {};
       const todayIns = [];
 
       eventsData.forEach((evt) => {
         const ts = evt.timestamp?.toDate ? evt.timestamp.toDate() : null;
         if (!ts) return;
-
         if (ts >= todayStart && evt.type === "in") {
           todayIns.push({ employeeId: evt.employeeId, timestamp: ts });
         }
-
         if (ts < todayStart) return;
         const existing = latestEventByEmployee[evt.employeeId];
         if (!existing || ts > existing.ts) {
@@ -59,24 +56,40 @@ export function useTodayShift(companyId) {
 
     const employeesRef = collection(db, "companies", companyId, "employees");
     const employeesQuery = query(employeesRef, where("active", "==", true));
-
-    const unsubEmployees = onSnapshot(employeesQuery, (snap) => {
-      employeesData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      applyStatus();
-    });
+    const unsubEmployees = onSnapshot(
+      employeesQuery,
+      (snap) => {
+        employeesData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        applyStatus();
+      },
+      (error) => {
+        console.log("[useTodayShift] employees listener error:", error.code, error.message);
+      }
+    );
 
     const eventsRef = collection(db, "companies", companyId, "clockEvents");
-    const unsubEvents = onSnapshot(query(eventsRef), (snap) => {
-      eventsData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      applyStatus();
-    });
+    const unsubEvents = onSnapshot(
+      query(eventsRef),
+      (snap) => {
+        eventsData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        applyStatus();
+      },
+      (error) => {
+        console.log("[useTodayShift] events listener error:", error.code, error.message);
+      }
+    );
 
     const sitesRef = collection(db, "companies", companyId, "jobSites");
     const sitesQuery = query(sitesRef, where("active", "==", true));
-
-    const unsubSites = onSnapshot(sitesQuery, (snap) => {
-      setSites(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
+    const unsubSites = onSnapshot(
+      sitesQuery,
+      (snap) => {
+        setSites(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      },
+      (error) => {
+        console.log("[useTodayShift] sites listener error:", error.code, error.message);
+      }
+    );
 
     return () => {
       unsubEmployees();

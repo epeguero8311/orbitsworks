@@ -1,4 +1,4 @@
-﻿import {
+import {
   collection,
   query,
   where,
@@ -9,19 +9,25 @@
   serverTimestamp,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { db, storage } from "./firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, storage, functions } from "./firebase";
 
+// PIN matching now happens server-side via the verifyPin Cloud Function -
+// rate-limited and scoped to the caller's own companyId claim, instead of
+// an unthrottled client-side Firestore query against the full PIN space.
 export async function findEmployeeByPin(companyId, pin) {
-  const employeesRef = collection(db, "companies", companyId, "employees");
-  const q = query(
-    employeesRef,
-    where("pin", "==", pin),
-    where("active", "==", true)
-  );
-  const snap = await getDocs(q);
-  if (snap.empty) return null;
-  const docSnap = snap.docs[0];
-  return { id: docSnap.id, ...docSnap.data() };
+  const verifyPin = httpsCallable(functions, "verifyPin");
+  try {
+    const result = await verifyPin({ pin });
+    const data = result.data;
+    if (!data.matched) return null;
+    return { id: data.employee.id, ...data.employee };
+  } catch (err) {
+    if (err.code === "functions/resource-exhausted") {
+      throw new Error(err.message || "Too many attempts. Please wait and try again.");
+    }
+    throw err;
+  }
 }
 
 export async function getLatestClockEvent(companyId, employeeId) {
@@ -60,9 +66,7 @@ export async function submitClockEvent({
 }) {
   const latest = await getLatestClockEvent(companyId, employee.id);
   const nextType = latest?.type === "in" ? "out" : "in";
-
   const photoUrl = await uploadClockPhoto(companyId, employee.id, photoUri);
-
   const eventsRef = collection(db, "companies", companyId, "clockEvents");
   await addDoc(eventsRef, {
     employeeId: employee.id,
@@ -76,6 +80,5 @@ export async function submitClockEvent({
     timestamp: serverTimestamp(),
     createdAt: serverTimestamp(),
   });
-
   return nextType;
 }

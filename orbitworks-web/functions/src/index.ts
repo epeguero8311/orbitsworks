@@ -15,9 +15,6 @@ function generateUniquePin(existingPins: Set<string>): string {
 }
 
 // Called right after Firebase Auth account creation on /signup.
-// Trusts only request.auth.uid (verified by Firebase) - never client-supplied
-// role or companyId. Always mints a brand-new companyId, so a signup can
-// never attach to an existing tenant.
 export const createCompany = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -88,9 +85,6 @@ export const createCompany = onCall(async (request) => {
 });
 
 // Called right after Firebase Auth account creation on /join.
-// Looks up the pending invite server-side using the VERIFIED email on the
-// auth token - never a client-supplied companyId or email. Rolls back the
-// Auth account if no matching invite exists, same as the old client flow.
 export const acceptInvite = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -176,4 +170,80 @@ export const acceptInvite = onCall(async (request) => {
   });
 
   return { companyId: invite.companyId };
+});
+
+// Called from the mobile app whenever an employee enters their clock-in PIN.
+// Matches server-side, scoped to the caller's own companyId claim (never a
+// client-supplied one), and rate-limits attempts so a 4-digit PIN space
+// cannot be brute-forced from the phone.
+export const verifyPin = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const companyId = request.auth.token.companyId as string | undefined;
+  const role = request.auth.token.role as string | undefined;
+  if (!companyId || (role !== "admin" && role !== "supervisor")) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const pin = (request.data && request.data.pin ? String(request.data.pin) : "").trim();
+  if (!/^\d{4}$/.test(pin)) {
+    throw new HttpsError("invalid-argument", "PIN must be 4 digits.");
+  }
+
+  const uid = request.auth.uid;
+  const attemptRef = db.collection("pinAttempts").doc(uid);
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const maxAttempts = 5;
+
+  const attemptSnap = await attemptRef.get();
+  let count = 0;
+  let windowStart = now;
+
+  if (attemptSnap.exists) {
+    const data = attemptSnap.data() as { count?: number; windowStart?: number };
+    if (data.windowStart && now - data.windowStart < windowMs) {
+      count = data.count || 0;
+      windowStart = data.windowStart;
+    }
+  }
+
+  if (count >= maxAttempts) {
+    const retryAfterSeconds = Math.ceil((windowStart + windowMs - now) / 1000);
+    throw new HttpsError(
+      "resource-exhausted",
+      "Too many attempts. Try again in " + retryAfterSeconds + " seconds."
+    );
+  }
+
+  await attemptRef.set({ count: count + 1, windowStart: windowStart });
+
+  const employeesRef = db.collection("companies").doc(companyId).collection("employees");
+  const querySnap = await employeesRef
+    .where("pin", "==", pin)
+    .where("active", "==", true)
+    .limit(1)
+    .get();
+
+  if (querySnap.empty) {
+    return { matched: false };
+  }
+
+  await attemptRef.delete();
+
+  const employeeDoc = querySnap.docs[0];
+  const employee = employeeDoc.data();
+
+  return {
+    matched: true,
+    employee: {
+      id: employeeDoc.id,
+      name: employee.name,
+      jobTitle: employee.jobTitle ?? null,
+      photoUrl: employee.photoUrl ?? null,
+      assignedSiteIds: employee.assignedSiteIds ?? [],
+      isSupervisor: employee.isSupervisor ?? false,
+    },
+  };
 });

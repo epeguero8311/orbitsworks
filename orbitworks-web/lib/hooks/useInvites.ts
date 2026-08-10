@@ -1,7 +1,14 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  query,
+  where,
+  deleteDoc,
+  doc,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import type { Invite } from "@/lib/types";
@@ -37,5 +44,9 @@ export function useInvites() {
     return unsubscribe;
   }, [userData?.companyId]);
 
-  return { invites, loading };
+  async function cancelInvite(inviteId: string) {
+    await deleteDoc(doc(db, "invites", inviteId));
+  }
+
+  return { invites, loading, cancelInvite };
 }
