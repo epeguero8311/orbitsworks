@@ -197,8 +197,8 @@ export default function PrivacyPolicyPage() {
                 7. Contact
               </h2>
               <p className="mt-3">
-                Questions about this policy can be directed to
-                epeguero8311@gmail.com.
+                Questions about this policy can be directed to [contact
+                email].
               </p>
             </section>
           </div>

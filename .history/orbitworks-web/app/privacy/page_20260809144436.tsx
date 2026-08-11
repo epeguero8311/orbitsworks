@@ -15,8 +15,8 @@ export default function PrivacyPolicyPage() {
         <div className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
           <h1 className="text-3xl font-semibold text-gray-950">Privacy Policy</h1>
           <p className="mt-2 text-sm text-gray-600">
-              Last updated: August 11, 2026 - This document is a draft and has
-                          not yet been reviewed by legal counsel.
+            Last updated: [date] - This document is a draft and has not yet
+            been reviewed by legal counsel.
           </p>
 
           <div className="prose-sm mt-10 space-y-8 text-sm leading-relaxed text-gray-600">
@@ -197,8 +197,8 @@ export default function PrivacyPolicyPage() {
                 7. Contact
               </h2>
               <p className="mt-3">
-                Questions about this policy can be directed to
-                epeguero8311@gmail.com.
+                Questions about this policy can be directed to [contact
+                email].
               </p>
             </section>
           </div>

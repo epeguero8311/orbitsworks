@@ -1,9 +1,11 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 
 admin.initializeApp();
 const db = admin.firestore();
+const storage = admin.storage();
 
 function generateUniquePin(existingPins: Set<string>): string {
   let pin = "";
@@ -16,8 +18,8 @@ function generateUniquePin(existingPins: Set<string>): string {
 }
 
 const FREE_EMPLOYEE_CAP = 8;
+const PHOTO_RETENTION_DAYS = 14;
 
-// Called right after Firebase Auth account creation on /signup.
 export const createCompany = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -61,17 +63,11 @@ export const createCompany = onCall(async (request) => {
     alerts: {
       maxHoursWarning: true,
       overtimeWarning: true,
-      lateEmployeeAlert: false,
-      noShowAlert: false,
       missedClockOutAlert: true,
-      missedBreakAlert: false,
-      lowStaffingAlert: true,
     },
     ownerUid: uid,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
 
-    // Permanent free tier - no expiration, no card required. Upgrading to
-    // a paid tier is a deliberate action from the Billing page.
     planTier: "free",
     employeeCap: FREE_EMPLOYEE_CAP,
     activeEmployeeCount: 0,
@@ -96,7 +92,6 @@ export const createCompany = onCall(async (request) => {
   return { companyId: companyId };
 });
 
-// Called right after Firebase Auth account creation on /join.
 export const acceptInvite = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -291,3 +286,42 @@ export const onEmployeeWrite = onDocumentWritten(
     });
   }
 );
+
+// Runs once daily. Finds clock event photos older than the retention
+// window, deletes the file from Storage, and clears photoUrl on the
+// record so the event itself stays intact for reporting but the image
+// is gone - matching the Privacy Policy's stated retention period.
+export const deleteOldClockPhotos = onSchedule("every 24 hours", async () => {
+  const cutoff = admin.firestore.Timestamp.fromMillis(
+    Date.now() - PHOTO_RETENTION_DAYS * 24 * 60 * 60 * 1000
+  );
+
+  const companiesSnap = await db.collection("companies").get();
+
+  for (const companyDoc of companiesSnap.docs) {
+    const eventsRef = companyDoc.ref.collection("clockEvents");
+    const oldEventsSnap = await eventsRef
+      .where("timestamp", "<", cutoff)
+      .where("photoUrl", "!=", null)
+      .get();
+
+    for (const eventDoc of oldEventsSnap.docs) {
+      const data = eventDoc.data() as { photoUrl?: string };
+      if (!data.photoUrl) continue;
+
+      try {
+        const bucket = storage.bucket();
+        const url = new URL(data.photoUrl);
+        const pathMatch = url.pathname.match(/\/o\/(.+)$/);
+        if (pathMatch) {
+          const filePath = decodeURIComponent(pathMatch[1]);
+          await bucket.file(filePath).delete({ ignoreNotFound: true });
+        }
+      } catch (err) {
+        console.error(`Failed to delete photo for event ${eventDoc.id}:`, err);
+      }
+
+      await eventDoc.ref.update({ photoUrl: admin.firestore.FieldValue.delete() });
+    }
+  }
+});

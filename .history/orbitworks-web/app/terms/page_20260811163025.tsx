@@ -150,8 +150,8 @@ export default function TermsPage() {
                 11. Contact
               </h2>
               <p className="mt-3">
-                Questions about these Terms can be directed to
-                epeguero8311@gmail.com.
+                Questions about these Terms can be directed to [contact
+                email].
               </p>
             </section>
           </div>
