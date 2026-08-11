@@ -2,22 +2,27 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function companyOf(companyId) {
+      return get(/databases/$(database)/documents/companies/$(companyId)).data;
+    }
+
+    function underCap(companyId) {
+      let c = companyOf(companyId);
+      return c.employeeCap == null || !(c.activeEmployeeCount >= c.employeeCap);
+    }
+
     match /users/{userId} {
       allow read: if request.auth != null && (
         request.auth.uid == userId ||
         (request.auth.token.role == 'admin' &&
          request.auth.token.companyId == resource.data.companyId)
       );
-      // All writes now go through the createCompany / acceptInvite Cloud
-      // Functions via the Admin SDK, which bypasses these rules entirely.
-      // Clients have no legitimate reason to write here directly.
       allow create, update, delete: if false;
     }
 
     match /companies/{companyId} {
       allow read: if request.auth != null &&
         request.auth.token.companyId == companyId;
-      // New companies are only created via the createCompany Cloud Function.
       allow create: if false;
       allow update: if request.auth != null &&
         request.auth.token.role == 'admin' &&
@@ -35,7 +40,22 @@ service cloud.firestore {
       match /employees/{employeeId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId;
-        allow write: if request.auth != null &&
+
+        allow create: if request.auth != null &&
+          request.auth.token.role == 'admin' &&
+          request.auth.token.companyId == companyId &&
+          (request.resource.data.active != true || underCap(companyId));
+
+        allow update: if request.auth != null &&
+          request.auth.token.role == 'admin' &&
+          request.auth.token.companyId == companyId &&
+          (
+            request.resource.data.active != true ||
+            resource.data.active == true ||
+            underCap(companyId)
+          );
+
+        allow delete: if request.auth != null &&
           request.auth.token.role == 'admin' &&
           request.auth.token.companyId == companyId;
       }

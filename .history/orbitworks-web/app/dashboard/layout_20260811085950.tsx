@@ -27,7 +27,6 @@ const NAV_ITEMS = [
   { href: "/dashboard/sites", label: "Job Sites", icon: Building2 },
   { href: "/dashboard/time", label: "Time Tracking", icon: Clock },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
-  { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
   { href: "/dashboard/settings", label: "Settings", icon: SettingsIcon },
 ];
 

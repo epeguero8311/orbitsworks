@@ -1,4 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
 
 admin.initializeApp();
@@ -13,6 +14,8 @@ function generateUniquePin(existingPins: Set<string>): string {
   } while (existingPins.has(pin) && attempts < 100);
   return pin;
 }
+
+const FREE_EMPLOYEE_CAP = 8;
 
 // Called right after Firebase Auth account creation on /signup.
 export const createCompany = onCall(async (request) => {
@@ -66,6 +69,15 @@ export const createCompany = onCall(async (request) => {
     },
     ownerUid: uid,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
+
+    // Permanent free tier - no expiration, no card required. Upgrading to
+    // a paid tier is a deliberate action from the Billing page.
+    planTier: "free",
+    employeeCap: FREE_EMPLOYEE_CAP,
+    activeEmployeeCount: 0,
+    subscriptionStatus: "active",
+    stripeCustomerId: null,
+    stripeSubscriptionId: null,
   });
 
   const userRef = db.collection("users").doc(uid);
@@ -123,7 +135,24 @@ export const acceptInvite = onCall(async (request) => {
     assignedSiteIds?: string[];
   };
 
-  const employeesRef = db.collection("companies").doc(invite.companyId).collection("employees");
+  const companyRef = db.collection("companies").doc(invite.companyId);
+  const companySnap = await companyRef.get();
+  const companyData = companySnap.data() as
+    | { employeeCap?: number | null; activeEmployeeCount?: number }
+    | undefined;
+
+  const cap = companyData?.employeeCap ?? null;
+  const currentCount = companyData?.activeEmployeeCount ?? 0;
+
+  if (cap !== null && currentCount >= cap) {
+    await admin.auth().deleteUser(uid);
+    throw new HttpsError(
+      "resource-exhausted",
+      "This company has reached its employee limit. Ask an admin to upgrade the plan before accepting this invite."
+    );
+  }
+
+  const employeesRef = companyRef.collection("employees");
   const existingEmployeesSnap = await employeesRef.get();
   const existingPins = new Set(
     existingEmployeesSnap.docs
@@ -172,10 +201,6 @@ export const acceptInvite = onCall(async (request) => {
   return { companyId: invite.companyId };
 });
 
-// Called from the mobile app whenever an employee enters their clock-in PIN.
-// Matches server-side, scoped to the caller's own companyId claim (never a
-// client-supplied one), and rate-limits attempts so a 4-digit PIN space
-// cannot be brute-forced from the phone.
 export const verifyPin = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -247,3 +272,22 @@ export const verifyPin = onCall(async (request) => {
     },
   };
 });
+
+export const onEmployeeWrite = onDocumentWritten(
+  "companies/{companyId}/employees/{employeeId}",
+  async (event) => {
+    const companyId = event.params.companyId;
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+
+    const wasActive = before ? before.active === true : false;
+    const isActive = after ? after.active === true : false;
+
+    if (wasActive === isActive) return;
+
+    const delta = isActive ? 1 : -1;
+    await db.collection("companies").doc(companyId).update({
+      activeEmployeeCount: admin.firestore.FieldValue.increment(delta),
+    });
+  }
+);

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, FormEvent } from "react";
 import { collection, addDoc, doc, updateDoc, getDocs, serverTimestamp } from "firebase/firestore";
@@ -7,7 +7,6 @@ import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import type { JobSite } from "@/lib/types";
 import { generateUniquePin } from "@/lib/pinUtils";
-import { UpgradeToast } from "@/components/UpgradeToast";
 
 export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
   const { userData } = useAuth();
@@ -19,7 +18,6 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [createdPin, setCreatedPin] = useState<string | null>(null);
-  const [showUpgradeToast, setShowUpgradeToast] = useState(false);
 
   function toggleSite(siteId: string) {
     setSelectedSiteIds((prev) =>
@@ -79,17 +77,9 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
       setHourlyRate("");
       setSelectedSiteIds([]);
       setPhotoFile(null);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Add employee error:", err);
-      // The Firestore rule blocks employee creation at the plan's cap with
-      // a generic permission-denied - this is the only reason an admin's
-      // own employee-create write would ever be rejected, so treat it as
-      // the cap message rather than a raw error.
-      if (err?.code === "permission-denied") {
-        setShowUpgradeToast(true);
-      } else {
-        setError("Couldn't add the employee. Try again.");
-      }
+      setError("Couldn't add the employee. Try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -227,12 +217,6 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
       >
         {isSubmitting ? "Adding..." : "Add employee"}
       </button>
-
-      <UpgradeToast
-        visible={showUpgradeToast}
-        onClose={() => setShowUpgradeToast(false)}
-        message="You've reached your employee limit."
-      />
     </form>
   );
 }
