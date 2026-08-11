@@ -13,13 +13,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
-
-type JobSite = {
-  id: string;
-  name: string;
-  address?: string;
-  active: boolean;
-};
+import type { JobSite } from "@/lib/types";
 
 export default function JobSitesPage() {
   const { userData } = useAuth();
@@ -153,7 +147,7 @@ export default function JobSitesPage() {
           disabled={isSubmitting}
           className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
         >
-          {isSubmitting ? "Adding…" : "Add site"}
+          {isSubmitting ? "Adding..." : "Add site"}
         </button>
       </form>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
@@ -161,7 +155,7 @@ export default function JobSitesPage() {
       {/* Sites list */}
       <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
         {loading ? (
-          <p className="p-4 text-sm text-gray-600">Loading…</p>
+          <p className="p-4 text-sm text-gray-600">Loading...</p>
         ) : sites.length === 0 ? (
           <p className="p-4 text-sm text-gray-600">
             No job sites yet. Add one above to get started.
@@ -181,7 +175,7 @@ export default function JobSitesPage() {
                 <tr key={site.id} className="border-b border-gray-200 last:border-0">
                   <td className="px-4 py-2.5 text-gray-950">{site.name}</td>
                   <td className="px-4 py-2.5 text-gray-600">
-                    {site.address || "—"}
+                    {site.address || "-"}
                   </td>
                   <td className="px-4 py-2.5">
                     <span
