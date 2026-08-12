@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { stripe } from "@/lib/stripe/server";
 import { getTierByKey } from "@/lib/stripe/tiers";
+
+// The installed Stripe SDK's types are generated for its newer default API
+// version, which removed `payment_intent` from Invoice. We pin an older
+// apiVersion in lib/stripe/server.ts where that field still exists on the
+// actual API response, so this augments the type to match reality.
+type InvoiceWithPaymentIntent = Stripe.Invoice & {
+  payment_intent: Stripe.PaymentIntent | string | null;
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -87,7 +96,7 @@ export async function POST(request: NextRequest) {
           }
         );
 
-        const latestInvoice = updatedSub.latest_invoice;
+        const latestInvoice = updatedSub.latest_invoice as InvoiceWithPaymentIntent | string | null;
         const paymentIntent =
           typeof latestInvoice === "object" && latestInvoice?.payment_intent
             ? latestInvoice.payment_intent
@@ -130,7 +139,7 @@ export async function POST(request: NextRequest) {
 
     await companyRef.update({ stripeSubscriptionId: subscription.id });
 
-    const latestInvoice = subscription.latest_invoice;
+    const latestInvoice = subscription.latest_invoice as InvoiceWithPaymentIntent | string | null;
     const paymentIntent =
       typeof latestInvoice === "object" && latestInvoice?.payment_intent
         ? latestInvoice.payment_intent

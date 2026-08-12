@@ -6,6 +6,14 @@ import Stripe from "stripe";
 
 const FREE_EMPLOYEE_CAP = 8;
 
+// The installed Stripe SDK's types are generated for its newer default API
+// version, which removed `subscription` from Invoice. We pin an older
+// apiVersion in lib/stripe/server.ts where that field still exists on the
+// actual API response, so this augments the type to match reality.
+type InvoiceWithSubscription = Stripe.Invoice & {
+  subscription: Stripe.Subscription | string | null;
+};
+
 function shuffle<T>(arr: T[]): T[] {
   const copy = [...arr];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -91,7 +99,7 @@ export async function POST(request: NextRequest) {
       }
 
       case "invoice.payment_failed": {
-        const invoice = event.data.object as Stripe.Invoice;
+        const invoice = event.data.object as InvoiceWithSubscription;
         const subscriptionId =
           typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id;
         if (subscriptionId) {
