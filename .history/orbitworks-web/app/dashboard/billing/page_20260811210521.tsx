@@ -467,11 +467,7 @@ export default function BillingPage() {
       {confirmStep === 2 && confirmAction?.type === "cancel" && (
         <ConfirmModal
           title="Are you sure?"
-          message={
-            company && company.activeEmployeeCount > FREE_CAP
-              ? `This cancels your paid subscription immediately and moves your company to the free plan (8 employees). You currently have ${company.activeEmployeeCount} active - ${company.activeEmployeeCount - FREE_CAP} will be automatically deactivated, non-supervisors first.`
-              : "This cancels your paid subscription immediately and moves your company to the free plan."
-          }
+          message="This cancels your paid subscription immediately and moves your company to the free plan."
           confirmLabel="Yes, cancel my plan"
           isDanger
           onCancel={handleCancelConfirm}

@@ -6,6 +6,54 @@ import Stripe from "stripe";
 
 const FREE_EMPLOYEE_CAP = 8;
 
+function shuffle<T>(arr: T[]): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = copy[i];
+    copy[i] = copy[j];
+    copy[j] = tmp;
+  }
+  return copy;
+}
+
+// Reverts a company to the permanent free tier, whether triggered by a
+// deliberate cancel or by Stripe giving up after failed payment retries.
+// If the company is over the free cap, employees are deactivated down to
+// 8 automatically - non-supervisors first (randomly among them),
+// touching supervisors only if that alone isn't enough.
+async function autoRevertToFree(companyId: string) {
+  const companyRef = adminDb.collection("companies").doc(companyId);
+  const employeesRef = companyRef.collection("employees");
+  const activeSnap = await employeesRef.where("active", "==", true).get();
+
+  const employees = activeSnap.docs.map((d) => ({
+    id: d.id,
+    isSupervisor: !!(d.data() as { isSupervisor?: boolean }).isSupervisor,
+  }));
+
+  const excess = employees.length - FREE_EMPLOYEE_CAP;
+
+  if (excess > 0) {
+    const nonSupervisors = shuffle(employees.filter((e) => !e.isSupervisor));
+    const supervisors = shuffle(employees.filter((e) => e.isSupervisor));
+    const toDeactivate = nonSupervisors.concat(supervisors).slice(0, excess);
+
+    const batch = adminDb.batch();
+    toDeactivate.forEach((emp) => {
+      batch.update(employeesRef.doc(emp.id), { active: false });
+    });
+    await batch.commit();
+  }
+
+  await companyRef.update({
+    planTier: "free",
+    employeeCap: FREE_EMPLOYEE_CAP,
+    subscriptionStatus: "active",
+    stripeSubscriptionId: null,
+  });
+}
+
 export async function POST(request: NextRequest) {
   const signature = request.headers.get("stripe-signature");
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -37,12 +85,7 @@ export async function POST(request: NextRequest) {
         const subscription = event.data.object as Stripe.Subscription;
         const companyId = subscription.metadata?.companyId;
         if (companyId) {
-          await adminDb.collection("companies").doc(companyId).update({
-            planTier: "free",
-            employeeCap: FREE_EMPLOYEE_CAP,
-            subscriptionStatus: "active",
-            stripeSubscriptionId: null,
-          });
+          await autoRevertToFree(companyId);
         }
         break;
       }
@@ -64,7 +107,6 @@ export async function POST(request: NextRequest) {
       }
 
       default:
-        // Unhandled event types are fine to ignore.
         break;
     }
 
@@ -90,8 +132,6 @@ async function syncSubscriptionToFirestore(subscription: Stripe.Subscription) {
     stripeSubscriptionId: subscription.id,
   };
 
-  // Only flip planTier/employeeCap once the subscription is actually
-  // active or trialing on Stripe's side - never on incomplete/canceled.
   if (tier && (subscription.status === "active" || subscription.status === "trialing")) {
     update.planTier = tier.key;
     update.employeeCap = tier.employeeCap;
