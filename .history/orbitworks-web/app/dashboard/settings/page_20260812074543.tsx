@@ -397,6 +397,9 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          {/* Supervisor login type */}
+
+
           {error && <p className="text-sm text-red-600">{error}</p>}
           {success && <p className="text-sm text-green-700">{success}</p>}
 
