@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import {
   View,
   Text,
@@ -7,12 +7,14 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import Logo from "../components/Logo";
 
-export default function LoginScreen() {
+export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -28,88 +30,127 @@ export default function LoginScreen() {
       await signInWithEmailAndPassword(auth, email.trim(), password);
       // AuthContext's onAuthStateChanged listener picks this up automatically
     } catch (error) {
-      Alert.alert("Login failed", error.message);
+      if (error?.code === "auth/user-disabled") {
+        Alert.alert(
+          "Account deactivated",
+          "Your account has been deactivated by your company. Contact your administrator for help."
+        );
+      } else {
+        Alert.alert("Login failed", error.message);
+      }
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <View style={styles.container}>
-        <View style={{ alignItems: "center", marginBottom: 8 }}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <View style={styles.container}>
+        <View style={{ alignItems: "center", marginTop: 120, marginBottom: 40 }}>
           <Logo size={40} />
         </View>
-        <Text style={styles.title}>OrbitsWorks</Text>
-        <Text style={styles.subtitle}>Supervisor Login</Text>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Email"
-        autoCapitalize="none"
-        keyboardType="email-address"
-        value={email}
-        onChangeText={setEmail}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Password"
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-      />
+        <Text style={styles.heading}>Login to your Account</Text>
 
-      <TouchableOpacity
-        style={styles.button}
-        onPress={handleLogin}
-        disabled={submitting}
-      >
-        {submitting ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>Log In</Text>
-        )}
-      </TouchableOpacity>
-    </View>
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Email</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="you@company.com"
+            placeholderTextColor="#9ca3af"
+            autoCapitalize="none"
+            keyboardType="email-address"
+            value={email}
+            onChangeText={setEmail}
+          />
+        </View>
+
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Password</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="********"
+            placeholderTextColor="#9ca3af"
+            secureTextEntry
+            value={password}
+            onChangeText={setPassword}
+          />
+        </View>
+
+        <TouchableOpacity
+          style={styles.button}
+          onPress={handleLogin}
+          disabled={submitting}
+        >
+          {submitting ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>Sign In</Text>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.linkButton}
+          onPress={() => navigation.navigate("ForgotPassword")}
+        >
+          <Text style={styles.linkText}>Forgot password?</Text>
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
-    padding: 24,
+    paddingHorizontal: 28,
     backgroundColor: "#fff",
   },
-  title: {
-    fontSize: 28,
+  heading: {
+    fontSize: 20,
     fontWeight: "700",
-    textAlign: "center",
     color: "#111",
+    marginBottom: 28,
   },
-  subtitle: {
-    fontSize: 14,
-    textAlign: "center",
-    color: "#666",
-    marginBottom: 32,
+  fieldGroup: {
+    marginBottom: 18,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 6,
   },
   input: {
-    borderWidth: 1,
-    borderColor: "#d1d5db",
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-    fontSize: 16,
+    backgroundColor: "#f3f4f6",
+    borderRadius: 999,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    fontSize: 15,
+    color: "#111",
   },
   button: {
     backgroundColor: "#3b6fe0",
-    borderRadius: 8,
-    padding: 14,
+    borderRadius: 999,
+    paddingVertical: 15,
     alignItems: "center",
-    marginTop: 8,
+    marginTop: 12,
   },
   buttonText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  linkButton: {
+    marginTop: 18,
+    alignItems: "center",
+  },
+  linkText: {
+    color: "#3b6fe0",
+    fontSize: 14,
+    fontWeight: "500",
   },
 });
