@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
         expand: ["latest_invoice.payment_intent"],
         metadata: { companyId, tierKey: tier.key },
       },
-      { idempotencyKey: `sub-create-${companyId}-${Math.floor(Date.now() / 60000)}` }
+      { idempotencyKey: `sub-create-${companyId}` }
     );
 
     await companyRef.update({ stripeSubscriptionId: subscription.id });
