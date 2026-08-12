@@ -4,8 +4,6 @@ import { getTierByPriceId } from "@/lib/stripe/tiers";
 import { adminDb } from "@/lib/firebase/admin";
 import Stripe from "stripe";
 
-const FREE_EMPLOYEE_CAP = 8;
-
 export async function POST(request: NextRequest) {
   const signature = request.headers.get("stripe-signature");
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;

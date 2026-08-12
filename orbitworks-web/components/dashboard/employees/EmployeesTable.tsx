@@ -1,9 +1,11 @@
-﻿"use client";
+"use client";
 
+import { useState } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import type { Employee, JobSite } from "@/lib/types";
+import { UpgradeToast } from "@/components/UpgradeToast";
 
 export function EmployeesTable({
   employees,
@@ -17,6 +19,7 @@ export function EmployeesTable({
   onSelect: (employee: Employee) => void;
 }) {
   const { userData } = useAuth();
+  const [showUpgradeToast, setShowUpgradeToast] = useState(false);
 
   async function toggleActive(employee: Employee) {
     if (!userData?.companyId) return;
@@ -27,7 +30,17 @@ export function EmployeesTable({
       "employees",
       employee.id
     );
-    await updateDoc(employeeRef, { active: !employee.active });
+    try {
+      await updateDoc(employeeRef, { active: !employee.active });
+    } catch (err: any) {
+      console.error("Toggle employee active error:", err);
+      // Reactivating past the plan's employee cap is blocked by the
+      // Firestore rule with a generic permission-denied - treat that
+      // specifically as the cap message rather than a silent failure.
+      if (err?.code === "permission-denied") {
+        setShowUpgradeToast(true);
+      }
+    }
   }
 
   function siteNames(ids: string[]) {
@@ -133,6 +146,12 @@ export function EmployeesTable({
           </tbody>
         </table>
       )}
+
+      <UpgradeToast
+        visible={showUpgradeToast}
+        onClose={() => setShowUpgradeToast(false)}
+        message="You've reached your employee limit."
+      />
     </div>
   );
 }

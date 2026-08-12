@@ -318,7 +318,7 @@ export const deleteOldClockPhotos = onSchedule("every 24 hours", async () => {
           await bucket.file(filePath).delete({ ignoreNotFound: true });
         }
       } catch (err) {
-        console.error("Failed to delete photo for event " + eventDoc.id + ":", err);
+        console.error(`Failed to delete photo for event ${eventDoc.id}:`, err);
       }
 
       await eventDoc.ref.update({ photoUrl: admin.firestore.FieldValue.delete() });
@@ -326,12 +326,8 @@ export const deleteOldClockPhotos = onSchedule("every 24 hours", async () => {
   }
 });
 
-// Runs once daily late at night. For every company with autoClockOut
-// enabled in Settings, finds employees whose most recent clock event is
-// a still-open "in" from a prior day, and closes it with an "out" event
-// timestamped at that day's business-close time. Note: this uses the
-// server's own clock for day boundaries, same simplification the rest
-// of the app already uses (no per-company timezone stored yet).
+});
+
 export const autoClockOutStaleSessions = onSchedule(
   { schedule: "0 23 * * *", timeZone: "America/Chicago" },
   async () => {
@@ -343,18 +339,13 @@ export const autoClockOutStaleSessions = onSchedule(
         businessHours?: { close?: string };
       };
 
-      if (!company.attendanceRules || !company.attendanceRules.autoClockOut) continue;
+      if (!company.attendanceRules?.autoClockOut) continue;
 
-      const closeTimeStr = company.businessHours && company.businessHours.close
-        ? company.businessHours.close
-        : "17:00";
-      const closeParts = closeTimeStr.split(":").map(Number);
-      const closeH = closeParts[0];
-      const closeM = closeParts[1];
+      const closeTimeStr = company.businessHours?.close ?? "17:00";
+      const [closeH, closeM] = closeTimeStr.split(":").map(Number);
 
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
-
       const lookbackStart = admin.firestore.Timestamp.fromMillis(
         todayStart.getTime() - 3 * 24 * 60 * 60 * 1000
       );
@@ -365,15 +356,10 @@ export const autoClockOutStaleSessions = onSchedule(
         .orderBy("timestamp", "desc")
         .get();
 
-      type LatestEvent = {
-        type: string;
-        timestamp: admin.firestore.Timestamp;
-        siteId: string | null;
-        siteName: string;
-        employeeName: string;
-      };
-
-      const latestByEmployee = new Map<string, LatestEvent>();
+      const latestByEmployee = new Map
+        string,
+        { type: string; timestamp: admin.firestore.Timestamp; siteId: string | null; siteName: string; employeeName: string }
+      >();
 
       recentEventsSnap.docs.forEach((eventDoc) => {
         const data = eventDoc.data() as {
@@ -402,14 +388,14 @@ export const autoClockOutStaleSessions = onSchedule(
         if (latest.type !== "in") return;
 
         const eventDate = latest.timestamp.toDate();
-        if (eventDate >= todayStart) return;
+        if (eventDate >= todayStart) return; // still today, not stale
 
         const closeTimestamp = new Date(eventDate);
         closeTimestamp.setHours(closeH, closeM, 0, 0);
 
         const newEventRef = companyDoc.ref.collection("clockEvents").doc();
         batch.set(newEventRef, {
-          employeeId: employeeId,
+          employeeId,
           employeeName: latest.employeeName,
           siteId: latest.siteId,
           siteName: latest.siteName,

@@ -4,8 +4,6 @@ import { getTierByPriceId } from "@/lib/stripe/tiers";
 import { adminDb } from "@/lib/firebase/admin";
 import Stripe from "stripe";
 
-const FREE_EMPLOYEE_CAP = 8;
-
 export async function POST(request: NextRequest) {
   const signature = request.headers.get("stripe-signature");
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -38,10 +36,7 @@ export async function POST(request: NextRequest) {
         const companyId = subscription.metadata?.companyId;
         if (companyId) {
           await adminDb.collection("companies").doc(companyId).update({
-            planTier: "free",
-            employeeCap: FREE_EMPLOYEE_CAP,
-            subscriptionStatus: "active",
-            stripeSubscriptionId: null,
+            subscriptionStatus: "canceled",
           });
         }
         break;
