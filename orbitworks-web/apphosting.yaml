@@ -1,0 +1,49 @@
+runConfig:
+  minInstances: 0
+  maxInstances: 3
+env:
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: "AIzaSyDM0Zpi2XTiWjrqwwVQwQjPCbdu4QLYRUE"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: "orbitworks-7ef59.firebaseapp.com"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: "orbitworks-7ef59"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: "orbitworks-7ef59.firebasestorage.app"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "248478616055"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: "1:248478616055:web:53a3de3a6b2632f61ac6f2"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: FIREBASE_ADMIN_PROJECT_ID
+    secret: FIREBASE_ADMIN_PROJECT_ID
+  - variable: FIREBASE_ADMIN_CLIENT_EMAIL
+    secret: FIREBASE_ADMIN_CLIENT_EMAIL
+  - variable: FIREBASE_ADMIN_PRIVATE_KEY
+    secret: FIREBASE_ADMIN_PRIVATE_KEY
+  - variable: STRIPE_SECRET_KEY
+    secret: STRIPE_SECRET_KEY
+  - variable: STRIPE_WEBHOOK_SECRET
+    secret: STRIPE_WEBHOOK_SECRET
+  - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    value: "pk_test_51R1W6PPsetz2ehJiHg4wprXYgoz4NECc74GhrudqOaJRSP0oOVakFMCPrhHbPsLoQdRHfUsqYQf9sOsOIlp7YjmA00wi4DkBkb"
+    availability:
+      - BUILD
+      - RUNTIME
