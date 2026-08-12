@@ -43,16 +43,7 @@ export default function LoginPage() {
     setError("");
     setIsSubmitting(true);
     try {
-      const credential = await signInWithEmailAndPassword(auth, email, password);
-      const tokenResult = await credential.user.getIdTokenResult(true);
-      const role = tokenResult.claims.role as string | undefined;
-
-      if (role === "supervisor") {
-        await signOut(auth);
-        router.push("/mobile-only");
-        return;
-      }
-
+      await signInWithEmailAndPassword(auth, email, password);
       router.push("/dashboard");
     } catch (err) {
       console.error("Login error:", err);

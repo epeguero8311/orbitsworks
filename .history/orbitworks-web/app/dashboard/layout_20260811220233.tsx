@@ -75,7 +75,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!currentUser || userData?.role === "supervisor") {
+  if (!currentUser) {
     return null;
   }
 
