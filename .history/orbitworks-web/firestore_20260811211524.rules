@@ -34,16 +34,7 @@ service cloud.firestore {
       allow create: if false;
       allow update: if request.auth != null &&
         request.auth.token.role == 'admin' &&
-        request.auth.token.companyId == companyId &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'planTier',
-          'employeeCap',
-          'subscriptionStatus',
-          'activeEmployeeCount',
-          'stripeCustomerId',
-          'stripeSubscriptionId',
-          'trialEndsAt'
-        ]);
+        request.auth.token.companyId == companyId;
       allow delete: if false;
 
       match /jobSites/{siteId} {
