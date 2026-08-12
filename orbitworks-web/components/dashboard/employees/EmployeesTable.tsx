@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import type { Employee, JobSite } from "@/lib/types";
 import { UpgradeToast } from "@/components/UpgradeToast";
@@ -23,21 +23,12 @@ export function EmployeesTable({
 
   async function toggleActive(employee: Employee) {
     if (!userData?.companyId) return;
-    const employeeRef = doc(
-      db,
-      "companies",
-      userData.companyId,
-      "employees",
-      employee.id
-    );
     try {
-      await updateDoc(employeeRef, { active: !employee.active });
+      const setEmployeeActive = httpsCallable(functions, "setEmployeeActive");
+      await setEmployeeActive({ employeeId: employee.id, active: !employee.active });
     } catch (err: any) {
       console.error("Toggle employee active error:", err);
-      // Reactivating past the plan's employee cap is blocked by the
-      // Firestore rule with a generic permission-denied - treat that
-      // specifically as the cap message rather than a silent failure.
-      if (err?.code === "permission-denied") {
+      if (err?.code === "functions/resource-exhausted") {
         setShowUpgradeToast(true);
       }
     }

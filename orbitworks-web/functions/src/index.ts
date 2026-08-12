@@ -196,6 +196,66 @@ export const acceptInvite = onCall(async (request) => {
   return { companyId: invite.companyId };
 });
 
+export const setEmployeeActive = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if (callerRole !== "admin" || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
+  const active = !!(request.data && request.data.active);
+  if (!employeeId) {
+    throw new HttpsError("invalid-argument", "employeeId is required.");
+  }
+
+  const employeeRef = db
+    .collection("companies")
+    .doc(callerCompanyId)
+    .collection("employees")
+    .doc(employeeId);
+  const employeeSnap = await employeeRef.get();
+  if (!employeeSnap.exists) {
+    throw new HttpsError("not-found", "Employee not found.");
+  }
+  const employee = employeeSnap.data() as {
+    linkedUserId?: string;
+    active?: boolean;
+  };
+
+  if (active && employee.active !== true) {
+    const companySnap = await db.collection("companies").doc(callerCompanyId).get();
+    const company = companySnap.data() as
+      | { employeeCap?: number | null; activeEmployeeCount?: number; subscriptionStatus?: string }
+      | undefined;
+    const cap = company?.employeeCap ?? null;
+    const currentCount = company?.activeEmployeeCount ?? 0;
+    if (company?.subscriptionStatus === "past_due") {
+      throw new HttpsError("failed-precondition", "Subscription is past due.");
+    }
+    if (cap !== null && currentCount >= cap) {
+      throw new HttpsError("resource-exhausted", "This company has reached its employee limit.");
+    }
+  }
+
+  await employeeRef.update({ active: active });
+
+  const linkedUserId = employee.linkedUserId;
+  if (linkedUserId) {
+    if (!active) {
+      await admin.auth().updateUser(linkedUserId, { disabled: true });
+      await admin.auth().revokeRefreshTokens(linkedUserId);
+    } else {
+      await admin.auth().updateUser(linkedUserId, { disabled: false });
+    }
+  }
+
+  return { success: true };
+});
+
 export const verifyPin = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -287,10 +347,6 @@ export const onEmployeeWrite = onDocumentWritten(
   }
 );
 
-// Runs once daily. Finds clock event photos older than the retention
-// window, deletes the file from Storage, and clears photoUrl on the
-// record so the event itself stays intact for reporting but the image
-// is gone - matching the Privacy Policy's stated retention period.
 export const deleteOldClockPhotos = onSchedule("every 24 hours", async () => {
   const cutoff = admin.firestore.Timestamp.fromMillis(
     Date.now() - PHOTO_RETENTION_DAYS * 24 * 60 * 60 * 1000
@@ -326,12 +382,6 @@ export const deleteOldClockPhotos = onSchedule("every 24 hours", async () => {
   }
 });
 
-// Runs once daily late at night. For every company with autoClockOut
-// enabled in Settings, finds employees whose most recent clock event is
-// a still-open "in" from a prior day, and closes it with an "out" event
-// timestamped at that day's business-close time. Note: this uses the
-// server's own clock for day boundaries, same simplification the rest
-// of the app already uses (no per-company timezone stored yet).
 export const autoClockOutStaleSessions = onSchedule(
   { schedule: "0 23 * * *", timeZone: "America/Chicago" },
   async () => {

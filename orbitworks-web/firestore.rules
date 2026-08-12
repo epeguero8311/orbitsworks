@@ -15,6 +15,10 @@ service cloud.firestore {
       return companyOf(companyId).subscriptionStatus != 'past_due';
     }
 
+    function isActiveEmployee(companyId, uid) {
+      return get(/databases/$(database)/documents/companies/$(companyId)/employees/$(uid)).data.active == true;
+    }
+
     match /users/{userId} {
       allow read: if request.auth != null && (
         request.auth.uid == userId ||
@@ -69,7 +73,11 @@ service cloud.firestore {
           request.auth.token.companyId == companyId;
         allow create: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          (request.auth.token.role == 'admin' || request.auth.token.role == 'supervisor') &&
+          (
+            request.auth.token.role == 'admin' ||
+            (request.auth.token.role == 'supervisor' &&
+             isActiveEmployee(companyId, request.auth.uid))
+          ) &&
           request.resource.data.createdByUid == request.auth.uid;
         allow update, delete: if request.auth != null &&
           request.auth.token.role == 'admin' &&
