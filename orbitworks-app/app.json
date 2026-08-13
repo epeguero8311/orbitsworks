@@ -13,7 +13,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.orbitworks.app"
+      "bundleIdentifier": "com.orbitworks.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.orbitworks.app",
@@ -22,7 +25,11 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -34,6 +41,11 @@
           "cameraPermission": "OrbitWorks needs camera access to capture proof photos for clock-ins."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "b0246607-adc6-477f-aae8-39ea905373e8"
+      }
+    }
   }
 }
