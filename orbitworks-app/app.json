@@ -40,7 +40,8 @@
         {
           "cameraPermission": "OrbitWorks needs camera access to capture proof photos for clock-ins."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {
