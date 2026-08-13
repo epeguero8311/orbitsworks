@@ -12,9 +12,11 @@
       "backgroundColor": "#3b6fe0"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.orbitworks.app"
     },
     "android": {
+      "package": "com.orbitworks.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
