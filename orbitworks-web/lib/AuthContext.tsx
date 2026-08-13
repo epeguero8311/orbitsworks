@@ -8,7 +8,7 @@ import {
   ReactNode,
 } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
 type UserRole = "admin" | "supervisor";
@@ -43,27 +43,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let unsubscribeUserDoc: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      // Clean up any previous user doc listener before attaching a new one.
+      if (unsubscribeUserDoc) {
+        unsubscribeUserDoc();
+        unsubscribeUserDoc = null;
+      }
+
       setCurrentUser(user);
 
       if (user) {
-        // Look up the matching Firestore "users" doc for role/company info.
+        // Use a live listener rather than a one-time getDoc. Right after
+        // signup, the users doc may not exist for a brief moment while
+        // createCompany is still running server-side - a one-time getDoc
+        // would race that and permanently miss it. onSnapshot picks up
+        // the doc as soon as it's created, with no reload required.
         const userDocRef = doc(db, "users", user.uid);
-        const userDocSnap = await getDoc(userDocRef);
-
-        if (userDocSnap.exists()) {
-          setUserData(userDocSnap.data() as UserData);
-        } else {
-          setUserData(null);
-        }
+        unsubscribeUserDoc = onSnapshot(
+          userDocRef,
+          (snapshot) => {
+            if (snapshot.exists()) {
+              setUserData(snapshot.data() as UserData);
+            } else {
+              setUserData(null);
+            }
+            setLoading(false);
+          },
+          (error) => {
+            console.error("User doc listener error:", error);
+            setUserData(null);
+            setLoading(false);
+          }
+        );
       } else {
         setUserData(null);
+        setLoading(false);
       }
-
-      setLoading(false);
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeUserDoc) {
+        unsubscribeUserDoc();
+      }
+    };
   }, []);
 
   return (
