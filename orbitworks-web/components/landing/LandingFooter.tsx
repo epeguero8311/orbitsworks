@@ -11,6 +11,9 @@ export default function LandingFooter() {
             <span className="text-sm font-semibold text-gray-950">Orbitsworks</span>
           </div>
           <nav className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-gray-600">
+            <Link href="/support" className="hover:text-gray-950">
+              Support
+            </Link>
             <Link href="/privacy" className="hover:text-gray-950">
               Privacy Policy
             </Link>
