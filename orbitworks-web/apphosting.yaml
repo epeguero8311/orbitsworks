@@ -43,7 +43,4 @@ env:
   - variable: STRIPE_WEBHOOK_SECRET
     secret: STRIPE_WEBHOOK_SECRET
   - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-    value: "pk_test_51R1W6PPsetz2ehJiHg4wprXYgoz4NECc74GhrudqOaJRSP0oOVakFMCPrhHbPsLoQdRHfUsqYQf9sOsOIlp7YjmA00wi4DkBkb"
-    availability:
-      - BUILD
-      - RUNTIME
+    secret: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
