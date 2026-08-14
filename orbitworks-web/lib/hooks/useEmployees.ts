@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import type { Employee } from "@/lib/types";
 
@@ -42,5 +43,24 @@ export function useEmployees() {
     return unsubscribe;
   }, [userData?.companyId]);
 
-  return { employees, loading };
+  const toggleEmployeeActive = useCallback(
+    async (employeeId: string, active: boolean) => {
+      setEmployees((prev) =>
+        prev.map((e) => (e.id === employeeId ? { ...e, active } : e))
+      );
+
+      try {
+        const setEmployeeActiveFn = httpsCallable(functions, "setEmployeeActive");
+        await setEmployeeActiveFn({ employeeId, active });
+      } catch (err) {
+        setEmployees((prev) =>
+          prev.map((e) => (e.id === employeeId ? { ...e, active: !active } : e))
+        );
+        throw err;
+      }
+    },
+    []
+  );
+
+  return { employees, loading, toggleEmployeeActive };
 }

@@ -12,7 +12,7 @@ import type { Employee } from "@/lib/types";
 
 export default function EmployeesPage() {
   const { userData } = useAuth();
-  const { employees, loading } = useEmployees();
+  const { employees, loading, toggleEmployeeActive } = useEmployees();
   const { sites } = useSites();
   const activeSites = sites.filter((s) => s.active);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
@@ -20,6 +20,7 @@ export default function EmployeesPage() {
   const employeeForModal = selectedEmployee
     ? employees.find((e) => e.id === selectedEmployee.id) ?? selectedEmployee
     : null;
+  const employeeLimit: number | undefined = undefined;
 
   return (
     <div>
@@ -39,6 +40,8 @@ export default function EmployeesPage() {
           sites={activeSites}
           loading={loading}
           onSelect={setSelectedEmployee}
+          onToggleActive={toggleEmployeeActive}
+          employeeLimit={employeeLimit}
         />
       </div>
 

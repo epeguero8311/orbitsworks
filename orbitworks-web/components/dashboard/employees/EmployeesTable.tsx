@@ -1,9 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { httpsCallable } from "firebase/functions";
-import { functions } from "@/lib/firebase";
-import { useAuth } from "@/lib/AuthContext";
 import type { Employee, JobSite } from "@/lib/types";
 import { UpgradeToast } from "@/components/UpgradeToast";
 
@@ -12,20 +9,27 @@ export function EmployeesTable({
   sites,
   loading,
   onSelect,
+  onToggleActive,
+  // TODO: wire this to the real per-tier employee cap once we know where
+  // it lives (company doc field vs. a tiers config keyed by planTier).
+  // Leaving it undefined suppresses the "/ max" suffix so nothing breaks
+  // in the meantime.
+  employeeLimit,
 }: {
   employees: Employee[];
   sites: JobSite[];
   loading: boolean;
   onSelect: (employee: Employee) => void;
+  onToggleActive: (employeeId: string, active: boolean) => Promise<void>;
+  employeeLimit?: number;
 }) {
-  const { userData } = useAuth();
   const [showUpgradeToast, setShowUpgradeToast] = useState(false);
 
+  const activeCount = employees.filter((e) => e.active).length;
+
   async function toggleActive(employee: Employee) {
-    if (!userData?.companyId) return;
     try {
-      const setEmployeeActive = httpsCallable(functions, "setEmployeeActive");
-      await setEmployeeActive({ employeeId: employee.id, active: !employee.active });
+      await onToggleActive(employee.id, !employee.active);
     } catch (err: any) {
       console.error("Toggle employee active error:", err);
       if (err?.code === "functions/resource-exhausted") {
@@ -44,7 +48,7 @@ export function EmployeesTable({
 
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-      <div className="border-b border-gray-200 px-6 py-4">
+      <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
         <h2 className="text-base font-semibold text-gray-950">
           All employees
           {!loading && (
@@ -53,6 +57,12 @@ export function EmployeesTable({
             </span>
           )}
         </h2>
+        {!loading && employees.length > 0 && (
+          <span className="text-sm font-medium text-gray-600">
+            Active: {activeCount}
+            {employeeLimit != null ? ` / ${employeeLimit}` : ""}
+          </span>
+        )}
       </div>
 
       {loading ? (
