@@ -23,13 +23,41 @@ export async function POST(request: NextRequest) {
     if (!companySnap.exists) {
       return NextResponse.json({ error: "Company not found." }, { status: 404 });
     }
-    const company = companySnap.data() as { stripeCustomerId?: string | null };
-    if (!company.stripeCustomerId) {
-      return NextResponse.json({ error: "No billing account on file yet." }, { status: 400 });
+    const company = companySnap.data() as {
+      stripeCustomerId?: string | null;
+      name?: string;
+    };
+
+    let stripeCustomerId = company.stripeCustomerId ?? null;
+
+    if (stripeCustomerId) {
+      try {
+        await stripe.customers.retrieve(stripeCustomerId);
+      } catch (err: any) {
+        if (err?.code === "resource_missing") {
+          console.warn(
+            `Stripe customer ${stripeCustomerId} not found for company ${companyId}. Creating a new one (likely test/live mode mismatch or deleted customer).`
+          );
+          stripeCustomerId = null;
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    if (!stripeCustomerId) {
+      const decodedEmail = decoded.email as string | undefined;
+      const newCustomer = await stripe.customers.create({
+        name: company.name || undefined,
+        email: decodedEmail,
+        metadata: { companyId },
+      });
+      stripeCustomerId = newCustomer.id;
+      await companyRef.update({ stripeCustomerId });
     }
 
     const setupIntent = await stripe.setupIntents.create({
-      customer: company.stripeCustomerId,
+      customer: stripeCustomerId,
       payment_method_types: ["card"],
     });
 

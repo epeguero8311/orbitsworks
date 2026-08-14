@@ -14,10 +14,12 @@ import {
 import { db, auth } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { PRICE_TIERS } from "@/lib/stripe/tiers";
+import { usePaymentMethod } from "@/lib/hooks/usePaymentMethod";
 import CheckoutModal from "@/components/dashboard/billing/CheckoutModal";
 import DowngradeModal from "@/components/dashboard/billing/DowngradeModal";
 import ConfirmModal from "@/components/dashboard/billing/ConfirmModal";
 import UpdatePaymentModal from "@/components/dashboard/billing/UpdatePaymentModal";
+import PaymentMethodCard from "@/components/dashboard/billing/PaymentMethodCard";
 
 const FREE_CAP = 8;
 
@@ -65,6 +67,13 @@ export default function BillingPage() {
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [confirmStep, setConfirmStep] = useState<0 | 1 | 2>(0);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
+
+  const {
+    paymentMethod,
+    loading: paymentMethodLoading,
+    error: paymentMethodError,
+    reload: reloadPaymentMethod,
+  } = usePaymentMethod(userData?.companyId);
 
   async function loadCompany() {
     if (!userData?.companyId) return;
@@ -310,6 +319,7 @@ export default function BillingPage() {
   function handleUpdatePaymentSuccess() {
     setSetupClientSecret(null);
     pollForUpdate();
+    reloadPaymentMethod();
   }
 
   const isFreePlan = company?.planTier === "free";
@@ -376,6 +386,14 @@ export default function BillingPage() {
               </button>
             )}
           </div>
+
+          <PaymentMethodCard
+            paymentMethod={paymentMethod}
+            loading={paymentMethodLoading}
+            error={paymentMethodError}
+            busy={busy === "update-payment"}
+            onUpdateClick={handleUpdatePaymentClick}
+          />
 
           <div className="rounded-xl border border-gray-200 bg-white p-6">
             <h2 className="text-base font-semibold text-gray-950">Plans</h2>
