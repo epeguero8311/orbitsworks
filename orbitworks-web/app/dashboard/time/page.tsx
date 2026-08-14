@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { useEffect, useMemo, useState, FormEvent } from "react";
 import {
   collection,
   onSnapshot,
@@ -19,6 +19,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { ClockEvent, Employee, JobSite } from "@/lib/types";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
+
 export default function TimeTrackingPage() {
   const { currentUser, userData } = useAuth();
   const { settings } = useCompanySettings();
@@ -115,13 +116,66 @@ export default function TimeTrackingPage() {
     return unsubscribe;
   }, [userData?.companyId]);
 
+  // Most recent known clock status per employee, derived from the recent
+  // events feed (events are ordered desc, so the first match per employee
+  // is their latest event). Employees with no event on record are treated
+  // as "out" - they've never clocked in, so clocking in is the valid action.
+  const employeeStatusMap = useMemo(() => {
+    const map: Record<string, "in" | "out"> = {};
+    for (const ev of events) {
+      if (!(ev.employeeId in map)) {
+        map[ev.employeeId] = ev.type;
+      }
+    }
+    return map;
+  }, [events]);
+
+  function statusOf(id: string): "in" | "out" {
+    return employeeStatusMap[id] ?? "out";
+  }
+
+  // An employee is eligible for a given direction only if their current
+  // status is the opposite of it - can't clock in someone already in.
+  function isEligibleFor(id: string, direction: "in" | "out") {
+    const status = statusOf(id);
+    return direction === "in" ? status === "out" : status === "in";
+  }
+
   const filteredEmployees = employees
     .filter((e) => (siteId ? e.assignedSiteIds?.includes(siteId) : true))
     .filter((e) =>
       searchQuery.trim()
         ? e.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
         : true
-    );
+    )
+    .filter((e) => isEligibleFor(e.id, type));
+
+  // If site/search filters change and the selected employee drops out of
+  // the eligible list, clear the selection rather than leave a stale value
+  // sitting in state that no longer matches what's shown in the dropdown.
+  useEffect(() => {
+    if (employeeId && !filteredEmployees.some((e) => e.id === employeeId)) {
+      setEmployeeId("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteId, searchQuery]);
+
+  function handleSelectEmployee(id: string) {
+    setEmployeeId(id);
+    if (id) {
+      // Force the direction to whatever is actually valid for this
+      // employee, regardless of whichever button was active before.
+      setType(statusOf(id) === "in" ? "out" : "in");
+    }
+  }
+
+  function handleSelectType(next: "in" | "out") {
+    // Once an employee is selected, direction is locked to whatever's
+    // valid for them - the other button is disabled, this is just a
+    // safety no-op in case it's clicked programmatically.
+    if (employeeId && !isEligibleFor(employeeId, next)) return;
+    setType(next);
+  }
 
   async function handleManualClock(e: FormEvent) {
     e.preventDefault();
@@ -135,6 +189,16 @@ export default function TimeTrackingPage() {
       const site = sites.find((s) => s.id === siteId);
       if (!employee) {
         setError("Select an employee.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!isEligibleFor(employee.id, type)) {
+        setError(
+          type === "in"
+            ? `${employee.name} is already clocked in.`
+            : `${employee.name} is already clocked out.`
+        );
         setIsSubmitting(false);
         return;
       }
@@ -195,7 +259,9 @@ export default function TimeTrackingPage() {
       setSiteId("");
       setSearchQuery("");
       setNote("");
-      setType("in");
+      // Direction is left as-is on purpose - if you just clocked someone
+      // out, the form stays on "Clock out" for the next person instead of
+      // snapping back to "Clock in".
     } catch (err) {
       console.error("Manual clock event error:", err);
       setError("Couldn't record the clock event. Try again.");
@@ -296,6 +362,9 @@ export default function TimeTrackingPage() {
   const displayedEvents = lookupResults ?? events;
   const displayedLabel = lookupResults ? "Search results" : "Recent clock events";
 
+  const clockInDisabled = !!employeeId && !isEligibleFor(employeeId, "in");
+  const clockOutDisabled = !!employeeId && !isEligibleFor(employeeId, "out");
+
   return (
     <div>
       <h1 className="text-xl font-semibold text-gray-950">Time Tracking</h1>
@@ -319,6 +388,49 @@ export default function TimeTrackingPage() {
           face-matched clock events.
         </p>
 
+        <div className="mb-4">
+          <span className="mb-1.5 block text-sm font-medium text-gray-950">
+            Clock direction
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => handleSelectType("in")}
+              disabled={clockInDisabled}
+              className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors ${
+                type === "in"
+                  ? "border-accent bg-accent/10 text-accent"
+                  : clockInDisabled
+                  ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
+                  : "border-gray-200 text-gray-600 hover:border-gray-300"
+              }`}
+            >
+              Clock in
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectType("out")}
+              disabled={clockOutDisabled}
+              className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors ${
+                type === "out"
+                  ? "border-accent bg-accent/10 text-accent"
+                  : clockOutDisabled
+                  ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
+                  : "border-gray-200 text-gray-600 hover:border-gray-300"
+              }`}
+            >
+              Clock out
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-gray-600">
+            {employeeId
+              ? "Direction is locked to this employee's current status."
+              : type === "in"
+              ? "Showing employees who are currently clocked out."
+              : "Showing employees who are currently clocked in."}
+          </p>
+        </div>
+
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label
@@ -330,10 +442,7 @@ export default function TimeTrackingPage() {
             <select
               id="siteSelect"
               value={siteId}
-              onChange={(e) => {
-                setSiteId(e.target.value);
-                setEmployeeId("");
-              }}
+              onChange={(e) => setSiteId(e.target.value)}
               className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             >
               <option value="">All sites</option>
@@ -377,12 +486,14 @@ export default function TimeTrackingPage() {
             id="employeeSelect"
             required
             value={employeeId}
-            onChange={(e) => setEmployeeId(e.target.value)}
+            onChange={(e) => handleSelectEmployee(e.target.value)}
             className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
             <option value="">
               {filteredEmployees.length === 0
-                ? "No matching employees"
+                ? type === "in"
+                  ? "No employees available to clock in"
+                  : "No employees available to clock out"
                 : "Select an employee..."}
             </option>
             {filteredEmployees.map((emp) => (
@@ -391,36 +502,6 @@ export default function TimeTrackingPage() {
               </option>
             ))}
           </select>
-        </div>
-
-        <div className="mt-4">
-          <span className="mb-1.5 block text-sm font-medium text-gray-950">
-            Clock direction
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setType("in")}
-              className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors ${
-                type === "in"
-                  ? "border-accent bg-accent/10 text-accent"
-                  : "border-gray-200 text-gray-600 hover:border-gray-300"
-              }`}
-            >
-              Clock in
-            </button>
-            <button
-              type="button"
-              onClick={() => setType("out")}
-              className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors ${
-                type === "out"
-                  ? "border-accent bg-accent/10 text-accent"
-                  : "border-gray-200 text-gray-600 hover:border-gray-300"
-              }`}
-            >
-              Clock out
-            </button>
-          </div>
         </div>
 
         <div className="mt-4">
@@ -445,7 +526,7 @@ export default function TimeTrackingPage() {
 
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || !employeeId}
           className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
         >
           {isSubmitting ? "Recording..." : "Record clock event"}
