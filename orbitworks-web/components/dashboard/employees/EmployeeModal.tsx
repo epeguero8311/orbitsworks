@@ -1,26 +1,31 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
-import type { Employee, JobSite } from "@/lib/types";
+import type { Employee, JobSite, Job } from "@/lib/types";
 
 export function EmployeeModal({
   employee,
   sites,
+  jobs,
   companyId,
   onClose,
 }: {
   employee: Employee;
   sites: JobSite[];
+  jobs: Job[];
   companyId: string;
   onClose: () => void;
 }) {
   const [name, setName] = useState(employee.name);
-  const [jobTitle, setJobTitle] = useState(employee.jobTitle ?? "");
-  const [hourlyRate, setHourlyRate] = useState(
-    employee.hourlyRate != null ? String(employee.hourlyRate) : ""
+  const [jobId, setJobId] = useState<string | null>(employee.jobId ?? null);
+  const [customJobTitle, setCustomJobTitle] = useState(
+    employee.jobId ? "" : employee.jobTitle ?? ""
+  );
+  const [customHourlyRate, setCustomHourlyRate] = useState(
+    employee.jobId ? "" : employee.hourlyRate != null ? String(employee.hourlyRate) : ""
   );
   const [phone, setPhone] = useState(employee.phone ?? "");
   const [dob, setDob] = useState(employee.dob ?? "");
@@ -36,6 +41,15 @@ export function EmployeeModal({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+
+  // Include the employee's currently assigned job even if it has since
+  // been deactivated, so it does not disappear from the dropdown.
+  const selectableJobs = jobs.filter((j) => j.active || j.id === employee.jobId);
+  const selectedJob = jobs.find((j) => j.id === jobId) ?? null;
+
+  function handleJobSelect(value: string) {
+    setJobId(value === "" ? null : value);
+  }
 
   function toggleSite(siteId: string) {
     setSelectedSiteIds((prev) =>
@@ -59,10 +73,18 @@ export function EmployeeModal({
     try {
       const employeeRef = doc(db, "companies", companyId, "employees", employee.id);
 
+      const jobTitleToSave = selectedJob ? selectedJob.name : customJobTitle.trim();
+      const hourlyRateToSave = selectedJob
+        ? null
+        : customHourlyRate.trim()
+        ? parseFloat(customHourlyRate.trim())
+        : null;
+
       const updates: Record<string, unknown> = {
         name: name.trim(),
-        jobTitle: jobTitle.trim(),
-        hourlyRate: hourlyRate.trim() ? parseFloat(hourlyRate.trim()) : null,
+        jobId: jobId,
+        jobTitle: jobTitleToSave,
+        hourlyRate: hourlyRateToSave,
         phone: phone.trim(),
         dob: dob || null,
         assignedSiteIds: selectedSiteIds,
@@ -176,25 +198,54 @@ export function EmployeeModal({
             <label className="mb-2 block text-sm font-medium text-gray-950">
               Job title
             </label>
-            <input
-              type="text"
-              value={jobTitle}
-              onChange={(e) => setJobTitle(e.target.value)}
+            <select
+              value={jobId ?? ""}
+              onChange={(e) => handleJobSelect(e.target.value)}
               className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            />
+            >
+              <option value="">Custom</option>
+              {selectableJobs.map((job) => (
+                <option key={job.id} value={job.id}>
+                  {job.name} - ${job.hourlyRate.toFixed(2)}/hr
+                </option>
+              ))}
+            </select>
+            {jobId === null && (
+              <input
+                type="text"
+                value={customJobTitle}
+                onChange={(e) => setCustomJobTitle(e.target.value)}
+                className="mt-2 w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                placeholder="Site Technician"
+              />
+            )}
           </div>
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-950">
               Hourly rate
             </label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={hourlyRate}
-              onChange={(e) => setHourlyRate(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            />
+            {selectedJob ? (
+              <input
+                type="text"
+                disabled
+                value={`$${selectedJob.hourlyRate.toFixed(2)}/hr`}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm text-gray-600"
+              />
+            ) : (
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={customHourlyRate}
+                onChange={(e) => setCustomHourlyRate(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              />
+            )}
+            {selectedJob && (
+              <p className="mt-1 text-xs text-gray-600">
+                Rate is set by the job title. Choose Custom to edit manually.
+              </p>
+            )}
           </div>
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-950">

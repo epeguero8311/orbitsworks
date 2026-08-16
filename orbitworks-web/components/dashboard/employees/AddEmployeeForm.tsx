@@ -5,21 +5,29 @@ import { collection, addDoc, doc, updateDoc, getDocs, serverTimestamp } from "fi
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
-import type { JobSite } from "@/lib/types";
+import type { JobSite, Job } from "@/lib/types";
 import { generateUniquePin } from "@/lib/pinUtils";
 import { UpgradeToast } from "@/components/UpgradeToast";
 
-export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
+export function AddEmployeeForm({ sites, jobs }: { sites: JobSite[]; jobs: Job[] }) {
   const { userData } = useAuth();
   const [name, setName] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
-  const [hourlyRate, setHourlyRate] = useState("");
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [customJobTitle, setCustomJobTitle] = useState("");
+  const [customHourlyRate, setCustomHourlyRate] = useState("");
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [createdPin, setCreatedPin] = useState<string | null>(null);
   const [showUpgradeToast, setShowUpgradeToast] = useState(false);
+
+  const activeJobs = jobs.filter((j) => j.active);
+  const selectedJob = jobs.find((j) => j.id === jobId) ?? null;
+
+  function handleJobSelect(value: string) {
+    setJobId(value === "" ? null : value);
+  }
 
   function toggleSite(siteId: string) {
     setSelectedSiteIds((prev) =>
@@ -53,11 +61,19 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
       );
       const pin = generateUniquePin(existingPins);
 
+      const jobTitleToSave = selectedJob ? selectedJob.name : customJobTitle.trim();
+      const hourlyRateToSave = selectedJob
+        ? null
+        : customHourlyRate.trim()
+        ? parseFloat(customHourlyRate.trim())
+        : null;
+
       const employeeDoc = await addDoc(employeesRef, {
         name: name.trim(),
-        jobTitle: jobTitle.trim(),
+        jobId: jobId,
+        jobTitle: jobTitleToSave,
         assignedSiteIds: selectedSiteIds,
-        hourlyRate: hourlyRate.trim() ? parseFloat(hourlyRate.trim()) : null,
+        hourlyRate: hourlyRateToSave,
         active: true,
         pin,
         createdAt: serverTimestamp(),
@@ -75,8 +91,9 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
 
       setCreatedPin(pin);
       setName("");
-      setJobTitle("");
-      setHourlyRate("");
+      setJobId(null);
+      setCustomJobTitle("");
+      setCustomHourlyRate("");
       setSelectedSiteIds([]);
       setPhotoFile(null);
     } catch (err: any) {
@@ -128,14 +145,28 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
           >
             Job title (optional)
           </label>
-          <input
+          <select
             id="empTitle"
-            type="text"
-            value={jobTitle}
-            onChange={(e) => setJobTitle(e.target.value)}
+            value={jobId ?? ""}
+            onChange={(e) => handleJobSelect(e.target.value)}
             className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            placeholder="Site Technician"
-          />
+          >
+            <option value="">Custom</option>
+            {activeJobs.map((job) => (
+              <option key={job.id} value={job.id}>
+                {job.name} - ${job.hourlyRate.toFixed(2)}/hr
+              </option>
+            ))}
+          </select>
+          {jobId === null && (
+            <input
+              type="text"
+              value={customJobTitle}
+              onChange={(e) => setCustomJobTitle(e.target.value)}
+              className="mt-2 w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              placeholder="Site Technician"
+            />
+          )}
         </div>
 
         <div>
@@ -145,16 +176,31 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
           >
             Hourly rate (optional)
           </label>
-          <input
-            id="empRate"
-            type="number"
-            step="0.01"
-            min="0"
-            value={hourlyRate}
-            onChange={(e) => setHourlyRate(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            placeholder="e.g. 22.50"
-          />
+          {selectedJob ? (
+            <input
+              id="empRate"
+              type="text"
+              disabled
+              value={`$${selectedJob.hourlyRate.toFixed(2)}/hr`}
+              className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm text-gray-600"
+            />
+          ) : (
+            <input
+              id="empRate"
+              type="number"
+              step="0.01"
+              min="0"
+              value={customHourlyRate}
+              onChange={(e) => setCustomHourlyRate(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              placeholder="e.g. 22.50"
+            />
+          )}
+          {selectedJob && (
+            <p className="mt-1 text-xs text-gray-600">
+              Rate is set by the job title. Choose Custom to edit manually.
+            </p>
+          )}
         </div>
       </div>
 
@@ -164,7 +210,7 @@ export function AddEmployeeForm({ sites }: { sites: JobSite[] }) {
         </span>
         {sites.length === 0 ? (
           <p className="text-sm text-gray-600">
-            No active job sites yet - add one on the Job Sites page first.
+            No active job sites yet - add one on the Jobs page first.
           </p>
         ) : (
           <div className="flex flex-wrap gap-2">
