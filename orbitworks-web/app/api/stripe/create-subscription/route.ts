@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { stripe } from "@/lib/stripe/server";
 import { getTierByKey } from "@/lib/stripe/tiers";
 
-// The installed Stripe SDK's types are generated for its newer default API
-// version, which removed `payment_intent` from Invoice. We pin an older
-// apiVersion in lib/stripe/server.ts where that field still exists on the
-// actual API response, so this augments the type to match reality.
 type InvoiceWithPaymentIntent = Stripe.Invoice & {
   payment_intent: Stripe.PaymentIntent | string | null;
 };
@@ -45,7 +42,19 @@ export async function POST(request: NextRequest) {
       name?: string;
       stripeCustomerId?: string | null;
       stripeSubscriptionId?: string | null;
+      pendingPromotionCode?: string | null;
     };
+
+    const pendingPromotionCode = company.pendingPromotionCode ?? null;
+
+    async function clearPendingPromo() {
+      if (pendingPromotionCode) {
+        await companyRef.update({
+          pendingPromotionCode: FieldValue.delete(),
+          pendingPromotionCodeLabel: FieldValue.delete(),
+        });
+      }
+    }
 
     let stripeCustomerId = company.stripeCustomerId ?? null;
 
@@ -61,8 +70,6 @@ export async function POST(request: NextRequest) {
       await companyRef.update({ stripeCustomerId });
     }
 
-    // If the company already has a real subscription, switch it to the new
-    // price rather than creating a second, parallel subscription.
     if (company.stripeSubscriptionId) {
       const existingSub = await stripe.subscriptions.retrieve(company.stripeSubscriptionId);
 
@@ -84,6 +91,9 @@ export async function POST(request: NextRequest) {
             payment_settings: { payment_method_types: ["card"] },
             expand: ["latest_invoice.payment_intent"],
             metadata: { companyId, tierKey: tier.key },
+            ...(pendingPromotionCode
+              ? { discounts: [{ promotion_code: pendingPromotionCode }] }
+              : {}),
           },
           {
             idempotencyKey:
@@ -95,6 +105,8 @@ export async function POST(request: NextRequest) {
               Math.floor(Date.now() / 60000),
           }
         );
+
+        await clearPendingPromo();
 
         const latestInvoice = updatedSub.latest_invoice as InvoiceWithPaymentIntent | string | null;
         const paymentIntent =
@@ -133,11 +145,15 @@ export async function POST(request: NextRequest) {
         },
         expand: ["latest_invoice.payment_intent"],
         metadata: { companyId, tierKey: tier.key },
+        ...(pendingPromotionCode
+          ? { discounts: [{ promotion_code: pendingPromotionCode }] }
+          : {}),
       },
       { idempotencyKey: `sub-create-${companyId}-${Math.floor(Date.now() / 60000)}` }
     );
 
     await companyRef.update({ stripeSubscriptionId: subscription.id });
+    await clearPendingPromo();
 
     const latestInvoice = subscription.latest_invoice as InvoiceWithPaymentIntent | string | null;
     const paymentIntent =
@@ -148,13 +164,6 @@ export async function POST(request: NextRequest) {
       typeof paymentIntent === "object" && paymentIntent?.client_secret
         ? paymentIntent.client_secret
         : null;
-
-    if (!clientSecret) {
-      return NextResponse.json(
-        { error: "Could not create payment intent for subscription." },
-        { status: 500 }
-      );
-    }
 
     return NextResponse.json({ clientSecret, subscriptionId: subscription.id });
   } catch (err: any) {

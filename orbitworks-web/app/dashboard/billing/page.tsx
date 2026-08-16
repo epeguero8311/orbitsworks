@@ -20,6 +20,7 @@ import DowngradeModal from "@/components/dashboard/billing/DowngradeModal";
 import ConfirmModal from "@/components/dashboard/billing/ConfirmModal";
 import UpdatePaymentModal from "@/components/dashboard/billing/UpdatePaymentModal";
 import PaymentMethodCard from "@/components/dashboard/billing/PaymentMethodCard";
+import PromoCodeCard from "@/components/dashboard/billing/PromoCodeCard";
 
 const FREE_CAP = 8;
 
@@ -28,6 +29,7 @@ type CompanyBilling = {
   employeeCap: number | null;
   activeEmployeeCount: number;
   subscriptionStatus: string;
+  pendingPromotionCodeLabel?: string | null;
 };
 
 type EmployeeLite = {
@@ -322,6 +324,24 @@ export default function BillingPage() {
     reloadPaymentMethod();
   }
 
+  async function handleApplyPromo(code: string) {
+    if (!auth.currentUser) throw new Error("Not signed in.");
+    const idToken = await auth.currentUser.getIdToken();
+    const res = await fetch("/api/stripe/apply-promo", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Something went wrong.");
+    }
+    await loadCompany();
+  }
+
   const isFreePlan = company?.planTier === "free";
   const isPastDue = company?.subscriptionStatus === "past_due";
   const confirmTier =
@@ -393,6 +413,11 @@ export default function BillingPage() {
             error={paymentMethodError}
             busy={busy === "update-payment"}
             onUpdateClick={handleUpdatePaymentClick}
+          />
+
+          <PromoCodeCard
+            pendingLabel={company.pendingPromotionCodeLabel}
+            onApply={handleApplyPromo}
           />
 
           <div className="rounded-xl border border-gray-200 bg-white p-6">
