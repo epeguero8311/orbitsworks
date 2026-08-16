@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -25,7 +25,7 @@ import { PastDueBanner } from "@/components/PastDueBanner";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutGrid },
   { href: "/dashboard/employees", label: "Employees", icon: Users },
-  { href: "/dashboard/sites", label: "Job Sites", icon: Building2 },
+  { href: "/dashboard/sites", label: "Jobs", icon: Building2 },
   { href: "/dashboard/time", label: "Time Tracking", icon: Clock },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
   { href: "/dashboard/billing", label: "Billing", icon: CreditCard },

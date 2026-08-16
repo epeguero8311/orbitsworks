@@ -1,4 +1,4 @@
-﻿import type { Timestamp } from "firebase/firestore";
+import type { Timestamp } from "firebase/firestore";
 
 export interface JobSite {
   id: string;
@@ -7,9 +7,17 @@ export interface JobSite {
   active: boolean;
 }
 
+export interface Job {
+  id: string;
+  name: string;
+  hourlyRate: number;
+  active: boolean;
+}
+
 export interface Employee {
   id: string;
   name: string;
+  jobId?: string | null;
   jobTitle?: string;
   assignedSiteIds: string[];
   photoUrl?: string;

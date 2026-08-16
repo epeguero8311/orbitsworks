@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import type { Employee, JobSite } from "@/lib/types";
+import type { Employee, JobSite, Job } from "@/lib/types";
 import { UpgradeToast } from "@/components/UpgradeToast";
 
 export function EmployeesTable({
   employees,
   sites,
+  jobs,
   loading,
   onSelect,
   onToggleActive,
@@ -18,6 +19,7 @@ export function EmployeesTable({
 }: {
   employees: Employee[];
   sites: JobSite[];
+  jobs: Job[];
   loading: boolean;
   onSelect: (employee: Employee) => void;
   onToggleActive: (employeeId: string, active: boolean) => Promise<void>;
@@ -44,6 +46,22 @@ export function EmployeesTable({
       .map((id) => sites.find((s) => s.id === id)?.name)
       .filter(Boolean)
       .join(", ");
+  }
+
+  function displayJobTitle(employee: Employee) {
+    if (employee.jobId) {
+      const job = jobs.find((j) => j.id === employee.jobId);
+      return job?.name ?? employee.jobTitle ?? "-";
+    }
+    return employee.jobTitle || "-";
+  }
+
+  function displayRate(employee: Employee) {
+    if (employee.jobId) {
+      const job = jobs.find((j) => j.id === employee.jobId);
+      return job ? `$${job.hourlyRate.toFixed(2)}/hr` : "-";
+    }
+    return employee.hourlyRate ? `$${employee.hourlyRate.toFixed(2)}/hr` : "-";
   }
 
   return (
@@ -109,10 +127,10 @@ export function EmployeesTable({
                   </span>
                 </td>
                 <td className="px-6 py-4 text-gray-600">
-                  {employee.jobTitle || "-"}
+                  {displayJobTitle(employee)}
                 </td>
                 <td className="px-6 py-4 text-gray-600">
-                  {employee.hourlyRate ? `$${employee.hourlyRate.toFixed(2)}/hr` : "-"}
+                  {displayRate(employee)}
                 </td>
                 <td className="px-6 py-4 text-gray-600">
                   {siteNames(employee.assignedSiteIds)}

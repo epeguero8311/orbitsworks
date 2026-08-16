@@ -1,9 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useSites } from "@/lib/hooks/useSites";
+import { useJobs } from "@/lib/hooks/useJobs";
 import { AddEmployeeForm } from "@/components/dashboard/employees/AddEmployeeForm";
 import { EmployeesTable } from "@/components/dashboard/employees/EmployeesTable";
 import { EmployeeModal } from "@/components/dashboard/employees/EmployeeModal";
@@ -14,6 +15,7 @@ export default function EmployeesPage() {
   const { userData } = useAuth();
   const { employees, loading, toggleEmployeeActive } = useEmployees();
   const { sites } = useSites();
+  const { jobs } = useJobs();
   const activeSites = sites.filter((s) => s.active);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
 
@@ -31,13 +33,14 @@ export default function EmployeesPage() {
       </p>
 
       <div className="mt-8">
-        <AddEmployeeForm sites={activeSites} />
+        <AddEmployeeForm sites={activeSites} jobs={jobs} />
       </div>
 
       <div className="mt-6">
         <EmployeesTable
           employees={employees}
           sites={activeSites}
+          jobs={jobs}
           loading={loading}
           onSelect={setSelectedEmployee}
           onToggleActive={toggleEmployeeActive}
@@ -53,6 +56,7 @@ export default function EmployeesPage() {
         <EmployeeModal
           employee={employeeForModal}
           sites={activeSites}
+          jobs={jobs}
           companyId={userData?.companyId ?? ""}
           onClose={() => setSelectedEmployee(null)}
         />
