@@ -1,6 +1,6 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
@@ -11,6 +11,7 @@ import { buildExportFilename, exportAllReportsExcel } from "@/lib/reportExcelUti
 import AttendanceCards from "@/components/reports/AttendanceCards";
 import TimeTrendsCharts from "@/components/reports/TimeTrendsCharts";
 import PayrollTable from "@/components/reports/PayrollTable";
+import PayrollDayView from "@/components/reports/PayrollDayView";
 import ShiftNotesTable from "@/components/reports/ShiftNotesTable";
 import ExportMenu, { ExportDropdown } from "@/components/reports/ExportMenu";
 
@@ -35,6 +36,10 @@ export default function ReportsPage() {
   const [startDate, setStartDate] = useState(weekStart);
   const [endDate, setEndDate] = useState(today);
 
+  // Report-time-only job overrides used by the in-app Daily breakdown view,
+  // keyed "employeeId__yyyy-mm-dd" -> jobId. Never touches clock sessions.
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+
   const {
     loading,
     error,
@@ -47,13 +52,58 @@ export default function ReportsPage() {
     employeeRecords,
     attendanceRecords,
     shiftNotes,
+    jobs,
+    hoursByEmployeeDay,
+    employeeJobIdById,
     runReport,
   } = useReports();
 
+  function handleRunReport(start: string, end: string) {
+    setOverrides({});
+    runReport(start, end);
+  }
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    runReport(startDate, endDate);
+    handleRunReport(startDate, endDate);
   }, []);
+
+  function handleOverrideChange(employeeId: string, date: string, jobId: string) {
+    const key = `${employeeId}__${date}`;
+    setOverrides((prev) => {
+      if (!jobId) {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: jobId };
+    });
+  }
+
+  const effectiveSummaries = useMemo(() => {
+    if (!summaries) return null;
+    return summaries.map((s) => {
+      let totalPay = 0;
+      let anyRate = false;
+
+      for (const [key, hrs] of hoursByEmployeeDay) {
+        if (!key.startsWith(`${s.employeeId}__`)) continue;
+        const overrideJobId = overrides[key];
+        const rate = overrideJobId
+          ? jobs.find((j) => j.id === overrideJobId)?.hourlyRate ?? null
+          : s.hourlyRate;
+        if (rate != null) {
+          totalPay += hrs * rate;
+          anyRate = true;
+        }
+      }
+
+      return {
+        ...s,
+        estimatedPay: anyRate ? totalPay : s.estimatedPay,
+      };
+    });
+  }, [summaries, hoursByEmployeeDay, overrides, jobs]);
 
   return (
     <div>
@@ -74,6 +124,9 @@ export default function ReportsPage() {
                 employeeRecords,
                 attendanceRecords,
                 shiftNotes,
+                jobs,
+                hoursByEmployeeDay,
+                employeeJobIdById,
                 companyName,
                 startDate,
                 endDate
@@ -115,7 +168,7 @@ export default function ReportsPage() {
           />
         </div>
         <button
-          onClick={() => runReport(startDate, endDate)}
+          onClick={() => handleRunReport(startDate, endDate)}
           disabled={loading}
           className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
         >
@@ -124,7 +177,7 @@ export default function ReportsPage() {
       </div>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
-      {summaries && (
+      {summaries && effectiveSummaries && (
         <div className="mt-6 space-y-8">
           <ExportMenu
             summaries={summaries}
@@ -132,6 +185,9 @@ export default function ReportsPage() {
             employeeRecords={employeeRecords}
             attendanceRecords={attendanceRecords}
             shiftNotes={shiftNotes}
+            jobs={jobs}
+            hoursByEmployeeDay={hoursByEmployeeDay}
+            employeeJobIdById={employeeJobIdById}
             startDate={startDate}
             endDate={endDate}
             companyName={companyName}
@@ -142,7 +198,16 @@ export default function ReportsPage() {
             employeesPerDay={employeesPerDay}
             avgHoursPerEmployee={avgHoursPerEmployee}
           />
-          <PayrollTable summaries={summaries} startDate={startDate} endDate={endDate} />
+          <PayrollTable summaries={effectiveSummaries} startDate={startDate} endDate={endDate} />
+          <PayrollDayView
+            startDate={startDate}
+            endDate={endDate}
+            summaries={summaries}
+            jobs={jobs}
+            hoursByEmployeeDay={hoursByEmployeeDay}
+            overrides={overrides}
+            onOverrideChange={handleOverrideChange}
+          />
           <ShiftNotesTable notes={shiftNotes} />
         </div>
       )}

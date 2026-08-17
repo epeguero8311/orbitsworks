@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { ChevronDown, FileSpreadsheet, FileText } from "lucide-react";
@@ -8,6 +8,7 @@ import type {
   EmployeeExportRecord,
   AttendanceRecord,
   ShiftNote,
+  Job,
 } from "@/lib/types";
 import {
   toPayrollCsv,
@@ -85,6 +86,9 @@ export default function ExportMenu({
   employeeRecords,
   attendanceRecords,
   shiftNotes,
+  jobs,
+  hoursByEmployeeDay,
+  employeeJobIdById,
   startDate,
   endDate,
   companyName,
@@ -94,6 +98,9 @@ export default function ExportMenu({
   employeeRecords: EmployeeExportRecord[];
   attendanceRecords: AttendanceRecord[];
   shiftNotes: ShiftNote[];
+  jobs: Job[];
+  hoursByEmployeeDay: Map<string, number>;
+  employeeJobIdById: Map<string, string | null>;
   startDate: string;
   endDate: string;
   companyName: string;
@@ -127,7 +134,16 @@ export default function ExportMenu({
     },
     {
       label: "Payroll Hours",
-      onExcel: () => exportPayrollExcel(summaries, companyName, startDate, endDate),
+      onExcel: () =>
+        exportPayrollExcel(
+          summaries,
+          jobs,
+          hoursByEmployeeDay,
+          employeeJobIdById,
+          companyName,
+          startDate,
+          endDate
+        ),
       onCsv: () =>
         downloadCsv(
           toPayrollCsv(summaries, startDate, endDate),

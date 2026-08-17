@@ -1,9 +1,10 @@
-﻿import type {
+import type {
   EmployeeSummary,
   SessionRecord,
   EmployeeExportRecord,
   AttendanceRecord,
   ShiftNote,
+  Job,
 } from "@/lib/types";
 
 const HEADER_FILL = "FF3B6FE0";
@@ -341,34 +342,197 @@ function addEmployeesSheet(workbook: any, employeeRecords: EmployeeExportRecord[
   sheet.getColumn("hourlyRate").numFmt = '"$"#,##0.00';
 }
 
-function addPayrollSheet(workbook: any, summaries: EmployeeSummary[]) {
-  const sheet = workbook.addWorksheet("Payroll Hours");
+// ---- Payroll: hidden Jobs lookup sheet + day-row flattening ----
 
-  sheet.columns = [
-    { header: "Employee", key: "employeeName", width: 24 },
-    { header: "Total Hours", key: "totalHours", width: 14 },
-    { header: "Sessions", key: "sessionCount", width: 12 },
-    { header: "Open Sessions", key: "openSessions", width: 14 },
-    { header: "Hourly Rate", key: "hourlyRate", width: 14 },
-    { header: "Estimated Pay", key: "estimatedPay", width: 16 },
-  ];
+function addJobsLookupSheet(workbook: any, jobs: Job[]): { count: number } | null {
+  const activeJobs = jobs.filter((j) => j.active);
+  if (activeJobs.length === 0) return null;
 
-  summaries.forEach((s) => {
-    sheet.addRow({
-      employeeName: s.employeeName,
-      totalHours: Number(s.totalHours.toFixed(2)),
-      sessionCount: s.sessionCount,
-      openSessions: s.openSessions,
-      hourlyRate: s.hourlyRate,
-      estimatedPay: s.estimatedPay,
-    });
+  const sheet = workbook.addWorksheet("Jobs");
+  sheet.state = "veryHidden";
+
+  sheet.getCell(1, 1).value = "(Default)";
+  sheet.getCell(1, 2).value = null;
+
+  activeJobs.forEach((j, idx) => {
+    const r = idx + 2;
+    sheet.getCell(r, 1).value = j.name;
+    sheet.getCell(r, 2).value = j.hourlyRate;
   });
 
-  styleHeaderRow(sheet.getRow(1));
-  styleDataRows(sheet);
-  sheet.getColumn("hourlyRate").numFmt = '"$"#,##0.00';
-  sheet.getColumn("estimatedPay").numFmt = '"$"#,##0.00';
-  sheet.getColumn("totalHours").numFmt = "0.00";
+  const count = activeJobs.length + 1;
+  workbook.definedNames.add(`'Jobs'!$A$1:$A$${count}`, "JobsList");
+  workbook.definedNames.add(`'Jobs'!$A$1:$B$${count}`, "JobsTable");
+
+  return { count };
+}
+
+type PayrollDayRow = {
+  employeeName: string;
+  dateLabel: string;
+  hours: number;
+  defaultRate: number | null;
+  defaultJobName: string | null;
+};
+
+function buildDayRows(
+  summaries: EmployeeSummary[],
+  hoursByEmployeeDay: Map<string, number>,
+  employeeJobIdById: Map<string, string | null>,
+  jobs: Job[]
+): PayrollDayRow[] {
+  const nameById = new Map(summaries.map((s) => [s.employeeId, s.employeeName]));
+  const rateById = new Map(summaries.map((s) => [s.employeeId, s.hourlyRate]));
+  const jobNameById = new Map(jobs.map((j) => [j.id, j.name]));
+
+  const rows: PayrollDayRow[] = [];
+  for (const [key, hours] of hoursByEmployeeDay) {
+    if (hours <= 0) continue;
+    const sep = key.indexOf("__");
+    if (sep === -1) continue;
+    const employeeId = key.slice(0, sep);
+    const dateStr = key.slice(sep + 2);
+    const employeeName = nameById.get(employeeId);
+    if (!employeeName) continue;
+
+    const parsed = parseDateKey(dateStr);
+    const dateLabel = parsed ? formatDatePart(parsed) : dateStr;
+
+    const jobId = employeeJobIdById.get(employeeId) ?? null;
+    const defaultJobName = jobId ? jobNameById.get(jobId) ?? null : null;
+
+    rows.push({
+      employeeName,
+      dateLabel,
+      hours,
+      defaultRate: rateById.get(employeeId) ?? null,
+      defaultJobName,
+    });
+  }
+
+  rows.sort((a, b) =>
+    a.employeeName === b.employeeName
+      ? (a.dateLabel < b.dateLabel ? -1 : 1)
+      : a.employeeName.localeCompare(b.employeeName)
+  );
+  return rows;
+}
+
+function addPayrollSheet(
+  workbook: any,
+  summaries: EmployeeSummary[],
+  jobs: Job[],
+  dayRows: PayrollDayRow[]
+) {
+  const sheet = workbook.addWorksheet("Payroll Hours");
+  sheet.columns = [
+    { width: 24 },
+    { width: 16 },
+    { width: 18 },
+    { width: 14 },
+    { width: 14 },
+    { width: 16 },
+    { width: 3 },
+    { width: 12 },
+  ];
+
+  const jobsInfo = addJobsLookupSheet(workbook, jobs);
+  const hasJobs = jobsInfo != null;
+
+  const summaryHeader = sheet.getRow(1);
+  ["Employee", "Total Hours", "Sessions", "Open Sessions", "Hourly Rate", "Estimated Pay"].forEach(
+    (h, i) => (summaryHeader.getCell(i + 1).value = h)
+  );
+  styleHeaderRow(summaryHeader);
+
+  summaries.forEach((s, idx) => {
+    const row = sheet.getRow(idx + 2);
+    row.height = 20;
+    row.getCell(1).value = s.employeeName;
+    row.getCell(2).value = Number(s.totalHours.toFixed(2));
+    row.getCell(2).numFmt = "0.00";
+    row.getCell(3).value = s.sessionCount;
+    row.getCell(4).value = s.openSessions;
+    row.getCell(5).value = s.hourlyRate;
+    row.getCell(5).numFmt = '"$"#,##0.00';
+    row.getCell(6).numFmt = '"$"#,##0.00';
+  });
+
+  const summaryLastRow = summaries.length + 1;
+
+  const dailyTitleRow = summaryLastRow + 3;
+  sheet.mergeCells(dailyTitleRow, 1, dailyTitleRow, 6);
+  const titleCell = sheet.getCell(dailyTitleRow, 1);
+  titleCell.value = hasJobs
+    ? "Daily Breakdown - pick a Job on any row to update that day's pay and the totals above"
+    : "Daily Breakdown";
+  titleCell.font = { bold: true, size: 12, color: { argb: "FF111827" } };
+  sheet.getRow(dailyTitleRow).height = 26;
+
+  const dailyHeaderRow = dailyTitleRow + 1;
+  const dailyHeader = sheet.getRow(dailyHeaderRow);
+  ["Employee", "Date", "Job", "Hourly Rate", "Hours", "Estimated Pay"].forEach(
+    (h, i) => (dailyHeader.getCell(i + 1).value = h)
+  );
+  dailyHeader.getCell(8).value = "Default Rate";
+  styleHeaderRow(dailyHeader);
+  sheet.getColumn(8).hidden = true;
+
+  let r = dailyHeaderRow + 1;
+  let prevEmployee: string | null = null;
+
+  dayRows.forEach((d) => {
+    if (prevEmployee !== null && d.employeeName !== prevEmployee) {
+      sheet.getRow(r).height = 10;
+      r += 1;
+    }
+    prevEmployee = d.employeeName;
+
+    const row = sheet.getRow(r);
+    row.height = 20;
+    row.getCell(1).value = d.employeeName;
+    row.getCell(2).value = d.dateLabel;
+    row.getCell(3).value = hasJobs ? d.defaultJobName ?? "(Default)" : null;
+    row.getCell(8).value = d.defaultRate;
+
+    if (hasJobs) {
+      row.getCell(4).value = {
+        formula: `IF(OR(C${r}="",C${r}="(Default)"),H${r},VLOOKUP(C${r},JobsTable,2,FALSE))`,
+      };
+      row.getCell(3).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: ["JobsList"],
+      };
+    } else {
+      row.getCell(4).value = { formula: `H${r}` };
+    }
+    row.getCell(4).numFmt = '"$"#,##0.00';
+
+    row.getCell(5).value = Number(d.hours.toFixed(2));
+    row.getCell(5).numFmt = "0.00";
+
+    row.getCell(6).value = { formula: `D${r}*E${r}` };
+    row.getCell(6).numFmt = '"$"#,##0.00';
+
+    r += 1;
+  });
+
+  const dailyFirstDataRow = dailyHeaderRow + 1;
+  const dailyLastRow = r - 1;
+
+  summaries.forEach((s, idx) => {
+    const row = idx + 2;
+    if (dayRows.length > 0) {
+      sheet.getCell(row, 6).value = {
+        formula: `SUMIF(A${dailyFirstDataRow}:A${dailyLastRow},A${row},F${dailyFirstDataRow}:F${dailyLastRow})`,
+      };
+    } else {
+      sheet.getCell(row, 6).value = s.estimatedPay;
+    }
+  });
+
+  styleDataRows(sheet, 1);
   sheet.views = [{ state: "frozen", ySplit: 1 }];
 }
 
@@ -439,6 +603,9 @@ export async function exportEmployeesExcel(
 
 export async function exportPayrollExcel(
   summaries: EmployeeSummary[],
+  jobs: Job[],
+  hoursByEmployeeDay: Map<string, number>,
+  employeeJobIdById: Map<string, string | null>,
   companyName: string,
   startDate: string,
   endDate: string
@@ -446,7 +613,8 @@ export async function exportPayrollExcel(
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
 
-  addPayrollSheet(workbook, summaries);
+  const dayRows = buildDayRows(summaries, hoursByEmployeeDay, employeeJobIdById, jobs);
+  addPayrollSheet(workbook, summaries, jobs, dayRows);
 
   await downloadWorkbook(
     workbook,
@@ -471,7 +639,7 @@ export async function exportAttendanceExcel(
   );
 }
 
-// ---- Combined export: all four reports, six sheets, one workbook, in order ----
+// ---- Combined export: all reports, one workbook, in order ----
 
 export async function exportAllReportsExcel(
   sessions: SessionRecord[],
@@ -479,6 +647,9 @@ export async function exportAllReportsExcel(
   employeeRecords: EmployeeExportRecord[],
   attendanceRecords: AttendanceRecord[],
   shiftNotes: ShiftNote[],
+  jobs: Job[],
+  hoursByEmployeeDay: Map<string, number>,
+  employeeJobIdById: Map<string, string | null>,
   companyName: string,
   startDate: string,
   endDate: string
@@ -486,13 +657,15 @@ export async function exportAllReportsExcel(
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
 
-  // Order: Timesheets (Summary, Detail, Notes, Photos) -> Employees -> Payroll -> Attendance
   addSummarySheet(workbook, summaries, startDate, endDate);
   addDetailSheet(workbook, sessions);
   addNotesSheet(workbook, shiftNotes);
   await addPhotosSheet(workbook, sessions);
   addEmployeesSheet(workbook, employeeRecords);
-  addPayrollSheet(workbook, summaries);
+
+  const dayRows = buildDayRows(summaries, hoursByEmployeeDay, employeeJobIdById, jobs);
+  addPayrollSheet(workbook, summaries, jobs, dayRows);
+
   addAttendanceSheet(workbook, attendanceRecords);
 
   await downloadWorkbook(
