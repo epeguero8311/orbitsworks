@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useState } from "react";
 import {
@@ -23,6 +23,7 @@ import type {
   EmployeeExportRecord,
   AttendanceRecord,
   ShiftNote,
+  Job,
 } from "@/lib/types";
 import {
   dateKey,
@@ -51,6 +52,13 @@ export function useReports() {
   const [employeeRecords, setEmployeeRecords] = useState<EmployeeExportRecord[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [shiftNotes, setShiftNotes] = useState<ShiftNote[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [employeeJobIdById, setEmployeeJobIdById] = useState<Map<string, string | null>>(
+    new Map()
+  );
+  const [hoursByEmployeeDay, setHoursByEmployeeDay] = useState<Map<string, number>>(
+    new Map()
+  );
 
   const runReport = useCallback(
     async (startDate: string, endDate: string) => {
@@ -77,11 +85,34 @@ export function useReports() {
 
         const employeesRef = collection(db, "companies", userData.companyId, "employees");
         const employeesSnapshot = await getDocs(employeesRef);
-        const rateByEmployeeId = new Map<string, number | null>();
-        employeesSnapshot.docs.forEach((d) => {
-          const data = d.data() as { hourlyRate?: number | null };
-          rateByEmployeeId.set(d.id, data.hourlyRate ?? null);
+
+        // ---- Jobs (name + live hourly rate) ----
+        const jobsRef = collection(db, "companies", userData.companyId, "jobs");
+        const jobsSnapshot = await getDocs(jobsRef);
+        const jobsMap = new Map<string, Job>();
+        jobsSnapshot.docs.forEach((d) => {
+          const data = d.data() as Omit<Job, "id">;
+          jobsMap.set(d.id, { id: d.id, ...data });
         });
+        setJobs(Array.from(jobsMap.values()));
+
+        // Resolve each employee's default rate: a linked job's live rate
+        // takes priority over any custom rate typed on the employee.
+        const employeeJobIdByIdOut = new Map<string, string | null>();
+        const defaultRateByEmployeeId = new Map<string, number | null>();
+        employeesSnapshot.docs.forEach((d) => {
+          const data = d.data() as {
+            hourlyRate?: number | null;
+            jobId?: string | null;
+          };
+          const jobId = data.jobId ?? null;
+          employeeJobIdByIdOut.set(d.id, jobId);
+          const rate = jobId
+            ? jobsMap.get(jobId)?.hourlyRate ?? null
+            : data.hourlyRate ?? null;
+          defaultRateByEmployeeId.set(d.id, rate);
+        });
+        setEmployeeJobIdById(employeeJobIdByIdOut);
 
         const sitesRef = collection(db, "companies", userData.companyId, "jobSites");
         const sitesSnapshot = await getDocs(sitesRef);
@@ -99,6 +130,7 @@ export function useReports() {
           const data = d.data() as {
             name?: string;
             jobTitle?: string;
+            jobId?: string | null;
             hourlyRate?: number | null;
             phone?: string;
             active?: boolean;
@@ -107,11 +139,14 @@ export function useReports() {
           const siteNames = (data.assignedSiteIds ?? [])
             .map((id) => siteNameByIdAll.get(id) ?? "Unknown site")
             .join("; ");
+          const jobTitle = data.jobId
+            ? jobsMap.get(data.jobId)?.name ?? data.jobTitle ?? ""
+            : data.jobTitle ?? "";
           return {
             id: d.id,
             name: data.name ?? "",
-            jobTitle: data.jobTitle ?? "",
-            hourlyRate: data.hourlyRate ?? null,
+            jobTitle,
+            hourlyRate: defaultRateByEmployeeId.get(d.id) ?? null,
             phone: data.phone ?? "",
             active: data.active ?? true,
             siteNames,
@@ -170,6 +205,7 @@ export function useReports() {
         const weeklyHoursEmployees = new Map<string, Set<string>>();
         const siteHoursTotal = new Map<string, number>();
         const sessionsOut: SessionRecord[] = [];
+        const hoursByDayOut = new Map<string, number>();
 
         for (const [employeeId, employeeEvents] of byEmployee) {
           let totalMs = 0;
@@ -216,6 +252,10 @@ export function useReports() {
                 empSet.add(employeeId);
                 weeklyHoursEmployees.set(weekKey, empSet);
 
+                const dayKey = dateKey(pendingIn.timestamp.toDate());
+                const hbdKey = `${employeeId}__${dayKey}`;
+                hoursByDayOut.set(hbdKey, (hoursByDayOut.get(hbdKey) ?? 0) + hrs);
+
                 if (pendingIn.siteId) {
                   siteHoursTotal.set(
                     pendingIn.siteId,
@@ -240,7 +280,7 @@ export function useReports() {
           }
 
           const totalHours = totalMs / (1000 * 60 * 60);
-          const hourlyRate = rateByEmployeeId.get(employeeId) ?? null;
+          const hourlyRate = defaultRateByEmployeeId.get(employeeId) ?? null;
 
           results.push({
             employeeId,
@@ -254,6 +294,7 @@ export function useReports() {
         }
         results.sort((a, b) => b.totalHours - a.totalHours);
         setSummaries(results);
+        setHoursByEmployeeDay(hoursByDayOut);
 
         sessionsOut.sort((a, b) => (a.clockIn < b.clockIn ? -1 : 1));
         setSessions(sessionsOut);
@@ -415,6 +456,9 @@ export function useReports() {
     employeeRecords,
     attendanceRecords,
     shiftNotes,
+    jobs,
+    employeeJobIdById,
+    hoursByEmployeeDay,
     runReport,
   };
 }
