@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState, FormEvent } from "react";
 import {
@@ -19,14 +19,20 @@ import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { ClockEvent, Employee, JobSite } from "@/lib/types";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
+import ClockEventsDayView from "@/components/dashboard/ClockEventsDayView";
 
 export default function TimeTrackingPage() {
   const { currentUser, userData } = useAuth();
   const { settings } = useCompanySettings();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [sites, setSites] = useState<JobSite[]>([]);
-  const [events, setEvents] = useState<ClockEvent[]>([]);
-  const [loadingEvents, setLoadingEvents] = useState(true);
+
+  // Last-50 events feed. This is NOT rendered directly anymore - it exists
+  // only to derive each employee's current clocked-in/out status for the
+  // manual entry form below (employeeStatusMap / isEligibleFor). The
+  // browsable "Recent clock events" table has moved to ClockEventsDayView,
+  // which queries per-day instead of relying on a capped feed.
+  const [recentEventsForStatus, setRecentEventsForStatus] = useState<ClockEvent[]>([]);
 
   const [employeeId, setEmployeeId] = useState("");
   const [siteId, setSiteId] = useState("");
@@ -37,7 +43,6 @@ export default function TimeTrackingPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Lookup / search state (separate from the manual-entry form above)
   const [lookupEmployeeId, setLookupEmployeeId] = useState("");
   const [lookupSiteId, setLookupSiteId] = useState("");
   const [lookupFromDate, setLookupFromDate] = useState("");
@@ -99,43 +104,35 @@ export default function TimeTrackingPage() {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        setEvents(
+        setRecentEventsForStatus(
           snapshot.docs.map((d) => ({
             id: d.id,
             ...(d.data() as Omit<ClockEvent, "id">),
           }))
         );
-        setLoadingEvents(false);
       },
       (err) => {
-        console.error("Clock events listener error:", err);
-        setLoadingEvents(false);
+        console.error("Clock events status listener error:", err);
       }
     );
 
     return unsubscribe;
   }, [userData?.companyId]);
 
-  // Most recent known clock status per employee, derived from the recent
-  // events feed (events are ordered desc, so the first match per employee
-  // is their latest event). Employees with no event on record are treated
-  // as "out" - they've never clocked in, so clocking in is the valid action.
   const employeeStatusMap = useMemo(() => {
     const map: Record<string, "in" | "out"> = {};
-    for (const ev of events) {
+    for (const ev of recentEventsForStatus) {
       if (!(ev.employeeId in map)) {
         map[ev.employeeId] = ev.type;
       }
     }
     return map;
-  }, [events]);
+  }, [recentEventsForStatus]);
 
   function statusOf(id: string): "in" | "out" {
     return employeeStatusMap[id] ?? "out";
   }
 
-  // An employee is eligible for a given direction only if their current
-  // status is the opposite of it - can't clock in someone already in.
   function isEligibleFor(id: string, direction: "in" | "out") {
     const status = statusOf(id);
     return direction === "in" ? status === "out" : status === "in";
@@ -150,9 +147,6 @@ export default function TimeTrackingPage() {
     )
     .filter((e) => isEligibleFor(e.id, type));
 
-  // If site/search filters change and the selected employee drops out of
-  // the eligible list, clear the selection rather than leave a stale value
-  // sitting in state that no longer matches what's shown in the dropdown.
   useEffect(() => {
     if (employeeId && !filteredEmployees.some((e) => e.id === employeeId)) {
       setEmployeeId("");
@@ -163,16 +157,11 @@ export default function TimeTrackingPage() {
   function handleSelectEmployee(id: string) {
     setEmployeeId(id);
     if (id) {
-      // Force the direction to whatever is actually valid for this
-      // employee, regardless of whichever button was active before.
       setType(statusOf(id) === "in" ? "out" : "in");
     }
   }
 
   function handleSelectType(next: "in" | "out") {
-    // Once an employee is selected, direction is locked to whatever's
-    // valid for them - the other button is disabled, this is just a
-    // safety no-op in case it's clicked programmatically.
     if (employeeId && !isEligibleFor(employeeId, next)) return;
     setType(next);
   }
@@ -259,9 +248,6 @@ export default function TimeTrackingPage() {
       setSiteId("");
       setSearchQuery("");
       setNote("");
-      // Direction is left as-is on purpose - if you just clocked someone
-      // out, the form stays on "Clock out" for the next person instead of
-      // snapping back to "Clock in".
     } catch (err) {
       console.error("Manual clock event error:", err);
       setError("Couldn't record the clock event. Try again.");
@@ -358,9 +344,6 @@ export default function TimeTrackingPage() {
         return { text: "Unknown", className: "bg-gray-50 text-gray-600" };
     }
   }
-
-  const displayedEvents = lookupResults ?? events;
-  const displayedLabel = lookupResults ? "Search results" : "Recent clock events";
 
   const clockInDisabled = !!employeeId && !isEligibleFor(employeeId, "in");
   const clockOutDisabled = !!employeeId && !isEligibleFor(employeeId, "out");
@@ -647,89 +630,89 @@ export default function TimeTrackingPage() {
         </div>
       </form>
 
-      <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
-        <div className="border-b border-gray-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-gray-950">
-            {displayedLabel}
-          </h2>
+      {lookupResults !== null ? (
+        <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
+          <div className="border-b border-gray-200 px-4 py-3">
+            <h2 className="text-sm font-semibold text-gray-950">
+              Search results
+            </h2>
+          </div>
+          {lookupResults.length === 0 ? (
+            <p className="p-4 text-sm text-gray-600">
+              No clock events match that search.
+            </p>
+          ) : (
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-gray-200 text-gray-600">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Employee</th>
+                  <th className="px-4 py-2 font-medium">Site</th>
+                  <th className="px-4 py-2 font-medium">Type</th>
+                  <th className="px-4 py-2 font-medium">Time</th>
+                  <th className="px-4 py-2 font-medium">Source</th>
+                  <th className="px-4 py-2 font-medium">Photo</th>
+                  <th className="px-4 py-2 font-medium">Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lookupResults.map((event) => {
+                  const badge = sourceLabel(event.source);
+                  return (
+                    <tr
+                      key={event.id}
+                      onClick={() => setSelectedEvent(event)}
+                      className="cursor-pointer border-b border-gray-200 last:border-0 hover:bg-gray-50"
+                    >
+                      <td className="px-4 py-2.5 text-gray-950">
+                        {event.employeeName}
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-600">
+                        {event.siteName}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span
+                          className={`font-medium ${
+                            event.type === "in"
+                              ? "text-green-700"
+                              : "text-gray-600"
+                          }`}
+                        >
+                          {event.type === "in" ? "Clock in" : "Clock out"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-gray-600">
+                        {event.timestamp
+                          ? event.timestamp.toDate().toLocaleString()
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
+                        >
+                          {badge.text}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-600">
+                        {event.photoUrl ? "View" : "-"}
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-600">
+                        {event.note || "-"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
-        {lookupResults === null && loadingEvents ? (
-          <p className="p-4 text-sm text-gray-600">Loading...</p>
-        ) : displayedEvents.length === 0 ? (
-          <p className="p-4 text-sm text-gray-600">
-            {lookupResults
-              ? "No clock events match that search."
-              : "No clock events yet. Once employees start clocking in on mobile, or you record a manual entry above, they'll show up here."}
-          </p>
-        ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-gray-200 text-gray-600">
-              <tr>
-                <th className="px-4 py-2 font-medium">Employee</th>
-                <th className="px-4 py-2 font-medium">Site</th>
-                <th className="px-4 py-2 font-medium">Type</th>
-                <th className="px-4 py-2 font-medium">Time</th>
-                <th className="px-4 py-2 font-medium">Source</th>
-                <th className="px-4 py-2 font-medium">Photo</th>
-                <th className="px-4 py-2 font-medium">Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayedEvents.map((event) => {
-                const badge = sourceLabel(event.source);
-                return (
-                  <tr
-                    key={event.id}
-                    onClick={() => setSelectedEvent(event)}
-                    className="cursor-pointer border-b border-gray-200 last:border-0 hover:bg-gray-50"
-                  >
-                    <td className="px-4 py-2.5 text-gray-950">
-                      {event.employeeName}
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-600">
-                      {event.siteName}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span
-                        className={`font-medium ${
-                          event.type === "in"
-                            ? "text-green-700"
-                            : "text-gray-600"
-                        }`}
-                      >
-                        {event.type === "in" ? "Clock in" : "Clock out"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-xs text-gray-600">
-                      {event.timestamp
-                        ? event.timestamp.toDate().toLocaleString()
-                        : "-"}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
-                      >
-                        {badge.text}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-600">
-                      {event.photoUrl ? "View" : "-"}
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-600">
-                      {event.note || "-"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
+      ) : (
+        <ClockEventsDayView companyId={userData?.companyId} />
+      )}
 
       {selectedEvent && (
         <ClockEventDetailModal
           event={selectedEvent}
-          allEvents={displayedEvents}
+          allEvents={lookupResults ?? []}
           onClose={() => setSelectedEvent(null)}
         />
       )}
