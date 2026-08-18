@@ -18,13 +18,18 @@ import type { JobSite, Job } from "@/lib/types";
 export default function JobsPage() {
   const { userData } = useAuth();
 
-  // ---- Job Sites (unchanged) ----
+  // ---- Job Sites ----
   const [sites, setSites] = useState<JobSite[]>([]);
   const [sitesLoading, setSitesLoading] = useState(true);
   const [siteName, setSiteName] = useState("");
   const [siteAddress, setSiteAddress] = useState("");
   const [isSubmittingSite, setIsSubmittingSite] = useState(false);
   const [siteError, setSiteError] = useState("");
+
+  const [editingSiteId, setEditingSiteId] = useState<string | null>(null);
+  const [editSiteName, setEditSiteName] = useState("");
+  const [editSiteAddress, setEditSiteAddress] = useState("");
+  const [editSiteError, setEditSiteError] = useState("");
 
   useEffect(() => {
     if (!userData?.companyId) return;
@@ -82,7 +87,40 @@ export default function JobsPage() {
     await updateDoc(siteRef, { active: !site.active });
   }
 
-  // ---- Jobs (new) ----
+  function startEditSite(site: JobSite) {
+    setEditingSiteId(site.id);
+    setEditSiteName(site.name);
+    setEditSiteAddress(site.address ?? "");
+    setEditSiteError("");
+  }
+
+  function cancelEditSite() {
+    setEditingSiteId(null);
+    setEditSiteError("");
+  }
+
+  async function saveEditSite(site: JobSite) {
+    if (!editSiteName.trim()) {
+      setEditSiteError("Site name can't be empty.");
+      return;
+    }
+    if (!userData?.companyId) return;
+
+    try {
+      const siteRef = doc(db, "companies", userData.companyId, "jobSites", site.id);
+      await updateDoc(siteRef, {
+        name: editSiteName.trim(),
+        address: editSiteAddress.trim(),
+      });
+      setEditingSiteId(null);
+      setEditSiteError("");
+    } catch (err) {
+      console.error("Edit site error:", err);
+      setEditSiteError("Couldn't save changes. Try again.");
+    }
+  }
+
+  // ---- Jobs ----
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobName, setJobName] = useState("");
@@ -262,31 +300,85 @@ export default function JobsPage() {
                 </tr>
               </thead>
               <tbody>
-                {sites.map((site) => (
-                  <tr key={site.id} className="border-b border-gray-200 last:border-0">
-                    <td className="px-4 py-2.5 text-gray-950">{site.name}</td>
-                    <td className="px-4 py-2.5 text-gray-600">{site.address || "-"}</td>
-                    <td className="px-4 py-2.5">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                          site.active
-                            ? "bg-green-50 text-green-700"
-                            : "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {site.active ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <button
-                        onClick={() => toggleSiteActive(site)}
-                        className="text-sm font-medium text-accent hover:underline"
-                      >
-                        {site.active ? "Deactivate" : "Reactivate"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {sites.map((site) => {
+                  const isEditing = editingSiteId === site.id;
+                  return (
+                    <tr key={site.id} className="border-b border-gray-200 last:border-0">
+                      {isEditing ? (
+                        <>
+                          <td className="px-4 py-2.5">
+                            <input
+                              type="text"
+                              value={editSiteName}
+                              onChange={(e) => setEditSiteName(e.target.value)}
+                              className="w-full rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                            />
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <input
+                              type="text"
+                              value={editSiteAddress}
+                              onChange={(e) => setEditSiteAddress(e.target.value)}
+                              placeholder="Address (optional)"
+                              className="w-full rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                            />
+                          </td>
+                          <td className="px-4 py-2.5" colSpan={2}>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {editSiteError && (
+                                <span className="text-xs text-red-600">{editSiteError}</span>
+                              )}
+                              <button
+                                onClick={() => saveEditSite(site)}
+                                className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={cancelEditSite}
+                                className="rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-950 hover:border-gray-300"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="px-4 py-2.5 text-gray-950">{site.name}</td>
+                          <td className="px-4 py-2.5 text-gray-600">{site.address || "-"}</td>
+                          <td className="px-4 py-2.5">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                site.active
+                                  ? "bg-green-50 text-green-700"
+                                  : "bg-gray-100 text-gray-600"
+                              }`}
+                            >
+                              {site.active ? "Active" : "Inactive"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <div className="flex items-center justify-end gap-3">
+                              <button
+                                onClick={() => startEditSite(site)}
+                                className="text-sm font-medium text-accent hover:underline"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => toggleSiteActive(site)}
+                                className="text-sm font-medium text-accent hover:underline"
+                              >
+                                {site.active ? "Deactivate" : "Reactivate"}
+                              </button>
+                            </div>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
