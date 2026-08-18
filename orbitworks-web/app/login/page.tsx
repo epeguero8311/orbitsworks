@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -161,6 +161,12 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
               />
+              <Link
+                href="/forgot-password"
+                className="mt-1.5 inline-block text-sm font-medium text-accent hover:text-accent-hover"
+              >
+                Forgot password?
+              </Link>
             </div>
 
             {error && (
