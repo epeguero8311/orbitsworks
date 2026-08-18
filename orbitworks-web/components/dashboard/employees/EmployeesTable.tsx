@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import type { Employee, JobSite, Job } from "@/lib/types";
 import { UpgradeToast } from "@/components/UpgradeToast";
 
@@ -28,6 +29,17 @@ export function EmployeesTable({
   const [showUpgradeToast, setShowUpgradeToast] = useState(false);
 
   const activeCount = employees.filter((e) => e.active).length;
+
+  // Active employees first, inactive ones pushed to the bottom. Array.sort
+  // is stable in modern JS engines, so relative order within each group is
+  // preserved -- this only moves rows between the two groups, it doesn't
+  // reshuffle within a group.
+  const sortedEmployees = useMemo(() => {
+    return [...employees].sort((a, b) => {
+      if (a.active === b.active) return 0;
+      return a.active ? -1 : 1;
+    });
+  }, [employees]);
 
   async function toggleActive(employee: Employee) {
     try {
@@ -102,67 +114,78 @@ export function EmployeesTable({
               <th className="px-6 py-3 font-medium"></th>
             </tr>
           </thead>
-          <tbody>
-            {employees.map((employee) => (
-              <tr
-                key={employee.id}
-                onClick={() => onSelect(employee)}
-                className="cursor-pointer border-b border-gray-200 transition-colors last:border-0 hover:bg-gray-50"
-              >
-                <td className="px-6 py-4 font-medium text-gray-950">
-                  <span className="flex items-center gap-2">
-                    {employee.photoUrl ? (
-                      <img
-                        src={employee.photoUrl}
-                        alt={employee.name}
-                        className="h-7 w-7 rounded-full object-cover"
-                      />
-                    ) : null}
-                    {employee.name}
-                    {employee.isSupervisor && (
-                      <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
-                        Supervisor
-                      </span>
-                    )}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-gray-600">
-                  {displayJobTitle(employee)}
-                </td>
-                <td className="px-6 py-4 text-gray-600">
-                  {displayRate(employee)}
-                </td>
-                <td className="px-6 py-4 text-gray-600">
-                  {siteNames(employee.assignedSiteIds)}
-                </td>
-                <td className="px-6 py-4 font-mono text-gray-950">
-                  {employee.pin ?? "-"}
-                </td>
-                <td className="px-6 py-4">
-                  <span
-                    className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
-                      employee.active
-                        ? "bg-green-50 text-green-700"
-                        : "bg-gray-100 text-gray-600"
-                    }`}
-                  >
-                    {employee.active ? "Active" : "Inactive"}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-right">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleActive(employee);
-                    }}
-                    className="text-sm font-medium text-accent hover:underline"
-                  >
-                    {employee.active ? "Deactivate" : "Reactivate"}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
+          <motion.tbody layout>
+            <AnimatePresence initial={false}>
+              {sortedEmployees.map((employee) => (
+                <motion.tr
+                  key={employee.id}
+                  layout
+                  transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                  onClick={() => onSelect(employee)}
+                  className="cursor-pointer border-b border-gray-200 bg-white transition-colors last:border-0 hover:bg-gray-50"
+                >
+                  <td className="px-6 py-4 font-medium text-gray-950">
+                    <span className="flex items-center gap-2">
+                      {employee.photoUrl ? (
+                        <img
+                          src={employee.photoUrl}
+                          alt={employee.name}
+                          className="h-7 w-7 rounded-full object-cover"
+                        />
+                      ) : null}
+                      {employee.name}
+                      {employee.isSupervisor && (
+                        <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
+                          Supervisor
+                        </span>
+                      )}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-gray-600">
+                    {displayJobTitle(employee)}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600">
+                    {displayRate(employee)}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600">
+                    {siteNames(employee.assignedSiteIds)}
+                  </td>
+                  <td className="px-6 py-4 font-mono text-gray-950">
+                    {employee.pin ?? "-"}
+                  </td>
+                  <td className="px-6 py-4">
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.span
+                        key={employee.active ? "active" : "inactive"}
+                        initial={{ opacity: 0, scale: 0.85 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.85 }}
+                        transition={{ duration: 0.15 }}
+                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
+                          employee.active
+                            ? "bg-green-50 text-green-700"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {employee.active ? "Active" : "Inactive"}
+                      </motion.span>
+                    </AnimatePresence>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleActive(employee);
+                      }}
+                      className="text-sm font-medium text-accent hover:underline"
+                    >
+                      {employee.active ? "Deactivate" : "Reactivate"}
+                    </button>
+                  </td>
+                </motion.tr>
+              ))}
+            </AnimatePresence>
+          </motion.tbody>
         </table>
       )}
 
