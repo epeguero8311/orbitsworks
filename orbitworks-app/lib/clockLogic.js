@@ -11,6 +11,7 @@ import {
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
 import { db, storage, functions } from "./firebase";
+import { deriveStatus } from "./clockStatus";
 
 // PIN matching now happens server-side via the verifyPin Cloud Function -
 // rate-limited and scoped to the caller's own companyId claim, instead of
@@ -65,9 +66,28 @@ export async function submitClockEvent({
   siteName,
 }) {
   const latest = await getLatestClockEvent(companyId, employee.id);
-  const nextType = latest?.type === "in" ? "out" : "in";
+  const currentStatus = deriveStatus(latest?.type);
+  const nextType = currentStatus === "out" ? "in" : "out";
   const photoUrl = await uploadClockPhoto(companyId, employee.id, photoUri);
   const eventsRef = collection(db, "companies", companyId, "clockEvents");
+
+  // If they were on break when clocked out, close the break first so the
+  // break duration is accurate and they do not get stuck showing "on break"
+  // after their shift has already ended.
+  if (currentStatus === "break" && nextType === "out") {
+    await addDoc(eventsRef, {
+      employeeId: employee.id,
+      employeeName: employee.name,
+      siteId: siteId ?? null,
+      siteName: siteName ?? "Not specified",
+      type: "breakEnd",
+      source: "autoBreakEnd",
+      createdByUid,
+      timestamp: serverTimestamp(),
+      createdAt: serverTimestamp(),
+    });
+  }
+
   await addDoc(eventsRef, {
     employeeId: employee.id,
     employeeName: employee.name,
@@ -81,4 +101,35 @@ export async function submitClockEvent({
     createdAt: serverTimestamp(),
   });
   return nextType;
+}
+
+// Breaks are unpaid and tracked only - no photo capture, unlike clock in/out.
+// type must be "breakStart" or "breakEnd", decided by the caller based on
+// each target employee's current status so this function never has to guess.
+// authorizedBy is the employee record matched by PIN on the Breaks screen -
+// this is who is responsible for putting the person on/off break, separate
+// from createdByUid which is just the logged-in session account.
+export async function submitBreakEvent({
+  companyId,
+  employee,
+  type,
+  createdByUid,
+  authorizedBy,
+  siteId,
+  siteName,
+}) {
+  const eventsRef = collection(db, "companies", companyId, "clockEvents");
+  await addDoc(eventsRef, {
+    employeeId: employee.id,
+    employeeName: employee.name,
+    siteId: siteId ?? null,
+    siteName: siteName ?? "Not specified",
+    type,
+    source: "supervisorPin",
+    authorizedById: authorizedBy?.id ?? null,
+    authorizedByName: authorizedBy?.name ?? null,
+    createdByUid,
+    timestamp: serverTimestamp(),
+    createdAt: serverTimestamp(),
+  });
 }

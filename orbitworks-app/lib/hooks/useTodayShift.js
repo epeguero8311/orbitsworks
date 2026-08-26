@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
+import { deriveStatus } from "../clockStatus";
 
 function startOfToday() {
   const d = new Date();
@@ -46,7 +47,7 @@ export function useTodayShift(companyId) {
 
       const merged = employeesData.map((emp) => ({
         ...emp,
-        status: latestEventByEmployee[emp.id]?.type === "in" ? "in" : "out",
+        status: deriveStatus(latestEventByEmployee[emp.id]?.type),
       }));
 
       setEmployees(merged);

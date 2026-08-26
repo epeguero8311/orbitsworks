@@ -1,9 +1,11 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { View, Text, TextInput, FlatList, StyleSheet, Image } from "react-native";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { useTodayShift } from "../lib/hooks/useTodayShift";
 import ScreenHeader from "../components/ScreenHeader";
+
+const STATUS_LABEL = { in: "In", break: "On Break", out: "Out" };
 
 export default function EmployeeListScreen({ navigation }) {
   const { userData } = useAuth();
@@ -14,6 +16,12 @@ export default function EmployeeListScreen({ navigation }) {
   const filtered = employees.filter((e) =>
     e.name?.toLowerCase().includes(search.trim().toLowerCase())
   );
+
+  const dotColor = (status, colors) => {
+    if (status === "in") return colors.green;
+    if (status === "break") return colors.accent;
+    return colors.dotOff;
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -49,9 +57,9 @@ export default function EmployeeListScreen({ navigation }) {
               <Text style={[styles.jobTitle, { color: colors.subtext }]}>{item.jobTitle}</Text>
             </View>
             <View style={styles.statusWrap}>
-              <View style={[styles.dot, { backgroundColor: item.status === "in" ? colors.green : colors.dotOff }]} />
+              <View style={[styles.dot, { backgroundColor: dotColor(item.status, colors) }]} />
               <Text style={[styles.statusLabel, { color: colors.subtext }]}>
-                {item.status === "in" ? "In" : "Out"}
+                {STATUS_LABEL[item.status] ?? "Out"}
               </Text>
             </View>
           </View>

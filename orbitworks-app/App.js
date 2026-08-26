@@ -16,17 +16,15 @@ import NotesScreen from "./screens/NotesScreen";
 import PinEntryScreen from "./screens/PinEntryScreen";
 import ClockCameraScreen from "./screens/ClockCameraScreen";
 import ClockConfirmScreen from "./screens/ClockConfirmScreen";
-
+import BreaksPinEntryScreen from "./screens/BreaksPinEntryScreen";
+import BreaksEmployeeListScreen from "./screens/BreaksEmployeeListScreen";
 const Stack = createNativeStackNavigator();
-
 function RootNavigator() {
   const { currentUser, loading, accountDisabled } = useAuth();
   const { isDark } = useTheme();
-
   if (loading) {
     return <LoadingScreen />;
   }
-
   return (
     <NavigationContainer>
       <StatusBar style={isDark ? "light" : "dark"} />
@@ -35,7 +33,7 @@ function RootNavigator() {
           <Stack.Screen name="AccountDisabled" component={AccountDisabledScreen} />
         ) : currentUser ? (
           <>
-            <Stack.Screen name="Dashboard" component={DashboardScreen} />
+            <Stack.Screen name="Dashboard" component={DashboardScreen} options={{ freezeOnBlur: false }} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="EmployeeList" component={EmployeeListScreen} />
             <Stack.Screen name="SiteSelect" component={SiteSelectScreen} />
@@ -43,6 +41,8 @@ function RootNavigator() {
             <Stack.Screen name="PinEntry" component={PinEntryScreen} />
             <Stack.Screen name="ClockCamera" component={ClockCameraScreen} />
             <Stack.Screen name="ClockConfirm" component={ClockConfirmScreen} />
+            <Stack.Screen name="BreaksPinEntry" component={BreaksPinEntryScreen} />
+            <Stack.Screen name="BreaksEmployeeList" component={BreaksEmployeeListScreen} />
           </>
         ) : (
           <>
@@ -54,7 +54,6 @@ function RootNavigator() {
     </NavigationContainer>
   );
 }
-
 export default function App() {
   return (
     <ThemeProvider>

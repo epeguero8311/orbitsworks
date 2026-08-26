@@ -1,4 +1,4 @@
-﻿import { useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Image,
@@ -17,7 +17,7 @@ export default function DashboardScreen({ navigation }) {
   const { userData, currentUser } = useAuth();
   const { colors, isDark } = useTheme();
   const { selectedSite } = useSiteSession();
-  const { employees, todayInEvents, loading } = useTodayShift(userData?.companyId);
+  const { employees, loading } = useTodayShift(userData?.companyId);
   const { settings } = useCompanySettings(userData?.companyId);
   const [askSite, setAskSite] = useState(true);
 
@@ -37,7 +37,8 @@ export default function DashboardScreen({ navigation }) {
       ? []
       : employees;
 
-  const clockedInCount = filteredEmployees.filter((e) => e.status === "in").length;
+  const clockedInCount = filteredEmployees.filter((e) => e.status === "in" || e.status === "break").length;
+  const onBreakCount = filteredEmployees.filter((e) => e.status === "break").length;
   const supervisor = employees.find((e) => e.id === currentUser?.uid);
   const displayName = supervisor?.name ?? currentUser?.email ?? "";
 
@@ -51,18 +52,6 @@ export default function DashboardScreen({ navigation }) {
   };
 
   const hoursLabel = `${formatHour(settings.businessHours.open)} - ${formatHour(settings.businessHours.close)}`;
-
-  const onTimePercent = (() => {
-    if (todayInEvents.length === 0) return null;
-    const [openH, openM] = settings.businessHours.open.split(":").map(Number);
-    const graceMinutes = 15;
-    const onTimeCount = todayInEvents.filter((evt) => {
-      const cutoff = new Date(evt.timestamp);
-      cutoff.setHours(openH, openM + graceMinutes, 0, 0);
-      return evt.timestamp <= cutoff;
-    }).length;
-    return Math.round((onTimeCount / todayInEvents.length) * 100);
-  })();
 
   const handleClockPress = () => {
     if (askSite) {
@@ -135,12 +124,22 @@ export default function DashboardScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      <View style={[styles.statCard, { backgroundColor: colors.accent }]}>
-        <Text style={styles.statLabel}>Clocked in{"\n"}on time</Text>
-        <Text style={styles.statPercent}>
-          {onTimePercent === null ? "—" : `${onTimePercent}%`}
-        </Text>
-      </View>
+      <TouchableOpacity
+        style={[styles.statCard, { backgroundColor: colors.accent }]}
+        onPress={() => navigation.navigate("BreaksPinEntry")}
+        activeOpacity={0.85}
+      >
+        <View style={styles.breaksLeft}>
+          <Feather name="coffee" size={22} color="#fff" />
+          <View>
+            <Text style={styles.statLabel}>Breaks</Text>
+            <Text style={styles.breaksSubtext}>
+              {onBreakCount > 0 ? `${onBreakCount} currently on break` : "Tap to manage breaks"}
+            </Text>
+          </View>
+        </View>
+        <Feather name="chevron-right" size={22} color="#fff" />
+      </TouchableOpacity>
 
       <View style={[styles.hoursRow, { borderColor: colors.border }]}>
         <Feather name="clock" size={14} color={colors.subtext} />
@@ -177,8 +176,9 @@ const styles = StyleSheet.create({
     borderRadius: 18, paddingVertical: 18, paddingHorizontal: 20,
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
   },
-  statLabel: { color: "#fff", fontSize: 14, fontWeight: "600", lineHeight: 18 },
-  statPercent: { color: "#fff", fontSize: 30, fontWeight: "800" },
+  breaksLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  statLabel: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  breaksSubtext: { color: "#fff", fontSize: 12, opacity: 0.9, marginTop: 2 },
   hoursRow: {
     flexDirection: "row", alignItems: "center", gap: 6,
     marginTop: 16, marginBottom: 20, justifyContent: "center",
