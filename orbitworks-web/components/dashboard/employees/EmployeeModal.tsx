@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { db, storage } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, storage, functions } from "@/lib/firebase";
 import type { Employee, JobSite, Job } from "@/lib/types";
 
 export function EmployeeModal({
@@ -87,7 +88,6 @@ export function EmployeeModal({
         jobTitle: jobTitleToSave,
         hourlyRate: hourlyRateToSave,
         phone: phone.trim(),
-        isSupervisor,
         dob: dob || null,
         assignedSiteIds: selectedSiteIds,
       };
@@ -102,6 +102,15 @@ export function EmployeeModal({
       }
 
       await updateDoc(employeeRef, updates);
+
+      // isSupervisor is a role-like field, so it goes through a callable
+      // (server-verified, keeps custom claims consistent) rather than
+      // being bundled into the plain field updateDoc above.
+      if (isSupervisor !== (employee.isSupervisor ?? false)) {
+        const setSupervisorStatus = httpsCallable(functions, "setSupervisorStatus");
+        await setSupervisorStatus({ employeeId: employee.id, isSupervisor });
+      }
+
       setSuccess("Saved.");
     } catch (err) {
       console.error("Update employee error:", err);

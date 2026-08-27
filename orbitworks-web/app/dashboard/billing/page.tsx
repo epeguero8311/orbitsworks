@@ -9,9 +9,9 @@ import {
   where,
   orderBy,
   getDocs,
-  writeBatch,
 } from "firebase/firestore";
-import { db, auth } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, auth, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { PRICE_TIERS } from "@/lib/stripe/tiers";
 import { usePaymentMethod } from "@/lib/hooks/usePaymentMethod";
@@ -251,14 +251,12 @@ export default function BillingPage() {
     setError("");
 
     try {
-      const batch = writeBatch(db);
-      selectedIds.forEach((id) => {
-        batch.update(
-          doc(db, "companies", userData.companyId as string, "employees", id),
-          { active: false }
-        );
-      });
-      await batch.commit();
+      // Goes through a callable rather than a raw client batch write, so
+      // any deactivated employee with a real login also gets their Auth
+      // account disabled and refresh tokens revoked - not just their
+      // Firestore "active" field flipped.
+      const deactivateEmployeesBulk = httpsCallable(functions, "deactivateEmployeesBulk");
+      await deactivateEmployeesBulk({ employeeIds: selectedIds });
 
       const { action, tierKey } = pendingDowngrade;
       setPendingDowngrade(null);

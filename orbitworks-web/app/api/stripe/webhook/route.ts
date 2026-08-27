@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
 import { getTierByPriceId } from "@/lib/stripe/tiers";
-import { adminDb } from "@/lib/firebase/admin";
+import { adminDb, adminAuth } from "@/lib/firebase/admin";
 import Stripe from "stripe";
 
 const FREE_EMPLOYEE_CAP = 8;
@@ -25,11 +25,22 @@ function shuffle<T>(arr: T[]): T[] {
   return copy;
 }
 
+// Mirrors the deactivateEmployeeAuth helper in functions/src/index.ts.
+// Cannot literally import it - this route runs as a separate Next.js
+// deployable from Cloud Functions - so the same ~2 lines are kept here,
+// on purpose, identical to the Cloud Functions version.
+async function deactivateEmployeeAuth(linkedUserId: string) {
+  await adminAuth.updateUser(linkedUserId, { disabled: true });
+  await adminAuth.revokeRefreshTokens(linkedUserId);
+}
+
 // Reverts a company to the permanent free tier, whether triggered by a
 // deliberate cancel or by Stripe giving up after failed payment retries.
 // If the company is over the free cap, employees are deactivated down to
 // 8 automatically - non-supervisors first (randomly among them),
-// touching supervisors only if that alone isn't enough.
+// touching supervisors only if that alone isn't enough. Anyone with a
+// real login (linkedUserId) also gets their Auth account disabled and
+// refresh tokens revoked, not just their Firestore "active" field flipped.
 async function autoRevertToFree(companyId: string) {
   const companyRef = adminDb.collection("companies").doc(companyId);
   const employeesRef = companyRef.collection("employees");
@@ -38,6 +49,7 @@ async function autoRevertToFree(companyId: string) {
   const employees = activeSnap.docs.map((d) => ({
     id: d.id,
     isSupervisor: !!(d.data() as { isSupervisor?: boolean }).isSupervisor,
+    linkedUserId: (d.data() as { linkedUserId?: string }).linkedUserId,
   }));
 
   const excess = employees.length - FREE_EMPLOYEE_CAP;
@@ -52,6 +64,12 @@ async function autoRevertToFree(companyId: string) {
       batch.update(employeesRef.doc(emp.id), { active: false });
     });
     await batch.commit();
+
+    for (const emp of toDeactivate) {
+      if (emp.linkedUserId) {
+        await deactivateEmployeeAuth(emp.linkedUserId);
+      }
+    }
   }
 
   await companyRef.update({

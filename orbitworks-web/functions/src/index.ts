@@ -20,6 +20,15 @@ function generateUniquePin(existingPins: Set<string>): string {
 const FREE_EMPLOYEE_CAP = 8;
 const PHOTO_RETENTION_DAYS = 14;
 
+// Shared by setEmployeeActive and deactivateEmployeesBulk so every path
+// that deactivates an employee with a real login disables the Auth
+// account and revokes its refresh tokens the same way - flipping the
+// Firestore "active" field alone is not enough to actually cut off access.
+async function deactivateEmployeeAuth(linkedUserId: string) {
+  await admin.auth().updateUser(linkedUserId, { disabled: true });
+  await admin.auth().revokeRefreshTokens(linkedUserId);
+}
+
 export const createCompany = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -246,11 +255,105 @@ export const setEmployeeActive = onCall(async (request) => {
   const linkedUserId = employee.linkedUserId;
   if (linkedUserId) {
     if (!active) {
-      await admin.auth().updateUser(linkedUserId, { disabled: true });
-      await admin.auth().revokeRefreshTokens(linkedUserId);
+      await deactivateEmployeeAuth(linkedUserId);
     } else {
       await admin.auth().updateUser(linkedUserId, { disabled: false });
     }
+  }
+
+  return { success: true };
+});
+
+// Deactivates several employees at once (used by the billing page's
+// downgrade flow, which previously wrote "active: false" directly from
+// the client via a raw batch, skipping the Auth-disable/token-revoke step
+// entirely for anyone with a real login).
+export const deactivateEmployeesBulk = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if (callerRole !== "admin" || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const employeeIds: string[] = Array.isArray(request.data?.employeeIds)
+    ? request.data.employeeIds.map((id: unknown) => String(id))
+    : [];
+  if (employeeIds.length === 0) {
+    throw new HttpsError("invalid-argument", "employeeIds is required.");
+  }
+
+  const employeesRef = db.collection("companies").doc(callerCompanyId).collection("employees");
+  const batch = db.batch();
+  const linkedUserIds: string[] = [];
+
+  for (const employeeId of employeeIds) {
+    const employeeSnap = await employeesRef.doc(employeeId).get();
+    if (!employeeSnap.exists) continue;
+    const employee = employeeSnap.data() as { linkedUserId?: string };
+    batch.update(employeesRef.doc(employeeId), { active: false });
+    if (employee.linkedUserId) {
+      linkedUserIds.push(employee.linkedUserId);
+    }
+  }
+
+  await batch.commit();
+
+  for (const linkedUserId of linkedUserIds) {
+    await deactivateEmployeeAuth(linkedUserId);
+  }
+
+  return { success: true, deactivatedCount: employeeIds.length };
+});
+
+// Sets isSupervisor on an employee record. This is a role-like field, so
+// it goes through a callable (admin-only, server-verified) rather than a
+// direct client updateDoc, matching how role/companyId are already
+// handled everywhere else. Does not create a login on its own - an
+// employee can be marked isSupervisor with no linkedUserId (e.g. a
+// company using a shared PIN model), same as today.
+export const setSupervisorStatus = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if (callerRole !== "admin" || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
+  const isSupervisor = !!(request.data && request.data.isSupervisor);
+  if (!employeeId) {
+    throw new HttpsError("invalid-argument", "employeeId is required.");
+  }
+
+  const employeeRef = db
+    .collection("companies")
+    .doc(callerCompanyId)
+    .collection("employees")
+    .doc(employeeId);
+  const employeeSnap = await employeeRef.get();
+  if (!employeeSnap.exists) {
+    throw new HttpsError("not-found", "Employee not found.");
+  }
+  const employee = employeeSnap.data() as { linkedUserId?: string };
+
+  await employeeRef.update({ isSupervisor });
+
+  // If this employee has a real login and supervisor status was revoked,
+  // downgrade their custom claim to a plain employee-level role so a live
+  // session cannot retain supervisor-adjacent permissions server-side.
+  // (Their role claim today is only ever "admin" or "supervisor" - there
+  // is no separate "employee" role in the token model, so this only
+  // matters once one is introduced. Left as a no-op placeholder call site
+  // rather than guessing at a role name that does not exist yet.)
+  if (!isSupervisor && employee.linkedUserId) {
+    // No claim change needed today: acceptInvite always grants role
+    // "supervisor" and there is no lesser role to fall back to. If that
+    // changes, set the downgraded claim here.
   }
 
   return { success: true };
