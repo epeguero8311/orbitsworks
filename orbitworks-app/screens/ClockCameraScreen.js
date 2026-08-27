@@ -1,10 +1,9 @@
-﻿import { useState, useRef } from "react";
+import { useState, useRef } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useAuth } from "../lib/AuthContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
 import { submitClockEvent } from "../lib/clockLogic";
-
 export default function ClockCameraScreen({ route, navigation }) {
   const { employee } = route.params;
   const { userData, currentUser } = useAuth();
@@ -12,11 +11,9 @@ export default function ClockCameraScreen({ route, navigation }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [submitting, setSubmitting] = useState(false);
   const cameraRef = useRef(null);
-
   if (!permission) {
     return <View style={styles.center}><ActivityIndicator color="#3b6fe0" /></View>;
   }
-
   if (!permission.granted) {
     return (
       <View style={styles.center}>
@@ -27,18 +24,14 @@ export default function ClockCameraScreen({ route, navigation }) {
       </View>
     );
   }
-
   const handleCapture = async () => {
     if (!cameraRef.current || submitting) return;
     setSubmitting(true);
-
     const isNone = selectedSite?.id === "none";
     const siteId = !selectedSite || isNone ? null : selectedSite.id;
     const siteName = !selectedSite ? "Not specified" : isNone ? "Not specified" : selectedSite.name;
-
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.5 });
-
       const resultType = await submitClockEvent({
         companyId: userData.companyId,
         employee,
@@ -48,14 +41,12 @@ export default function ClockCameraScreen({ route, navigation }) {
         siteId,
         siteName,
       });
-
       navigation.replace("ClockConfirm", { employeeName: employee.name, resultType });
     } catch (error) {
       console.log("Clock event failed:", error);
       setSubmitting(false);
     }
   };
-
   return (
     <View style={styles.container}>
       <CameraView ref={cameraRef} style={styles.camera} facing="front" />
@@ -68,7 +59,6 @@ export default function ClockCameraScreen({ route, navigation }) {
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   camera: { flex: 1 },

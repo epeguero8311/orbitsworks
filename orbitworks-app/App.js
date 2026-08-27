@@ -18,6 +18,8 @@ import ClockCameraScreen from "./screens/ClockCameraScreen";
 import ClockConfirmScreen from "./screens/ClockConfirmScreen";
 import BreaksPinEntryScreen from "./screens/BreaksPinEntryScreen";
 import BreaksEmployeeListScreen from "./screens/BreaksEmployeeListScreen";
+import OverridePinEntryScreen from "./screens/OverridePinEntryScreen";
+import OverrideEmployeeListScreen from "./screens/OverrideEmployeeListScreen";
 const Stack = createNativeStackNavigator();
 function RootNavigator() {
   const { currentUser, loading, accountDisabled } = useAuth();
@@ -43,6 +45,8 @@ function RootNavigator() {
             <Stack.Screen name="ClockConfirm" component={ClockConfirmScreen} />
             <Stack.Screen name="BreaksPinEntry" component={BreaksPinEntryScreen} />
             <Stack.Screen name="BreaksEmployeeList" component={BreaksEmployeeListScreen} />
+            <Stack.Screen name="OverridePinEntry" component={OverridePinEntryScreen} />
+            <Stack.Screen name="OverrideEmployeeList" component={OverrideEmployeeListScreen} />
           </>
         ) : (
           <>

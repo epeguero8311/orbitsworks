@@ -133,3 +133,76 @@ export async function submitBreakEvent({
     createdAt: serverTimestamp(),
   });
 }
+
+// Supervisor override clock-in: no photo, since the whole point is covering
+// a case where the normal proof flow can't be used (forgotten PIN, etc).
+// Only ever writes "in" - the caller only offers this for employees who are
+// currently clocked out. authorizedBy is the supervisor whose PIN unlocked
+// this screen, recorded for audit purposes.
+export async function submitOverrideClockIn({
+  companyId,
+  employee,
+  createdByUid,
+  authorizedBy,
+  siteId,
+  siteName,
+}) {
+  const eventsRef = collection(db, "companies", companyId, "clockEvents");
+  await addDoc(eventsRef, {
+    employeeId: employee.id,
+    employeeName: employee.name,
+    siteId: siteId ?? null,
+    siteName: siteName ?? "Not specified",
+    type: "in",
+    source: "supervisorOverride",
+    authorizedById: authorizedBy?.id ?? null,
+    authorizedByName: authorizedBy?.name ?? null,
+    createdByUid,
+    timestamp: serverTimestamp(),
+    createdAt: serverTimestamp(),
+  });
+}
+
+// Supervisor override clock-out: mirror of submitOverrideClockIn. The
+// caller only offers this for employees who are currently in/break, so
+// there is no ambiguity about direction. If they were on break, that break
+// is auto-closed first, same rule as the normal camera clock-out flow.
+export async function submitOverrideClockOut({
+  companyId,
+  employee,
+  currentStatus,
+  createdByUid,
+  authorizedBy,
+  siteId,
+  siteName,
+}) {
+  const eventsRef = collection(db, "companies", companyId, "clockEvents");
+
+  if (currentStatus === "break") {
+    await addDoc(eventsRef, {
+      employeeId: employee.id,
+      employeeName: employee.name,
+      siteId: siteId ?? null,
+      siteName: siteName ?? "Not specified",
+      type: "breakEnd",
+      source: "autoBreakEnd",
+      createdByUid,
+      timestamp: serverTimestamp(),
+      createdAt: serverTimestamp(),
+    });
+  }
+
+  await addDoc(eventsRef, {
+    employeeId: employee.id,
+    employeeName: employee.name,
+    siteId: siteId ?? null,
+    siteName: siteName ?? "Not specified",
+    type: "out",
+    source: "supervisorOverride",
+    authorizedById: authorizedBy?.id ?? null,
+    authorizedByName: authorizedBy?.name ?? null,
+    createdByUid,
+    timestamp: serverTimestamp(),
+    createdAt: serverTimestamp(),
+  });
+}

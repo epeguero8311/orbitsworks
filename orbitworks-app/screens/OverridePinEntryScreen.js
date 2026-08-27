@@ -4,25 +4,21 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
-import { useSiteSession } from "../lib/SiteSessionContext";
 import { findEmployeeByPin } from "../lib/clockLogic";
 import ScreenHeader from "../components/ScreenHeader";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
 
-export default function PinEntryScreen({ navigation }) {
+// Verifies the entered PIN belongs to a supervisor before allowing access
+// to the override employee list. This does not clock the supervisor
+// themselves in or out - it only authorizes them to act on someone else's
+// behalf, for cases like a forgotten PIN.
+export default function OverridePinEntryScreen({ navigation }) {
   const { userData } = useAuth();
   const { colors } = useTheme();
-  const { selectedSite } = useSiteSession();
   const [pin, setPin] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
-
-  const siteLabel = selectedSite
-    ? selectedSite.id === "none"
-      ? "No Site"
-      : selectedSite.name
-    : "All Sites";
 
   const handleKeyPress = async (key) => {
     if (checking) return;
@@ -51,23 +47,28 @@ export default function PinEntryScreen({ navigation }) {
         return;
       }
 
+      if (!employee.isSupervisor) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setError("Only supervisors can use override");
+        setPin("");
+        return;
+      }
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      navigation.navigate("ClockCamera", { employee });
+      navigation.replace("OverrideEmployeeList", { authorizedBy: employee });
       setPin("");
     }
   };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Clock In / Out" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Supervisor Override" onBack={() => navigation.goBack()} />
 
       <View style={styles.content}>
-        <View style={[styles.sitePill, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Feather name="map-pin" size={13} color={colors.accent} />
-          <Text style={[styles.sitePillText, { color: colors.accent }]}>{siteLabel}</Text>
-        </View>
-
-        <Text style={[styles.title, { color: colors.text }]}>Enter your PIN</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Enter supervisor PIN</Text>
+        <Text style={[styles.subtitle, { color: colors.subtext }]}>
+          Use this to clock in an employee who forgot their own PIN
+        </Text>
 
         <View style={styles.dotsRow}>
           {[0, 1, 2, 3].map((i) => (
@@ -101,13 +102,6 @@ export default function PinEntryScreen({ navigation }) {
             </TouchableOpacity>
           ))}
         </View>
-
-        <TouchableOpacity
-          style={[styles.overrideButton, { backgroundColor: colors.accent }]}
-          onPress={() => navigation.navigate("OverridePinEntry")}
-        >
-          <Text style={styles.overrideButtonText}>Supervisor override</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -116,12 +110,8 @@ export default function PinEntryScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { alignItems: "center", paddingTop: 24 },
-  sitePill: {
-    flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14,
-    paddingVertical: 7, borderRadius: 20, borderWidth: 1, marginBottom: 20,
-  },
-  sitePillText: { fontSize: 13, fontWeight: "600" },
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 24 },
+  title: { fontSize: 20, fontWeight: "700", marginBottom: 6 },
+  subtitle: { fontSize: 13, marginBottom: 18, textAlign: "center", paddingHorizontal: 40 },
   dotsRow: { flexDirection: "row", marginBottom: 8 },
   dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 1, marginHorizontal: 8 },
   error: { marginTop: 12 },
@@ -129,11 +119,4 @@ const styles = StyleSheet.create({
   key: { width: 80, height: 80, justifyContent: "center", alignItems: "center" },
   keyHidden: { opacity: 0 },
   keyText: { fontSize: 26, fontWeight: "600" },
-  overrideButton: {
-    marginTop: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  overrideButtonText: { fontSize: 13, fontWeight: "700", color: "#fff" },
 });
