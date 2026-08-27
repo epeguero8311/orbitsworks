@@ -28,6 +28,7 @@ export function EmployeeModal({
     employee.jobId ? "" : employee.hourlyRate != null ? String(employee.hourlyRate) : ""
   );
   const [phone, setPhone] = useState(employee.phone ?? "");
+  const [isSupervisor, setIsSupervisor] = useState(employee.isSupervisor ?? false);
   const [dob, setDob] = useState(employee.dob ?? "");
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>(
     employee.assignedSiteIds ?? []
@@ -86,6 +87,7 @@ export function EmployeeModal({
         jobTitle: jobTitleToSave,
         hourlyRate: hourlyRateToSave,
         phone: phone.trim(),
+        isSupervisor,
         dob: dob || null,
         assignedSiteIds: selectedSiteIds,
       };
@@ -258,6 +260,30 @@ export function EmployeeModal({
               placeholder="(555) 555-5555"
               className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
+
+            <div className="mt-3 flex items-center justify-between rounded-lg border border-gray-200 px-3.5 py-2.5">
+              <div>
+                <p className="text-sm font-medium text-gray-950">Supervisor access</p>
+                <p className="text-xs text-gray-600">
+                  Can override clock-ins and manage breaks on mobile.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isSupervisor}
+                onClick={() => setIsSupervisor((v) => !v)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+                  isSupervisor ? "bg-accent" : "bg-gray-200"
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    isSupervisor ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
           </div>
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-950">
