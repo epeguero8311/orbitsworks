@@ -102,7 +102,7 @@ type AlertItem = {
 };
 
 export default function DashboardOverviewPage() {
-  const { userData } = useAuth();
+  const { userData, currentUser } = useAuth();
   const { employees, loading: loadingEmployees } = useEmployees();
   const { settings } = useCompanySettings();
   const [companyName, setCompanyName] = useState<string | null>(null);
@@ -362,6 +362,7 @@ export default function DashboardOverviewPage() {
             siteName: event.siteName,
             type: "breakEnd",
             source: "autoBreakEnd",
+            createdByUid: currentUser?.uid,
             timestamp: Timestamp.fromDate(closeTime),
             createdAt: serverTimestamp(),
           });
@@ -375,6 +376,7 @@ export default function DashboardOverviewPage() {
           type: "out",
           source: "adminManual",
           note: "Auto clocked out (end of business hours) - enabled in Settings",
+          createdByUid: currentUser?.uid,
           timestamp: Timestamp.fromDate(closeTime),
           createdAt: serverTimestamp(),
         });

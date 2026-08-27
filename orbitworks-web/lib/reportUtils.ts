@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   EmployeeSummary,
   SessionRecord,
   EmployeeExportRecord,
@@ -79,6 +79,7 @@ export function toPayrollCsv(
     "Employee",
     "Total Hours (decimal)",
     "Total Hours (h:m)",
+    "Total Break Hrs (decimal)",
     "Completed Sessions",
     "Missing Clock-Outs",
     "Hourly Rate",
@@ -88,6 +89,7 @@ export function toPayrollCsv(
     s.employeeName,
     s.totalHours.toFixed(2),
     formatHours(s.totalHours),
+    s.totalBreakHours.toFixed(2),
     String(s.sessionCount),
     String(s.openSessions),
     s.hourlyRate != null ? s.hourlyRate.toFixed(2) : "",
@@ -106,13 +108,14 @@ export function toTimesheetsCsv(
   startDate: string,
   endDate: string
 ) {
-  const header = ["Employee", "Job Site", "Clock In", "Clock Out", "Hours"];
+  const header = ["Employee", "Job Site", "Clock In", "Clock Out", "Hours", "Break Hours"];
   const rows = sessions.map((s) => [
     s.employeeName,
     s.siteName || "-",
     formatDateTime(s.clockIn),
     s.clockOut ? formatDateTime(s.clockOut) : "MISSING",
     s.hours != null ? s.hours.toFixed(2) : "",
+    s.breakHours != null ? s.breakHours.toFixed(2) : "0",
   ]);
   return [
     `Report period: ${startDate} to ${endDate}`,
@@ -148,12 +151,13 @@ export function toAttendanceCsv(
   startDate: string,
   endDate: string
 ) {
-  const header = ["Employee", "Date", "Arrival", "Departure", "Status"];
+  const header = ["Employee", "Date", "Arrival", "Departure", "Break Hours", "Status"];
   const rows = records.map((r) => [
     r.employeeName,
     r.date,
     r.arrivalTime ?? "",
     r.departureTime ?? "",
+    r.breakHours != null ? r.breakHours.toFixed(2) : "0",
     r.status,
   ]);
   return [

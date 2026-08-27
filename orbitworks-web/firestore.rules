@@ -21,6 +21,10 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/companies/$(companyId)/employees/$(uid)).data.active == true;
     }
 
+    function isValidClockEventType(data) {
+      return data.type in ['in', 'out', 'breakStart', 'breakEnd'];
+    }
+
     match /users/{userId} {
       allow read: if request.auth != null && (
         request.auth.uid == userId ||
@@ -92,6 +96,7 @@ service cloud.firestore {
           request.auth.token.companyId == companyId;
         allow create: if request.auth != null &&
           request.auth.token.companyId == companyId &&
+          isValidClockEventType(request.resource.data) &&
           (
             request.auth.token.role == 'admin' ||
             (request.auth.token.role == 'supervisor' &&
