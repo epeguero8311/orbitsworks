@@ -18,8 +18,11 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { ClockEvent, Employee, JobSite } from "@/lib/types";
+import { deriveStatus, ClockStatus, typeLabel, sourceLabel } from "@/lib/clockStatus";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import ClockEventsDayView from "@/components/dashboard/ClockEventsDayView";
+
+type ClockDirection = "in" | "out" | "breakStart" | "breakEnd";
 
 export default function TimeTrackingPage() {
   const { currentUser, userData } = useAuth();
@@ -27,17 +30,12 @@ export default function TimeTrackingPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [sites, setSites] = useState<JobSite[]>([]);
 
-  // Last-50 events feed. This is NOT rendered directly anymore - it exists
-  // only to derive each employee's current clocked-in/out status for the
-  // manual entry form below (employeeStatusMap / isEligibleFor). The
-  // browsable "Recent clock events" table has moved to ClockEventsDayView,
-  // which queries per-day instead of relying on a capped feed.
   const [recentEventsForStatus, setRecentEventsForStatus] = useState<ClockEvent[]>([]);
 
   const [employeeId, setEmployeeId] = useState("");
   const [siteId, setSiteId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [type, setType] = useState<"in" | "out">("in");
+  const [type, setType] = useState<ClockDirection>("in");
   const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -120,22 +118,25 @@ export default function TimeTrackingPage() {
   }, [userData?.companyId]);
 
   const employeeStatusMap = useMemo(() => {
-    const map: Record<string, "in" | "out"> = {};
+    const map: Record<string, ClockStatus> = {};
     for (const ev of recentEventsForStatus) {
       if (!(ev.employeeId in map)) {
-        map[ev.employeeId] = ev.type;
+        map[ev.employeeId] = deriveStatus(ev.type);
       }
     }
     return map;
   }, [recentEventsForStatus]);
 
-  function statusOf(id: string): "in" | "out" {
+  function statusOf(id: string): ClockStatus {
     return employeeStatusMap[id] ?? "out";
   }
 
-  function isEligibleFor(id: string, direction: "in" | "out") {
+  function isEligibleFor(id: string, direction: ClockDirection) {
     const status = statusOf(id);
-    return direction === "in" ? status === "out" : status === "in";
+    if (direction === "in") return status === "out";
+    if (direction === "out") return status === "in" || status === "break";
+    if (direction === "breakStart") return status === "in";
+    return status === "break"; // breakEnd
   }
 
   const filteredEmployees = employees
@@ -154,16 +155,64 @@ export default function TimeTrackingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteId, searchQuery]);
 
+  // Only auto-correct the direction if the currently selected one isn't
+  // valid for this employee. This is what preserves an explicit "Start
+  // break" click - without this check, picking a clocked-in employee would
+  // always snap the direction back to "out" since that's the most common
+  // case for someone with status "in".
   function handleSelectEmployee(id: string) {
     setEmployeeId(id);
-    if (id) {
-      setType(statusOf(id) === "in" ? "out" : "in");
+    if (!id) return;
+    if (isEligibleFor(id, type)) return;
+
+    const status = statusOf(id);
+    if (status === "out") setType("in");
+    else if (status === "break") setType("breakEnd");
+    else setType("out");
+  }
+
+  function handleSelectType(next: ClockDirection) {
+    if (employeeId && !isEligibleFor(employeeId, next)) return;
+    setType(next);
+  }
+
+  function emptyMessageFor(direction: ClockDirection) {
+    switch (direction) {
+      case "in":
+        return "No employees available to clock in";
+      case "out":
+        return "No employees available to clock out";
+      case "breakStart":
+        return "No employees available to start a break";
+      case "breakEnd":
+        return "No employees currently on break";
     }
   }
 
-  function handleSelectType(next: "in" | "out") {
-    if (employeeId && !isEligibleFor(employeeId, next)) return;
-    setType(next);
+  function alreadyMessageFor(direction: ClockDirection, name: string) {
+    switch (direction) {
+      case "in":
+        return `${name} is already clocked in.`;
+      case "out":
+        return `${name} is already clocked out.`;
+      case "breakStart":
+        return `${name} is not currently clocked in.`;
+      case "breakEnd":
+        return `${name} is not currently on break.`;
+    }
+  }
+
+  function successMessageFor(direction: ClockDirection, name: string) {
+    switch (direction) {
+      case "in":
+        return `Clocked in: ${name}`;
+      case "out":
+        return `Clocked out: ${name}`;
+      case "breakStart":
+        return `Started break: ${name}`;
+      case "breakEnd":
+        return `Ended break: ${name}`;
+    }
   }
 
   async function handleManualClock(e: FormEvent) {
@@ -183,45 +232,44 @@ export default function TimeTrackingPage() {
       }
 
       if (!isEligibleFor(employee.id, type)) {
-        setError(
-          type === "in"
-            ? `${employee.name} is already clocked in.`
-            : `${employee.name} is already clocked out.`
-        );
+        setError(alreadyMessageFor(type, employee.name));
         setIsSubmitting(false);
         return;
       }
 
       const now = new Date();
-      const [openH, openM] = settings.businessHours.open.split(":").map(Number);
-      const [closeH, closeM] = settings.businessHours.close.split(":").map(Number);
-      const businessOpenToday = new Date(now);
-      businessOpenToday.setHours(openH, openM, 0, 0);
-      const businessCloseToday = new Date(now);
-      businessCloseToday.setHours(closeH, closeM, 0, 0);
 
-      if (
-        type === "in" &&
-        !settings.attendanceRules.allowEarlyClockIn &&
-        now < businessOpenToday
-      ) {
-        setError(
-          `Early clock-in isn't allowed before ${settings.businessHours.open}. Enable it in Settings if needed.`
-        );
-        setIsSubmitting(false);
-        return;
-      }
+      if (type === "in" || type === "out") {
+        const [openH, openM] = settings.businessHours.open.split(":").map(Number);
+        const [closeH, closeM] = settings.businessHours.close.split(":").map(Number);
+        const businessOpenToday = new Date(now);
+        businessOpenToday.setHours(openH, openM, 0, 0);
+        const businessCloseToday = new Date(now);
+        businessCloseToday.setHours(closeH, closeM, 0, 0);
 
-      if (
-        type === "out" &&
-        !settings.attendanceRules.allowLateClockOut &&
-        now > businessCloseToday
-      ) {
-        setError(
-          `Late clock-out isn't allowed after ${settings.businessHours.close}. Enable it in Settings if needed.`
-        );
-        setIsSubmitting(false);
-        return;
+        if (
+          type === "in" &&
+          !settings.attendanceRules.allowEarlyClockIn &&
+          now < businessOpenToday
+        ) {
+          setError(
+            `Early clock-in isn't allowed before ${settings.businessHours.open}. Enable it in Settings if needed.`
+          );
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (
+          type === "out" &&
+          !settings.attendanceRules.allowLateClockOut &&
+          now > businessCloseToday
+        ) {
+          setError(
+            `Late clock-out isn't allowed after ${settings.businessHours.close}. Enable it in Settings if needed.`
+          );
+          setIsSubmitting(false);
+          return;
+        }
       }
 
       const eventsRef = collection(
@@ -230,6 +278,21 @@ export default function TimeTrackingPage() {
         userData.companyId,
         "clockEvents"
       );
+
+      if (type === "out" && statusOf(employee.id) === "break") {
+        await addDoc(eventsRef, {
+          employeeId: employee.id,
+          employeeName: employee.name,
+          siteId: site?.id ?? null,
+          siteName: site?.name ?? "Not specified",
+          type: "breakEnd",
+          source: "autoBreakEnd",
+          createdByUid: currentUser.uid,
+          timestamp: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        });
+      }
+
       await addDoc(eventsRef, {
         employeeId: employee.id,
         employeeName: employee.name,
@@ -243,7 +306,7 @@ export default function TimeTrackingPage() {
         createdAt: serverTimestamp(),
       });
 
-      setSuccess(`Clocked ${type === "in" ? "in" : "out"}: ${employee.name}`);
+      setSuccess(successMessageFor(type, employee.name));
       setEmployeeId("");
       setSiteId("");
       setSearchQuery("");
@@ -325,35 +388,25 @@ export default function TimeTrackingPage() {
     setLookupError("");
   }
 
-  function sourceLabel(source: ClockEvent["source"]) {
-    switch (source) {
-      case "faceMatch":
-        return { text: "Face match", className: "bg-green-50 text-green-700" };
-      case "pin":
-        return { text: "PIN", className: "bg-purple-50 text-purple-700" };
-      case "supervisorOverride":
-        return {
-          text: "Supervisor override",
-          className: "bg-amber-50 text-amber-700",
-        };
-      case "adminManual":
-        return { text: "Admin manual", className: "bg-blue-50 text-blue-700" };
-      case "autoClockOut":
-        return { text: "Auto clock-out", className: "bg-orange-50 text-orange-700" };
-      default:
-        return { text: "Unknown", className: "bg-gray-50 text-gray-600" };
-    }
-  }
+  const isPairable = (t: ClockEvent["type"]) => t === "in" || t === "out";
 
-  const clockInDisabled = !!employeeId && !isEligibleFor(employeeId, "in");
-  const clockOutDisabled = !!employeeId && !isEligibleFor(employeeId, "out");
+  const inDisabled = !!employeeId && !isEligibleFor(employeeId, "in");
+  const outDisabled = !!employeeId && !isEligibleFor(employeeId, "out");
+  const breakStartDisabled = !!employeeId && !isEligibleFor(employeeId, "breakStart");
+  const breakEndDisabled = !!employeeId && !isEligibleFor(employeeId, "breakEnd");
+
+  function directionButtonClass(direction: ClockDirection, disabled: boolean) {
+    if (type === direction) return "border-accent bg-accent/10 text-accent";
+    if (disabled) return "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400";
+    return "border-gray-200 text-gray-600 hover:border-gray-300";
+  }
 
   return (
     <div>
       <h1 className="text-xl font-semibold text-gray-950">Time Tracking</h1>
       <p className="mt-1 text-sm text-gray-600">
-        View clock events, and manually clock an employee in or out when the
-        normal selfie flow isn't available.
+        View clock events, and manually clock an employee in, out, or on a
+        break when the normal selfie or app flow isn't available.
       </p>
 
       <form
@@ -375,42 +428,44 @@ export default function TimeTrackingPage() {
           <span className="mb-1.5 block text-sm font-medium text-gray-950">
             Clock direction
           </span>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => handleSelectType("in")}
-              disabled={clockInDisabled}
-              className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors ${
-                type === "in"
-                  ? "border-accent bg-accent/10 text-accent"
-                  : clockInDisabled
-                  ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
-                  : "border-gray-200 text-gray-600 hover:border-gray-300"
-              }`}
+              disabled={inDisabled}
+              className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors ${directionButtonClass("in", inDisabled)}`}
             >
               Clock in
             </button>
             <button
               type="button"
               onClick={() => handleSelectType("out")}
-              disabled={clockOutDisabled}
-              className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors ${
-                type === "out"
-                  ? "border-accent bg-accent/10 text-accent"
-                  : clockOutDisabled
-                  ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
-                  : "border-gray-200 text-gray-600 hover:border-gray-300"
-              }`}
+              disabled={outDisabled}
+              className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors ${directionButtonClass("out", outDisabled)}`}
             >
               Clock out
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectType("breakStart")}
+              disabled={breakStartDisabled}
+              className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors ${directionButtonClass("breakStart", breakStartDisabled)}`}
+            >
+              Start break
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectType("breakEnd")}
+              disabled={breakEndDisabled}
+              className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors ${directionButtonClass("breakEnd", breakEndDisabled)}`}
+            >
+              End break
             </button>
           </div>
           <p className="mt-1.5 text-xs text-gray-600">
             {employeeId
-              ? "Direction is locked to this employee's current status."
-              : type === "in"
-              ? "Showing employees who are currently clocked out."
-              : "Showing employees who are currently clocked in."}
+              ? "Options are limited to this employee's current status."
+              : "Select an action, then the employee list below narrows to who's eligible."}
           </p>
         </div>
 
@@ -474,9 +529,7 @@ export default function TimeTrackingPage() {
           >
             <option value="">
               {filteredEmployees.length === 0
-                ? type === "in"
-                  ? "No employees available to clock in"
-                  : "No employees available to clock out"
+                ? emptyMessageFor(type)
                 : "Select an employee..."}
             </option>
             {filteredEmployees.map((emp) => (
@@ -650,6 +703,7 @@ export default function TimeTrackingPage() {
                   <th className="px-4 py-2 font-medium">Type</th>
                   <th className="px-4 py-2 font-medium">Time</th>
                   <th className="px-4 py-2 font-medium">Source</th>
+                  <th className="px-4 py-2 font-medium">Authorized by</th>
                   <th className="px-4 py-2 font-medium">Photo</th>
                   <th className="px-4 py-2 font-medium">Note</th>
                 </tr>
@@ -657,11 +711,15 @@ export default function TimeTrackingPage() {
               <tbody>
                 {lookupResults.map((event) => {
                   const badge = sourceLabel(event.source);
+                  const typeBadge = typeLabel(event.type);
+                  const pairable = isPairable(event.type);
                   return (
                     <tr
                       key={event.id}
-                      onClick={() => setSelectedEvent(event)}
-                      className="cursor-pointer border-b border-gray-200 last:border-0 hover:bg-gray-50"
+                      onClick={() => pairable && setSelectedEvent(event)}
+                      className={`border-b border-gray-200 last:border-0 ${
+                        pairable ? "cursor-pointer hover:bg-gray-50" : ""
+                      }`}
                     >
                       <td className="px-4 py-2.5 text-gray-950">
                         {event.employeeName}
@@ -670,14 +728,8 @@ export default function TimeTrackingPage() {
                         {event.siteName}
                       </td>
                       <td className="px-4 py-2.5">
-                        <span
-                          className={`font-medium ${
-                            event.type === "in"
-                              ? "text-green-700"
-                              : "text-gray-600"
-                          }`}
-                        >
-                          {event.type === "in" ? "Clock in" : "Clock out"}
+                        <span className={`font-medium ${typeBadge.className}`}>
+                          {typeBadge.text}
                         </span>
                       </td>
                       <td className="px-4 py-2.5 font-mono text-xs text-gray-600">
@@ -691,6 +743,9 @@ export default function TimeTrackingPage() {
                         >
                           {badge.text}
                         </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-600">
+                        {event.authorizedByName || "-"}
                       </td>
                       <td className="px-4 py-2.5 text-gray-600">
                         {event.photoUrl ? "View" : "-"}

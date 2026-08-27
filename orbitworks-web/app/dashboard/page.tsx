@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
@@ -27,6 +27,7 @@ import {
   Users,
   Building2,
   Clock,
+  Coffee,
   Download,
   UserPlus,
   AlertTriangle,
@@ -35,18 +36,8 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
-
-type ClockEvent = {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  siteId: string | null;
-  siteName: string;
-  type: "in" | "out";
-  source: "faceMatch" | "supervisorOverride" | "adminManual";
-  note?: string;
-  timestamp?: Timestamp;
-};
+import { ClockEvent } from "@/lib/types";
+import { deriveStatus } from "@/lib/clockStatus";
 
 type DayAttendance = {
   label: string;
@@ -295,25 +286,38 @@ export default function DashboardOverviewPage() {
     }
   }
 
-  const currentlyClockedIn = Array.from(latestByEmployee.values()).filter(
-    (e) => e.type === "in"
+  // "Active" now covers anyone on shift, whether working or on break -
+  // someone on break has not clocked out, so they should still count.
+  const currentlyActive = Array.from(latestByEmployee.values()).filter(
+    (e) => deriveStatus(e.type) !== "out"
   );
-  const clockedInDisplay = currentlyClockedIn.slice(0, 8);
-  const clockedInOverflow = currentlyClockedIn.length - clockedInDisplay.length;
-  const totalClockedIn = currentlyClockedIn.length;
+  const currentlyOnBreak = currentlyActive.filter(
+    (e) => deriveStatus(e.type) === "break"
+  );
+  const activeDisplay = currentlyActive.slice(0, 8);
+  const activeOverflow = currentlyActive.length - activeDisplay.length;
+  const totalActive = currentlyActive.length;
 
+  const onBreakDisplay = currentlyOnBreak.slice(0, 8);
+  const onBreakOverflow = currentlyOnBreak.length - onBreakDisplay.length;
+
+  // Approximate: elapsed time since each employee's most recent status
+  // change. If someone is mid-shift after a break, this reflects time since
+  // they returned from break, not their original clock-in - the exact
+  // payroll math (with break time subtracted from the whole shift) happens
+  // in Reports, not this live overview.
   const avgHoursWorked = (() => {
-    if (currentlyClockedIn.length === 0) return "0h";
-    const totalHours = currentlyClockedIn.reduce((sum, event) => {
+    if (currentlyActive.length === 0) return "0h";
+    const totalHours = currentlyActive.reduce((sum, event) => {
       if (!event.timestamp) return sum;
       const elapsedMs = Date.now() - event.timestamp.toDate().getTime();
       return sum + elapsedMs / (1000 * 60 * 60);
     }, 0);
-    return `${(totalHours / currentlyClockedIn.length).toFixed(1)}h`;
+    return `${(totalHours / currentlyActive.length).toFixed(1)}h`;
   })();
 
   const activeSiteCounts = new Map<string, number>();
-  for (const event of currentlyClockedIn) {
+  for (const event of currentlyActive) {
     const key = event.siteName || "Not specified";
     activeSiteCounts.set(key, (activeSiteCounts.get(key) ?? 0) + 1);
   }
@@ -325,7 +329,7 @@ export default function DashboardOverviewPage() {
     if (!userData?.companyId || !settings.attendanceRules.autoClockOut) return;
 
     const now = new Date();
-    const stale = currentlyClockedIn.filter(
+    const stale = currentlyActive.filter(
       (event) => event.timestamp && !isSameDay(event.timestamp.toDate(), now)
     );
 
@@ -347,6 +351,22 @@ export default function DashboardOverviewPage() {
           userData!.companyId,
           "clockEvents"
         );
+
+        // If they were left on break, close the break first so it doesn't
+        // stay open forever once the shift itself is force-closed.
+        if (deriveStatus(event.type) === "break") {
+          await addDoc(eventsRef, {
+            employeeId: event.employeeId,
+            employeeName: event.employeeName,
+            siteId: event.siteId,
+            siteName: event.siteName,
+            type: "breakEnd",
+            source: "autoBreakEnd",
+            timestamp: Timestamp.fromDate(closeTime),
+            createdAt: serverTimestamp(),
+          });
+        }
+
         await addDoc(eventsRef, {
           employeeId: event.employeeId,
           employeeName: event.employeeName,
@@ -363,7 +383,7 @@ export default function DashboardOverviewPage() {
       }
     });
   }, [
-    currentlyClockedIn,
+    currentlyActive,
     settings.attendanceRules.autoClockOut,
     settings.businessHours.close,
     userData?.companyId,
@@ -373,7 +393,7 @@ export default function DashboardOverviewPage() {
   const now = new Date();
 
   if (settings.alerts.maxHoursWarning) {
-    currentlyClockedIn
+    currentlyActive
       .filter((event) => event.timestamp && isSameDay(event.timestamp.toDate(), now))
       .forEach((event) => {
         const elapsedHours =
@@ -389,7 +409,7 @@ export default function DashboardOverviewPage() {
   }
 
   if (settings.alerts.missedClockOutAlert && !settings.attendanceRules.autoClockOut) {
-    currentlyClockedIn
+    currentlyActive
       .filter((event) => event.timestamp && !isSameDay(event.timestamp.toDate(), now))
       .forEach((event) => {
         alertItems.push({
@@ -442,7 +462,7 @@ export default function DashboardOverviewPage() {
         </div>
       </div>
 
-      <div className="mt-8 grid gap-5 sm:grid-cols-3">
+      <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           icon={Building2}
           iconBg="bg-purple-50"
@@ -456,7 +476,15 @@ export default function DashboardOverviewPage() {
           iconBg="bg-blue-50"
           iconColor="text-blue-600"
           label="Active employees"
-          value={totalClockedIn}
+          value={totalActive}
+          loading={loading}
+        />
+        <StatCard
+          icon={Coffee}
+          iconBg="bg-amber-50"
+          iconColor="text-amber-600"
+          label="On break"
+          value={currentlyOnBreak.length}
           loading={loading}
         />
         <StatCard
@@ -535,8 +563,8 @@ export default function DashboardOverviewPage() {
               </p>
             ) : (
               activeSites.map(([siteName, count]) => {
-                const pct = totalClockedIn
-                  ? Math.round((count / totalClockedIn) * 100)
+                const pct = totalActive
+                  ? Math.round((count / totalActive) * 100)
                   : 0;
                 return (
                   <div key={siteName}>
@@ -606,7 +634,7 @@ export default function DashboardOverviewPage() {
 
         {loading ? (
           <p className="p-6 text-sm text-gray-600">Loading...</p>
-        ) : currentlyClockedIn.length === 0 ? (
+        ) : currentlyActive.length === 0 ? (
           <p className="p-6 text-sm text-gray-600">
             No one is currently clocked in.
           </p>
@@ -621,7 +649,81 @@ export default function DashboardOverviewPage() {
               </tr>
             </thead>
             <tbody>
-              {clockedInDisplay.map((event) => (
+              {activeDisplay.map((event) => {
+                const isOnBreak = deriveStatus(event.type) === "break";
+                return (
+                  <tr
+                    key={event.employeeId}
+                    className="border-b border-gray-200 last:border-0"
+                  >
+                    <td className="px-6 py-4 font-medium text-gray-950">
+                      {event.employeeName}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">
+                      {event.siteName}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">
+                      {event.timestamp ? timeAgo(event.timestamp.toDate()) : "-"}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
+                          isOnBreak
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-green-50 text-green-700"
+                        }`}
+                      >
+                        {isOnBreak ? "On break" : "Active"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        {activeOverflow > 0 && (
+          <Link
+            href="/dashboard/time"
+            className="block border-t border-gray-200 px-6 py-3 text-center text-sm font-medium text-accent hover:underline"
+          >
+            +{activeOverflow} more
+          </Link>
+        )}
+      </div>
+
+      <div className="mt-6 overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <h2 className="text-base font-semibold text-gray-950">
+            On break
+          </h2>
+          <Link
+            href="/dashboard/time"
+            className="text-sm font-medium text-accent hover:underline"
+          >
+            View all
+          </Link>
+        </div>
+
+        {loading ? (
+          <p className="p-6 text-sm text-gray-600">Loading...</p>
+        ) : currentlyOnBreak.length === 0 ? (
+          <p className="p-6 text-sm text-gray-600">
+            No one is currently on break.
+          </p>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-gray-200 text-gray-600">
+              <tr>
+                <th className="px-6 py-3 font-medium">Employee</th>
+                <th className="px-6 py-3 font-medium">Job site</th>
+                <th className="px-6 py-3 font-medium">On break for</th>
+                <th className="px-6 py-3 font-medium">Authorized by</th>
+              </tr>
+            </thead>
+            <tbody>
+              {onBreakDisplay.map((event) => (
                 <tr
                   key={event.employeeId}
                   className="border-b border-gray-200 last:border-0"
@@ -635,10 +737,8 @@ export default function DashboardOverviewPage() {
                   <td className="px-6 py-4 text-gray-600">
                     {event.timestamp ? timeAgo(event.timestamp.toDate()) : "-"}
                   </td>
-                  <td className="px-6 py-4">
-                    <span className="inline-flex items-center rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
-                      Active
-                    </span>
+                  <td className="px-6 py-4 text-gray-600">
+                    {event.authorizedByName || "-"}
                   </td>
                 </tr>
               ))}
@@ -646,12 +746,12 @@ export default function DashboardOverviewPage() {
           </table>
         )}
 
-        {clockedInOverflow > 0 && (
+        {onBreakOverflow > 0 && (
           <Link
             href="/dashboard/time"
             className="block border-t border-gray-200 px-6 py-3 text-center text-sm font-medium text-accent hover:underline"
           >
-            +{clockedInOverflow} more
+            +{onBreakOverflow} more
           </Link>
         )}
       </div>

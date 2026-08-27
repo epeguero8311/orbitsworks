@@ -42,11 +42,21 @@ export interface ClockEvent {
   employeeName: string;
   siteId: string | null;
   siteName: string;
-  type: "in" | "out";
-  source: "faceMatch" | "pin" | "supervisorOverride" | "adminManual" | "autoClockOut";
+  type: "in" | "out" | "breakStart" | "breakEnd";
+  source:
+    | "faceMatch"
+    | "pin"
+    | "supervisorOverride"
+    | "adminManual"
+    | "autoClockOut"
+    | "supervisorPin"
+    | "autoBreakEnd";
   note?: string;
   photoUrl?: string;
   location?: { lat: number; lng: number } | string;
+  authorizedById?: string;
+  authorizedByName?: string;
+  createdByUid?: string;
   timestamp?: Timestamp;
 }
 

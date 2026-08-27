@@ -4,31 +4,9 @@ import { useState } from "react";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import { useClockEventsByDay } from "@/lib/hooks/useClockEventsByDay";
 import { ClockEvent } from "@/lib/types";
+import { typeLabel, sourceLabel } from "@/lib/clockStatus";
 import { dateKey } from "@/lib/reportUtils";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
-
-function sourceLabel(source: ClockEvent["source"]) {
-  switch (source) {
-    case "faceMatch":
-      return { text: "Face match", className: "bg-green-50 text-green-700" };
-    case "pin":
-      return { text: "PIN", className: "bg-purple-50 text-purple-700" };
-    case "supervisorOverride":
-      return {
-        text: "Supervisor override",
-        className: "bg-amber-50 text-amber-700",
-      };
-    case "adminManual":
-      return { text: "Admin manual", className: "bg-blue-50 text-blue-700" };
-    case "autoClockOut":
-      return {
-        text: "Auto clock-out",
-        className: "bg-orange-50 text-orange-700",
-      };
-    default:
-      return { text: "Unknown", className: "bg-gray-50 text-gray-600" };
-  }
-}
 
 export default function ClockEventsDayView({
   companyId,
@@ -44,6 +22,7 @@ export default function ClockEventsDayView({
   );
 
   const isToday = currentDate === todayKey;
+  const isPairable = (t: ClockEvent["type"]) => t === "in" || t === "out";
 
   function shiftDate(deltaDays: number) {
     const d = new Date(currentDate + "T00:00:00");
@@ -128,6 +107,7 @@ export default function ClockEventsDayView({
               <th className="px-4 py-2 font-medium">Type</th>
               <th className="px-4 py-2 font-medium">Time</th>
               <th className="px-4 py-2 font-medium">Source</th>
+              <th className="px-4 py-2 font-medium">Authorized by</th>
               <th className="px-4 py-2 font-medium">Photo</th>
               <th className="px-4 py-2 font-medium">Note</th>
             </tr>
@@ -135,11 +115,15 @@ export default function ClockEventsDayView({
           <tbody>
             {events.map((event) => {
               const badge = sourceLabel(event.source);
+              const typeBadge = typeLabel(event.type);
+              const pairable = isPairable(event.type);
               return (
                 <tr
                   key={event.id}
-                  onClick={() => setSelectedEvent(event)}
-                  className="cursor-pointer border-b border-gray-200 last:border-0 hover:bg-gray-50"
+                  onClick={() => pairable && setSelectedEvent(event)}
+                  className={`border-b border-gray-200 last:border-0 ${
+                    pairable ? "cursor-pointer hover:bg-gray-50" : ""
+                  }`}
                 >
                   <td className="px-4 py-2.5 text-gray-950">
                     {event.employeeName}
@@ -148,14 +132,8 @@ export default function ClockEventsDayView({
                     {event.siteName}
                   </td>
                   <td className="px-4 py-2.5">
-                    <span
-                      className={`font-medium ${
-                        event.type === "in"
-                          ? "text-green-700"
-                          : "text-gray-600"
-                      }`}
-                    >
-                      {event.type === "in" ? "Clock in" : "Clock out"}
+                    <span className={`font-medium ${typeBadge.className}`}>
+                      {typeBadge.text}
                     </span>
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-gray-600">
@@ -169,6 +147,9 @@ export default function ClockEventsDayView({
                     >
                       {badge.text}
                     </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-600">
+                    {event.authorizedByName || "-"}
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">
                     {event.photoUrl ? "View" : "-"}
