@@ -88,6 +88,7 @@ export default function ExportMenu({
   shiftNotes,
   jobs,
   hoursByEmployeeDay,
+  breakHoursByEmployeeDay,
   employeeJobIdById,
   startDate,
   endDate,
@@ -100,6 +101,7 @@ export default function ExportMenu({
   shiftNotes: ShiftNote[];
   jobs: Job[];
   hoursByEmployeeDay: Map<string, number>;
+  breakHoursByEmployeeDay: Map<string, number>;
   employeeJobIdById: Map<string, string | null>;
   startDate: string;
   endDate: string;
@@ -139,6 +141,7 @@ export default function ExportMenu({
           summaries,
           jobs,
           hoursByEmployeeDay,
+          breakHoursByEmployeeDay,
           employeeJobIdById,
           companyName,
           startDate,

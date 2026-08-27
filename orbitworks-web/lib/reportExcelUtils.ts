@@ -149,6 +149,7 @@ function addDetailSheet(workbook: any, sessions: SessionRecord[]) {
     { header: "Clock In", key: "clockInTime", width: 14 },
     { header: "Clock Out", key: "clockOutTime", width: 18 },
     { header: "Hours", key: "hoursDisplay", width: 12 },
+    { header: "Break", key: "breakDisplay", width: 12 },
   ];
 
   sessions.forEach((s) => {
@@ -176,6 +177,7 @@ function addDetailSheet(workbook: any, sessions: SessionRecord[]) {
       clockInTime: clockInLabel,
       clockOutTime: clockOutLabel,
       hoursDisplay: formatHoursMinutes(s.hours),
+      breakDisplay: formatHoursMinutes(s.breakHours),
     });
   });
 
@@ -221,9 +223,10 @@ function addSummarySheet(
   summarySheet.columns = [
     { key: "employeeName", width: 26 },
     { key: "totalHours", width: 16 },
+    { key: "totalBreakHours", width: 16 },
   ];
 
-  summarySheet.mergeCells("A1:B1");
+  summarySheet.mergeCells("A1:C1");
   const titleCell = summarySheet.getCell("A1");
   titleCell.value = `Total hours: ${rangeLabel}`;
   titleCell.font = { bold: true, size: 13, color: { argb: "FF111827" } };
@@ -233,6 +236,7 @@ function addSummarySheet(
   const summaryHeaderRow = summarySheet.getRow(2);
   summaryHeaderRow.getCell(1).value = "Employee";
   summaryHeaderRow.getCell(2).value = "Total Hours";
+  summaryHeaderRow.getCell(3).value = "Total Break Hrs";
   styleHeaderRow(summaryHeaderRow);
 
   summaries
@@ -242,6 +246,7 @@ function addSummarySheet(
       summarySheet.addRow({
         employeeName: s.employeeName,
         totalHours: formatHoursMinutes(s.totalHours),
+        totalBreakHours: formatHoursMinutes(s.totalBreakHours),
       });
     });
 
@@ -371,6 +376,7 @@ type PayrollDayRow = {
   employeeName: string;
   dateLabel: string;
   hours: number;
+  breakHours: number;
   defaultRate: number | null;
   defaultJobName: string | null;
 };
@@ -378,6 +384,7 @@ type PayrollDayRow = {
 function buildDayRows(
   summaries: EmployeeSummary[],
   hoursByEmployeeDay: Map<string, number>,
+  breakHoursByEmployeeDay: Map<string, number>,
   employeeJobIdById: Map<string, string | null>,
   jobs: Job[]
 ): PayrollDayRow[] {
@@ -405,6 +412,7 @@ function buildDayRows(
       employeeName,
       dateLabel,
       hours,
+      breakHours: breakHoursByEmployeeDay.get(key) ?? 0,
       defaultRate: rateById.get(employeeId) ?? null,
       defaultJobName,
     });
@@ -418,6 +426,23 @@ function buildDayRows(
   return rows;
 }
 
+// Column layout (shared by both the summary block and the daily breakdown
+// block, since they occupy the same worksheet):
+// A Employee            | A Employee
+// B Total Hours         | B Date
+// C Total Break Hrs     | C Job
+// D Sessions            | D Hourly Rate
+// E Open Sessions       | E Hours
+// F Hourly Rate         | F Break
+// G Estimated Pay       | G Estimated Pay
+// H (narrow spacer, unused)
+// I (hidden) Default Rate - daily block only
+//
+// Total Break Hrs (C) and Estimated Pay (G) in the summary block are both
+// SUMIF formulas pulling from the daily rows below, keyed on employee name.
+// This is what makes them update live if someone edits Break or the Job
+// dropdown directly in Excel - Total Hours (B) stays a plain number since
+// gross clocked hours aren't meant to be hand-edited the way Break is.
 function addPayrollSheet(
   workbook: any,
   summaries: EmployeeSummary[],
@@ -431,6 +456,7 @@ function addPayrollSheet(
     { width: 18 },
     { width: 14 },
     { width: 14 },
+    { width: 14 },
     { width: 16 },
     { width: 3 },
     { width: 12 },
@@ -440,9 +466,15 @@ function addPayrollSheet(
   const hasJobs = jobsInfo != null;
 
   const summaryHeader = sheet.getRow(1);
-  ["Employee", "Total Hours", "Sessions", "Open Sessions", "Hourly Rate", "Estimated Pay"].forEach(
-    (h, i) => (summaryHeader.getCell(i + 1).value = h)
-  );
+  [
+    "Employee",
+    "Total Hours",
+    "Total Break Hrs",
+    "Sessions",
+    "Open Sessions",
+    "Hourly Rate",
+    "Estimated Pay",
+  ].forEach((h, i) => (summaryHeader.getCell(i + 1).value = h));
   styleHeaderRow(summaryHeader);
 
   summaries.forEach((s, idx) => {
@@ -451,17 +483,18 @@ function addPayrollSheet(
     row.getCell(1).value = s.employeeName;
     row.getCell(2).value = Number(s.totalHours.toFixed(2));
     row.getCell(2).numFmt = "0.00";
-    row.getCell(3).value = s.sessionCount;
-    row.getCell(4).value = s.openSessions;
-    row.getCell(5).value = s.hourlyRate;
-    row.getCell(5).numFmt = '"$"#,##0.00';
+    row.getCell(3).numFmt = "0.00";
+    row.getCell(4).value = s.sessionCount;
+    row.getCell(5).value = s.openSessions;
+    row.getCell(6).value = s.hourlyRate;
     row.getCell(6).numFmt = '"$"#,##0.00';
+    row.getCell(7).numFmt = '"$"#,##0.00';
   });
 
   const summaryLastRow = summaries.length + 1;
 
   const dailyTitleRow = summaryLastRow + 3;
-  sheet.mergeCells(dailyTitleRow, 1, dailyTitleRow, 6);
+  sheet.mergeCells(dailyTitleRow, 1, dailyTitleRow, 7);
   const titleCell = sheet.getCell(dailyTitleRow, 1);
   titleCell.value = hasJobs
     ? "Daily Breakdown - pick a Job on any row to update that day's pay and the totals above"
@@ -471,12 +504,12 @@ function addPayrollSheet(
 
   const dailyHeaderRow = dailyTitleRow + 1;
   const dailyHeader = sheet.getRow(dailyHeaderRow);
-  ["Employee", "Date", "Job", "Hourly Rate", "Hours", "Estimated Pay"].forEach(
+  ["Employee", "Date", "Job", "Hourly Rate", "Hours", "Break", "Estimated Pay"].forEach(
     (h, i) => (dailyHeader.getCell(i + 1).value = h)
   );
-  dailyHeader.getCell(8).value = "Default Rate";
+  dailyHeader.getCell(9).value = "Default Rate";
   styleHeaderRow(dailyHeader);
-  sheet.getColumn(8).hidden = true;
+  sheet.getColumn(9).hidden = true;
 
   let r = dailyHeaderRow + 1;
   let prevEmployee: string | null = null;
@@ -493,11 +526,11 @@ function addPayrollSheet(
     row.getCell(1).value = d.employeeName;
     row.getCell(2).value = d.dateLabel;
     row.getCell(3).value = hasJobs ? d.defaultJobName ?? "(Default)" : null;
-    row.getCell(8).value = d.defaultRate;
+    row.getCell(9).value = d.defaultRate;
 
     if (hasJobs) {
       row.getCell(4).value = {
-        formula: `IF(OR(C${r}="",C${r}="(Default)"),H${r},VLOOKUP(C${r},JobsTable,2,FALSE))`,
+        formula: `IF(OR(C${r}="",C${r}="(Default)"),I${r},VLOOKUP(C${r},JobsTable,2,FALSE))`,
       };
       row.getCell(3).dataValidation = {
         type: "list",
@@ -505,15 +538,19 @@ function addPayrollSheet(
         formulae: ["JobsList"],
       };
     } else {
-      row.getCell(4).value = { formula: `H${r}` };
+      row.getCell(4).value = { formula: `I${r}` };
     }
     row.getCell(4).numFmt = '"$"#,##0.00';
 
     row.getCell(5).value = Number(d.hours.toFixed(2));
     row.getCell(5).numFmt = "0.00";
 
-    row.getCell(6).value = { formula: `D${r}*E${r}` };
-    row.getCell(6).numFmt = '"$"#,##0.00';
+    row.getCell(6).value = Number(d.breakHours.toFixed(2));
+    row.getCell(6).numFmt = "0.00";
+
+    // Est. Pay = rate x (gross hours - unpaid break hours)
+    row.getCell(7).value = { formula: `D${r}*(E${r}-F${r})` };
+    row.getCell(7).numFmt = '"$"#,##0.00';
 
     r += 1;
   });
@@ -524,11 +561,15 @@ function addPayrollSheet(
   summaries.forEach((s, idx) => {
     const row = idx + 2;
     if (dayRows.length > 0) {
-      sheet.getCell(row, 6).value = {
+      sheet.getCell(row, 3).value = {
         formula: `SUMIF(A${dailyFirstDataRow}:A${dailyLastRow},A${row},F${dailyFirstDataRow}:F${dailyLastRow})`,
       };
+      sheet.getCell(row, 7).value = {
+        formula: `SUMIF(A${dailyFirstDataRow}:A${dailyLastRow},A${row},G${dailyFirstDataRow}:G${dailyLastRow})`,
+      };
     } else {
-      sheet.getCell(row, 6).value = s.estimatedPay;
+      sheet.getCell(row, 3).value = s.totalBreakHours;
+      sheet.getCell(row, 7).value = s.estimatedPay;
     }
   });
 
@@ -544,6 +585,7 @@ function addAttendanceSheet(workbook: any, attendanceRecords: AttendanceRecord[]
     { header: "Date", key: "date", width: 14 },
     { header: "Arrival", key: "arrivalTime", width: 14 },
     { header: "Departure", key: "departureTime", width: 14 },
+    { header: "Break", key: "breakDisplay", width: 12 },
     { header: "Status", key: "status", width: 12 },
   ];
 
@@ -553,6 +595,7 @@ function addAttendanceSheet(workbook: any, attendanceRecords: AttendanceRecord[]
       date: a.date,
       arrivalTime: a.arrivalTime ?? "-",
       departureTime: a.departureTime ?? "-",
+      breakDisplay: formatHoursMinutes(a.breakHours),
       status: a.status,
     });
   });
@@ -605,6 +648,7 @@ export async function exportPayrollExcel(
   summaries: EmployeeSummary[],
   jobs: Job[],
   hoursByEmployeeDay: Map<string, number>,
+  breakHoursByEmployeeDay: Map<string, number>,
   employeeJobIdById: Map<string, string | null>,
   companyName: string,
   startDate: string,
@@ -613,7 +657,13 @@ export async function exportPayrollExcel(
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
 
-  const dayRows = buildDayRows(summaries, hoursByEmployeeDay, employeeJobIdById, jobs);
+  const dayRows = buildDayRows(
+    summaries,
+    hoursByEmployeeDay,
+    breakHoursByEmployeeDay,
+    employeeJobIdById,
+    jobs
+  );
   addPayrollSheet(workbook, summaries, jobs, dayRows);
 
   await downloadWorkbook(
@@ -649,6 +699,7 @@ export async function exportAllReportsExcel(
   shiftNotes: ShiftNote[],
   jobs: Job[],
   hoursByEmployeeDay: Map<string, number>,
+  breakHoursByEmployeeDay: Map<string, number>,
   employeeJobIdById: Map<string, string | null>,
   companyName: string,
   startDate: string,
@@ -663,7 +714,13 @@ export async function exportAllReportsExcel(
   await addPhotosSheet(workbook, sessions);
   addEmployeesSheet(workbook, employeeRecords);
 
-  const dayRows = buildDayRows(summaries, hoursByEmployeeDay, employeeJobIdById, jobs);
+  const dayRows = buildDayRows(
+    summaries,
+    hoursByEmployeeDay,
+    breakHoursByEmployeeDay,
+    employeeJobIdById,
+    jobs
+  );
   addPayrollSheet(workbook, summaries, jobs, dayRows);
 
   addAttendanceSheet(workbook, attendanceRecords);

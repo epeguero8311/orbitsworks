@@ -59,6 +59,9 @@ export function useReports() {
   const [hoursByEmployeeDay, setHoursByEmployeeDay] = useState<Map<string, number>>(
     new Map()
   );
+  const [breakHoursByEmployeeDay, setBreakHoursByEmployeeDay] = useState<Map<string, number>>(
+    new Map()
+  );
 
   const runReport = useCallback(
     async (startDate: string, endDate: string) => {
@@ -206,12 +209,20 @@ export function useReports() {
         const siteHoursTotal = new Map<string, number>();
         const sessionsOut: SessionRecord[] = [];
         const hoursByDayOut = new Map<string, number>();
+        const breakHoursByDayOut = new Map<string, number>();
 
         for (const [employeeId, employeeEvents] of byEmployee) {
           let totalMs = 0;
+          let totalBreakMs = 0;
           let sessionCount = 0;
           let openSessions = 0;
           let pendingIn: EventWithDate | null = null;
+          // Tracks an in-progress break within the current in->out session.
+          // currentSessionBreakMs accumulates every breakStart/breakEnd pair
+          // seen since the last "in", and gets attributed to that session
+          // the moment the matching "out" closes it.
+          let openBreakStart: EventWithDate | null = null;
+          let currentSessionBreakMs = 0;
 
           for (const event of employeeEvents) {
             if (event.type === "in") {
@@ -224,17 +235,32 @@ export function useReports() {
                   clockIn: pendingIn.timestamp.toDate().toISOString(),
                   clockOut: null,
                   hours: null,
+                  breakHours: null,
                   clockInPhotoUrl: pendingIn.photoUrl,
                 });
               }
               pendingIn = event;
+              openBreakStart = null;
+              currentSessionBreakMs = 0;
+            } else if (event.type === "breakStart") {
+              if (pendingIn && !openBreakStart) {
+                openBreakStart = event;
+              }
+            } else if (event.type === "breakEnd") {
+              if (openBreakStart) {
+                const breakMs = event.timestamp.toMillis() - openBreakStart.timestamp.toMillis();
+                if (breakMs > 0) currentSessionBreakMs += breakMs;
+                openBreakStart = null;
+              }
             } else if (event.type === "out" && pendingIn) {
               const durationMs = event.timestamp.toMillis() - pendingIn.timestamp.toMillis();
               if (durationMs > 0) {
                 totalMs += durationMs;
+                totalBreakMs += currentSessionBreakMs;
                 sessionCount += 1;
 
                 const hrs = durationMs / (1000 * 60 * 60);
+                const breakHrs = currentSessionBreakMs / (1000 * 60 * 60);
                 sessionsOut.push({
                   employeeId,
                   employeeName: pendingIn.employeeName,
@@ -242,6 +268,7 @@ export function useReports() {
                   clockIn: pendingIn.timestamp.toDate().toISOString(),
                   clockOut: event.timestamp.toDate().toISOString(),
                   hours: hrs,
+                  breakHours: breakHrs,
                   clockInPhotoUrl: pendingIn.photoUrl,
                   clockOutPhotoUrl: event.photoUrl,
                 });
@@ -255,6 +282,7 @@ export function useReports() {
                 const dayKey = dateKey(pendingIn.timestamp.toDate());
                 const hbdKey = `${employeeId}__${dayKey}`;
                 hoursByDayOut.set(hbdKey, (hoursByDayOut.get(hbdKey) ?? 0) + hrs);
+                breakHoursByDayOut.set(hbdKey, (breakHoursByDayOut.get(hbdKey) ?? 0) + breakHrs);
 
                 if (pendingIn.siteId) {
                   siteHoursTotal.set(
@@ -264,6 +292,8 @@ export function useReports() {
                 }
               }
               pendingIn = null;
+              openBreakStart = null;
+              currentSessionBreakMs = 0;
             }
           }
           if (pendingIn) {
@@ -275,26 +305,31 @@ export function useReports() {
               clockIn: pendingIn.timestamp.toDate().toISOString(),
               clockOut: null,
               hours: null,
+              breakHours: null,
               clockInPhotoUrl: pendingIn.photoUrl,
             });
           }
 
           const totalHours = totalMs / (1000 * 60 * 60);
+          const totalBreakHours = totalBreakMs / (1000 * 60 * 60);
+          const netHours = totalHours - totalBreakHours;
           const hourlyRate = defaultRateByEmployeeId.get(employeeId) ?? null;
 
           results.push({
             employeeId,
             employeeName: employeeEvents[0].employeeName,
             totalHours,
+            totalBreakHours,
             sessionCount,
             openSessions,
             hourlyRate,
-            estimatedPay: hourlyRate != null ? totalHours * hourlyRate : null,
+            estimatedPay: hourlyRate != null ? netHours * hourlyRate : null,
           });
         }
         results.sort((a, b) => b.totalHours - a.totalHours);
         setSummaries(results);
         setHoursByEmployeeDay(hoursByDayOut);
+        setBreakHoursByEmployeeDay(breakHoursByDayOut);
 
         sessionsOut.sort((a, b) => (a.clockIn < b.clockIn ? -1 : 1));
         setSessions(sessionsOut);
@@ -348,6 +383,21 @@ export function useReports() {
           const firstIn = sorted.find((e) => e.type === "in");
           const lastOut = [...sorted].reverse().find((e) => e.type === "out");
 
+          // Break time for the day, independent of the payroll session
+          // pairing above - just sums every breakStart->breakEnd pair that
+          // falls on this calendar day.
+          let dayBreakMs = 0;
+          let openBreakStartDay: EventWithDate | null = null;
+          for (const ev of sorted) {
+            if (ev.type === "breakStart" && !openBreakStartDay) {
+              openBreakStartDay = ev;
+            } else if (ev.type === "breakEnd" && openBreakStartDay) {
+              dayBreakMs += ev.timestamp.toMillis() - openBreakStartDay.timestamp.toMillis();
+              openBreakStartDay = null;
+            }
+          }
+          const dayBreakHours = dayBreakMs / (1000 * 60 * 60);
+
           const daySet = employeesByDay.get(day) ?? new Set<string>();
           daySet.add(employeeId);
           employeesByDay.set(day, daySet);
@@ -367,6 +417,7 @@ export function useReports() {
               departureTime: lastOut
                 ? formatMinutesAsTime(minutesSinceMidnight(lastOut.timestamp.toDate()))
                 : null,
+              breakHours: dayBreakHours,
               status: isOnTime ? "On Time" : "Late",
             });
 
@@ -459,6 +510,7 @@ export function useReports() {
     jobs,
     employeeJobIdById,
     hoursByEmployeeDay,
+    breakHoursByEmployeeDay,
     runReport,
   };
 }

@@ -54,6 +54,7 @@ export default function ReportsPage() {
     shiftNotes,
     jobs,
     hoursByEmployeeDay,
+    breakHoursByEmployeeDay,
     employeeJobIdById,
     runReport,
   } = useReports();
@@ -126,6 +127,7 @@ export default function ReportsPage() {
                 shiftNotes,
                 jobs,
                 hoursByEmployeeDay,
+                breakHoursByEmployeeDay,
                 employeeJobIdById,
                 companyName,
                 startDate,
@@ -187,6 +189,7 @@ export default function ReportsPage() {
             shiftNotes={shiftNotes}
             jobs={jobs}
             hoursByEmployeeDay={hoursByEmployeeDay}
+            breakHoursByEmployeeDay={breakHoursByEmployeeDay}
             employeeJobIdById={employeeJobIdById}
             startDate={startDate}
             endDate={endDate}
