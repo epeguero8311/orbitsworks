@@ -66,6 +66,7 @@ export interface EmployeeSummary {
   employeeId: string;
   employeeName: string;
   totalHours: number;
+  totalBreakHours: number;
   sessionCount: number;
   openSessions: number;
   hourlyRate: number | null;
@@ -106,6 +107,7 @@ export interface SessionRecord {
   clockIn: string;
   clockOut: string | null;
   hours: number | null;
+  breakHours: number | null;
   clockInPhotoUrl?: string;
   clockOutPhotoUrl?: string;
 }
@@ -126,6 +128,7 @@ export interface AttendanceRecord {
   date: string;
   arrivalTime: string | null;
   departureTime: string | null;
+  breakHours: number;
   status: "On Time" | "Late";
 }
 
