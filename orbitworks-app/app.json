@@ -7,8 +7,6 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
       "backgroundColor": "#3b6fe0"
     },
     "ios": {
@@ -42,7 +40,9 @@
           "cameraPermission": "OrbitWorks needs camera access to capture proof photos for clock-ins."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-splash-screen",
+      "expo-sqlite"
     ],
     "extra": {
       "eas": {

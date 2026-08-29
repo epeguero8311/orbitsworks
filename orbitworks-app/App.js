@@ -1,6 +1,8 @@
+import { useEffect, useState, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
+import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
 import { ThemeProvider, useTheme } from "./lib/ThemeContext";
 import { SiteSessionProvider } from "./lib/SiteSessionContext";
@@ -22,15 +24,37 @@ import BreaksPinEntryScreen from "./screens/BreaksPinEntryScreen";
 import BreaksEmployeeListScreen from "./screens/BreaksEmployeeListScreen";
 import OverridePinEntryScreen from "./screens/OverridePinEntryScreen";
 import OverrideEmployeeListScreen from "./screens/OverrideEmployeeListScreen";
+
+// Keep the native splash up until we explicitly hide it below - without
+// this, Expo auto-hides it the instant JS mounts, which is why it was
+// never visible before (LoadingScreen's identical blue took over so
+// fast it read as one continuous screen).
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 const Stack = createNativeStackNavigator();
+
 function RootNavigator() {
   const { currentUser, loading, accountDisabled } = useAuth();
   const { isDark } = useTheme();
+  const [splashAnimationDone, setSplashAnimationDone] = useState(false);
   usePinTableSync();
   useQueueSync();
-  if (loading) {
-    return <LoadingScreen />;
+
+  const onNativeSplashHandoff = useCallback(() => {
+    // Native splash and our JS splash are the same solid blue, so
+    // hiding the native one right as our animated splash mounts is
+    // invisible to the user - no flash, no gap.
+    SplashScreen.hideAsync().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    onNativeSplashHandoff();
+  }, [onNativeSplashHandoff]);
+
+  if (!splashAnimationDone) {
+    return <LoadingScreen ready={!loading} onFinish={() => setSplashAnimationDone(true)} />;
   }
+
   return (
     <NavigationContainer>
       <StatusBar style={isDark ? "light" : "dark"} />
@@ -62,6 +86,7 @@ function RootNavigator() {
     </NavigationContainer>
   );
 }
+
 export default function App() {
   return (
     <ThemeProvider>
