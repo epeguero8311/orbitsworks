@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "rea
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useAuth } from "../lib/AuthContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
-import { submitClockEvent } from "../lib/clockLogic";
+import { queueClockEvent } from "../lib/clockQueue";
+import { drainQueue } from "../lib/queueSync";
 export default function ClockCameraScreen({ route, navigation }) {
   const { employee } = route.params;
   const { userData, currentUser } = useAuth();
@@ -32,8 +33,9 @@ export default function ClockCameraScreen({ route, navigation }) {
     const siteName = !selectedSite ? "Not specified" : isNone ? "Not specified" : selectedSite.name;
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.5 });
-      const resultType = await submitClockEvent({
-        companyId: userData.companyId,
+      // Local-first: this only touches the filesystem and SQLite, no
+      // network, so it resolves near-instantly whether online or not.
+      const resultType = await queueClockEvent({
         employee,
         photoUri: photo.uri,
         source: "pin",
@@ -41,6 +43,11 @@ export default function ClockCameraScreen({ route, navigation }) {
         siteId,
         siteName,
       });
+      // Fire-and-forget: if there is signal right now this starts
+      // uploading immediately in the background. If not, useQueueSync
+      // will pick it up on the next reconnect/foreground. Either way we
+      // do not wait for it before confirming to the user.
+      drainQueue(userData.companyId);
       navigation.replace("ClockConfirm", { employeeName: employee.name, resultType });
     } catch (error) {
       console.log("Clock event failed:", error);

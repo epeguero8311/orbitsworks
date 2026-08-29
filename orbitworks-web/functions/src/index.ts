@@ -1,5 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { onDocumentWritten } from "firebase-functions/v2/firestore";
+import { onDocumentWritten, onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 
@@ -20,10 +20,6 @@ function generateUniquePin(existingPins: Set<string>): string {
 const FREE_EMPLOYEE_CAP = 8;
 const PHOTO_RETENTION_DAYS = 14;
 
-// Shared by setEmployeeActive and deactivateEmployeesBulk so every path
-// that deactivates an employee with a real login disables the Auth
-// account and revokes its refresh tokens the same way - flipping the
-// Firestore "active" field alone is not enough to actually cut off access.
 async function deactivateEmployeeAuth(linkedUserId: string) {
   await admin.auth().updateUser(linkedUserId, { disabled: true });
   await admin.auth().revokeRefreshTokens(linkedUserId);
@@ -264,10 +260,6 @@ export const setEmployeeActive = onCall(async (request) => {
   return { success: true };
 });
 
-// Deactivates several employees at once (used by the billing page's
-// downgrade flow, which previously wrote "active: false" directly from
-// the client via a raw batch, skipping the Auth-disable/token-revoke step
-// entirely for anyone with a real login).
 export const deactivateEmployeesBulk = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -308,12 +300,6 @@ export const deactivateEmployeesBulk = onCall(async (request) => {
   return { success: true, deactivatedCount: employeeIds.length };
 });
 
-// Sets isSupervisor on an employee record. This is a role-like field, so
-// it goes through a callable (admin-only, server-verified) rather than a
-// direct client updateDoc, matching how role/companyId are already
-// handled everywhere else. Does not create a login on its own - an
-// employee can be marked isSupervisor with no linkedUserId (e.g. a
-// company using a shared PIN model), same as today.
 export const setSupervisorStatus = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -343,13 +329,6 @@ export const setSupervisorStatus = onCall(async (request) => {
 
   await employeeRef.update({ isSupervisor });
 
-  // If this employee has a real login and supervisor status was revoked,
-  // downgrade their custom claim to a plain employee-level role so a live
-  // session cannot retain supervisor-adjacent permissions server-side.
-  // (Their role claim today is only ever "admin" or "supervisor" - there
-  // is no separate "employee" role in the token model, so this only
-  // matters once one is introduced. Left as a no-op placeholder call site
-  // rather than guessing at a role name that does not exist yet.)
   if (!isSupervisor && employee.linkedUserId) {
     // No claim change needed today: acceptInvite always grants role
     // "supervisor" and there is no lesser role to fall back to. If that
@@ -430,6 +409,74 @@ export const verifyPin = onCall(async (request) => {
     },
   };
 });
+
+// Returns the full PIN table (plaintext, over TLS) for the caller's
+// company so the mobile app can hash it on-device and cache it for
+// offline PIN validation. Also returns each employee's lastEventType
+// (denormalized by onClockEventCreated below) so the app can determine
+// current status (in/out/break) offline without a live Firestore query.
+export const getPinSyncTable = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const companyId = request.auth.token.companyId as string | undefined;
+  const role = request.auth.token.role as string | undefined;
+  if (!companyId || (role !== "admin" && role !== "supervisor")) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const employeesRef = db.collection("companies").doc(companyId).collection("employees");
+  const snap = await employeesRef.get();
+
+  const employees = snap.docs
+    .map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        pin: data.pin ?? null,
+        name: data.name ?? "",
+        jobTitle: data.jobTitle ?? null,
+        photoUrl: data.photoUrl ?? null,
+        assignedSiteIds: data.assignedSiteIds ?? [],
+        isSupervisor: data.isSupervisor ?? false,
+        active: data.active === true,
+        lastEventType: data.lastEventType ?? null,
+      };
+    })
+    .filter((e) => !!e.pin);
+
+  return { employees };
+});
+
+// Keeps employees/{employeeId}.lastEventType in sync with the most
+// recent clock event, so getPinSyncTable can hand the mobile app a
+// current-status snapshot without a separate per-employee query. This
+// is what lets the app determine in/out/break offline.
+export const onClockEventCreated = onDocumentCreated(
+  "companies/{companyId}/clockEvents/{eventId}",
+  async (event) => {
+    const data = event.data?.data();
+    if (!data || !data.employeeId) return;
+
+    const companyId = event.params.companyId;
+    const employeeId = data.employeeId as string;
+
+    await db
+      .collection("companies")
+      .doc(companyId)
+      .collection("employees")
+      .doc(employeeId)
+      .update({
+        lastEventType: data.type,
+        lastEventTimestamp: data.timestamp ?? admin.firestore.FieldValue.serverTimestamp(),
+      })
+      .catch(() => {
+        // Employee doc may not exist in edge cases (e.g. deleted between
+        // event write and this trigger firing) - safe to ignore, this
+        // field is a denormalized convenience, not the source of truth.
+      });
+  }
+);
 
 export const onEmployeeWrite = onDocumentWritten(
   "companies/{companyId}/employees/{employeeId}",

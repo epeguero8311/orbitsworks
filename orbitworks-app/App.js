@@ -4,6 +4,8 @@ import { StatusBar } from "expo-status-bar";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
 import { ThemeProvider, useTheme } from "./lib/ThemeContext";
 import { SiteSessionProvider } from "./lib/SiteSessionContext";
+import { usePinTableSync } from "./lib/hooks/usePinTableSync";
+import { useQueueSync } from "./lib/hooks/useQueueSync";
 import LoginScreen from "./screens/LoginScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import AccountDisabledScreen from "./screens/AccountDisabledScreen";
@@ -24,6 +26,8 @@ const Stack = createNativeStackNavigator();
 function RootNavigator() {
   const { currentUser, loading, accountDisabled } = useAuth();
   const { isDark } = useTheme();
+  usePinTableSync();
+  useQueueSync();
   if (loading) {
     return <LoadingScreen />;
   }

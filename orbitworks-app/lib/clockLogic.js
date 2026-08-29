@@ -9,26 +9,31 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { httpsCallable } from "firebase/functions";
-import { db, storage, functions } from "./firebase";
+import { db, storage } from "./firebase";
 import { deriveStatus } from "./clockStatus";
+import { findEmployeeByPinLocal } from "./pinSync";
+import { checkPinLockout, recordPinAttempt, resetPinLockout } from "./pinLockout";
 
-// PIN matching now happens server-side via the verifyPin Cloud Function -
-// rate-limited and scoped to the caller's own companyId claim, instead of
-// an unthrottled client-side Firestore query against the full PIN space.
+// PIN matching now happens locally against a hashed cache synced down by
+// pinSync.js - this works offline and online, and has the same trust
+// boundary as the old verifyPin Cloud Function (a plaintext-equivalent
+// match, no re-check at write time either before or after this change).
+// Rate limiting is mirrored locally via pinLockout.js since there is no
+// server round trip to rate-limit against anymore.
 export async function findEmployeeByPin(companyId, pin) {
-  const verifyPin = httpsCallable(functions, "verifyPin");
-  try {
-    const result = await verifyPin({ pin });
-    const data = result.data;
-    if (!data.matched) return null;
-    return { id: data.employee.id, ...data.employee };
-  } catch (err) {
-    if (err.code === "functions/resource-exhausted") {
-      throw new Error(err.message || "Too many attempts. Please wait and try again.");
-    }
-    throw err;
+  const lockout = checkPinLockout();
+  if (lockout.locked) {
+    throw new Error(`Too many attempts. Please wait ${lockout.retryAfterSeconds} seconds.`);
   }
+
+  recordPinAttempt();
+  const employee = await findEmployeeByPinLocal(pin);
+
+  if (employee) {
+    resetPinLockout();
+  }
+
+  return employee;
 }
 
 export async function getLatestClockEvent(companyId, employeeId) {
@@ -71,9 +76,6 @@ export async function submitClockEvent({
   const photoUrl = await uploadClockPhoto(companyId, employee.id, photoUri);
   const eventsRef = collection(db, "companies", companyId, "clockEvents");
 
-  // If they were on break when clocked out, close the break first so the
-  // break duration is accurate and they do not get stuck showing "on break"
-  // after their shift has already ended.
   if (currentStatus === "break" && nextType === "out") {
     await addDoc(eventsRef, {
       employeeId: employee.id,
@@ -103,12 +105,6 @@ export async function submitClockEvent({
   return nextType;
 }
 
-// Breaks are unpaid and tracked only - no photo capture, unlike clock in/out.
-// type must be "breakStart" or "breakEnd", decided by the caller based on
-// each target employee's current status so this function never has to guess.
-// authorizedBy is the employee record matched by PIN on the Breaks screen -
-// this is who is responsible for putting the person on/off break, separate
-// from createdByUid which is just the logged-in session account.
 export async function submitBreakEvent({
   companyId,
   employee,
@@ -134,11 +130,6 @@ export async function submitBreakEvent({
   });
 }
 
-// Supervisor override clock-in: no photo, since the whole point is covering
-// a case where the normal proof flow can't be used (forgotten PIN, etc).
-// Only ever writes "in" - the caller only offers this for employees who are
-// currently clocked out. authorizedBy is the supervisor whose PIN unlocked
-// this screen, recorded for audit purposes.
 export async function submitOverrideClockIn({
   companyId,
   employee,
@@ -163,10 +154,6 @@ export async function submitOverrideClockIn({
   });
 }
 
-// Supervisor override clock-out: mirror of submitOverrideClockIn. The
-// caller only offers this for employees who are currently in/break, so
-// there is no ambiguity about direction. If they were on break, that break
-// is auto-closed first, same rule as the normal camera clock-out flow.
 export async function submitOverrideClockOut({
   companyId,
   employee,

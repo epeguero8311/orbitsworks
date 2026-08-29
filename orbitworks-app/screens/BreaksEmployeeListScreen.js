@@ -6,15 +6,19 @@ import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
 import { useTodayShift } from "../lib/hooks/useTodayShift";
-import { submitBreakEvent } from "../lib/clockLogic";
+import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
+import { queueBreakEvent } from "../lib/clockQueue";
+import { drainQueue } from "../lib/queueSync";
 import ScreenHeader from "../components/ScreenHeader";
+import Avatar from "../components/Avatar";
 
 export default function BreaksEmployeeListScreen({ navigation, route }) {
   const authorizedBy = route?.params?.authorizedBy;
   const { userData, currentUser } = useAuth();
   const { colors } = useTheme();
   const { selectedSite } = useSiteSession();
-  const { employees, loading } = useTodayShift(userData?.companyId);
+  const { employees: liveEmployees, loading } = useTodayShift(userData?.companyId);
+  const employees = useLocalStatusOverlay(liveEmployees);
   const [selectedIds, setSelectedIds] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -40,23 +44,25 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
   const selectedWorking = eligible.filter((e) => selectedIds.includes(e.id) && e.status === "in");
   const selectedOnBreak = eligible.filter((e) => selectedIds.includes(e.id) && e.status === "break");
 
+  // Local-first: queueBreakEvent only touches SQLite, so this resolves
+  // instantly whether online or not. drainQueue is fire-and-forget - it
+  // uploads right away if there is signal, otherwise useQueueSync picks
+  // it up on the next reconnect/foreground.
   const runBreakAction = async (targets, type) => {
     if (targets.length === 0 || submitting) return;
     setSubmitting(true);
     try {
-      await Promise.all(
-        targets.map((emp) =>
-          submitBreakEvent({
-            companyId: userData.companyId,
-            employee: emp,
-            type,
-            createdByUid: currentUser?.uid,
-            authorizedBy,
-            siteId: selectedSite && !isNoneSite ? selectedSite.id : null,
-            siteName: selectedSite && !isNoneSite ? selectedSite.name : "Not specified",
-          })
-        )
-      );
+      for (const emp of targets) {
+        await queueBreakEvent({
+          employee: emp,
+          type,
+          createdByUid: currentUser?.uid,
+          authorizedBy,
+          siteId: selectedSite && !isNoneSite ? selectedSite.id : null,
+          siteName: selectedSite && !isNoneSite ? selectedSite.name : "Not specified",
+        });
+      }
+      drainQueue(userData.companyId);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSelectedIds((prev) => prev.filter((id) => !targets.some((t) => t.id === id)));
     } catch (err) {
@@ -115,6 +121,7 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
                 size={20}
                 color={isSelected ? colors.accent : colors.subtext}
               />
+              <Avatar name={item.name} photoUrl={item.photoUrl} size={38} />
               <View style={styles.rowText}>
                 <Text style={[styles.name, { color: colors.text }]}>{item.name}</Text>
                 <Text style={[styles.jobTitle, { color: colors.subtext }]}>{item.jobTitle}</Text>

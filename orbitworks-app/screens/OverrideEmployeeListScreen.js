@@ -6,15 +6,19 @@ import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
 import { useTodayShift } from "../lib/hooks/useTodayShift";
-import { submitOverrideClockIn, submitOverrideClockOut } from "../lib/clockLogic";
+import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
+import { queueOverrideClockIn, queueOverrideClockOut } from "../lib/clockQueue";
+import { drainQueue } from "../lib/queueSync";
 import ScreenHeader from "../components/ScreenHeader";
+import Avatar from "../components/Avatar";
 
 export default function OverrideEmployeeListScreen({ navigation, route }) {
   const authorizedBy = route?.params?.authorizedBy;
   const { userData, currentUser } = useAuth();
   const { colors } = useTheme();
   const { selectedSite } = useSiteSession();
-  const { employees, loading } = useTodayShift(userData?.companyId);
+  const { employees: liveEmployees, loading } = useTodayShift(userData?.companyId);
+  const employees = useLocalStatusOverlay(liveEmployees);
   const [direction, setDirection] = useState("in");
   const [selectedIds, setSelectedIds] = useState([]);
   const [submitting, setSubmitting] = useState(false);
@@ -30,8 +34,6 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
     return employees;
   }, [employees, selectedSite, isNoneSite]);
 
-  // Clock In shows anyone not currently on shift. Clock Out shows anyone
-  // currently in or on break - either counts as "needs to be clocked out."
   const eligible = useMemo(() => {
     return bySite.filter((e) =>
       direction === "in" ? e.status === "out" : e.status === "in" || e.status === "break"
@@ -52,6 +54,10 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
 
   const selected = eligible.filter((e) => selectedIds.includes(e.id));
 
+  // Local-first: each queue call only touches SQLite, so the whole
+  // batch resolves instantly regardless of connectivity. drainQueue is
+  // fire-and-forget - starts uploading now if there is signal, otherwise
+  // useQueueSync catches it on the next reconnect/foreground.
   async function handleSubmit() {
     if (selected.length === 0 || submitting) return;
     setSubmitting(true);
@@ -59,28 +65,26 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
       const siteId = selectedSite && !isNoneSite ? selectedSite.id : null;
       const siteName = selectedSite && !isNoneSite ? selectedSite.name : "Not specified";
 
-      await Promise.all(
-        selected.map((emp) =>
-          direction === "in"
-            ? submitOverrideClockIn({
-                companyId: userData.companyId,
-                employee: emp,
-                createdByUid: currentUser?.uid,
-                authorizedBy,
-                siteId,
-                siteName,
-              })
-            : submitOverrideClockOut({
-                companyId: userData.companyId,
-                employee: emp,
-                currentStatus: emp.status,
-                createdByUid: currentUser?.uid,
-                authorizedBy,
-                siteId,
-                siteName,
-              })
-        )
-      );
+      for (const emp of selected) {
+        if (direction === "in") {
+          await queueOverrideClockIn({
+            employee: emp,
+            createdByUid: currentUser?.uid,
+            authorizedBy,
+            siteId,
+            siteName,
+          });
+        } else {
+          await queueOverrideClockOut({
+            employee: emp,
+            createdByUid: currentUser?.uid,
+            authorizedBy,
+            siteId,
+            siteName,
+          });
+        }
+      }
+      drainQueue(userData.companyId);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       navigation.navigate("Dashboard");
     } catch (err) {
@@ -179,6 +183,7 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
                 size={20}
                 color={isSelected ? colors.accent : colors.subtext}
               />
+              <Avatar name={item.name} photoUrl={item.photoUrl} size={38} />
               <View style={styles.rowText}>
                 <Text style={[styles.name, { color: colors.text }]}>{item.name}</Text>
                 <Text style={[styles.jobTitle, { color: colors.subtext }]}>{item.jobTitle}</Text>

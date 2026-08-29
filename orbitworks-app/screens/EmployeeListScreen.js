@@ -1,16 +1,19 @@
 import { useState } from "react";
-import { View, Text, TextInput, FlatList, StyleSheet, Image } from "react-native";
+import { View, Text, TextInput, FlatList, StyleSheet } from "react-native";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { useTodayShift } from "../lib/hooks/useTodayShift";
+import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
 import ScreenHeader from "../components/ScreenHeader";
+import Avatar from "../components/Avatar";
 
 const STATUS_LABEL = { in: "In", break: "On Break", out: "Out" };
 
 export default function EmployeeListScreen({ navigation }) {
   const { userData } = useAuth();
   const { colors } = useTheme();
-  const { employees } = useTodayShift(userData?.companyId);
+  const { employees: liveEmployees } = useTodayShift(userData?.companyId);
+  const employees = useLocalStatusOverlay(liveEmployees);
   const [search, setSearch] = useState("");
 
   const filtered = employees.filter((e) =>
@@ -43,15 +46,7 @@ export default function EmployeeListScreen({ navigation }) {
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
           <View style={[styles.row, { borderBottomColor: colors.border }]}>
-            {item.photoUrl ? (
-              <Image source={{ uri: item.photoUrl }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatarPlaceholder, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                <Text style={{ color: colors.subtext, fontWeight: "700" }}>
-                  {item.name?.charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
+            <Avatar name={item.name} photoUrl={item.photoUrl} size={42} />
             <View style={styles.rowText}>
               <Text style={[styles.name, { color: colors.text }]}>{item.name}</Text>
               <Text style={[styles.jobTitle, { color: colors.subtext }]}>{item.jobTitle}</Text>
@@ -76,8 +71,6 @@ const styles = StyleSheet.create({
   search: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15 },
   list: { paddingHorizontal: 20, paddingTop: 8 },
   row: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, gap: 12 },
-  avatar: { width: 42, height: 42, borderRadius: 21 },
-  avatarPlaceholder: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   rowText: { flex: 1 },
   name: { fontSize: 16, fontWeight: "600" },
   jobTitle: { fontSize: 13, marginTop: 2 },

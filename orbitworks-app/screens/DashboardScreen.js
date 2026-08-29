@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
-  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Image,
+  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, RefreshControl,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
@@ -10,6 +10,12 @@ import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
 import { useTodayShift } from "../lib/hooks/useTodayShift";
 import { useCompanySettings } from "../lib/hooks/useCompanySettings";
+import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
+import { useLocalEmployee } from "../lib/hooks/useLocalEmployee";
+import { syncPinTable } from "../lib/pinSync";
+import { drainQueue } from "../lib/queueSync";
+import OfflineBanner from "../components/OfflineBanner";
+import Avatar from "../components/Avatar";
 
 const ASK_SITE_KEY = "orbitworks_ask_site_each_time";
 
@@ -17,9 +23,12 @@ export default function DashboardScreen({ navigation }) {
   const { userData, currentUser } = useAuth();
   const { colors, isDark } = useTheme();
   const { selectedSite } = useSiteSession();
-  const { employees, loading } = useTodayShift(userData?.companyId);
+  const { employees: liveEmployees, loading } = useTodayShift(userData?.companyId);
+  const employees = useLocalStatusOverlay(liveEmployees);
   const { settings } = useCompanySettings(userData?.companyId);
+  const localSupervisor = useLocalEmployee(currentUser?.uid);
   const [askSite, setAskSite] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -39,8 +48,13 @@ export default function DashboardScreen({ navigation }) {
 
   const clockedInCount = filteredEmployees.filter((e) => e.status === "in" || e.status === "break").length;
   const onBreakCount = filteredEmployees.filter((e) => e.status === "break").length;
+
+  // Live Firestore data wins when it is available (it is fresher and
+  // reflects real-time status). The local cache is the fallback for a
+  // fully offline cold start, before any live snapshot has arrived.
   const supervisor = employees.find((e) => e.id === currentUser?.uid);
-  const displayName = supervisor?.name ?? currentUser?.email ?? "";
+  const displayName = supervisor?.name ?? localSupervisor?.name ?? currentUser?.email ?? "";
+  const avatarPhotoUrl = supervisor?.photoUrl ?? localSupervisor?.photoUrl ?? null;
 
   const siteLabel = selectedSite ? (isNoneSite ? "No Site" : selectedSite.name) : "All Sites";
 
@@ -61,6 +75,23 @@ export default function DashboardScreen({ navigation }) {
     }
   };
 
+  // Manual safety valve: re-pulls the employee/PIN table (picks up
+  // anyone newly added or edited) and drains anything still sitting in
+  // the local queue. syncPinTable will throw if there is no signal -
+  // swallowed here since the point is "try, and stop spinning either
+  // way," not to surface an error for what is an expected offline case.
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        syncPinTable().catch(() => {}),
+        drainQueue(userData?.companyId),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
@@ -70,95 +101,92 @@ export default function DashboardScreen({ navigation }) {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.header}>
-        {supervisor?.photoUrl ? (
-          <Image source={{ uri: supervisor.photoUrl }} style={styles.avatar} />
-        ) : (
-          <View style={[styles.avatarPlaceholder, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={{ color: colors.subtext, fontWeight: "700" }}>
-              {displayName.charAt(0).toUpperCase()}
-            </Text>
-          </View>
-        )}
-        <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={[styles.greeting, { color: colors.subtext }]}>Welcome</Text>
-          <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
-        </View>
-        <TouchableOpacity onPress={() => navigation.navigate("Settings")}>
-          <Feather name="settings" size={22} color={colors.accent} />
-        </TouchableOpacity>
-      </View>
-
-      <View style={[styles.blueCard, { backgroundColor: colors.accent }]}>
-        <TouchableOpacity style={styles.sitePill} onPress={() => navigation.navigate("SiteSelect")}>
-          <Text style={styles.sitePillText}>{siteLabel}</Text>
-          <Feather name="chevron-down" size={14} color="#fff" />
-        </TouchableOpacity>
-
-        <Text style={styles.countNumber}>{clockedInCount}</Text>
-        <Text style={styles.countLabel}>Active employees</Text>
-
-        <TouchableOpacity style={styles.clockButton} onPress={handleClockPress} activeOpacity={0.85}>
-          <Text style={[styles.clockButtonText, { color: colors.accent }]}>Clock In / Out</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Text style={[styles.sectionLabel, { color: colors.subtext }]}>Quick Actions</Text>
-
-      <View style={styles.quickRow}>
-        <TouchableOpacity
-          style={[styles.quickCard, { borderColor: colors.border, backgroundColor: colors.card }]}
-          onPress={() => navigation.navigate("EmployeeList")}
-        >
-          <Feather name="users" size={22} color={colors.accent} />
-          <Text style={[styles.quickCardText, { color: colors.text }]}>Employee List</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.quickCard, { borderColor: colors.border, backgroundColor: colors.card }]}
-          onPress={() => navigation.navigate("Notes")}
-        >
-          <Feather name="edit-3" size={22} color={colors.accent} />
-          <Text style={[styles.quickCardText, { color: colors.text }]}>Notes</Text>
-        </TouchableOpacity>
-      </View>
-
-      <TouchableOpacity
-        style={[styles.statCard, { backgroundColor: colors.accent }]}
-        onPress={() => navigation.navigate("BreaksPinEntry")}
-        activeOpacity={0.85}
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />
+        }
       >
-        <View style={styles.breaksLeft}>
-          <Feather name="coffee" size={22} color="#fff" />
-          <View>
-            <Text style={styles.statLabel}>Breaks</Text>
-            <Text style={styles.breaksSubtext}>
-              {onBreakCount > 0 ? `${onBreakCount} currently on break` : "Tap to manage breaks"}
-            </Text>
+        <View style={styles.header}>
+          <Avatar name={displayName} photoUrl={avatarPhotoUrl} size={48} />
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={[styles.greeting, { color: colors.subtext }]}>Welcome</Text>
+            <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
           </View>
+          <TouchableOpacity onPress={() => navigation.navigate("Settings")}>
+            <Feather name="settings" size={22} color={colors.accent} />
+          </TouchableOpacity>
         </View>
-        <Feather name="chevron-right" size={22} color="#fff" />
-      </TouchableOpacity>
 
-      <View style={[styles.hoursRow, { borderColor: colors.border }]}>
-        <Feather name="clock" size={14} color={colors.subtext} />
-        <Text style={[styles.hoursText, { color: colors.subtext }]}>
-          Business hours: {hoursLabel}
-        </Text>
-      </View>
+        <View style={[styles.blueCard, { backgroundColor: colors.accent }]}>
+          <TouchableOpacity style={styles.sitePill} onPress={() => navigation.navigate("SiteSelect")}>
+            <Text style={styles.sitePillText}>{siteLabel}</Text>
+            <Feather name="chevron-down" size={14} color="#fff" />
+          </TouchableOpacity>
+
+          <Text style={styles.countNumber}>{clockedInCount}</Text>
+          <Text style={styles.countLabel}>Active employees</Text>
+
+          <TouchableOpacity style={styles.clockButton} onPress={handleClockPress} activeOpacity={0.85}>
+            <Text style={[styles.clockButtonText, { color: colors.accent }]}>Clock In / Out</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[styles.sectionLabel, { color: colors.subtext }]}>Quick Actions</Text>
+
+        <View style={styles.quickRow}>
+          <TouchableOpacity
+            style={[styles.quickCard, { borderColor: colors.border, backgroundColor: colors.card }]}
+            onPress={() => navigation.navigate("EmployeeList")}
+          >
+            <Feather name="users" size={22} color={colors.accent} />
+            <Text style={[styles.quickCardText, { color: colors.text }]}>Employee List</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.quickCard, { borderColor: colors.border, backgroundColor: colors.card }]}
+            onPress={() => navigation.navigate("Notes")}
+          >
+            <Feather name="edit-3" size={22} color={colors.accent} />
+            <Text style={[styles.quickCardText, { color: colors.text }]}>Notes</Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          style={[styles.statCard, { backgroundColor: colors.accent }]}
+          onPress={() => navigation.navigate("BreaksPinEntry")}
+          activeOpacity={0.85}
+        >
+          <View style={styles.breaksLeft}>
+            <Feather name="coffee" size={22} color="#fff" />
+            <View>
+              <Text style={styles.statLabel}>Breaks</Text>
+              <Text style={styles.breaksSubtext}>
+                {onBreakCount > 0 ? `${onBreakCount} currently on break` : "Tap to manage breaks"}
+              </Text>
+            </View>
+          </View>
+          <Feather name="chevron-right" size={22} color="#fff" />
+        </TouchableOpacity>
+
+        <View style={[styles.hoursRow, { borderColor: colors.border }]}>
+          <Feather name="clock" size={14} color={colors.subtext} />
+          <Text style={[styles.hoursText, { color: colors.subtext }]}>
+            Business hours: {hoursLabel}
+          </Text>
+        </View>
+      </ScrollView>
+
+      <OfflineBanner />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 20 },
+  container: { flexGrow: 1, paddingHorizontal: 20 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: { flexDirection: "row", alignItems: "center", paddingTop: 60, marginBottom: 20 },
-  avatar: { width: 48, height: 48, borderRadius: 24 },
-  avatarPlaceholder: {
-    width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", borderWidth: 1,
-  },
   greeting: { fontSize: 12 },
   name: { fontSize: 16, fontWeight: "700", marginTop: 1 },
   blueCard: { borderRadius: 24, padding: 22, marginBottom: 24 },
