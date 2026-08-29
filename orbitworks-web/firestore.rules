@@ -25,6 +25,24 @@ service cloud.firestore {
       return data.type in ['in', 'out', 'breakStart', 'breakEnd'];
     }
 
+    // True only when an update targets the identical logical event a
+    // supervisor already created - same localId, same author. This is
+    // what an idempotent retry looks like after an app crash between
+    // the Firestore write succeeding and the local queue cleanup
+    // finishing (see queueSync.js). It intentionally does not allow
+    // changing type, employeeId, or timestamps - only a same-identity
+    // replay, never an after-the-fact edit of someone's clocked time.
+    function isIdempotentReplay(companyId) {
+      return request.auth.token.role == 'supervisor' &&
+        isActiveEmployee(companyId, request.auth.uid) &&
+        resource.data.createdByUid == request.auth.uid &&
+        request.resource.data.createdByUid == request.auth.uid &&
+        request.resource.data.localId == resource.data.localId &&
+        request.resource.data.employeeId == resource.data.employeeId &&
+        request.resource.data.type == resource.data.type &&
+        request.resource.data.clientTimestamp == resource.data.clientTimestamp;
+    }
+
     match /users/{userId} {
       allow read: if request.auth != null && (
         request.auth.uid == userId ||
@@ -103,7 +121,13 @@ service cloud.firestore {
              isActiveEmployee(companyId, request.auth.uid))
           ) &&
           request.resource.data.createdByUid == request.auth.uid;
-        allow update, delete: if request.auth != null &&
+        allow update: if request.auth != null &&
+          request.auth.token.companyId == companyId &&
+          (
+            request.auth.token.role == 'admin' ||
+            isIdempotentReplay(companyId)
+          );
+        allow delete: if request.auth != null &&
           request.auth.token.role == 'admin' &&
           request.auth.token.companyId == companyId;
       }
