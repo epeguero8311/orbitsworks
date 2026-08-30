@@ -4,8 +4,9 @@ import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { getAuthErrorMessage, AuthErrorField } from "@/lib/authErrorMessage";
 import Link from "next/link";
-import { Orbit } from "lucide-react";
+import { Orbit, Eye, EyeOff } from "lucide-react";
 
 function GoogleIcon() {
   return (
@@ -35,12 +36,25 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [errorField, setErrorField] = useState<AuthErrorField>("none");
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [googleNotice, setGoogleNotice] = useState(false);
+
+  const emailHasError = errorField === "email" || errorField === "credentials";
+  const passwordHasError = errorField === "password" || errorField === "credentials";
+
+  function clearError() {
+    if (error) {
+      setError("");
+      setErrorField("none");
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setErrorField("none");
     setIsSubmitting(true);
     try {
       const credential = await signInWithEmailAndPassword(auth, email, password);
@@ -56,7 +70,9 @@ export default function LoginPage() {
       router.push("/dashboard");
     } catch (err) {
       console.error("Login error:", err);
-      setError("Incorrect email or password. Try again.");
+      const result = getAuthErrorMessage(err, "Incorrect email or password. Try again.");
+      setError(result.message);
+      setErrorField(result.field === "none" ? "none" : result.field);
     } finally {
       setIsSubmitting(false);
     }
@@ -141,8 +157,15 @@ export default function LoginPage() {
                 type="email"
                 required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  clearError();
+                }}
+                className={`w-full rounded-lg border px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:ring-1 ${
+                  emailHasError
+                    ? "border-red-400 focus:border-red-500 focus:ring-red-500"
+                    : "border-gray-200 focus:border-accent focus:ring-accent"
+                }`}
                 placeholder="you@company.com"
               />
             </div>
@@ -153,14 +176,36 @@ export default function LoginPage() {
               >
                 Password
               </label>
-              <input
-                id="password"
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    clearError();
+                  }}
+                  className={`w-full rounded-lg border px-3.5 py-2.5 pr-10 text-sm text-gray-950 outline-none focus:ring-1 ${
+                    passwordHasError
+                      ? "border-red-400 focus:border-red-500 focus:ring-red-500"
+                      : "border-gray-200 focus:border-accent focus:ring-accent"
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  tabIndex={-1}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
               <Link
                 href="/forgot-password"
                 className="mt-1.5 inline-block text-sm font-medium text-accent hover:text-accent-hover"

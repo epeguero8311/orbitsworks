@@ -10,7 +10,8 @@ import {
 } from "firebase/auth";
 import { httpsCallable } from "firebase/functions";
 import { auth, functions } from "@/lib/firebase";
-import { Orbit, Smartphone } from "lucide-react";
+import { getAuthErrorMessage, AuthErrorField } from "@/lib/authErrorMessage";
+import { Orbit, Smartphone, Eye, EyeOff } from "lucide-react";
 
 function JoinForm() {
   const router = useRouter();
@@ -19,6 +20,8 @@ function JoinForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [errorField, setErrorField] = useState<AuthErrorField>("none");
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const emailFromLink = searchParams.get("email");
@@ -26,9 +29,20 @@ function JoinForm() {
     if (emailFromLink) setEmail(emailFromLink);
   }, [emailFromLink]);
 
+  const emailHasError = errorField === "email" || errorField === "credentials";
+  const passwordHasError = errorField === "password" || errorField === "credentials";
+
+  function clearError() {
+    if (error) {
+      setError("");
+      setErrorField("none");
+    }
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setErrorField("none");
     setIsSubmitting(true);
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -41,17 +55,15 @@ function JoinForm() {
         password
       );
       user = credential.user;
-    } catch (err: any) {
+    } catch (err) {
       console.error("Join auth error:", err);
-      if (err.code === "auth/email-already-in-use") {
-        setError(
-          "An account with that email already exists. Try signing in instead."
-        );
-      } else if (err.code === "auth/weak-password") {
-        setError("Password should be at least 6 characters.");
-      } else {
-        setError("Something went wrong. Try again.");
-      }
+      const result = getAuthErrorMessage(err, "Something went wrong. Try again.");
+      const message =
+        (err as { code?: string })?.code === "auth/email-already-in-use"
+          ? "An account with that email already exists. Try signing in instead."
+          : result.message;
+      setError(message);
+      setErrorField(result.field);
       setIsSubmitting(false);
       return;
     }
@@ -63,19 +75,24 @@ function JoinForm() {
       await user.getIdToken(true);
 
       router.push("/mobile-only");
-    } catch (err: any) {
+    } catch (err) {
       console.error("Join setup error:", err);
-      if (err.code === "functions/not-found") {
+      const code = (err as { code?: string })?.code;
+      if (code === "functions/not-found") {
         setError(
           "No pending invite found for that email. Ask your admin to invite you first."
         );
+        setErrorField("email");
       } else {
         try {
           await deleteUser(user);
         } catch (cleanupErr) {
           console.error("Rollback failed:", cleanupErr);
         }
-        setError(err.message || "Something went wrong. Try again.");
+        // Never surface the raw Cloud Function error text here - it's not
+        // meant for end users.
+        setError("Something went wrong. Try again.");
+        setErrorField("none");
       }
       setIsSubmitting(false);
     }
@@ -182,10 +199,15 @@ function JoinForm() {
                 required
                 readOnly={!!emailFromLink}
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className={`w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent ${
-                  emailFromLink ? "bg-gray-50 text-gray-600" : "text-gray-950"
-                }`}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  clearError();
+                }}
+                className={`w-full rounded-lg border px-3.5 py-2.5 text-sm outline-none focus:ring-1 ${
+                  emailHasError
+                    ? "border-red-400 focus:border-red-500 focus:ring-red-500"
+                    : "border-gray-200 focus:border-accent focus:ring-accent"
+                } ${emailFromLink ? "bg-gray-50 text-gray-600" : "text-gray-950"}`}
                 placeholder="you@company.com"
               />
             </div>
@@ -197,16 +219,38 @@ function JoinForm() {
               >
                 Choose a password
               </label>
-              <input
-                id="password"
-                type="password"
-                required
-                minLength={6}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-                placeholder="At least 6 characters"
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    clearError();
+                  }}
+                  className={`w-full rounded-lg border px-3.5 py-2.5 pr-10 text-sm text-gray-950 outline-none focus:ring-1 ${
+                    passwordHasError
+                      ? "border-red-400 focus:border-red-500 focus:ring-red-500"
+                      : "border-gray-200 focus:border-accent focus:ring-accent"
+                  }`}
+                  placeholder="At least 6 characters"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  tabIndex={-1}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
             </div>
 
             {error && (
