@@ -2,7 +2,7 @@
   "expo": {
     "name": "OrbitsWorks",
     "slug": "orbitworks",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.orbitworks.app",
-      "buildNumber": "4",
+      "buildNumber": "7",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -41,8 +41,7 @@
         }
       ],
       "expo-font",
-      "expo-splash-screen",
-      "expo-sqlite"
+      "expo-splash-screen"
     ],
     "extra": {
       "eas": {
