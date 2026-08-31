@@ -1,0 +1,1 @@
+.\remove-photo-cleanup.ps1

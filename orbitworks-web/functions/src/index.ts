@@ -5,7 +5,6 @@ import * as admin from "firebase-admin";
 
 admin.initializeApp();
 const db = admin.firestore();
-const storage = admin.storage();
 
 function generateUniquePin(existingPins: Set<string>): string {
   let pin = "";
@@ -18,7 +17,6 @@ function generateUniquePin(existingPins: Set<string>): string {
 }
 
 const FREE_EMPLOYEE_CAP = 8;
-const PHOTO_RETENTION_DAYS = 14;
 
 async function deactivateEmployeeAuth(linkedUserId: string) {
   await admin.auth().updateUser(linkedUserId, { disabled: true });
@@ -496,41 +494,6 @@ export const onEmployeeWrite = onDocumentWritten(
     });
   }
 );
-
-export const deleteOldClockPhotos = onSchedule("every 24 hours", async () => {
-  const cutoff = admin.firestore.Timestamp.fromMillis(
-    Date.now() - PHOTO_RETENTION_DAYS * 24 * 60 * 60 * 1000
-  );
-
-  const companiesSnap = await db.collection("companies").get();
-
-  for (const companyDoc of companiesSnap.docs) {
-    const eventsRef = companyDoc.ref.collection("clockEvents");
-    const oldEventsSnap = await eventsRef
-      .where("timestamp", "<", cutoff)
-      .where("photoUrl", "!=", null)
-      .get();
-
-    for (const eventDoc of oldEventsSnap.docs) {
-      const data = eventDoc.data() as { photoUrl?: string };
-      if (!data.photoUrl) continue;
-
-      try {
-        const bucket = storage.bucket();
-        const url = new URL(data.photoUrl);
-        const pathMatch = url.pathname.match(/\/o\/(.+)$/);
-        if (pathMatch) {
-          const filePath = decodeURIComponent(pathMatch[1]);
-          await bucket.file(filePath).delete({ ignoreNotFound: true });
-        }
-      } catch (err) {
-        console.error("Failed to delete photo for event " + eventDoc.id + ":", err);
-      }
-
-      await eventDoc.ref.update({ photoUrl: admin.firestore.FieldValue.delete() });
-    }
-  }
-});
 
 export const autoClockOutStaleSessions = onSchedule(
   { schedule: "0 23 * * *", timeZone: "America/Chicago" },
