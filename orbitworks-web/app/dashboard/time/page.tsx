@@ -713,6 +713,11 @@ export default function TimeTrackingPage() {
                   const badge = sourceLabel(event.source);
                   const typeBadge = typeLabel(event.type);
                   const pairable = isPairable(event.type);
+                  const isAdjusted = !!event.adjustedTimestamp;
+                  const adj = isAdjusted && event.adjustmentHistory && event.adjustmentHistory.length > 0
+                    ? event.adjustmentHistory[event.adjustmentHistory.length - 1]
+                    : null;
+                  const displayTime = event.adjustedTimestamp ?? event.timestamp;
                   return (
                     <tr
                       key={event.id}
@@ -733,19 +738,27 @@ export default function TimeTrackingPage() {
                         </span>
                       </td>
                       <td className="px-4 py-2.5 font-mono text-xs text-gray-600">
-                        {event.timestamp
-                          ? event.timestamp.toDate().toLocaleString()
+                        {displayTime
+                          ? displayTime.toDate().toLocaleString()
                           : "-"}
                       </td>
                       <td className="px-4 py-2.5">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
-                        >
-                          {badge.text}
-                        </span>
+                        {isAdjusted ? (
+                          <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                            Adjusted
+                          </span>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
+                          >
+                            {badge.text}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-gray-600">
-                        {event.authorizedByName || "-"}
+                        {isAdjusted
+                          ? adj?.changedByName ?? "Admin"
+                          : event.authorizedByName || "-"}
                       </td>
                       <td className="px-4 py-2.5 text-gray-600">
                         {event.photoUrl ? "View" : "-"}

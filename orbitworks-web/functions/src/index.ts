@@ -592,3 +592,161 @@ export const autoClockOutStaleSessions = onSchedule(
     }
   }
 );
+
+export const correctClockEvent = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if (callerRole !== "admin" || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const eventId = (request.data && request.data.eventId ? String(request.data.eventId) : "").trim();
+  const newTimestampMs = request.data && typeof request.data.newTimestamp === "number"
+    ? request.data.newTimestamp
+    : null;
+  const reason = request.data && typeof request.data.reason === "string"
+    ? request.data.reason.trim()
+    : undefined;
+
+  if (!eventId) {
+    throw new HttpsError("invalid-argument", "eventId is required.");
+  }
+  if (newTimestampMs === null || !Number.isFinite(newTimestampMs)) {
+    throw new HttpsError("invalid-argument", "newTimestamp is required and must be a number (epoch ms).");
+  }
+
+  const eventRef = db
+    .collection("companies")
+    .doc(callerCompanyId)
+    .collection("clockEvents")
+    .doc(eventId);
+  const eventSnap = await eventRef.get();
+  if (!eventSnap.exists) {
+    throw new HttpsError("not-found", "Clock event not found.");
+  }
+  const event = eventSnap.data() as {
+    timestamp?: admin.firestore.Timestamp;
+    adjustedTimestamp?: admin.firestore.Timestamp;
+    adjustmentHistory?: Array<Record<string, unknown>>;
+  };
+
+  const previousValue = event.adjustedTimestamp ?? event.timestamp;
+  if (!previousValue) {
+    throw new HttpsError("failed-precondition", "Clock event has no existing timestamp to correct.");
+  }
+
+  const newTimestamp = admin.firestore.Timestamp.fromMillis(newTimestampMs);
+
+  let changedByName = "Admin";
+  const callerSnap = await db.collection("users").doc(request.auth.uid).get();
+  if (callerSnap.exists) {
+    const callerData = callerSnap.data() as { name?: string };
+    if (callerData.name) {
+      changedByName = callerData.name;
+    }
+  }
+
+  const adjustment = {
+    fieldChanged: "timestamp",
+    previousValue,
+    newValue: newTimestamp,
+    changedByUid: request.auth.uid,
+    changedByName,
+    changedAt: admin.firestore.Timestamp.now(),
+    ...(reason ? { reason } : {}),
+  };
+
+  await eventRef.update({
+    adjustedTimestamp: newTimestamp,
+    adjustmentHistory: admin.firestore.FieldValue.arrayUnion(adjustment),
+  });
+
+  return { success: true };
+});
+
+export const reassignClockEvent = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if (callerRole !== "admin" || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const eventId = (request.data && request.data.eventId ? String(request.data.eventId) : "").trim();
+  const newEmployeeId = (request.data && request.data.newEmployeeId ? String(request.data.newEmployeeId) : "").trim();
+  const reason = request.data && typeof request.data.reason === "string"
+    ? request.data.reason.trim()
+    : undefined;
+
+  if (!eventId) {
+    throw new HttpsError("invalid-argument", "eventId is required.");
+  }
+  if (!newEmployeeId) {
+    throw new HttpsError("invalid-argument", "newEmployeeId is required.");
+  }
+
+  const eventRef = db
+    .collection("companies")
+    .doc(callerCompanyId)
+    .collection("clockEvents")
+    .doc(eventId);
+  const eventSnap = await eventRef.get();
+  if (!eventSnap.exists) {
+    throw new HttpsError("not-found", "Clock event not found.");
+  }
+  const event = eventSnap.data() as {
+    employeeId?: string;
+    employeeName?: string;
+    adjustmentHistory?: Array<Record<string, unknown>>;
+  };
+
+  if (event.employeeId === newEmployeeId) {
+    throw new HttpsError("failed-precondition", "Event is already assigned to that employee.");
+  }
+
+  const newEmployeeRef = db
+    .collection("companies")
+    .doc(callerCompanyId)
+    .collection("employees")
+    .doc(newEmployeeId);
+  const newEmployeeSnap = await newEmployeeRef.get();
+  if (!newEmployeeSnap.exists) {
+    throw new HttpsError("not-found", "Target employee not found.");
+  }
+  const newEmployee = newEmployeeSnap.data() as { name?: string; active?: boolean };
+  if (!newEmployee.active) {
+    throw new HttpsError("failed-precondition", "Target employee is not active.");
+  }
+
+  let changedByName = "Admin";
+  const callerSnap = await db.collection("users").doc(request.auth.uid).get();
+  if (callerSnap.exists) {
+    const callerData = callerSnap.data() as { name?: string };
+    if (callerData.name) {
+      changedByName = callerData.name;
+    }
+  }
+
+  const adjustment = {
+    fieldChanged: "employeeId",
+    previousValue: event.employeeName ?? "Unknown",
+    newValue: newEmployee.name ?? "Unknown",
+    changedByUid: request.auth.uid,
+    changedByName,
+    changedAt: admin.firestore.Timestamp.now(),
+    ...(reason ? { reason } : {}),
+  };
+
+  await eventRef.update({
+    employeeId: newEmployeeId,
+    employeeName: newEmployee.name ?? "Unknown",
+    adjustmentHistory: admin.firestore.FieldValue.arrayUnion(adjustment),
+  });
+
+  return { success: true };
+});

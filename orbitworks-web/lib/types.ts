@@ -36,6 +36,16 @@ export interface Invite {
   status: "pending" | "accepted";
 }
 
+export interface ClockEventAdjustment {
+  fieldChanged: "timestamp" | "employeeId";
+  previousValue: Timestamp | string;
+  newValue: Timestamp | string;
+  changedByUid: string;
+  changedByName: string;
+  changedAt: Timestamp;
+  reason?: string;
+}
+
 export interface ClockEvent {
   id: string;
   employeeId: string;
@@ -58,6 +68,8 @@ export interface ClockEvent {
   authorizedByName?: string;
   createdByUid?: string;
   timestamp?: Timestamp;
+  adjustedTimestamp?: Timestamp;
+  adjustmentHistory?: ClockEventAdjustment[];
 }
 
 // ---- Reports ----

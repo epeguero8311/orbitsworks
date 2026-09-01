@@ -82,9 +82,16 @@ export function useReports() {
           orderBy("timestamp", "asc")
         );
         const snapshot = await getDocs(q);
-        const events = snapshot.docs.map(
-          (d) => ({ id: d.id, ...(d.data() as Omit<EventWithDate, "id">) })
-        );
+        const events = snapshot.docs.map((d) => {
+          const data = d.data() as Omit<EventWithDate, "id">;
+          // Reports use the corrected time when a clock event has been
+          // adjusted by an admin, so payroll/hours/attendance reflect
+          // corrections. The date-range query filter above still runs on
+          // the original (unadjusted) timestamp so a correction can't
+          // move an event in or out of the selected report window.
+          const effectiveTimestamp = data.adjustedTimestamp ?? data.timestamp;
+          return { id: d.id, ...data, timestamp: effectiveTimestamp };
+        });
 
         const employeesRef = collection(db, "companies", userData.companyId, "employees");
         const employeesSnapshot = await getDocs(employeesRef);

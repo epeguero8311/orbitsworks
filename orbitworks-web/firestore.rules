@@ -123,6 +123,8 @@ service cloud.firestore {
           request.resource.data.createdByUid == request.auth.uid;
         allow update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
+          !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['timestamp', 'adjustedTimestamp', 'adjustmentHistory', 'employeeId', 'employeeName']) &&
           (
             request.auth.token.role == 'admin' ||
             isIdempotentReplay(companyId)
