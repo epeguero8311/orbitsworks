@@ -19,6 +19,8 @@ export async function getDb() {
       isSupervisor INTEGER DEFAULT 0,
       active INTEGER DEFAULT 1,
       lastEventType TEXT,
+      subcontractorId TEXT,
+      subcontractorName TEXT,
       updatedAt INTEGER
     );
 
@@ -39,6 +41,8 @@ export async function getDb() {
       syncStatus TEXT NOT NULL DEFAULT 'pending',
       attempts INTEGER NOT NULL DEFAULT 0,
       lastError TEXT,
+      subcontractorId TEXT,
+      subcontractorName TEXT,
       createdAt INTEGER NOT NULL
     );
 
@@ -48,13 +52,22 @@ export async function getDb() {
     );
   `);
 
-  // Migration for installs created before lastEventType existed - ALTER
-  // TABLE has no IF NOT EXISTS for columns, so this is wrapped and the
+  // Migrations for installs created before these columns existed - ALTER
+  // TABLE has no IF NOT EXISTS for columns, so each is wrapped and the
   // "duplicate column" error is swallowed on every run after the first.
-  try {
-    await dbInstance.execAsync("ALTER TABLE pin_cache ADD COLUMN lastEventType TEXT");
-  } catch (e) {
-    // column already exists - expected on every launch after the first
+  const migrations = [
+    "ALTER TABLE pin_cache ADD COLUMN lastEventType TEXT",
+    "ALTER TABLE pin_cache ADD COLUMN subcontractorId TEXT",
+    "ALTER TABLE pin_cache ADD COLUMN subcontractorName TEXT",
+    "ALTER TABLE event_queue ADD COLUMN subcontractorId TEXT",
+    "ALTER TABLE event_queue ADD COLUMN subcontractorName TEXT",
+  ];
+  for (const migration of migrations) {
+    try {
+      await dbInstance.execAsync(migration);
+    } catch (e) {
+      // column already exists - expected on every launch after the first
+    }
   }
 
   return dbInstance;

@@ -439,6 +439,8 @@ export const getPinSyncTable = onCall(async (request) => {
         isSupervisor: data.isSupervisor ?? false,
         active: data.active === true,
         lastEventType: data.lastEventType ?? null,
+        subcontractorId: data.subcontractorId ?? null,
+        subcontractorName: data.subcontractorName ?? null,
       };
     })
     .filter((e) => !!e.pin);

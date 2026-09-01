@@ -11,8 +11,8 @@ async function insertQueueItem(item) {
   const db = await getDb();
   await db.runAsync(
     `INSERT INTO event_queue
-      (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, syncStatus, attempts, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
+      (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, subcontractorId, subcontractorName, syncStatus, attempts, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
     [
       item.localId,
       item.employeeId,
@@ -27,6 +27,8 @@ async function insertQueueItem(item) {
       item.authorizedByName ?? null,
       item.createdByUid,
       item.clientTimestamp,
+      item.subcontractorId ?? null,
+      item.subcontractorName ?? null,
       item.createdAt,
     ]
   );
@@ -60,6 +62,8 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
       type: "breakEnd",
       source: "autoBreakEnd",
       createdByUid,
+      subcontractorId: employee.subcontractorId ?? null,
+      subcontractorName: employee.subcontractorName ?? null,
       clientTimestamp: now - 1,
       createdAt: now,
     });
@@ -75,6 +79,8 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
     photoLocalUri: persistedUri,
     source,
     createdByUid,
+    subcontractorId: employee.subcontractorId ?? null,
+    subcontractorName: employee.subcontractorName ?? null,
     clientTimestamp: now,
     createdAt: now,
   });
@@ -95,6 +101,8 @@ export async function queueBreakEvent({ employee, type, createdByUid, authorized
     authorizedById: authorizedBy?.id ?? null,
     authorizedByName: authorizedBy?.name ?? null,
     createdByUid,
+    subcontractorId: employee.subcontractorId ?? null,
+    subcontractorName: employee.subcontractorName ?? null,
     clientTimestamp: now,
     createdAt: now,
   });
@@ -113,6 +121,8 @@ export async function queueOverrideClockIn({ employee, createdByUid, authorizedB
     authorizedById: authorizedBy?.id ?? null,
     authorizedByName: authorizedBy?.name ?? null,
     createdByUid,
+    subcontractorId: employee.subcontractorId ?? null,
+    subcontractorName: employee.subcontractorName ?? null,
     clientTimestamp: now,
     createdAt: now,
   });
@@ -132,6 +142,8 @@ export async function queueOverrideClockOut({ employee, createdByUid, authorized
       type: "breakEnd",
       source: "autoBreakEnd",
       createdByUid,
+      subcontractorId: employee.subcontractorId ?? null,
+      subcontractorName: employee.subcontractorName ?? null,
       clientTimestamp: now - 1,
       createdAt: now,
     });
@@ -148,6 +160,8 @@ export async function queueOverrideClockOut({ employee, createdByUid, authorized
     authorizedById: authorizedBy?.id ?? null,
     authorizedByName: authorizedBy?.name ?? null,
     createdByUid,
+    subcontractorId: employee.subcontractorId ?? null,
+    subcontractorName: employee.subcontractorName ?? null,
     clientTimestamp: now,
     createdAt: now,
   });

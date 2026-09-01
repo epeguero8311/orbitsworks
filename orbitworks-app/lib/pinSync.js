@@ -22,8 +22,8 @@ export async function syncPinTable() {
       const hashedPin = await hashPin(emp.pin);
       await db.runAsync(
         `INSERT INTO pin_cache
-          (employeeId, hashedPin, name, jobTitle, photoUrl, assignedSiteIds, isSupervisor, active, lastEventType, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (employeeId, hashedPin, name, jobTitle, photoUrl, assignedSiteIds, isSupervisor, active, lastEventType, subcontractorId, subcontractorName, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           emp.id,
           hashedPin,
@@ -34,6 +34,8 @@ export async function syncPinTable() {
           emp.isSupervisor ? 1 : 0,
           emp.active ? 1 : 0,
           emp.lastEventType ?? null,
+          emp.subcontractorId ?? null,
+          emp.subcontractorName ?? null,
           now,
         ]
       );
@@ -78,6 +80,8 @@ export async function findEmployeeByPinLocal(pin) {
     photoUrl: row.photoUrl,
     assignedSiteIds: JSON.parse(row.assignedSiteIds || "[]"),
     isSupervisor: !!row.isSupervisor,
+    subcontractorId: row.subcontractorId ?? null,
+    subcontractorName: row.subcontractorName ?? null,
   };
 }
 
@@ -99,5 +103,7 @@ export async function getLocalEmployee(employeeId) {
     photoUrl: row.photoUrl,
     assignedSiteIds: JSON.parse(row.assignedSiteIds || "[]"),
     isSupervisor: !!row.isSupervisor,
+    subcontractorId: row.subcontractorId ?? null,
+    subcontractorName: row.subcontractorName ?? null,
   };
 }

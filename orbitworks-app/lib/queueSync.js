@@ -36,6 +36,8 @@ async function syncOne(sqlite, item, companyId) {
     employeeName: item.employeeName,
     siteId: item.siteId ?? null,
     siteName: item.siteName ?? "Not specified",
+    subcontractorId: item.subcontractorId ?? null,
+    subcontractorName: item.subcontractorName ?? null,
     type: item.type,
     source: item.source ?? null,
     photoUrl: photoUrl,
