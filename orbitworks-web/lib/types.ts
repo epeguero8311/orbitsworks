@@ -14,6 +14,27 @@ export interface Job {
   active: boolean;
 }
 
+export interface Subcontractor {
+  id: string;
+  name: string;
+  contactName?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  active: boolean;
+}
+
+export interface SubcontractorAssignmentRecord {
+  previousSubcontractorId: string | null;
+  previousSubcontractorName: string | null;
+  newSubcontractorId: string | null;
+  newSubcontractorName: string | null;
+  changedByUid: string;
+  changedByName: string;
+  changedAt: Timestamp;
+  reason?: string;
+}
+
 export interface Employee {
   id: string;
   name: string;
@@ -27,6 +48,9 @@ export interface Employee {
   isSupervisor?: boolean;
   active: boolean;
   pin: string;
+  subcontractorId?: string | null;
+  subcontractorName?: string | null;
+  subcontractorHistory?: SubcontractorAssignmentRecord[];
 }
 
 export interface Invite {
@@ -70,6 +94,8 @@ export interface ClockEvent {
   timestamp?: Timestamp;
   adjustedTimestamp?: Timestamp;
   adjustmentHistory?: ClockEventAdjustment[];
+  subcontractorId?: string | null;
+  subcontractorName?: string | null;
 }
 
 // ---- Reports ----
@@ -83,6 +109,8 @@ export interface EmployeeSummary {
   openSessions: number;
   hourlyRate: number | null;
   estimatedPay: number | null;
+  subcontractorId?: string | null;
+  subcontractorName?: string | null;
 }
 
 export interface AttendanceStats {
@@ -122,6 +150,8 @@ export interface SessionRecord {
   breakHours: number | null;
   clockInPhotoUrl?: string;
   clockOutPhotoUrl?: string;
+  subcontractorId?: string | null;
+  subcontractorName?: string | null;
 }
 
 export interface EmployeeExportRecord {
@@ -132,6 +162,7 @@ export interface EmployeeExportRecord {
   phone: string;
   active: boolean;
   siteNames: string;
+  subcontractorName?: string;
 }
 
 export interface AttendanceRecord {
@@ -142,6 +173,7 @@ export interface AttendanceRecord {
   departureTime: string | null;
   breakHours: number;
   status: "On Time" | "Late";
+  subcontractorName?: string | null;
 }
 
 export interface ShiftNote {

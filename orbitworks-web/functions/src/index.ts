@@ -718,7 +718,12 @@ export const reassignClockEvent = onCall(async (request) => {
   if (!newEmployeeSnap.exists) {
     throw new HttpsError("not-found", "Target employee not found.");
   }
-  const newEmployee = newEmployeeSnap.data() as { name?: string; active?: boolean };
+  const newEmployee = newEmployeeSnap.data() as {
+    name?: string;
+    active?: boolean;
+    subcontractorId?: string | null;
+    subcontractorName?: string | null;
+  };
   if (!newEmployee.active) {
     throw new HttpsError("failed-precondition", "Target employee is not active.");
   }
@@ -742,10 +747,115 @@ export const reassignClockEvent = onCall(async (request) => {
     ...(reason ? { reason } : {}),
   };
 
+  // Reassigning an event to a different employee also re-snapshots
+  // that employee's current subcontractor onto the event. This keeps
+  // subcontractor payroll reports correct: the event should follow
+  // whichever company the *new* employee belongs to, not whatever the
+  // original employee's company was.
   await eventRef.update({
     employeeId: newEmployeeId,
     employeeName: newEmployee.name ?? "Unknown",
+    subcontractorId: newEmployee.subcontractorId ?? null,
+    subcontractorName: newEmployee.subcontractorName ?? null,
     adjustmentHistory: admin.firestore.FieldValue.arrayUnion(adjustment),
+  });
+
+  return { success: true };
+});
+
+export const reassignEmployeeSubcontractor = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if (callerRole !== "admin" || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
+  const rawNewSubcontractorId = request.data ? request.data.newSubcontractorId : undefined;
+  const newSubcontractorId =
+    rawNewSubcontractorId === null || rawNewSubcontractorId === undefined || rawNewSubcontractorId === ""
+      ? null
+      : String(rawNewSubcontractorId).trim();
+  const reason = request.data && typeof request.data.reason === "string"
+    ? request.data.reason.trim()
+    : undefined;
+
+  if (!employeeId) {
+    throw new HttpsError("invalid-argument", "employeeId is required.");
+  }
+
+  const employeeRef = db
+    .collection("companies")
+    .doc(callerCompanyId)
+    .collection("employees")
+    .doc(employeeId);
+  const employeeSnap = await employeeRef.get();
+  if (!employeeSnap.exists) {
+    throw new HttpsError("not-found", "Employee not found.");
+  }
+  const employee = employeeSnap.data() as {
+    subcontractorId?: string | null;
+    subcontractorName?: string | null;
+  };
+
+  const previousSubcontractorId = employee.subcontractorId ?? null;
+  const previousSubcontractorName = employee.subcontractorName ?? null;
+
+  if (previousSubcontractorId === newSubcontractorId) {
+    throw new HttpsError("failed-precondition", "Employee is already assigned to that company.");
+  }
+
+  let newSubcontractorName: string | null = null;
+  if (newSubcontractorId) {
+    const subcontractorRef = db
+      .collection("companies")
+      .doc(callerCompanyId)
+      .collection("subcontractors")
+      .doc(newSubcontractorId);
+    const subcontractorSnap = await subcontractorRef.get();
+    if (!subcontractorSnap.exists) {
+      throw new HttpsError("not-found", "Subcontractor not found.");
+    }
+    const subcontractor = subcontractorSnap.data() as { name?: string; active?: boolean };
+    if (!subcontractor.active) {
+      throw new HttpsError("failed-precondition", "Subcontractor is not active.");
+    }
+    newSubcontractorName = subcontractor.name ?? "Unknown";
+  }
+
+  let changedByName = "Admin";
+  const callerSnap = await db.collection("users").doc(request.auth.uid).get();
+  if (callerSnap.exists) {
+    const callerData = callerSnap.data() as { name?: string };
+    if (callerData.name) {
+      changedByName = callerData.name;
+    }
+  }
+
+  const assignmentRecord = {
+    previousSubcontractorId,
+    previousSubcontractorName,
+    newSubcontractorId,
+    newSubcontractorName,
+    changedByUid: request.auth.uid,
+    changedByName,
+    changedAt: admin.firestore.Timestamp.now(),
+    ...(reason ? { reason } : {}),
+  };
+
+  // subcontractorId/subcontractorName/subcontractorHistory are blocked
+  // from direct client writes in firestore.rules - this Admin SDK call
+  // is the only path that can change them. Clock events already in
+  // existence for this employee are left untouched (they keep whatever
+  // company was in effect when they were created); only new clock
+  // events created after this point will snapshot the new company.
+  await employeeRef.update({
+    subcontractorId: newSubcontractorId,
+    subcontractorName: newSubcontractorName,
+    subcontractorHistory: admin.firestore.FieldValue.arrayUnion(assignmentRecord),
   });
 
   return { success: true };

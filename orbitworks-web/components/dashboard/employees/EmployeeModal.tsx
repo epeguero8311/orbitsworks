@@ -5,18 +5,22 @@ import { doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
 import { db, storage, functions } from "@/lib/firebase";
-import type { Employee, JobSite, Job } from "@/lib/types";
+import type { Employee, JobSite, Job, Subcontractor } from "@/lib/types";
 
 export function EmployeeModal({
   employee,
   sites,
   jobs,
+  subcontractors,
+  companyName,
   companyId,
   onClose,
 }: {
   employee: Employee;
   sites: JobSite[];
   jobs: Job[];
+  subcontractors: Subcontractor[];
+  companyName: string;
   companyId: string;
   onClose: () => void;
 }) {
@@ -44,10 +48,31 @@ export function EmployeeModal({
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
+  // ---- Company (subcontractor) reassignment ----
+  const [selectedCompanyValue, setSelectedCompanyValue] = useState(
+    employee.subcontractorId ?? ""
+  );
+  const [pendingCompanyChange, setPendingCompanyChange] = useState(false);
+  const [companyReason, setCompanyReason] = useState("");
+  const [companySubmitting, setCompanySubmitting] = useState(false);
+  const [companyError, setCompanyError] = useState<string | null>(null);
+
   // Include the employee's currently assigned job even if it has since
   // been deactivated, so it does not disappear from the dropdown.
   const selectableJobs = jobs.filter((j) => j.active || j.id === employee.jobId);
   const selectedJob = jobs.find((j) => j.id === jobId) ?? null;
+
+  // Same idea for subcontractors - keep the employee's current one
+  // selectable even if it has since been deactivated.
+  const selectableSubcontractors = subcontractors.filter(
+    (s) => s.active || s.id === employee.subcontractorId
+  );
+  const pendingSubcontractorName = selectedCompanyValue
+    ? subcontractors.find((s) => s.id === selectedCompanyValue)?.name ?? "Unknown"
+    : companyName;
+  const currentCompanyLabel = employee.subcontractorId
+    ? employee.subcontractorName ?? "Unknown"
+    : companyName;
 
   function handleJobSelect(value: string) {
     setJobId(value === "" ? null : value);
@@ -64,6 +89,50 @@ export function EmployeeModal({
   function handlePhotoChange(file: File | null) {
     setPhotoFile(file);
     setPhotoPreview(file ? URL.createObjectURL(file) : null);
+  }
+
+  function handleCompanySelect(value: string) {
+    setSelectedCompanyValue(value);
+    const normalizedCurrent = employee.subcontractorId ?? "";
+    if (value !== normalizedCurrent) {
+      setPendingCompanyChange(true);
+      setCompanyError(null);
+    } else {
+      setPendingCompanyChange(false);
+      setCompanyReason("");
+      setCompanyError(null);
+    }
+  }
+
+  function handleCancelCompanyChange() {
+    setSelectedCompanyValue(employee.subcontractorId ?? "");
+    setPendingCompanyChange(false);
+    setCompanyReason("");
+    setCompanyError(null);
+  }
+
+  async function handleConfirmCompanyChange() {
+    setCompanySubmitting(true);
+    setCompanyError(null);
+    try {
+      const reassignSubcontractorFn = httpsCallable(
+        functions,
+        "reassignEmployeeSubcontractor"
+      );
+      await reassignSubcontractorFn({
+        employeeId: employee.id,
+        newSubcontractorId: selectedCompanyValue || null,
+        ...(companyReason.trim() ? { reason: companyReason.trim() } : {}),
+      });
+      setPendingCompanyChange(false);
+      setCompanyReason("");
+    } catch (err) {
+      setCompanyError(
+        err instanceof Error ? err.message : "Failed to change company."
+      );
+    } finally {
+      setCompanySubmitting(false);
+    }
   }
 
   async function handleSave() {
@@ -333,6 +402,71 @@ export function EmployeeModal({
                   {site.name}
                 </label>
               ))}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5">
+          <span className="mb-2 block text-sm font-medium text-gray-950">
+            Company
+          </span>
+          <p className="mb-2 text-xs text-gray-600">
+            Which company {employee.name} currently works under. Past clock
+            events stay attributed to whichever company was in effect when
+            they were recorded - this only changes new events going
+            forward.
+          </p>
+          <select
+            value={selectedCompanyValue}
+            onChange={(e) => handleCompanySelect(e.target.value)}
+            className="w-full max-w-xs rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+          >
+            <option value="">{companyName}</option>
+            {selectableSubcontractors.map((sub) => (
+              <option key={sub.id} value={sub.id}>
+                {sub.name}
+              </option>
+            ))}
+          </select>
+
+          {pendingCompanyChange && (
+            <div className="mt-3 rounded-lg border-2 border-amber-300 bg-amber-50 p-4">
+              <p className="text-sm font-medium text-gray-950">
+                Move {employee.name} from{" "}
+                <span className="font-semibold">{currentCompanyLabel}</span>{" "}
+                to{" "}
+                <span className="font-semibold">
+                  {pendingSubcontractorName}
+                </span>
+                ?
+              </p>
+              <input
+                type="text"
+                value={companyReason}
+                onChange={(e) => setCompanyReason(e.target.value)}
+                placeholder="Reason (optional)"
+                className="mt-2 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              />
+              {companyError && (
+                <p className="mt-2 text-xs text-red-600">{companyError}</p>
+              )}
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  disabled={companySubmitting}
+                  onClick={handleConfirmCompanyChange}
+                  className="rounded-md bg-accent px-4 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {companySubmitting ? "Moving..." : "Confirm"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelCompanyChange}
+                  className="rounded-md border border-gray-200 bg-white px-4 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
         </div>

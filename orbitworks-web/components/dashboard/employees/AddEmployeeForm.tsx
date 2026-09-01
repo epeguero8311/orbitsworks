@@ -5,16 +5,27 @@ import { collection, addDoc, doc, updateDoc, getDocs, serverTimestamp } from "fi
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
-import type { JobSite, Job } from "@/lib/types";
+import type { JobSite, Job, Subcontractor } from "@/lib/types";
 import { generateUniquePin } from "@/lib/pinUtils";
 import { UpgradeToast } from "@/components/UpgradeToast";
 
-export function AddEmployeeForm({ sites, jobs }: { sites: JobSite[]; jobs: Job[] }) {
+export function AddEmployeeForm({
+  sites,
+  jobs,
+  subcontractors,
+  companyName,
+}: {
+  sites: JobSite[];
+  jobs: Job[];
+  subcontractors: Subcontractor[];
+  companyName: string;
+}) {
   const { userData } = useAuth();
   const [name, setName] = useState("");
   const [jobId, setJobId] = useState<string | null>(null);
   const [customJobTitle, setCustomJobTitle] = useState("");
   const [customHourlyRate, setCustomHourlyRate] = useState("");
+  const [subcontractorId, setSubcontractorId] = useState<string | null>(null);
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -23,6 +34,7 @@ export function AddEmployeeForm({ sites, jobs }: { sites: JobSite[]; jobs: Job[]
   const [showUpgradeToast, setShowUpgradeToast] = useState(false);
 
   const activeJobs = jobs.filter((j) => j.active);
+  const activeSubcontractors = subcontractors.filter((s) => s.active);
   const selectedJob = jobs.find((j) => j.id === jobId) ?? null;
 
   function handleJobSelect(value: string) {
@@ -68,6 +80,8 @@ export function AddEmployeeForm({ sites, jobs }: { sites: JobSite[]; jobs: Job[]
         ? parseFloat(customHourlyRate.trim())
         : null;
 
+      const selectedSubcontractor = subcontractors.find((s) => s.id === subcontractorId) ?? null;
+
       const employeeDoc = await addDoc(employeesRef, {
         name: name.trim(),
         jobId: jobId,
@@ -76,6 +90,8 @@ export function AddEmployeeForm({ sites, jobs }: { sites: JobSite[]; jobs: Job[]
         hourlyRate: hourlyRateToSave,
         active: true,
         pin,
+        subcontractorId: subcontractorId,
+        subcontractorName: selectedSubcontractor ? selectedSubcontractor.name : null,
         createdAt: serverTimestamp(),
       });
 
@@ -94,6 +110,7 @@ export function AddEmployeeForm({ sites, jobs }: { sites: JobSite[]; jobs: Job[]
       setJobId(null);
       setCustomJobTitle("");
       setCustomHourlyRate("");
+      setSubcontractorId(null);
       setSelectedSiteIds([]);
       setPhotoFile(null);
     } catch (err: any) {
@@ -202,6 +219,32 @@ export function AddEmployeeForm({ sites, jobs }: { sites: JobSite[]; jobs: Job[]
             </p>
           )}
         </div>
+      </div>
+
+      <div className="mt-5">
+        <label
+          htmlFor="empCompany"
+          className="mb-2 block text-sm font-medium text-gray-950"
+        >
+          Company (optional)
+        </label>
+        <select
+          id="empCompany"
+          value={subcontractorId ?? ""}
+          onChange={(e) => setSubcontractorId(e.target.value || null)}
+          className="w-full max-w-xs rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+        >
+          <option value="">{companyName}</option>
+          {activeSubcontractors.map((sub) => (
+            <option key={sub.id} value={sub.id}>
+              {sub.name}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-gray-600">
+          Defaults to the main company. Change this later from the
+          employee's edit screen if needed.
+        </p>
       </div>
 
       <div className="mt-5">
