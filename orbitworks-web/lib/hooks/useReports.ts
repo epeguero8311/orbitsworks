@@ -107,13 +107,21 @@ export function useReports() {
         setJobs(Array.from(jobsMap.values()));
 
         // Resolve each employee's default rate: a linked job's live rate
-        // takes priority over any custom rate typed on the employee.
+        // takes priority over any custom rate typed on the employee. Also
+        // resolve each employee's CURRENT subcontractor assignment - used
+        // to group the Summary/Payroll/Employees sheets by company. This
+        // is the employee's present-day company, not a historical one -
+        // Detail/Attendance use the per-event snapshot instead, which is
+        // what stays correct if someone gets reassigned mid-period.
         const employeeJobIdByIdOut = new Map<string, string | null>();
         const defaultRateByEmployeeId = new Map<string, number | null>();
+        const subcontractorByEmployeeId = new Map<string, { id: string | null; name: string | null }>();
         employeesSnapshot.docs.forEach((d) => {
           const data = d.data() as {
             hourlyRate?: number | null;
             jobId?: string | null;
+            subcontractorId?: string | null;
+            subcontractorName?: string | null;
           };
           const jobId = data.jobId ?? null;
           employeeJobIdByIdOut.set(d.id, jobId);
@@ -121,6 +129,10 @@ export function useReports() {
             ? jobsMap.get(jobId)?.hourlyRate ?? null
             : data.hourlyRate ?? null;
           defaultRateByEmployeeId.set(d.id, rate);
+          subcontractorByEmployeeId.set(d.id, {
+            id: data.subcontractorId ?? null,
+            name: data.subcontractorName ?? null,
+          });
         });
         setEmployeeJobIdById(employeeJobIdByIdOut);
 
@@ -145,6 +157,7 @@ export function useReports() {
             phone?: string;
             active?: boolean;
             assignedSiteIds?: string[];
+            subcontractorName?: string | null;
           };
           const siteNames = (data.assignedSiteIds ?? [])
             .map((id) => siteNameByIdAll.get(id) ?? "Unknown site")
@@ -160,6 +173,7 @@ export function useReports() {
             phone: data.phone ?? "",
             active: data.active ?? true,
             siteNames,
+            subcontractorName: data.subcontractorName ?? undefined,
           };
         });
         setEmployeeRecords(employeeRecordsOut);
@@ -230,6 +244,15 @@ export function useReports() {
           // the moment the matching "out" closes it.
           let openBreakStart: EventWithDate | null = null;
           let currentSessionBreakMs = 0;
+          // Sessions/Detail use the employee current company assignment
+          // for consistency with Summary/Payroll/Employees, rather than
+          // whatever was snapshotted on the clock event itself - older
+          // events created before a reassignment would otherwise show
+          // stale company info and look inconsistent across sheets.
+          const currentCompany = subcontractorByEmployeeId.get(employeeId) ?? {
+            id: null,
+            name: null,
+          };
 
           for (const event of employeeEvents) {
             if (event.type === "in") {
@@ -244,6 +267,8 @@ export function useReports() {
                   hours: null,
                   breakHours: null,
                   clockInPhotoUrl: pendingIn.photoUrl,
+                  subcontractorId: currentCompany.id,
+                  subcontractorName: currentCompany.name,
                 });
               }
               pendingIn = event;
@@ -278,6 +303,8 @@ export function useReports() {
                   breakHours: breakHrs,
                   clockInPhotoUrl: pendingIn.photoUrl,
                   clockOutPhotoUrl: event.photoUrl,
+                  subcontractorId: currentCompany.id,
+                  subcontractorName: currentCompany.name,
                 });
 
                 const weekKey = dateKey(startOfWeek(pendingIn.timestamp.toDate()));
@@ -314,6 +341,8 @@ export function useReports() {
               hours: null,
               breakHours: null,
               clockInPhotoUrl: pendingIn.photoUrl,
+              subcontractorId: currentCompany.id,
+              subcontractorName: currentCompany.name,
             });
           }
 
@@ -321,6 +350,10 @@ export function useReports() {
           const totalBreakHours = totalBreakMs / (1000 * 60 * 60);
           const netHours = totalHours - totalBreakHours;
           const hourlyRate = defaultRateByEmployeeId.get(employeeId) ?? null;
+          const subcontractor = subcontractorByEmployeeId.get(employeeId) ?? {
+            id: null,
+            name: null,
+          };
 
           results.push({
             employeeId,
@@ -331,6 +364,8 @@ export function useReports() {
             openSessions,
             hourlyRate,
             estimatedPay: hourlyRate != null ? netHours * hourlyRate : null,
+            subcontractorId: subcontractor.id,
+            subcontractorName: subcontractor.name,
           });
         }
         results.sort((a, b) => b.totalHours - a.totalHours);
@@ -426,6 +461,7 @@ export function useReports() {
                 : null,
               breakHours: dayBreakHours,
               status: isOnTime ? "On Time" : "Late",
+              subcontractorName: subcontractorByEmployeeId.get(employeeId)?.name ?? null,
             });
 
             if (firstIn.siteId) {

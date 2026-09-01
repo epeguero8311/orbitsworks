@@ -127,7 +127,7 @@ export default function ExportMenu({
     },
     {
       label: "Employees",
-      onExcel: () => exportEmployeesExcel(employeeRecords, companyName),
+      onExcel: () => exportEmployeesExcel(employeeRecords, companyName, startDate, endDate),
       onCsv: () =>
         downloadCsv(
           toEmployeesCsv(employeeRecords),

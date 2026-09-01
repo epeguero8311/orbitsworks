@@ -76,6 +76,48 @@ function formatDateRangeLabel(startDate: string, endDate: string): string {
   return `${formatDatePart(start)} - ${formatDatePart(end)}`;
 }
 
+// ---- Company grouping helpers, shared by every sheet builder below ----
+
+// A row's company label is its own subcontractor name if it has one,
+// otherwise the real main company name (never the generic word "Main
+// company" - the caller always passes the actual company name).
+function companyLabelFor(
+  subcontractorName: string | null | undefined,
+  mainCompanyName: string
+): string {
+  return subcontractorName && subcontractorName.trim() ? subcontractorName : mainCompanyName;
+}
+
+// Sorts so the main company's rows come first, then each subcontractor's
+// rows grouped together (alphabetically by company), with a caller-supplied
+// secondary sort applied within each group.
+function sortByCompanyThen<T>(
+  items: T[],
+  getCompany: (item: T) => string,
+  mainCompanyName: string,
+  secondary: (a: T, b: T) => number
+): T[] {
+  return items.slice().sort((a, b) => {
+    const ca = getCompany(a);
+    const cb = getCompany(b);
+    if (ca !== cb) {
+      if (ca === mainCompanyName) return -1;
+      if (cb === mainCompanyName) return 1;
+      return ca.localeCompare(cb);
+    }
+    return secondary(a, b);
+  });
+}
+
+function addTitleRow(sheet: any, text: string, columnCount: number) {
+  sheet.mergeCells(1, 1, 1, columnCount);
+  const cell = sheet.getCell(1, 1);
+  cell.value = text;
+  cell.font = { bold: true, size: 13, color: { argb: "FF111827" } };
+  cell.alignment = { vertical: "middle" };
+  sheet.getRow(1).height = 26;
+}
+
 async function getExcelJS() {
   const mod = await import("exceljs/dist/exceljs.min.js");
   return (mod as any).default ?? mod;
@@ -139,20 +181,44 @@ async function downloadWorkbook(workbook: any, filename: string) {
 
 // ---- Reusable sheet builders, each adds one (or more) sheets to a given workbook ----
 
-function addDetailSheet(workbook: any, sessions: SessionRecord[]) {
+function addDetailSheet(
+  workbook: any,
+  sessions: SessionRecord[],
+  companyName: string,
+  startDate: string,
+  endDate: string
+) {
   const detailSheet = workbook.addWorksheet("Detail");
+  const rangeLabel = formatDateRangeLabel(startDate, endDate);
 
   detailSheet.columns = [
-    { header: "Employee", key: "employeeName", width: 24 },
-    { header: "Job Site", key: "siteName", width: 22 },
-    { header: "Date", key: "date", width: 14 },
-    { header: "Clock In", key: "clockInTime", width: 14 },
-    { header: "Clock Out", key: "clockOutTime", width: 18 },
-    { header: "Hours", key: "hoursDisplay", width: 12 },
-    { header: "Break", key: "breakDisplay", width: 12 },
+    { key: "employeeName", width: 24 },
+    { key: "siteName", width: 22 },
+    { key: "company", width: 22 },
+    { key: "date", width: 14 },
+    { key: "clockInTime", width: 14 },
+    { key: "clockOutTime", width: 18 },
+    { key: "hoursDisplay", width: 12 },
+    { key: "breakDisplay", width: 12 },
   ];
 
-  sessions.forEach((s) => {
+  addTitleRow(detailSheet, `Detail: ${rangeLabel}`, 8);
+
+  const headerRow = detailSheet.getRow(2);
+  ["Employee", "Job Site", "Company", "Date", "Clock In", "Clock Out", "Hours", "Break"].forEach(
+    (h, i) => (headerRow.getCell(i + 1).value = h)
+  );
+  styleHeaderRow(headerRow);
+
+  const sorted = sortByCompanyThen(
+    sessions,
+    (s) => companyLabelFor(s.subcontractorName, companyName),
+    companyName,
+    (a, b) => (a.clockIn < b.clockIn ? -1 : 1)
+  );
+
+  let r = 3;
+  sorted.forEach((s) => {
     const clockInDate = parseMaybeDate(s.clockIn);
     const clockOutDate = parseMaybeDate(s.clockOut);
 
@@ -170,50 +236,63 @@ function addDetailSheet(workbook: any, sessions: SessionRecord[]) {
       }
     }
 
-    detailSheet.addRow({
-      employeeName: s.employeeName,
-      siteName: s.siteName,
-      date: dateLabel,
-      clockInTime: clockInLabel,
-      clockOutTime: clockOutLabel,
-      hoursDisplay: formatHoursMinutes(s.hours),
-      breakDisplay: formatHoursMinutes(s.breakHours),
-    });
+    const row = detailSheet.getRow(r);
+    row.getCell(1).value = s.employeeName;
+    row.getCell(2).value = s.siteName;
+    row.getCell(3).value = companyLabelFor(s.subcontractorName, companyName);
+    row.getCell(4).value = dateLabel;
+    row.getCell(5).value = clockInLabel;
+    row.getCell(6).value = clockOutLabel;
+    row.getCell(7).value = formatHoursMinutes(s.hours);
+    row.getCell(8).value = formatHoursMinutes(s.breakHours);
+    r += 1;
   });
 
-  styleHeaderRow(detailSheet.getRow(1));
-  styleDataRows(detailSheet);
-  detailSheet.views = [{ state: "frozen", ySplit: 1 }];
+  styleDataRows(detailSheet, 2);
+  detailSheet.views = [{ state: "frozen", ySplit: 2 }];
 }
 
-function addNotesSheet(workbook: any, shiftNotes: ShiftNote[]) {
+function addNotesSheet(
+  workbook: any,
+  shiftNotes: ShiftNote[],
+  startDate: string,
+  endDate: string
+) {
   const sheet = workbook.addWorksheet("Notes");
+  const rangeLabel = formatDateRangeLabel(startDate, endDate);
 
   sheet.columns = [
-    { header: "Date", key: "date", width: 18 },
-    { header: "Site", key: "siteName", width: 20 },
-    { header: "Note", key: "note", width: 50 },
-    { header: "Written By", key: "createdByName", width: 22 },
+    { key: "date", width: 18 },
+    { key: "siteName", width: 20 },
+    { key: "note", width: 50 },
+    { key: "createdByName", width: 22 },
   ];
 
+  addTitleRow(sheet, `Notes: ${rangeLabel}`, 4);
+
+  const headerRow = sheet.getRow(2);
+  ["Date", "Site", "Note", "Written By"].forEach((h, i) => (headerRow.getCell(i + 1).value = h));
+  styleHeaderRow(headerRow);
+
+  let r = 3;
   shiftNotes.forEach((n) => {
-    const row = sheet.addRow({
-      date: n.timestamp ? n.timestamp.toDate().toLocaleString() : "-",
-      siteName: n.siteName,
-      note: n.note,
-      createdByName: n.createdByName,
-    });
-    row.getCell("note").alignment = { wrapText: true, vertical: "middle" };
+    const row = sheet.getRow(r);
+    row.getCell(1).value = n.timestamp ? n.timestamp.toDate().toLocaleString() : "-";
+    row.getCell(2).value = n.siteName;
+    row.getCell(3).value = n.note;
+    row.getCell(4).value = n.createdByName;
+    row.getCell(3).alignment = { wrapText: true, vertical: "middle" };
+    r += 1;
   });
 
-  styleHeaderRow(sheet.getRow(1));
-  styleDataRows(sheet);
-  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  styleDataRows(sheet, 2);
+  sheet.views = [{ state: "frozen", ySplit: 2 }];
 }
 
 function addSummarySheet(
   workbook: any,
   summaries: EmployeeSummary[],
+  companyName: string,
   startDate: string,
   endDate: string
 ) {
@@ -224,51 +303,91 @@ function addSummarySheet(
     { key: "employeeName", width: 26 },
     { key: "totalHours", width: 16 },
     { key: "totalBreakHours", width: 16 },
+    { key: "company", width: 22 },
   ];
 
-  summarySheet.mergeCells("A1:C1");
-  const titleCell = summarySheet.getCell("A1");
-  titleCell.value = `Total hours: ${rangeLabel}`;
-  titleCell.font = { bold: true, size: 13, color: { argb: "FF111827" } };
-  titleCell.alignment = { vertical: "middle" };
-  summarySheet.getRow(1).height = 26;
+  const groups = new Map<string, EmployeeSummary[]>();
+  summaries.forEach((s) => {
+    const label = companyLabelFor(s.subcontractorName, companyName);
+    const list = groups.get(label) ?? [];
+    list.push(s);
+    groups.set(label, list);
+  });
 
-  const summaryHeaderRow = summarySheet.getRow(2);
-  summaryHeaderRow.getCell(1).value = "Employee";
-  summaryHeaderRow.getCell(2).value = "Total Hours";
-  summaryHeaderRow.getCell(3).value = "Total Break Hrs";
-  styleHeaderRow(summaryHeaderRow);
+  const orderedLabels = Array.from(groups.keys()).sort((a, b) => {
+    if (a === companyName) return -1;
+    if (b === companyName) return 1;
+    return a.localeCompare(b);
+  });
 
-  summaries
-    .slice()
-    .sort((a, b) => a.employeeName.localeCompare(b.employeeName))
-    .forEach((s) => {
-      summarySheet.addRow({
-        employeeName: s.employeeName,
-        totalHours: formatHoursMinutes(s.totalHours),
-        totalBreakHours: formatHoursMinutes(s.totalBreakHours),
+  let r = 1;
+  orderedLabels.forEach((label) => {
+    const groupSummaries = groups
+      .get(label)!
+      .slice()
+      .sort((a, b) => a.employeeName.localeCompare(b.employeeName));
+
+    summarySheet.mergeCells(r, 1, r, 4);
+    const titleCell = summarySheet.getCell(r, 1);
+    titleCell.value = `${label}: ${rangeLabel}`;
+    titleCell.font = { bold: true, size: 13, color: { argb: "FF111827" } };
+    titleCell.alignment = { vertical: "middle" };
+    summarySheet.getRow(r).height = 26;
+    r += 1;
+
+    const headerRow = summarySheet.getRow(r);
+    headerRow.getCell(1).value = "Employee";
+    headerRow.getCell(2).value = "Total Hours";
+    headerRow.getCell(3).value = "Total Break Hrs";
+    headerRow.getCell(4).value = "Company";
+    styleHeaderRow(headerRow);
+    r += 1;
+
+    groupSummaries.forEach((s) => {
+      const row = summarySheet.getRow(r);
+      row.getCell(1).value = s.employeeName;
+      row.getCell(2).value = formatHoursMinutes(s.totalHours);
+      row.getCell(3).value = formatHoursMinutes(s.totalBreakHours);
+      row.getCell(4).value = label;
+      row.eachCell((cell: any) => {
+        cell.border = { bottom: { style: "thin", color: { argb: "FFF3F4F6" } } };
+        cell.alignment = { vertical: "middle" };
       });
+      r += 1;
     });
 
-  styleDataRows(summarySheet, 2);
-  summarySheet.views = [{ state: "frozen", ySplit: 2 }];
+    r += 1; // spacer row between company blocks
+  });
 }
 
-async function addPhotosSheet(workbook: any, sessions: SessionRecord[]) {
+async function addPhotosSheet(
+  workbook: any,
+  sessions: SessionRecord[],
+  startDate: string,
+  endDate: string
+) {
   const photosSheet = workbook.addWorksheet("Photos");
+  const rangeLabel = formatDateRangeLabel(startDate, endDate);
   const THUMB_SIZE = 90;
 
   photosSheet.columns = [
-    { header: "Employee", key: "employeeName", width: 22 },
-    { header: "Date", key: "date", width: 14 },
-    { header: "Clock In", key: "clockInPhoto", width: 20 },
-    { header: "Clock Out", key: "clockOutPhoto", width: 20 },
+    { key: "employeeName", width: 22 },
+    { key: "date", width: 14 },
+    { key: "clockInPhoto", width: 20 },
+    { key: "clockOutPhoto", width: 20 },
   ];
-  styleHeaderRow(photosSheet.getRow(1));
+
+  addTitleRow(photosSheet, `Photos: ${rangeLabel}`, 4);
+
+  const headerRow = photosSheet.getRow(2);
+  ["Employee", "Date", "Clock In", "Clock Out"].forEach(
+    (h, i) => (headerRow.getCell(i + 1).value = h)
+  );
+  styleHeaderRow(headerRow);
 
   for (let i = 0; i < sessions.length; i++) {
     const s = sessions[i];
-    const rowNumber = i + 2;
+    const rowNumber = i + 3;
     const clockInDate = parseMaybeDate(s.clockIn);
     const dateLabel = clockInDate ? formatDatePart(clockInDate) : "-";
 
@@ -316,35 +435,60 @@ async function addPhotosSheet(workbook: any, sessions: SessionRecord[]) {
     }
   }
 
-  photosSheet.views = [{ state: "frozen", ySplit: 1 }];
+  photosSheet.views = [{ state: "frozen", ySplit: 2 }];
 }
 
-function addEmployeesSheet(workbook: any, employeeRecords: EmployeeExportRecord[]) {
+function addEmployeesSheet(
+  workbook: any,
+  employeeRecords: EmployeeExportRecord[],
+  companyName: string,
+  startDate: string,
+  endDate: string
+) {
   const sheet = workbook.addWorksheet("Employees");
+  const rangeLabel = formatDateRangeLabel(startDate, endDate);
 
   sheet.columns = [
-    { header: "Name", key: "name", width: 24 },
-    { header: "Job Title", key: "jobTitle", width: 20 },
-    { header: "Hourly Rate", key: "hourlyRate", width: 14 },
-    { header: "Phone", key: "phone", width: 16 },
-    { header: "Job Sites", key: "siteNames", width: 26 },
-    { header: "Status", key: "status", width: 12 },
+    { key: "name", width: 24 },
+    { key: "jobTitle", width: 20 },
+    { key: "hourlyRate", width: 14 },
+    { key: "phone", width: 16 },
+    { key: "siteNames", width: 26 },
+    { key: "company", width: 22 },
+    { key: "status", width: 12 },
   ];
 
-  employeeRecords.forEach((e) => {
-    sheet.addRow({
-      name: e.name,
-      jobTitle: e.jobTitle || "-",
-      hourlyRate: e.hourlyRate ?? null,
-      phone: e.phone || "-",
-      siteNames: e.siteNames || "-",
-      status: e.active ? "Active" : "Inactive",
-    });
+  addTitleRow(sheet, `Employees: ${rangeLabel}`, 7);
+
+  const headerRow = sheet.getRow(2);
+  ["Name", "Job Title", "Hourly Rate", "Phone", "Job Sites", "Company", "Status"].forEach(
+    (h, i) => (headerRow.getCell(i + 1).value = h)
+  );
+  styleHeaderRow(headerRow);
+
+  const sorted = sortByCompanyThen(
+    employeeRecords,
+    (e) => companyLabelFor(e.subcontractorName, companyName),
+    companyName,
+    (a, b) => a.name.localeCompare(b.name)
+  );
+
+  let r = 3;
+  sorted.forEach((e) => {
+    const row = sheet.getRow(r);
+    row.getCell(1).value = e.name;
+    row.getCell(2).value = e.jobTitle || "-";
+    row.getCell(3).value = e.hourlyRate ?? null;
+    row.getCell(4).value = e.phone || "-";
+    row.getCell(5).value = e.siteNames || "-";
+    row.getCell(6).value = companyLabelFor(e.subcontractorName, companyName);
+    row.getCell(7).value = e.active ? "Active" : "Inactive";
+    r += 1;
   });
 
-  styleHeaderRow(sheet.getRow(1));
-  styleDataRows(sheet);
-  sheet.getColumn("hourlyRate").numFmt = '"$"#,##0.00';
+  styleDataRows(sheet, 2);
+  sheet.getColumn(3).numFmt = '"$"#,##0.00';
+  sheet.views = [{ state: "frozen", ySplit: 2 }];
 }
 
 // ---- Payroll: hidden Jobs lookup sheet + day-row flattening ----
@@ -379,6 +523,7 @@ type PayrollDayRow = {
   breakHours: number;
   defaultRate: number | null;
   defaultJobName: string | null;
+  subcontractorName: string | null;
 };
 
 function buildDayRows(
@@ -390,6 +535,7 @@ function buildDayRows(
 ): PayrollDayRow[] {
   const nameById = new Map(summaries.map((s) => [s.employeeId, s.employeeName]));
   const rateById = new Map(summaries.map((s) => [s.employeeId, s.hourlyRate]));
+  const companyById = new Map(summaries.map((s) => [s.employeeId, s.subcontractorName ?? null]));
   const jobNameById = new Map(jobs.map((j) => [j.id, j.name]));
 
   const rows: PayrollDayRow[] = [];
@@ -415,6 +561,7 @@ function buildDayRows(
       breakHours: breakHoursByEmployeeDay.get(key) ?? 0,
       defaultRate: rateById.get(employeeId) ?? null,
       defaultJobName,
+      subcontractorName: companyById.get(employeeId) ?? null,
     });
   }
 
@@ -435,7 +582,7 @@ function buildDayRows(
 // E Open Sessions       | E Hours
 // F Hourly Rate         | F Break
 // G Estimated Pay       | G Estimated Pay
-// H (narrow spacer, unused)
+// H Company             | H Company
 // I (hidden) Default Rate - daily block only
 //
 // Total Break Hrs (C) and Estimated Pay (G) in the summary block are both
@@ -443,13 +590,21 @@ function buildDayRows(
 // This is what makes them update live if someone edits Break or the Job
 // dropdown directly in Excel - Total Hours (B) stays a plain number since
 // gross clocked hours aren't meant to be hand-edited the way Break is.
+// Column H was previously an unused narrow spacer; it's now the Company
+// column in both blocks, so none of the existing formulas (which only
+// reference A, C, D, F, G, I) needed renumbering.
 function addPayrollSheet(
   workbook: any,
   summaries: EmployeeSummary[],
   jobs: Job[],
-  dayRows: PayrollDayRow[]
+  dayRows: PayrollDayRow[],
+  companyName: string,
+  startDate: string,
+  endDate: string
 ) {
   const sheet = workbook.addWorksheet("Payroll Hours");
+  const rangeLabel = formatDateRangeLabel(startDate, endDate);
+
   sheet.columns = [
     { width: 24 },
     { width: 16 },
@@ -458,14 +613,24 @@ function addPayrollSheet(
     { width: 14 },
     { width: 14 },
     { width: 16 },
-    { width: 3 },
+    { width: 22 },
     { width: 12 },
   ];
+
+  addTitleRow(sheet, `Payroll Hours: ${rangeLabel}`, 8);
 
   const jobsInfo = addJobsLookupSheet(workbook, jobs);
   const hasJobs = jobsInfo != null;
 
-  const summaryHeader = sheet.getRow(1);
+  const sortedSummaries = sortByCompanyThen(
+    summaries,
+    (s) => companyLabelFor(s.subcontractorName, companyName),
+    companyName,
+    (a, b) => a.employeeName.localeCompare(b.employeeName)
+  );
+
+  const summaryHeaderRowNum = 2;
+  const summaryHeader = sheet.getRow(summaryHeaderRowNum);
   [
     "Employee",
     "Total Hours",
@@ -474,11 +639,14 @@ function addPayrollSheet(
     "Open Sessions",
     "Hourly Rate",
     "Estimated Pay",
+    "Company",
   ].forEach((h, i) => (summaryHeader.getCell(i + 1).value = h));
   styleHeaderRow(summaryHeader);
 
-  summaries.forEach((s, idx) => {
-    const row = sheet.getRow(idx + 2);
+  const summaryFirstDataRow = summaryHeaderRowNum + 1;
+  sortedSummaries.forEach((s, idx) => {
+    const rowNum = summaryFirstDataRow + idx;
+    const row = sheet.getRow(rowNum);
     row.height = 20;
     row.getCell(1).value = s.employeeName;
     row.getCell(2).value = Number(s.totalHours.toFixed(2));
@@ -489,12 +657,13 @@ function addPayrollSheet(
     row.getCell(6).value = s.hourlyRate;
     row.getCell(6).numFmt = '"$"#,##0.00';
     row.getCell(7).numFmt = '"$"#,##0.00';
+    row.getCell(8).value = companyLabelFor(s.subcontractorName, companyName);
   });
 
-  const summaryLastRow = summaries.length + 1;
+  const summaryLastRow = summaryFirstDataRow + sortedSummaries.length - 1;
 
   const dailyTitleRow = summaryLastRow + 3;
-  sheet.mergeCells(dailyTitleRow, 1, dailyTitleRow, 7);
+  sheet.mergeCells(dailyTitleRow, 1, dailyTitleRow, 8);
   const titleCell = sheet.getCell(dailyTitleRow, 1);
   titleCell.value = hasJobs
     ? "Daily Breakdown - pick a Job on any row to update that day's pay and the totals above"
@@ -504,17 +673,29 @@ function addPayrollSheet(
 
   const dailyHeaderRow = dailyTitleRow + 1;
   const dailyHeader = sheet.getRow(dailyHeaderRow);
-  ["Employee", "Date", "Job", "Hourly Rate", "Hours", "Break", "Estimated Pay"].forEach(
+  ["Employee", "Date", "Job", "Hourly Rate", "Hours", "Break", "Estimated Pay", "Company"].forEach(
     (h, i) => (dailyHeader.getCell(i + 1).value = h)
   );
   dailyHeader.getCell(9).value = "Default Rate";
   styleHeaderRow(dailyHeader);
   sheet.getColumn(9).hidden = true;
 
+  const sortedDayRows = sortByCompanyThen(
+    dayRows,
+    (d) => companyLabelFor(d.subcontractorName, companyName),
+    companyName,
+    (a, b) =>
+      a.employeeName === b.employeeName
+        ? a.dateLabel < b.dateLabel
+          ? -1
+          : 1
+        : a.employeeName.localeCompare(b.employeeName)
+  );
+
   let r = dailyHeaderRow + 1;
   let prevEmployee: string | null = null;
 
-  dayRows.forEach((d) => {
+  sortedDayRows.forEach((d) => {
     if (prevEmployee !== null && d.employeeName !== prevEmployee) {
       sheet.getRow(r).height = 10;
       r += 1;
@@ -552,15 +733,17 @@ function addPayrollSheet(
     row.getCell(7).value = { formula: `D${r}*(E${r}-F${r})` };
     row.getCell(7).numFmt = '"$"#,##0.00';
 
+    row.getCell(8).value = companyLabelFor(d.subcontractorName, companyName);
+
     r += 1;
   });
 
   const dailyFirstDataRow = dailyHeaderRow + 1;
   const dailyLastRow = r - 1;
 
-  summaries.forEach((s, idx) => {
-    const row = idx + 2;
-    if (dayRows.length > 0) {
+  sortedSummaries.forEach((s, idx) => {
+    const row = summaryFirstDataRow + idx;
+    if (sortedDayRows.length > 0) {
       sheet.getCell(row, 3).value = {
         formula: `SUMIF(A${dailyFirstDataRow}:A${dailyLastRow},A${row},F${dailyFirstDataRow}:F${dailyLastRow})`,
       };
@@ -573,39 +756,63 @@ function addPayrollSheet(
     }
   });
 
-  styleDataRows(sheet, 1);
-  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  styleDataRows(sheet, 2);
+  sheet.views = [{ state: "frozen", ySplit: 2 }];
 }
 
-function addAttendanceSheet(workbook: any, attendanceRecords: AttendanceRecord[]) {
+function addAttendanceSheet(
+  workbook: any,
+  attendanceRecords: AttendanceRecord[],
+  companyName: string,
+  startDate: string,
+  endDate: string
+) {
   const sheet = workbook.addWorksheet("Attendance");
+  const rangeLabel = formatDateRangeLabel(startDate, endDate);
 
   sheet.columns = [
-    { header: "Employee", key: "employeeName", width: 24 },
-    { header: "Date", key: "date", width: 14 },
-    { header: "Arrival", key: "arrivalTime", width: 14 },
-    { header: "Departure", key: "departureTime", width: 14 },
-    { header: "Break", key: "breakDisplay", width: 12 },
-    { header: "Status", key: "status", width: 12 },
+    { key: "employeeName", width: 24 },
+    { key: "date", width: 14 },
+    { key: "arrivalTime", width: 14 },
+    { key: "departureTime", width: 14 },
+    { key: "breakDisplay", width: 12 },
+    { key: "status", width: 12 },
+    { key: "company", width: 22 },
   ];
 
-  attendanceRecords.forEach((a) => {
-    sheet.addRow({
-      employeeName: a.employeeName,
-      date: a.date,
-      arrivalTime: a.arrivalTime ?? "-",
-      departureTime: a.departureTime ?? "-",
-      breakDisplay: formatHoursMinutes(a.breakHours),
-      status: a.status,
-    });
+  addTitleRow(sheet, `Attendance: ${rangeLabel}`, 7);
+
+  const headerRow = sheet.getRow(2);
+  ["Employee", "Date", "Arrival", "Departure", "Break", "Status", "Company"].forEach(
+    (h, i) => (headerRow.getCell(i + 1).value = h)
+  );
+  styleHeaderRow(headerRow);
+
+  const sorted = sortByCompanyThen(
+    attendanceRecords,
+    (a) => companyLabelFor(a.subcontractorName, companyName),
+    companyName,
+    (a, b) => (a.date < b.date ? -1 : 1)
+  );
+
+  let r = 3;
+  sorted.forEach((a) => {
+    const row = sheet.getRow(r);
+    row.getCell(1).value = a.employeeName;
+    row.getCell(2).value = a.date;
+    row.getCell(3).value = a.arrivalTime ?? "-";
+    row.getCell(4).value = a.departureTime ?? "-";
+    row.getCell(5).value = formatHoursMinutes(a.breakHours);
+    row.getCell(6).value = a.status;
+    row.getCell(7).value = companyLabelFor(a.subcontractorName, companyName);
+    r += 1;
   });
 
-  styleHeaderRow(sheet.getRow(1));
-  styleDataRows(sheet);
-  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  styleDataRows(sheet, 2);
+  sheet.views = [{ state: "frozen", ySplit: 2 }];
 }
 
-// ---- Standalone per-report exports (unchanged behavior, each its own file) ----
+// ---- Standalone per-report exports, each its own file ----
 
 export async function exportTimesheetsExcel(
   sessions: SessionRecord[],
@@ -618,10 +825,10 @@ export async function exportTimesheetsExcel(
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
 
-  addSummarySheet(workbook, summaries, startDate, endDate);
-  addDetailSheet(workbook, sessions);
-  addNotesSheet(workbook, shiftNotes);
-  await addPhotosSheet(workbook, sessions);
+  addSummarySheet(workbook, summaries, companyName, startDate, endDate);
+  addDetailSheet(workbook, sessions, companyName, startDate, endDate);
+  addNotesSheet(workbook, shiftNotes, startDate, endDate);
+  await addPhotosSheet(workbook, sessions, startDate, endDate);
 
   await downloadWorkbook(
     workbook,
@@ -631,16 +838,18 @@ export async function exportTimesheetsExcel(
 
 export async function exportEmployeesExcel(
   employeeRecords: EmployeeExportRecord[],
-  companyName: string
+  companyName: string,
+  startDate: string,
+  endDate: string
 ) {
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
 
-  addEmployeesSheet(workbook, employeeRecords);
+  addEmployeesSheet(workbook, employeeRecords, companyName, startDate, endDate);
 
   await downloadWorkbook(
     workbook,
-    buildExportFilename(companyName, "Employees", "xlsx")
+    buildExportFilename(companyName, "Employees", "xlsx", startDate, endDate)
   );
 }
 
@@ -664,7 +873,7 @@ export async function exportPayrollExcel(
     employeeJobIdById,
     jobs
   );
-  addPayrollSheet(workbook, summaries, jobs, dayRows);
+  addPayrollSheet(workbook, summaries, jobs, dayRows, companyName, startDate, endDate);
 
   await downloadWorkbook(
     workbook,
@@ -681,7 +890,7 @@ export async function exportAttendanceExcel(
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
 
-  addAttendanceSheet(workbook, attendanceRecords);
+  addAttendanceSheet(workbook, attendanceRecords, companyName, startDate, endDate);
 
   await downloadWorkbook(
     workbook,
@@ -708,11 +917,11 @@ export async function exportAllReportsExcel(
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
 
-  addSummarySheet(workbook, summaries, startDate, endDate);
-  addDetailSheet(workbook, sessions);
-  addNotesSheet(workbook, shiftNotes);
-  await addPhotosSheet(workbook, sessions);
-  addEmployeesSheet(workbook, employeeRecords);
+  addSummarySheet(workbook, summaries, companyName, startDate, endDate);
+  addDetailSheet(workbook, sessions, companyName, startDate, endDate);
+  addNotesSheet(workbook, shiftNotes, startDate, endDate);
+  await addPhotosSheet(workbook, sessions, startDate, endDate);
+  addEmployeesSheet(workbook, employeeRecords, companyName, startDate, endDate);
 
   const dayRows = buildDayRows(
     summaries,
@@ -721,9 +930,9 @@ export async function exportAllReportsExcel(
     employeeJobIdById,
     jobs
   );
-  addPayrollSheet(workbook, summaries, jobs, dayRows);
+  addPayrollSheet(workbook, summaries, jobs, dayRows, companyName, startDate, endDate);
 
-  addAttendanceSheet(workbook, attendanceRecords);
+  addAttendanceSheet(workbook, attendanceRecords, companyName, startDate, endDate);
 
   await downloadWorkbook(
     workbook,
