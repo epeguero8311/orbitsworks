@@ -98,6 +98,21 @@ export interface ClockEvent {
   subcontractorName?: string | null;
 }
 
+// ---- Alerts ----
+
+export interface AlertActionRecord {
+  id: string;
+  alertKey: string;
+  alertType: "maxHours" | "missedClockOut" | "overtime" | "breakTooLong";
+  employeeId: string;
+  status: "ignored" | "resolved";
+  actionTaken?: "clockOut" | "editTime" | "endBreak";
+  resolvedByUid: string;
+  resolvedByName: string;
+  resolvedAt: Timestamp;
+  reason?: string;
+}
+
 // ---- Reports ----
 
 export interface EmployeeSummary {

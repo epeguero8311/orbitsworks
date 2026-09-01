@@ -144,6 +144,20 @@ service cloud.firestore {
           request.auth.token.companyId == companyId;
       }
 
+      match /alertActions/{actionId} {
+        allow read: if request.auth != null &&
+          request.auth.token.companyId == companyId;
+        allow create: if request.auth != null &&
+          request.auth.token.companyId == companyId &&
+          (
+            request.auth.token.role == 'admin' ||
+            (request.auth.token.role == 'supervisor' &&
+             isActiveEmployee(companyId, request.auth.uid))
+          ) &&
+          request.resource.data.resolvedByUid == request.auth.uid;
+        allow update, delete: if false;
+      }
+
       match /shiftNotes/{noteId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId;

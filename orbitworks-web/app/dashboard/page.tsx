@@ -36,6 +36,7 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
+import { useAlertActions } from "@/lib/hooks/useAlertActions";
 import { ClockEvent } from "@/lib/types";
 import { deriveStatus } from "@/lib/clockStatus";
 
@@ -59,6 +60,27 @@ function timeAgo(date: Date) {
 
 function isSameDay(a: Date, b: Date) {
   return a.toDateString() === b.toDateString();
+}
+
+function dateKey(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function getWeekStart(date: Date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diffToMonday = day === 0 ? 6 : day - 1;
+  d.setDate(d.getDate() - diffToMonday);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function toDatetimeLocalValue(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function StatCard({
@@ -97,20 +119,29 @@ function StatCard({
 
 type AlertItem = {
   key: string;
+  alertType: "maxHours" | "missedClockOut" | "overtime";
   label: string;
   detail: string;
+  employeeId: string;
+  event?: ClockEvent;
 };
 
 export default function DashboardOverviewPage() {
   const { userData, currentUser } = useAuth();
   const { employees, loading: loadingEmployees } = useEmployees();
   const { settings } = useCompanySettings();
+  const { resolvedKeys } = useAlertActions();
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [events, setEvents] = useState<ClockEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [weeklyAttendance, setWeeklyAttendance] = useState<DayAttendance[]>([]);
   const [loadingChart, setLoadingChart] = useState(true);
   const [weeklyHoursByEmployee, setWeeklyHoursByEmployee] = useState<Map<string, number>>(new Map());
+
+  const [editingAlertKey, setEditingAlertKey] = useState<string | null>(null);
+  const [editTimeValue, setEditTimeValue] = useState("");
+  const [alertActionSubmitting, setAlertActionSubmitting] = useState<string | null>(null);
+  const [alertActionError, setAlertActionError] = useState<string | null>(null);
 
   const autoClosedRef = useRef<Set<string>>(new Set());
 
@@ -220,11 +251,7 @@ export default function DashboardOverviewPage() {
 
     async function loadWeeklyHours() {
       try {
-        const startOfWeek = new Date();
-        const day = startOfWeek.getDay();
-        const diffToMonday = day === 0 ? 6 : day - 1;
-        startOfWeek.setDate(startOfWeek.getDate() - diffToMonday);
-        startOfWeek.setHours(0, 0, 0, 0);
+        const startOfWeek = getWeekStart(new Date());
 
         const eventsRef = collection(
           db,
@@ -406,9 +433,12 @@ export default function DashboardOverviewPage() {
           (Date.now() - event.timestamp!.toDate().getTime()) / (1000 * 60 * 60);
         if (elapsedHours >= MAX_SHIFT_HOURS) {
           alertItems.push({
-            key: `max-${event.employeeId}`,
+            key: `max-${event.employeeId}-${dateKey(event.timestamp!.toDate())}`,
+            alertType: "maxHours",
             label: event.employeeName,
             detail: `Clocked in for ${elapsedHours.toFixed(1)}h - check in?`,
+            employeeId: event.employeeId,
+            event,
           });
         }
       });
@@ -419,23 +449,157 @@ export default function DashboardOverviewPage() {
       .filter((event) => event.timestamp && !isSameDay(event.timestamp.toDate(), now))
       .forEach((event) => {
         alertItems.push({
-          key: `missed-${event.employeeId}`,
+          key: `missed-${event.employeeId}-${dateKey(event.timestamp!.toDate())}`,
+          alertType: "missedClockOut",
           label: event.employeeName,
           detail: `Still clocked in from ${event.timestamp!.toDate().toLocaleDateString()} - missed clock-out.`,
+          employeeId: event.employeeId,
+          event,
         });
       });
   }
 
   if (settings.alerts.overtimeWarning) {
+    const weekStartStr = dateKey(getWeekStart(now));
     for (const [employeeId, hours] of weeklyHoursByEmployee) {
       if (hours > settings.weeklyOvertimeThreshold) {
         const employee = employees.find((e) => e.id === employeeId);
         alertItems.push({
-          key: `ot-${employeeId}`,
+          key: `ot-${employeeId}-${weekStartStr}`,
+          alertType: "overtime",
           label: employee?.name ?? "Unknown employee",
           detail: `${hours.toFixed(1)}h this week - over the ${settings.weeklyOvertimeThreshold}h threshold.`,
+          employeeId,
         });
       }
+    }
+  }
+
+  const visibleAlertItems = alertItems.filter((a) => !resolvedKeys.has(a.key));
+
+  async function recordAlertAction(
+    alert: AlertItem,
+    status: "ignored" | "resolved",
+    actionTaken?: "clockOut" | "editTime"
+  ) {
+    if (!userData?.companyId || !currentUser) return;
+    const actionsRef = collection(
+      db,
+      "companies",
+      userData.companyId,
+      "alertActions"
+    );
+    await addDoc(actionsRef, {
+      alertKey: alert.key,
+      alertType: alert.alertType,
+      employeeId: alert.employeeId,
+      status,
+      ...(actionTaken ? { actionTaken } : {}),
+      resolvedByUid: currentUser.uid,
+      resolvedByName: currentUser.displayName || currentUser.email || "Admin",
+      resolvedAt: serverTimestamp(),
+    });
+  }
+
+  async function handleIgnoreAlert(alert: AlertItem) {
+    setAlertActionSubmitting(alert.key);
+    setAlertActionError(null);
+    try {
+      await recordAlertAction(alert, "ignored");
+    } catch (err) {
+      console.error("Ignore alert error:", err);
+      setAlertActionError("Couldn't ignore this alert. Try again.");
+    } finally {
+      setAlertActionSubmitting(null);
+    }
+  }
+
+  async function handleClockOutFromAlert(alert: AlertItem) {
+    if (!alert.event || !userData?.companyId) return;
+    setAlertActionSubmitting(alert.key);
+    setAlertActionError(null);
+    try {
+      const eventsRef = collection(
+        db,
+        "companies",
+        userData.companyId,
+        "clockEvents"
+      );
+      await addDoc(eventsRef, {
+        employeeId: alert.event.employeeId,
+        employeeName: alert.event.employeeName,
+        siteId: alert.event.siteId,
+        siteName: alert.event.siteName,
+        subcontractorId: alert.event.subcontractorId ?? null,
+        subcontractorName: alert.event.subcontractorName ?? null,
+        type: "out",
+        source: "adminManual",
+        note: "Clocked out from alert",
+        createdByUid: currentUser?.uid,
+        timestamp: Timestamp.fromDate(new Date()),
+        createdAt: serverTimestamp(),
+      });
+      await recordAlertAction(alert, "resolved", "clockOut");
+    } catch (err) {
+      console.error("Clock out from alert error:", err);
+      setAlertActionError("Couldn't clock out. Try again.");
+    } finally {
+      setAlertActionSubmitting(null);
+    }
+  }
+
+  function handleStartEditTime(alert: AlertItem) {
+    const base = alert.event?.timestamp ? alert.event.timestamp.toDate() : new Date();
+    setEditingAlertKey(alert.key);
+    setEditTimeValue(toDatetimeLocalValue(base));
+    setAlertActionError(null);
+  }
+
+  function handleCancelEditTime() {
+    setEditingAlertKey(null);
+    setEditTimeValue("");
+    setAlertActionError(null);
+  }
+
+  async function handleSubmitEditTime(alert: AlertItem) {
+    if (!alert.event || !userData?.companyId || !editTimeValue) return;
+    setAlertActionSubmitting(alert.key);
+    setAlertActionError(null);
+    try {
+      const chosenMs = new Date(editTimeValue).getTime();
+      if (!Number.isFinite(chosenMs)) {
+        throw new Error("Invalid date/time.");
+      }
+      const eventsRef = collection(
+        db,
+        "companies",
+        userData.companyId,
+        "clockEvents"
+      );
+      await addDoc(eventsRef, {
+        employeeId: alert.event.employeeId,
+        employeeName: alert.event.employeeName,
+        siteId: alert.event.siteId,
+        siteName: alert.event.siteName,
+        subcontractorId: alert.event.subcontractorId ?? null,
+        subcontractorName: alert.event.subcontractorName ?? null,
+        type: "out",
+        source: "adminManual",
+        note: "Clock-out time set from alert",
+        createdByUid: currentUser?.uid,
+        timestamp: Timestamp.fromDate(new Date(chosenMs)),
+        createdAt: serverTimestamp(),
+      });
+      await recordAlertAction(alert, "resolved", "editTime");
+      setEditingAlertKey(null);
+      setEditTimeValue("");
+    } catch (err) {
+      console.error("Edit time from alert error:", err);
+      setAlertActionError(
+        err instanceof Error ? err.message : "Couldn't save this time."
+      );
+    } finally {
+      setAlertActionSubmitting(null);
     }
   }
 
@@ -601,26 +765,97 @@ export default function DashboardOverviewPage() {
         <p className="mt-1 text-sm text-gray-600">
           Driven by your alert settings - turn these on or off in Settings.
         </p>
+        {alertActionError && (
+          <p className="mt-3 text-xs text-red-600">{alertActionError}</p>
+        )}
         <div className="mt-5 space-y-3">
           {loading ? (
             <p className="text-sm text-gray-600">Loading...</p>
-          ) : alertItems.length === 0 ? (
+          ) : visibleAlertItems.length === 0 ? (
             <p className="text-sm text-gray-600">No alerts right now.</p>
           ) : (
-            alertItems.map((alert) => (
-              <div
-                key={alert.key}
-                className="flex items-start gap-3 rounded-lg bg-amber-50 p-3.5"
-              >
-                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
-                <div>
-                  <p className="text-sm font-medium text-gray-950">
-                    {alert.label}
-                  </p>
-                  <p className="text-xs text-gray-600">{alert.detail}</p>
+            visibleAlertItems.map((alert) => {
+              const isEditing = editingAlertKey === alert.key;
+              const isSubmitting = alertActionSubmitting === alert.key;
+              return (
+                <div
+                  key={alert.key}
+                  className="rounded-lg bg-amber-50 p-3.5"
+                >
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-950">
+                        {alert.label}
+                      </p>
+                      <p className="text-xs text-gray-600">{alert.detail}</p>
+
+                      {isEditing ? (
+                        <div className="mt-3 space-y-2 rounded-md border border-amber-200 bg-white p-3">
+                          <label className="block text-xs font-medium text-gray-600">
+                            Clock-out time
+                          </label>
+                          <input
+                            type="datetime-local"
+                            value={editTimeValue}
+                            onChange={(e) => setEditTimeValue(e.target.value)}
+                            className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                          />
+                          <div className="flex gap-2 pt-1">
+                            <button
+                              type="button"
+                              disabled={isSubmitting || !editTimeValue}
+                              onClick={() => handleSubmitEditTime(alert)}
+                              className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {isSubmitting ? "Saving..." : "Save"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCancelEditTime}
+                              className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-2 flex flex-wrap gap-3">
+                          {alert.alertType !== "overtime" && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={isSubmitting}
+                                onClick={() => handleClockOutFromAlert(alert)}
+                                className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Clock Out
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSubmitting}
+                                onClick={() => handleStartEditTime(alert)}
+                                className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Edit Time
+                              </button>
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            disabled={isSubmitting}
+                            onClick={() => handleIgnoreAlert(alert)}
+                            className="text-xs font-medium text-gray-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isSubmitting ? "Working..." : "Ignore"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
