@@ -45,7 +45,21 @@ type DayAttendance = {
   count: number;
 };
 
-const MAX_SHIFT_HOURS = 8;
+// A correction (correctClockEvent) intentionally never touches the raw
+// `timestamp` field - only `adjustedTimestamp`. Anything on this page that
+// judges an employee's CURRENT status (who's active, who's on break, elapsed
+// hours, alert day-checks) must use the effective time below, or a back-dated
+// correction can silently desync the live view from reality. Raw `timestamp`
+// stays reserved for Firestore query bounds only (see loadWeeklyAttendance /
+// loadWeeklyHours), matching the same intentional split used in useReports.ts.
+function effectiveTimestamp(event: ClockEvent) {
+  return event.adjustedTimestamp ?? event.timestamp;
+}
+
+function effectiveDate(event: ClockEvent): Date | null {
+  const ts = effectiveTimestamp(event);
+  return ts ? ts.toDate() : null;
+}
 
 function timeAgo(date: Date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -259,6 +273,9 @@ export default function DashboardOverviewPage() {
           userData!.companyId,
           "clockEvents"
         );
+        // Query bound stays on raw timestamp intentionally (same reasoning
+        // as useReports.ts - a correction shouldn't move an event in/out of
+        // the week window). Pairing/duration math below uses effective time.
         const q = query(
           eventsRef,
           where("timestamp", ">=", Timestamp.fromDate(startOfWeek)),
@@ -266,8 +283,16 @@ export default function DashboardOverviewPage() {
         );
         const snapshot = await getDocs(q);
         const weekEvents = snapshot.docs.map(
-          (d) => d.data() as ClockEvent
+          (d) => ({ id: d.id, ...(d.data() as Omit<ClockEvent, "id">) }) as ClockEvent
         );
+
+        // Re-sort by effective time so a corrected event pairs up in the
+        // right chronological order even if its raw timestamp is out of line.
+        weekEvents.sort((a, b) => {
+          const aMs = effectiveDate(a)?.getTime() ?? 0;
+          const bMs = effectiveDate(b)?.getTime() ?? 0;
+          return aMs - bMs;
+        });
 
         const byEmployee = new Map<string, ClockEvent[]>();
         for (const event of weekEvents) {
@@ -284,15 +309,19 @@ export default function DashboardOverviewPage() {
             if (event.type === "in") {
               pendingIn = event;
             } else if (event.type === "out" && pendingIn) {
-              if (pendingIn.timestamp && event.timestamp) {
-                totalMs +=
-                  event.timestamp.toMillis() - pendingIn.timestamp.toMillis();
+              const pendingMs = effectiveDate(pendingIn)?.getTime();
+              const eventMs = effectiveDate(event)?.getTime();
+              if (pendingMs != null && eventMs != null) {
+                totalMs += eventMs - pendingMs;
               }
               pendingIn = null;
             }
           }
-          if (pendingIn?.timestamp) {
-            totalMs += Date.now() - pendingIn.timestamp.toDate().getTime();
+          if (pendingIn) {
+            const pendingMs = effectiveDate(pendingIn)?.getTime();
+            if (pendingMs != null) {
+              totalMs += Date.now() - pendingMs;
+            }
           }
           hoursMap.set(employeeId, totalMs / (1000 * 60 * 60));
         }
@@ -306,9 +335,16 @@ export default function DashboardOverviewPage() {
     loadWeeklyHours();
   }, [userData?.companyId, events]);
 
+  // Determine each employee's latest event by EFFECTIVE time, not by the
+  // order Firestore returned (which is raw-timestamp order). A back-dated
+  // correction on an old event must not make it outrank a genuinely newer
+  // event just because its raw timestamp field never moved.
   const latestByEmployee = new Map<string, ClockEvent>();
   for (const event of events) {
-    if (!latestByEmployee.has(event.employeeId)) {
+    const eventMs = effectiveDate(event)?.getTime() ?? 0;
+    const existing = latestByEmployee.get(event.employeeId);
+    const existingMs = existing ? effectiveDate(existing)?.getTime() ?? 0 : -1;
+    if (!existing || eventMs > existingMs) {
       latestByEmployee.set(event.employeeId, event);
     }
   }
@@ -336,8 +372,9 @@ export default function DashboardOverviewPage() {
   const avgHoursWorked = (() => {
     if (currentlyActive.length === 0) return "0h";
     const totalHours = currentlyActive.reduce((sum, event) => {
-      if (!event.timestamp) return sum;
-      const elapsedMs = Date.now() - event.timestamp.toDate().getTime();
+      const d = effectiveDate(event);
+      if (!d) return sum;
+      const elapsedMs = Date.now() - d.getTime();
       return sum + elapsedMs / (1000 * 60 * 60);
     }, 0);
     return `${(totalHours / currentlyActive.length).toFixed(1)}h`;
@@ -356,16 +393,17 @@ export default function DashboardOverviewPage() {
     if (!userData?.companyId || !settings.attendanceRules.autoClockOut) return;
 
     const now = new Date();
-    const stale = currentlyActive.filter(
-      (event) => event.timestamp && !isSameDay(event.timestamp.toDate(), now)
-    );
+    const stale = currentlyActive.filter((event) => {
+      const d = effectiveDate(event);
+      return d && !isSameDay(d, now);
+    });
 
     stale.forEach(async (event) => {
       if (autoClosedRef.current.has(event.id)) return;
       autoClosedRef.current.add(event.id);
 
       try {
-        const clockInDate = event.timestamp!.toDate();
+        const clockInDate = effectiveDate(event)!;
         const [closeH, closeM] = settings.businessHours.close
           .split(":")
           .map(Number);
@@ -427,13 +465,16 @@ export default function DashboardOverviewPage() {
 
   if (settings.alerts.maxHoursWarning) {
     currentlyActive
-      .filter((event) => event.timestamp && isSameDay(event.timestamp.toDate(), now))
+      .filter((event) => {
+        const d = effectiveDate(event);
+        return d && isSameDay(d, now);
+      })
       .forEach((event) => {
-        const elapsedHours =
-          (Date.now() - event.timestamp!.toDate().getTime()) / (1000 * 60 * 60);
-        if (elapsedHours >= MAX_SHIFT_HOURS) {
+        const d = effectiveDate(event)!;
+        const elapsedHours = (Date.now() - d.getTime()) / (1000 * 60 * 60);
+        if (elapsedHours >= settings.alerts.maxHoursThreshold) {
           alertItems.push({
-            key: `max-${event.employeeId}-${dateKey(event.timestamp!.toDate())}`,
+            key: `max-${event.employeeId}-${dateKey(d)}`,
             alertType: "maxHours",
             label: event.employeeName,
             detail: `Clocked in for ${elapsedHours.toFixed(1)}h - check in?`,
@@ -446,13 +487,17 @@ export default function DashboardOverviewPage() {
 
   if (settings.alerts.missedClockOutAlert && !settings.attendanceRules.autoClockOut) {
     currentlyActive
-      .filter((event) => event.timestamp && !isSameDay(event.timestamp.toDate(), now))
+      .filter((event) => {
+        const d = effectiveDate(event);
+        return d && !isSameDay(d, now);
+      })
       .forEach((event) => {
+        const d = effectiveDate(event)!;
         alertItems.push({
-          key: `missed-${event.employeeId}-${dateKey(event.timestamp!.toDate())}`,
+          key: `missed-${event.employeeId}-${dateKey(d)}`,
           alertType: "missedClockOut",
           label: event.employeeName,
-          detail: `Still clocked in from ${event.timestamp!.toDate().toLocaleDateString()} - missed clock-out.`,
+          detail: `Still clocked in from ${d.toLocaleDateString()} - missed clock-out.`,
           employeeId: event.employeeId,
           event,
         });
@@ -549,7 +594,7 @@ export default function DashboardOverviewPage() {
   }
 
   function handleStartEditTime(alert: AlertItem) {
-    const base = alert.event?.timestamp ? alert.event.timestamp.toDate() : new Date();
+    const base = alert.event ? effectiveDate(alert.event) ?? new Date() : new Date();
     setEditingAlertKey(alert.key);
     setEditTimeValue(toDatetimeLocalValue(base));
     setAlertActionError(null);
@@ -892,6 +937,7 @@ export default function DashboardOverviewPage() {
             <tbody>
               {activeDisplay.map((event) => {
                 const isOnBreak = deriveStatus(event.type) === "break";
+                const d = effectiveDate(event);
                 return (
                   <tr
                     key={event.employeeId}
@@ -904,7 +950,7 @@ export default function DashboardOverviewPage() {
                       {event.siteName}
                     </td>
                     <td className="px-6 py-4 text-gray-600">
-                      {event.timestamp ? timeAgo(event.timestamp.toDate()) : "-"}
+                      {d ? timeAgo(d) : "-"}
                     </td>
                     <td className="px-6 py-4">
                       <span
@@ -964,25 +1010,28 @@ export default function DashboardOverviewPage() {
               </tr>
             </thead>
             <tbody>
-              {onBreakDisplay.map((event) => (
-                <tr
-                  key={event.employeeId}
-                  className="border-b border-gray-200 last:border-0"
-                >
-                  <td className="px-6 py-4 font-medium text-gray-950">
-                    {event.employeeName}
-                  </td>
-                  <td className="px-6 py-4 text-gray-600">
-                    {event.siteName}
-                  </td>
-                  <td className="px-6 py-4 text-gray-600">
-                    {event.timestamp ? timeAgo(event.timestamp.toDate()) : "-"}
-                  </td>
-                  <td className="px-6 py-4 text-gray-600">
-                    {event.authorizedByName || "-"}
-                  </td>
-                </tr>
-              ))}
+              {onBreakDisplay.map((event) => {
+                const d = effectiveDate(event);
+                return (
+                  <tr
+                    key={event.employeeId}
+                    className="border-b border-gray-200 last:border-0"
+                  >
+                    <td className="px-6 py-4 font-medium text-gray-950">
+                      {event.employeeName}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">
+                      {event.siteName}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">
+                      {d ? timeAgo(d) : "-"}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">
+                      {event.authorizedByName || "-"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

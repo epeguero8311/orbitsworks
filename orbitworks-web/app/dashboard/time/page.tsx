@@ -117,12 +117,28 @@ export default function TimeTrackingPage() {
     return unsubscribe;
   }, [userData?.companyId]);
 
+  // Same fix as the Overview dashboard: determine each employee's LATEST
+  // event by effective time (adjustedTimestamp ?? timestamp), not by the
+  // order Firestore returned the docs in (raw timestamp order). A
+  // back-dated correction on an old event must not keep outranking a
+  // genuinely newer event just because its raw timestamp field never moved.
   const employeeStatusMap = useMemo(() => {
-    const map: Record<string, ClockStatus> = {};
+    const latestByEmployee = new Map<string, ClockEvent>();
     for (const ev of recentEventsForStatus) {
-      if (!(ev.employeeId in map)) {
-        map[ev.employeeId] = deriveStatus(ev.type);
+      const ts = ev.adjustedTimestamp ?? ev.timestamp;
+      const evMs = ts ? ts.toMillis() : 0;
+      const existing = latestByEmployee.get(ev.employeeId);
+      const existingTs = existing
+        ? existing.adjustedTimestamp ?? existing.timestamp
+        : undefined;
+      const existingMs = existingTs ? existingTs.toMillis() : -1;
+      if (!existing || evMs > existingMs) {
+        latestByEmployee.set(ev.employeeId, ev);
       }
+    }
+    const map: Record<string, ClockStatus> = {};
+    for (const [employeeId, ev] of latestByEmployee) {
+      map[employeeId] = deriveStatus(ev.type);
     }
     return map;
   }, [recentEventsForStatus]);
