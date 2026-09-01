@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -18,6 +18,8 @@ export type Alerts = {
   overtimeWarning: boolean;
   missedClockOutAlert: boolean;
   missedClockOutMinutes: number;
+  maxBreakWarning: boolean;
+  maxBreakMinutes: number;
 };
 
 export type CompanySettings = {
@@ -42,6 +44,8 @@ export const DEFAULT_ALERTS: Alerts = {
   overtimeWarning: true,
   missedClockOutAlert: true,
   missedClockOutMinutes: 30,
+  maxBreakWarning: true,
+  maxBreakMinutes: 15,
 };
 
 const DEFAULT_SETTINGS: CompanySettings = {

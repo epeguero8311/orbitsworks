@@ -394,6 +394,20 @@ export default function SettingsPage() {
                   onChange={(v) => setAlerts((prev) => ({ ...prev, missedClockOutMinutes: v }))}
                 />
               </div>
+
+              <div className="py-1">
+                <Toggle
+                  label="Max break time warning"
+                  checked={alerts.maxBreakWarning}
+                  onChange={(v) => setAlerts((prev) => ({ ...prev, maxBreakWarning: v }))}
+                />
+                <ThresholdField
+                  label="Warning after:"
+                  suffix="minutes"
+                  value={alerts.maxBreakMinutes}
+                  onChange={(v) => setAlerts((prev) => ({ ...prev, maxBreakMinutes: v }))}
+                />
+              </div>
             </div>
           </div>
 

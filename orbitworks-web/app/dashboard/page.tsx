@@ -133,7 +133,7 @@ function StatCard({
 
 type AlertItem = {
   key: string;
-  alertType: "maxHours" | "missedClockOut" | "overtime";
+  alertType: "maxHours" | "missedClockOut" | "overtime" | "breakTooLong";
   label: string;
   detail: string;
   employeeId: string;
@@ -520,12 +520,30 @@ export default function DashboardOverviewPage() {
     }
   }
 
+  if (settings.alerts.maxBreakWarning) {
+    currentlyOnBreak.forEach((event) => {
+      const d = effectiveDate(event);
+      if (!d) return;
+      const elapsedMinutes = (Date.now() - d.getTime()) / (1000 * 60);
+      if (elapsedMinutes >= settings.alerts.maxBreakMinutes) {
+        alertItems.push({
+          key: `break-${event.employeeId}-${dateKey(d)}`,
+          alertType: "breakTooLong",
+          label: event.employeeName,
+          detail: `On break for ${elapsedMinutes.toFixed(0)}m - over the ${settings.alerts.maxBreakMinutes}m limit.`,
+          employeeId: event.employeeId,
+          event,
+        });
+      }
+    });
+  }
+
   const visibleAlertItems = alertItems.filter((a) => !resolvedKeys.has(a.key));
 
   async function recordAlertAction(
     alert: AlertItem,
     status: "ignored" | "resolved",
-    actionTaken?: "clockOut" | "editTime"
+    actionTaken?: "clockOut" | "editTime" | "endBreak"
   ) {
     if (!userData?.companyId || !currentUser) return;
     const actionsRef = collection(
@@ -588,6 +606,40 @@ export default function DashboardOverviewPage() {
     } catch (err) {
       console.error("Clock out from alert error:", err);
       setAlertActionError("Couldn't clock out. Try again.");
+    } finally {
+      setAlertActionSubmitting(null);
+    }
+  }
+
+  async function handleEndBreakFromAlert(alert: AlertItem) {
+    if (!alert.event || !userData?.companyId) return;
+    setAlertActionSubmitting(alert.key);
+    setAlertActionError(null);
+    try {
+      const eventsRef = collection(
+        db,
+        "companies",
+        userData.companyId,
+        "clockEvents"
+      );
+      await addDoc(eventsRef, {
+        employeeId: alert.event.employeeId,
+        employeeName: alert.event.employeeName,
+        siteId: alert.event.siteId,
+        siteName: alert.event.siteName,
+        subcontractorId: alert.event.subcontractorId ?? null,
+        subcontractorName: alert.event.subcontractorName ?? null,
+        type: "breakEnd",
+        source: "adminManual",
+        note: "Break ended from alert",
+        createdByUid: currentUser?.uid,
+        timestamp: Timestamp.fromDate(new Date()),
+        createdAt: serverTimestamp(),
+      });
+      await recordAlertAction(alert, "resolved", "endBreak");
+    } catch (err) {
+      console.error("End break from alert error:", err);
+      setAlertActionError("Couldn't end break. Try again.");
     } finally {
       setAlertActionSubmitting(null);
     }
@@ -866,7 +918,27 @@ export default function DashboardOverviewPage() {
                         </div>
                       ) : (
                         <div className="mt-2 flex flex-wrap gap-3">
-                          {alert.alertType !== "overtime" && (
+                          {alert.alertType === "breakTooLong" && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={isSubmitting}
+                                onClick={() => handleEndBreakFromAlert(alert)}
+                                className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                End Break
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSubmitting}
+                                onClick={() => handleStartEditTime(alert)}
+                                className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Edit Time
+                              </button>
+                            </>
+                          )}
+                          {alert.alertType !== "overtime" && alert.alertType !== "breakTooLong" && (
                             <>
                               <button
                                 type="button"
