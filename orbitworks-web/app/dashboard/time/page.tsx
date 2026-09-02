@@ -390,15 +390,21 @@ export default function TimeTrackingPage() {
         }))
       );
     } catch (err) {
-      console.error("Clock event lookup error:", err);
+      const isIndexError =
+        err instanceof Error && (err as { code?: string }).code === "failed-precondition";
+      console.error(
+        isIndexError
+          ? "Clock event lookup error: missing Firestore composite index. Check firestore.indexes.json and run `firebase deploy --only firestore:indexes`."
+          : "Clock event lookup error:",
+        err
+      );
       setLookupError(
-        "Search failed. If this keeps happening, check the browser console - Firestore may need a composite index (it will log a link to create one)."
+        "We couldn't complete that search. Try narrowing your filters, or contact support if this keeps happening."
       );
     } finally {
       setLookupLoading(false);
     }
   }
-
   function clearLookup() {
     setLookupEmployeeId("");
     setLookupSiteId("");
