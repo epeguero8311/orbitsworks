@@ -18,6 +18,9 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { ClockEvent, Employee, JobSite } from "@/lib/types";
+import { useEmployeeTimesheet } from "@/lib/hooks/useEmployeeTimesheet";
+import { exportEmployeeHistoryExcel } from "@/lib/reportExcelUtils";
+import { doc, getDoc } from "firebase/firestore";
 import { deriveStatus, ClockStatus, typeLabel, sourceLabel } from "@/lib/clockStatus";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import ClockEventsDayView from "@/components/dashboard/ClockEventsDayView";
@@ -48,6 +51,10 @@ export default function TimeTrackingPage() {
   const [lookupResults, setLookupResults] = useState<ClockEvent[] | null>(
     null
   );
+  const { runTimesheet } = useEmployeeTimesheet();
+  const { settings: timesheetSettings } = useCompanySettings();
+  const [exportingTimesheet, setExportingTimesheet] = useState(false);
+  const [exportError, setExportError] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState("");
 
@@ -415,6 +422,44 @@ export default function TimeTrackingPage() {
   }
 
   const isPairable = (t: ClockEvent["type"]) => t === "in" || t === "out";
+  async function handleExportEmployeeExcel() {
+    if (!lookupEmployeeId || !userData?.companyId) return;
+    setExportingTimesheet(true);
+    setExportError("");
+    const todayLocal = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+    try {
+      const result = await runTimesheet(
+        lookupEmployeeId,
+        lookupFromDate || "2000-01-01",
+        lookupToDate || todayLocal
+      );
+      if (!result) {
+        setExportError("Couldn't build this employee's timesheet. Try again.");
+        return;
+      }
+      const companySnap = await getDoc(doc(db, "companies", userData.companyId));
+      const companyName = companySnap.exists()
+        ? (companySnap.data() as { name?: string }).name ?? "Company"
+        : "Company";
+      await exportEmployeeHistoryExcel(
+        result.employeeName,
+        result.hourlyRate,
+        result.defaultJobId,
+        result.jobs,
+        result.dayRows,
+        result.weeklyTotals,
+        timesheetSettings.weeklyOvertimeThreshold,
+        companyName,
+        lookupFromDate || "2000-01-01",
+        lookupToDate || todayLocal
+      );
+    } catch (err) {
+      console.error("Employee Excel export error:", err);
+      setExportError("Couldn't export this employee's timesheet. Try again.");
+    } finally {
+      setExportingTimesheet(false);
+    }
+  }
 
   const inDisabled = !!employeeId && !isEligibleFor(employeeId, "in");
   const outDisabled = !!employeeId && !isEligibleFor(employeeId, "out");
@@ -711,11 +756,26 @@ export default function TimeTrackingPage() {
 
       {lookupResults !== null ? (
         <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
-          <div className="border-b border-gray-200 px-4 py-3">
+            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
             <h2 className="text-sm font-semibold text-gray-950">
               Search results
             </h2>
+            {lookupEmployeeId && (
+              <button
+                type="button"
+                onClick={handleExportEmployeeExcel}
+                disabled={exportingTimesheet}
+                className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-gray-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {exportingTimesheet ? "Exporting..." : "Export to Excel"}
+              </button>
+            )}
           </div>
+          {exportError && (
+            <p className="border-b border-gray-200 bg-red-50 px-4 py-2 text-xs text-red-600">
+              {exportError}
+            </p>
+          )}
           {lookupResults.length === 0 ? (
             <p className="p-4 text-sm text-gray-600">
               No clock events match that search.

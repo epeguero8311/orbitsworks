@@ -812,6 +812,243 @@ function addAttendanceSheet(
   sheet.views = [{ state: "frozen", ySplit: 2 }];
 }
 
+// ---- Employee history: single-employee daily breakdown + weekly OT summary ----
+//
+// Same live-formula pattern as Payroll Hours (Job dropdown -> VLOOKUP rate ->
+// Estimated Pay), but scoped to one employee, plus Job Site/Notes/Adjusted
+// columns and a weekly Regular/Overtime split. Overtime pay assumes a
+// standard 1.5x multiplier - there's no OT-rate setting elsewhere in the
+// app yet, so this is a starting assumption to confirm, not a stored rule.
+const OVERTIME_MULTIPLIER = 1.5;
+
+type EmployeeHistoryDayRow = {
+  dateLabel: string;
+  weekLabel: string;
+  siteName: string;
+  clockInLabel: string;
+  clockOutLabel: string;
+  hours: number;
+  breakHours: number;
+  note: string;
+  adjusted: boolean;
+};
+
+type EmployeeHistoryWeek = {
+  weekLabel: string;
+  hours: number;
+};
+
+function addEmployeeHistorySheet(
+  workbook: any,
+  employeeName: string,
+  hourlyRate: number | null,
+  defaultJobId: string | null,
+  jobs: Job[],
+  dayRows: EmployeeHistoryDayRow[],
+  weeklyTotals: EmployeeHistoryWeek[],
+  overtimeThreshold: number,
+  startDate: string,
+  endDate: string
+) {
+  const sheet = workbook.addWorksheet("Time History");
+  const rangeLabel = formatDateRangeLabel(startDate, endDate);
+
+  sheet.columns = [
+    { width: 14 }, // A Date
+    { width: 20 }, // B Job Site
+    { width: 16 }, // C Job
+    { width: 13 }, // D Hourly Rate
+    { width: 11 }, // E Clock In
+    { width: 11 }, // F Clock Out
+    { width: 9 },  // G Hours
+    { width: 9 },  // H Break
+    { width: 12 }, // I Net Hours (hidden)
+    { width: 13 }, // J Estimated Pay
+    { width: 30 }, // K Notes
+    { width: 10 }, // L Adjusted
+    { width: 12 }, // M Default Rate (hidden)
+    { width: 14 }, // N Week Of (hidden)
+  ];
+
+  addTitleRow(sheet, `${employeeName} - Time History: ${rangeLabel}`, 12);
+
+  const jobsInfo = addJobsLookupSheet(workbook, jobs);
+  const hasJobs = jobsInfo != null;
+
+  // ---- Weekly summary block ----
+  const summaryHeaderRowNum = 2;
+  const summaryHeader = sheet.getRow(summaryHeaderRowNum);
+  ["Week Of", "Total Hours", "Regular Hours", "Overtime Hours", "Estimated Pay"].forEach(
+    (h, i) => (summaryHeader.getCell(i + 1).value = h)
+  );
+  styleHeaderRow(summaryHeader);
+
+  const summaryFirstRow = summaryHeaderRowNum + 1;
+  const dailyHeaderRowNum = summaryFirstRow + weeklyTotals.length + 2;
+  const dailyFirstDataRow = dailyHeaderRowNum + 1;
+  const dailyLastRow = dailyFirstDataRow + dayRows.length - 1;
+
+  weeklyTotals.forEach((w, idx) => {
+    const rowNum = summaryFirstRow + idx;
+    const row = sheet.getRow(rowNum);
+    row.height = 20;
+    row.getCell(1).value = w.weekLabel;
+    if (dayRows.length > 0) {
+      row.getCell(2).value = {
+        formula: `SUMIF(N${dailyFirstDataRow}:N${dailyLastRow},A${rowNum},I${dailyFirstDataRow}:I${dailyLastRow})`,
+      };
+      row.getCell(9).value = {
+        formula: `SUMIF(N${dailyFirstDataRow}:N${dailyLastRow},A${rowNum},J${dailyFirstDataRow}:J${dailyLastRow})`,
+      };
+    } else {
+      row.getCell(2).value = w.hours;
+      row.getCell(9).value = 0;
+    }
+    row.getCell(2).numFmt = "0.00";
+    row.getCell(3).value = { formula: `MIN(${overtimeThreshold},B${rowNum})` };
+    row.getCell(3).numFmt = "0.00";
+    row.getCell(4).value = { formula: `MAX(0,B${rowNum}-${overtimeThreshold})` };
+    row.getCell(4).numFmt = "0.00";
+    row.getCell(5).value = {
+      formula: `I${rowNum}+IF(B${rowNum}=0,0,(I${rowNum}/B${rowNum})*D${rowNum}*0.5)`,
+    };
+    row.getCell(5).numFmt = '"$"#,##0.00';
+  });
+
+  const summaryLastRow = summaryFirstRow + weeklyTotals.length - 1;
+  if (weeklyTotals.length > 0) {
+    const totalRow = summaryLastRow + 1;
+    const row = sheet.getRow(totalRow);
+    row.getCell(1).value = "Total";
+    row.getCell(1).font = { bold: true };
+    row.getCell(2).value = { formula: `SUM(B${summaryFirstRow}:B${summaryLastRow})` };
+    row.getCell(2).numFmt = "0.00";
+    row.getCell(3).value = { formula: `SUM(C${summaryFirstRow}:C${summaryLastRow})` };
+    row.getCell(3).numFmt = "0.00";
+    row.getCell(4).value = { formula: `SUM(D${summaryFirstRow}:D${summaryLastRow})` };
+    row.getCell(4).numFmt = "0.00";
+    row.getCell(5).value = { formula: `SUM(E${summaryFirstRow}:E${summaryLastRow})` };
+    row.getCell(5).numFmt = '"$"#,##0.00';
+  }
+
+  // ---- Daily breakdown block ----
+  sheet.mergeCells(dailyHeaderRowNum - 1, 1, dailyHeaderRowNum - 1, 12);
+  const dailyTitleCell = sheet.getCell(dailyHeaderRowNum - 1, 1);
+  dailyTitleCell.value = hasJobs
+    ? "Daily Breakdown - pick a Job on any row to update pay"
+    : "Daily Breakdown";
+  dailyTitleCell.font = { bold: true, size: 12, color: { argb: "FF111827" } };
+  sheet.getRow(dailyHeaderRowNum - 1).height = 26;
+
+  const dailyHeader = sheet.getRow(dailyHeaderRowNum);
+  [
+    "Date",
+    "Job Site",
+    "Job",
+    "Hourly Rate",
+    "Clock In",
+    "Clock Out",
+    "Hours",
+    "Break",
+    "Net Hours",
+    "Estimated Pay",
+    "Notes",
+    "Adjusted",
+  ].forEach((h, i) => (dailyHeader.getCell(i + 1).value = h));
+  styleHeaderRow(dailyHeader);
+  sheet.getColumn(9).hidden = true; // Net Hours (helper)
+  sheet.getColumn(13).hidden = true; // Default Rate (helper)
+  sheet.getColumn(14).hidden = true; // Week Of (helper)
+
+  const defaultJobName = defaultJobId
+    ? jobs.find((j) => j.id === defaultJobId)?.name ?? null
+    : null;
+
+  dayRows.forEach((d, idx) => {
+    const r = dailyFirstDataRow + idx;
+    const row = sheet.getRow(r);
+    row.height = 20;
+    row.getCell(1).value = d.dateLabel;
+    row.getCell(2).value = d.siteName;
+    row.getCell(3).value = hasJobs ? defaultJobName ?? "(Default)" : null;
+    row.getCell(13).value = hourlyRate;
+
+    if (hasJobs) {
+      row.getCell(4).value = {
+        formula: `IF(OR(C${r}="",C${r}="(Default)"),M${r},VLOOKUP(C${r},JobsTable,2,FALSE))`,
+      };
+      row.getCell(3).dataValidation = {
+        type: "list",
+        allowBlank: true,
+        formulae: ["JobsList"],
+      };
+    } else {
+      row.getCell(4).value = { formula: `M${r}` };
+    }
+    row.getCell(4).numFmt = '"$"#,##0.00';
+
+    row.getCell(5).value = d.clockInLabel;
+    row.getCell(6).value = d.clockOutLabel;
+    row.getCell(7).value = Number(d.hours.toFixed(2));
+    row.getCell(7).numFmt = "0.00";
+    row.getCell(8).value = Number(d.breakHours.toFixed(2));
+    row.getCell(8).numFmt = "0.00";
+    row.getCell(9).value = { formula: `G${r}-H${r}` };
+    row.getCell(9).numFmt = "0.00";
+    row.getCell(10).value = { formula: `D${r}*I${r}` };
+    row.getCell(10).numFmt = '"$"#,##0.00';
+    row.getCell(11).value = d.note || "-";
+    row.getCell(11).alignment = { wrapText: true, vertical: "middle" };
+    row.getCell(12).value = d.adjusted ? "Adjusted" : "";
+    row.getCell(14).value = d.weekLabel;
+
+    r;
+  });
+
+  styleDataRows(sheet, dailyHeaderRowNum);
+  sheet.views = [{ state: "frozen", ySplit: dailyHeaderRowNum }];
+}
+
+export async function exportEmployeeHistoryExcel(
+  employeeName: string,
+  hourlyRate: number | null,
+  defaultJobId: string | null,
+  jobs: Job[],
+  dayRows: EmployeeHistoryDayRow[],
+  weeklyTotals: EmployeeHistoryWeek[],
+  overtimeThreshold: number,
+  companyName: string,
+  startDate: string,
+  endDate: string
+) {
+  const ExcelJS = await getExcelJS();
+  const workbook = new ExcelJS.Workbook();
+
+  addEmployeeHistorySheet(
+    workbook,
+    employeeName,
+    hourlyRate,
+    defaultJobId,
+    jobs,
+    dayRows,
+    weeklyTotals,
+    overtimeThreshold,
+    startDate,
+    endDate
+  );
+
+  await downloadWorkbook(
+    workbook,
+    buildExportFilename(
+      `${companyName}_${employeeName}`,
+      "TimeHistory",
+      "xlsx",
+      startDate,
+      endDate
+    )
+  );
+}
+
 // ---- Standalone per-report exports, each its own file ----
 
 export async function exportTimesheetsExcel(

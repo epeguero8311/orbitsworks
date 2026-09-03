@@ -12,6 +12,14 @@
       "collectionGroup": "clockEvents",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "employeeId", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "clockEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "siteId", "order": "ASCENDING" },
         { "fieldPath": "timestamp", "order": "DESCENDING" }
       ]
