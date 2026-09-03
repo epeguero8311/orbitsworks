@@ -22,6 +22,10 @@ export type Alerts = {
   maxBreakMinutes: number;
 };
 
+export type AppSettings = {
+  allowSupervisorOverride: boolean;
+};
+
 export type CompanySettings = {
   name: string | null;
   logoUrl: string | null;
@@ -29,6 +33,7 @@ export type CompanySettings = {
   weeklyOvertimeThreshold: number;
   attendanceRules: AttendanceRules;
   alerts: Alerts;
+  appSettings: AppSettings;
 };
 
 export const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
@@ -48,6 +53,10 @@ export const DEFAULT_ALERTS: Alerts = {
   maxBreakMinutes: 15,
 };
 
+export const DEFAULT_APP_SETTINGS: AppSettings = {
+  allowSupervisorOverride: true,
+};
+
 const DEFAULT_SETTINGS: CompanySettings = {
   name: null,
   logoUrl: null,
@@ -55,6 +64,7 @@ const DEFAULT_SETTINGS: CompanySettings = {
   weeklyOvertimeThreshold: 40,
   attendanceRules: DEFAULT_ATTENDANCE_RULES,
   alerts: DEFAULT_ALERTS,
+  appSettings: DEFAULT_APP_SETTINGS,
 };
 
 export function useCompanySettings() {
@@ -82,6 +92,10 @@ export function useCompanySettings() {
         alerts: {
           ...DEFAULT_ALERTS,
           ...(data.alerts ?? {}),
+        },
+        appSettings: {
+          ...DEFAULT_APP_SETTINGS,
+          ...(data.appSettings ?? {}),
         },
       });
       setLoading(false);

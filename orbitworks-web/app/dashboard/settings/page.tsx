@@ -8,8 +8,10 @@ import { useAuth } from "@/lib/AuthContext";
 import {
   AttendanceRules,
   Alerts,
+  AppSettings,
   DEFAULT_ATTENDANCE_RULES,
   DEFAULT_ALERTS,
+  DEFAULT_APP_SETTINGS,
 } from "@/lib/hooks/useCompanySettings";
 
 type AuthMode = "individual" | "shared";
@@ -95,6 +97,9 @@ export default function SettingsPage() {
     DEFAULT_ATTENDANCE_RULES
   );
   const [alerts, setAlerts] = useState<Alerts>(DEFAULT_ALERTS);
+  const [appSettings, setAppSettings] = useState<AppSettings>(
+    DEFAULT_APP_SETTINGS
+  );
 
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
@@ -126,6 +131,10 @@ export default function SettingsPage() {
           setAlerts({
             ...DEFAULT_ALERTS,
             ...(data.alerts ?? {}),
+          });
+          setAppSettings({
+            ...DEFAULT_APP_SETTINGS,
+            ...(data.appSettings ?? {}),
           });
         }
       } catch (err) {
@@ -176,6 +185,7 @@ export default function SettingsPage() {
           : 40,
         attendanceRules,
         alerts,
+        appSettings,
       });
 
       setLogoUrl(newLogoUrl);
@@ -408,6 +418,26 @@ export default function SettingsPage() {
                   onChange={(v) => setAlerts((prev) => ({ ...prev, maxBreakMinutes: v }))}
                 />
               </div>
+            </div>
+          </div>
+
+          {/* App Settings */}
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <h2 className="text-base font-semibold text-gray-950">
+              App Settings
+            </h2>
+            <p className="mt-1 text-xs text-gray-600">
+              Controls behavior in the mobile app.
+            </p>
+            <div className="mt-2 divide-y divide-gray-100">
+              <Toggle
+                label="Allow supervisor override"
+                description="Supervisors can override normal clock-in rules on mobile."
+                checked={appSettings.allowSupervisorOverride}
+                onChange={(v) =>
+                  setAppSettings((prev) => ({ ...prev, allowSupervisorOverride: v }))
+                }
+              />
             </div>
           </div>
 
