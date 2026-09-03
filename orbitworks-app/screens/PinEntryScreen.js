@@ -5,6 +5,7 @@ import * as Haptics from "expo-haptics";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
+import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import { findEmployeeByPin } from "../lib/clockLogic";
 import ScreenHeader from "../components/ScreenHeader";
 
@@ -14,6 +15,7 @@ export default function PinEntryScreen({ navigation }) {
   const { userData } = useAuth();
   const { colors } = useTheme();
   const { selectedSite } = useSiteSession();
+  const { settings } = useCompanySettings(userData?.companyId);
   const [pin, setPin] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
@@ -102,12 +104,14 @@ export default function PinEntryScreen({ navigation }) {
           ))}
         </View>
 
-        <TouchableOpacity
-          style={[styles.overrideButton, { backgroundColor: colors.accent }]}
-          onPress={() => navigation.navigate("OverridePinEntry")}
-        >
-          <Text style={styles.overrideButtonText}>Supervisor override</Text>
-        </TouchableOpacity>
+        {settings.appSettings.allowSupervisorOverride && (
+          <TouchableOpacity
+            style={[styles.overrideButton, { backgroundColor: colors.accent }]}
+            onPress={() => navigation.navigate("OverridePinEntry")}
+          >
+            <Text style={styles.overrideButtonText}>Supervisor override</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );

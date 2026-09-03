@@ -92,14 +92,6 @@ export default function DashboardScreen({ navigation }) {
     }
   };
 
-  if (loading) {
-    return (
-      <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.accent} />
-      </View>
-    );
-  }
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
@@ -125,7 +117,11 @@ export default function DashboardScreen({ navigation }) {
             <Feather name="chevron-down" size={14} color="#fff" />
           </TouchableOpacity>
 
-          <Text style={styles.countNumber}>{clockedInCount}</Text>
+          {loading ? (
+            <ActivityIndicator size="large" color="#fff" style={styles.countSpinner} />
+          ) : (
+            <Text style={styles.countNumber}>{clockedInCount}</Text>
+          )}
           <Text style={styles.countLabel}>Active employees</Text>
 
           <TouchableOpacity style={styles.clockButton} onPress={handleClockPress} activeOpacity={0.85}>
@@ -149,7 +145,7 @@ export default function DashboardScreen({ navigation }) {
             onPress={() => navigation.navigate("Notes")}
           >
             <Feather name="edit-3" size={22} color={colors.accent} />
-            <Text style={[styles.quickCardText, { color: colors.text }]}>Notes</Text>
+            <Text style={[styles.quickCardText, { color: colors.text }]}>Reports</Text>
           </TouchableOpacity>
         </View>
 
@@ -193,6 +189,7 @@ const styles = StyleSheet.create({
   sitePill: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", marginBottom: 18 },
   sitePillText: { color: "#fff", fontSize: 13, fontWeight: "600", opacity: 0.9 },
   countNumber: { color: "#fff", fontSize: 56, fontWeight: "800", textAlign: "center" },
+  countSpinner: { marginVertical: 14 },
   countLabel: { color: "#fff", fontSize: 14, textAlign: "center", opacity: 0.9, marginBottom: 20 },
   clockButton: { backgroundColor: "#fff", borderRadius: 14, paddingVertical: 16, alignItems: "center" },
   clockButtonText: { fontSize: 16, fontWeight: "700" },

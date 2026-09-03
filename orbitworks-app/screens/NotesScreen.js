@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
 } from "react-native";
@@ -43,7 +43,7 @@ export default function NotesScreen({ navigation }) {
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <ScreenHeader title="Shift Notes" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Reports" onBack={() => navigation.goBack()} />
 
       <View style={styles.content}>
         <Text style={[styles.label, { color: colors.subtext }]}>

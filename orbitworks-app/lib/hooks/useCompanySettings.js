@@ -1,9 +1,12 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 
 const DEFAULTS = {
   businessHours: { open: "08:00", close: "17:00" },
+  appSettings: {
+    allowSupervisorOverride: true,
+  },
 };
 
 export function useCompanySettings(companyId) {
@@ -17,6 +20,10 @@ export function useCompanySettings(companyId) {
       const data = snap.data();
       setSettings({
         businessHours: data?.businessHours ?? DEFAULTS.businessHours,
+        appSettings: {
+          ...DEFAULTS.appSettings,
+          ...(data?.appSettings ?? {}),
+        },
       });
       setLoading(false);
     });

@@ -26,6 +26,13 @@ export function useTodayShift(companyId) {
 
     let employeesData = [];
     let eventsData = [];
+    // loading only clears once BOTH listeners have delivered their
+    // first snapshot - applyStatus can fire from either one first
+    // (whichever resolves faster), and computing status against a
+    // still-empty employeesData/eventsData array on that first race
+    // is what caused the "0 then jumps to real count" flash.
+    let employeesReady = false;
+    let eventsReady = false;
 
     const applyStatus = () => {
       const todayStart = startOfToday();
@@ -52,7 +59,10 @@ export function useTodayShift(companyId) {
 
       setEmployees(merged);
       setTodayInEvents(todayIns);
-      setLoading(false);
+
+      if (employeesReady && eventsReady) {
+        setLoading(false);
+      }
     };
 
     const employeesRef = collection(db, "companies", companyId, "employees");
@@ -61,10 +71,13 @@ export function useTodayShift(companyId) {
       employeesQuery,
       (snap) => {
         employeesData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        employeesReady = true;
         applyStatus();
       },
       (error) => {
         console.log("[useTodayShift] employees listener error:", error.code, error.message);
+        employeesReady = true;
+        applyStatus();
       }
     );
 
@@ -73,10 +86,13 @@ export function useTodayShift(companyId) {
       query(eventsRef),
       (snap) => {
         eventsData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        eventsReady = true;
         applyStatus();
       },
       (error) => {
         console.log("[useTodayShift] events listener error:", error.code, error.message);
+        eventsReady = true;
+        applyStatus();
       }
     );
 
