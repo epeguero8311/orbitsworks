@@ -107,7 +107,7 @@ service cloud.firestore {
           request.auth.token.role == 'admin' &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory']) &&
+            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin']) &&
           (
             request.resource.data.active != true ||
             resource.data.active == true ||
@@ -117,6 +117,16 @@ service cloud.firestore {
         allow delete: if request.auth != null &&
           request.auth.token.role == 'admin' &&
           request.auth.token.companyId == companyId;
+      }
+
+      match /pins/{pinId} {
+        // Server-only reservation index for PIN uniqueness (see
+        // setEmployeePin / backfillEmployeePins / reserveNewPin in
+        // functions). No client needs to read or write this directly -
+        // the Admin SDK bypasses rules entirely, so this is an explicit,
+        // readable deny rather than relying on it falling through
+        // unmatched.
+        allow read, write: if false;
       }
 
       match /clockEvents/{eventId} {

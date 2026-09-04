@@ -4,7 +4,9 @@ import { useState } from "react";
 import { doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
+import { Pencil } from "lucide-react";
 import { db, storage, functions } from "@/lib/firebase";
+import { isValidPinFormat } from "@/lib/pinUtils";
 import type { Employee, JobSite, Job, Subcontractor } from "@/lib/types";
 
 export function EmployeeModal({
@@ -56,6 +58,18 @@ export function EmployeeModal({
   const [companyReason, setCompanyReason] = useState("");
   const [companySubmitting, setCompanySubmitting] = useState(false);
   const [companyError, setCompanyError] = useState<string | null>(null);
+
+  // ---- Backup PIN edit ----
+  // The pencil just toggles the field into an editable input - there's no
+  // separate save step. A changed PIN commits (and is checked for
+  // duplicates server-side via setEmployeePin) as part of the main Save
+  // changes click, before anything else in the form is written, so a
+  // rejected PIN blocks the whole save rather than silently getting
+  // dropped while other fields go through.
+  const [currentPin, setCurrentPin] = useState(employee.pin ?? "");
+  const [editingPin, setEditingPin] = useState(false);
+  const [pinValue, setPinValue] = useState(currentPin);
+  const [pinError, setPinError] = useState<string | null>(null);
 
   // Include the employee's currently assigned job even if it has since
   // been deactivated, so it does not disappear from the dropdown.
@@ -135,11 +149,64 @@ export function EmployeeModal({
     }
   }
 
+  function togglePinEdit() {
+    if (editingPin) {
+      setPinValue(currentPin);
+      setPinError(null);
+      setEditingPin(false);
+    } else {
+      setPinValue(currentPin);
+      setPinError(null);
+      setEditingPin(true);
+    }
+  }
+
+  function handlePinInputChange(value: string) {
+    // Digits only, capped at 4 characters - strips anything pasted in
+    // that isn't a digit rather than rejecting the whole input.
+    const digitsOnly = value.replace(/\D/g, "").slice(0, 4);
+    setPinValue(digitsOnly);
+    setPinError(null);
+  }
+
   async function handleSave() {
     if (!companyId) return;
     setError("");
     setSuccess("");
+    setPinError(null);
+
+    const pinChanged = editingPin && pinValue !== currentPin;
+
+    if (pinChanged && !isValidPinFormat(pinValue)) {
+      setPinError("PIN must be exactly 4 digits.");
+      return;
+    }
+
     setIsSaving(true);
+
+    // PIN goes first and, if it's rejected (bad format, or the server-
+    // side duplicate check in setEmployeePin finds it already assigned
+    // to someone else), the save stops here - nothing else in the form
+    // gets written on a failed PIN change.
+    if (pinChanged) {
+      try {
+        const setEmployeePinFn = httpsCallable(functions, "setEmployeePin");
+        const result = await setEmployeePinFn({
+          employeeId: employee.id,
+          pin: pinValue,
+        });
+        const data = result.data as { pin: string };
+        setCurrentPin(data.pin);
+        setEditingPin(false);
+      } catch (err) {
+        console.error("Update PIN error:", err);
+        setPinError(
+          err instanceof Error ? err.message : "Couldn't save this PIN. Try again."
+        );
+        setIsSaving(false);
+        return;
+      }
+    }
 
     try {
       const employeeRef = doc(db, "companies", companyId, "employees", employee.id);
@@ -256,9 +323,32 @@ export function EmployeeModal({
           </div>
           <div className="ml-auto rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 text-right">
             <p className="text-xs font-medium text-gray-600">Backup PIN</p>
-            <p className="font-mono text-lg font-semibold text-gray-950">
-              {employee.pin ?? "-"}
-            </p>
+            <div className="flex items-center justify-end gap-2">
+              {editingPin ? (
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoFocus
+                  value={pinValue}
+                  onChange={(e) => handlePinInputChange(e.target.value)}
+                  maxLength={4}
+                  className="w-20 rounded-md border border-gray-200 px-2 py-1 text-right font-mono text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                />
+              ) : (
+                <p className="font-mono text-lg font-semibold text-gray-950">
+                  {currentPin || "-"}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={togglePinEdit}
+                aria-label={editingPin ? "Cancel PIN edit" : "Edit PIN"}
+                className="text-gray-500 hover:text-accent"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {pinError && <p className="mt-1 text-xs text-red-600">{pinError}</p>}
           </div>
         </div>
 
