@@ -52,3 +52,69 @@ export function sourceLabel(source: ClockEvent["source"]): { text: string; class
       return { text: "Unknown", className: "bg-gray-50 text-gray-600" };
   }
 }
+
+function effectiveMs(event: ClockEvent): number | null {
+  const ts = event.adjustedTimestamp ?? event.timestamp;
+  return ts ? ts.toDate().getTime() : null;
+}
+
+// Walks a chronologically-sorted (ascending, by effective time) sequence of
+// clock events for a SINGLE employee and sums up actual working time,
+// stepping over any breakStart-to-breakEnd span rather than counting it as
+// worked. An open "in" or "breakEnd" segment with no closing event yet is
+// carried through to nowMs. A break never resets the running total - it
+// just pauses it. Used both for a single shift and for summing a whole
+// week, so callers share one definition of "worked time".
+export function accumulateWorkedMs(sortedEvents: ClockEvent[], nowMs: number): number {
+  let totalMs = 0;
+  let workSegmentStart: number | null = null;
+
+  for (const event of sortedEvents) {
+    const ts = effectiveMs(event);
+    if (ts == null) continue;
+
+    switch (event.type) {
+      case "in":
+      case "breakEnd":
+        workSegmentStart = ts;
+        break;
+      case "breakStart":
+      case "out":
+        if (workSegmentStart != null) {
+          totalMs += ts - workSegmentStart;
+          workSegmentStart = null;
+        }
+        break;
+    }
+  }
+
+  if (workSegmentStart != null) {
+    totalMs += nowMs - workSegmentStart;
+  }
+
+  return totalMs;
+}
+
+// Given ALL known events for a single employee (any order, may span many
+// days), finds the boundary of their current still-open shift - the most
+// recent "out" marks the end of the prior shift, so the shift starts right
+// after it - and returns accumulated worked ms for just that shift, with
+// break time excluded but never resetting the counter across breaks.
+export function getAccumulatedWorkedMs(employeeEvents: ClockEvent[], now: Date): number {
+  const sorted = [...employeeEvents].sort((a, b) => {
+    const aMs = effectiveMs(a) ?? 0;
+    const bMs = effectiveMs(b) ?? 0;
+    return aMs - bMs;
+  });
+
+  let shiftStartIndex = 0;
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    if (sorted[i].type === "out") {
+      shiftStartIndex = i + 1;
+      break;
+    }
+  }
+
+  const shiftEvents = sorted.slice(shiftStartIndex);
+  return accumulateWorkedMs(shiftEvents, now.getTime());
+}

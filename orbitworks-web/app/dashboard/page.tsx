@@ -38,7 +38,7 @@ import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useAlertActions } from "@/lib/hooks/useAlertActions";
 import { ClockEvent } from "@/lib/types";
-import { deriveStatus } from "@/lib/clockStatus";
+import { deriveStatus, accumulateWorkedMs, getAccumulatedWorkedMs } from "@/lib/clockStatus";
 
 type DayAttendance = {
   label: string;
@@ -70,6 +70,17 @@ function timeAgo(date: Date) {
   if (hours < 24) return `${hours}h ${minutes % 60}m ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+// Formats accumulated worked ms as "Xh Ym" (or just "Ym" under an hour).
+// Used for the "Employees clocked in" table and anywhere else that needs to
+// show total worked time for the current shift with breaks excluded.
+function formatDuration(ms: number) {
+  const totalMinutes = Math.max(0, Math.floor(ms / (1000 * 60)));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  return `${hours}h ${minutes}m`;
 }
 
 function isSameDay(a: Date, b: Date) {
@@ -301,28 +312,13 @@ export default function DashboardOverviewPage() {
           byEmployee.set(event.employeeId, list);
         }
 
+        // accumulateWorkedMs excludes breakStart-to-breakEnd spans instead
+        // of counting the whole in-to-out span as worked, and carries the
+        // total across multiple breaks within the week without resetting it.
         const hoursMap = new Map<string, number>();
+        const nowMs = Date.now();
         for (const [employeeId, empEvents] of byEmployee) {
-          let totalMs = 0;
-          let pendingIn: ClockEvent | null = null;
-          for (const event of empEvents) {
-            if (event.type === "in") {
-              pendingIn = event;
-            } else if (event.type === "out" && pendingIn) {
-              const pendingMs = effectiveDate(pendingIn)?.getTime();
-              const eventMs = effectiveDate(event)?.getTime();
-              if (pendingMs != null && eventMs != null) {
-                totalMs += eventMs - pendingMs;
-              }
-              pendingIn = null;
-            }
-          }
-          if (pendingIn) {
-            const pendingMs = effectiveDate(pendingIn)?.getTime();
-            if (pendingMs != null) {
-              totalMs += Date.now() - pendingMs;
-            }
-          }
+          const totalMs = accumulateWorkedMs(empEvents, nowMs);
           hoursMap.set(employeeId, totalMs / (1000 * 60 * 60));
         }
 
@@ -364,18 +360,27 @@ export default function DashboardOverviewPage() {
   const onBreakDisplay = currentlyOnBreak.slice(0, 8);
   const onBreakOverflow = currentlyOnBreak.length - onBreakDisplay.length;
 
-  // Approximate: elapsed time since each employee's most recent status
-  // change. If someone is mid-shift after a break, this reflects time since
-  // they returned from break, not their original clock-in - the exact
-  // payroll math (with break time subtracted from the whole shift) happens
-  // in Reports, not this live overview.
+  // Accumulated worked ms for the CURRENT shift, per currently-active
+  // employee, with break time excluded but never reset by a break. This is
+  // the single number both the Max Hours alert and the "Employees clocked
+  // in" table read from - see getAccumulatedWorkedMs in clockStatus.ts.
+  const nowForShift = new Date();
+  const workedMsByEmployee = new Map<string, number>();
+  for (const event of currentlyActive) {
+    const employeeEvents = events.filter(
+      (e) => e.employeeId === event.employeeId
+    );
+    workedMsByEmployee.set(
+      event.employeeId,
+      getAccumulatedWorkedMs(employeeEvents, nowForShift)
+    );
+  }
+
   const avgHoursWorked = (() => {
     if (currentlyActive.length === 0) return "0h";
     const totalHours = currentlyActive.reduce((sum, event) => {
-      const d = effectiveDate(event);
-      if (!d) return sum;
-      const elapsedMs = Date.now() - d.getTime();
-      return sum + elapsedMs / (1000 * 60 * 60);
+      const ms = workedMsByEmployee.get(event.employeeId) ?? 0;
+      return sum + ms / (1000 * 60 * 60);
     }, 0);
     return `${(totalHours / currentlyActive.length).toFixed(1)}h`;
   })();
@@ -471,13 +476,14 @@ export default function DashboardOverviewPage() {
       })
       .forEach((event) => {
         const d = effectiveDate(event)!;
-        const elapsedHours = (Date.now() - d.getTime()) / (1000 * 60 * 60);
-        if (elapsedHours >= settings.alerts.maxHoursThreshold) {
+        const workedMs = workedMsByEmployee.get(event.employeeId) ?? 0;
+        const workedHours = workedMs / (1000 * 60 * 60);
+        if (workedHours >= settings.alerts.maxHoursThreshold) {
           alertItems.push({
             key: `max-${event.employeeId}-${dateKey(d)}`,
             alertType: "maxHours",
             label: event.employeeName,
-            detail: `Clocked in for ${elapsedHours.toFixed(1)}h - check in?`,
+            detail: `Worked ${workedHours.toFixed(1)}h today (breaks excluded) - check in?`,
             employeeId: event.employeeId,
             event,
           });
@@ -1002,14 +1008,14 @@ export default function DashboardOverviewPage() {
               <tr>
                 <th className="px-6 py-3 font-medium">Employee</th>
                 <th className="px-6 py-3 font-medium">Job site</th>
-                <th className="px-6 py-3 font-medium">Since</th>
+                <th className="px-6 py-3 font-medium">Worked</th>
                 <th className="px-6 py-3 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
               {activeDisplay.map((event) => {
                 const isOnBreak = deriveStatus(event.type) === "break";
-                const d = effectiveDate(event);
+                const workedMs = workedMsByEmployee.get(event.employeeId) ?? 0;
                 return (
                   <tr
                     key={event.employeeId}
@@ -1022,7 +1028,7 @@ export default function DashboardOverviewPage() {
                       {event.siteName}
                     </td>
                     <td className="px-6 py-4 text-gray-600">
-                      {d ? timeAgo(d) : "-"}
+                      {formatDuration(workedMs)}
                     </td>
                     <td className="px-6 py-4">
                       <span
