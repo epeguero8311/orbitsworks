@@ -51,6 +51,10 @@ export interface Employee {
   subcontractorId?: string | null;
   subcontractorName?: string | null;
   subcontractorHistory?: SubcontractorAssignmentRecord[];
+  // Denormalized by onClockEventCreated (functions/src/index.ts) so status
+  // is readable without a live clockEvents query - same field the mobile
+  // app uses for offline status.
+  lastEventType?: "in" | "out" | "breakStart" | "breakEnd";
 }
 
 export interface Invite {
@@ -111,6 +115,33 @@ export interface AlertActionRecord {
   resolvedByName: string;
   resolvedAt: Timestamp;
   reason?: string;
+}
+
+// ---- Timesheet Approvals ----
+//
+// One TimesheetApproval doc per work session, keyed by the clock-in
+// event's own id (companies/{companyId}/timesheetApprovals/{clockInEventId}).
+// Created server-side only, by a Firestore trigger on clockEvents type=="in"
+// (see functions/src/index.ts) - never directly by a client. Hours/break
+// are NOT stored here; they're computed live from the paired clockEvents
+// the same way useEmployeeTimesheet already does, so an edit to a clock
+// event never leaves a stale approved number behind.
+//
+// Only sessions created going forward have one of these - historical
+// clockEvents from before this feature shipped are untouched and stay
+// exportable exactly as they were.
+export interface TimesheetApproval {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  date: string;
+  siteId: string | null;
+  siteName: string;
+  status: "pending" | "approved";
+  approvedByUid?: string;
+  approvedByName?: string;
+  approvedAt?: Timestamp;
+  createdAt?: Timestamp;
 }
 
 // ---- Reports ----
