@@ -1,0 +1,20 @@
+# Orbitsworks
+
+> PIN clock-in time tracking software for construction and field service job-site crews.
+
+Orbitsworks is a workforce management SaaS for businesses with mobile or on-site teams. Supervisors use a shared tablet at the job site to clock employees in and out with a personal PIN, with a photo captured as proof. Admins get a live dashboard, hour-approval workflow, and payroll-ready Excel reports with a daily breakdown per employee and per job site.
+
+## Key features
+- PIN-based employee clock-in/clock-out with photo verification
+- Works offline; clock-in events sync automatically once back online
+- Live supervisor dashboard showing who is clocked in and where
+- Admin approval workflow: hours must be approved before they appear in payroll reports
+- Payroll-ready Excel export with daily breakdowns, per-job-site totals, and built-in formulas
+- Built for construction, field service, and multi-site crews
+
+## Links
+- Home: https://orbitsworks.com
+- Support: https://orbitsworks.com/support
+- Privacy Policy: https://orbitsworks.com/privacy
+- Terms of Service: https://orbitsworks.com/terms
+- Sign up: https://orbitsworks.com/signup

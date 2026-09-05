@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import LandingNav from "@/components/landing/LandingNav";
 import LandingFooter from "@/components/landing/LandingFooter";
-import { Users, Clock, NotebookPen, Mail } from "lucide-react";
+import { Users, Clock, NotebookPen, Mail, Trash2 } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Support",
@@ -64,7 +64,8 @@ export default function SupportPage() {
                     An employee enters their personal PIN on the supervisor's
                     device to clock in or out, the same way they would at a
                     kiosk. A photo is captured at that moment as a visual
-                    record for the Company.
+                    record for the Company. Clock-ins are saved even without
+                    a signal and sync automatically once back online.
                   </p>
                 </div>
               </div>
@@ -83,6 +84,33 @@ export default function SupportPage() {
                     Supervisors can leave a note for a job site or shift -
                     useful for flagging anything an admin should know about
                     when reviewing the day's activity later.
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            <section id="delete-account" className="rounded-xl border border-gray-200 bg-white p-6">
+              <div className="flex items-start gap-4">
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-accent/10">
+                  <Trash2 className="h-5 w-5 text-accent" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-gray-950">
+                    Delete your account and data
+                  </h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-gray-600">
+                    To request deletion of your account and associated
+                    company data, email{" "}
+                    <Link href="mailto:epeguero8311@gmail.com" className="font-medium text-accent hover:underline">epeguero8311@gmail.com</Link>{" "}
+                    from the email address associated with your account,
+                    with the subject line "Delete my account." Include your
+                    company name so we can locate your records.
+                  </p>
+                  <p className="mt-3 text-sm leading-relaxed text-gray-600">
+                    We'll delete your account, employee records, clock-in
+                    events, and photos within 30 days of a verified request.
+                    Some information may be retained where required by law,
+                    such as payroll or tax records.
                   </p>
                 </div>
               </div>

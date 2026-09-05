@@ -1,5 +1,5 @@
-﻿import Link from "next/link";
-import { Camera, LayoutDashboard, Tablet, FileSpreadsheet } from "lucide-react";
+import Link from "next/link";
+import { Camera, LayoutDashboard, Tablet, FileSpreadsheet, WifiOff, ClipboardCheck } from "lucide-react";
 import LandingNav from "@/components/landing/LandingNav";
 import LandingFooter from "@/components/landing/LandingFooter";
 
@@ -23,10 +23,22 @@ const FEATURES = [
       "Supervisors run the whole crew from a single tablet at the job site - no per-employee phone or app required.",
   },
   {
-    icon: FileSpreadsheet,
-    title: "Payroll-ready reports",
+    icon: WifiOff,
+    title: "Works without a connection",
     description:
-      "Export timesheets, payroll hours, and attendance to Excel or CSV - formatted and ready to hand off.",
+      "Clock-ins are captured even when the job site has no signal or Wi-Fi. Every event is saved on the device and syncs automatically the moment it's back online - nothing is lost.",
+  },
+  {
+    icon: ClipboardCheck,
+    title: "Admin approval before payroll",
+    description:
+      "Every worked session is reviewed and approved by an admin before it counts toward reports. Catch and correct issues first, so only approved hours ever make it to payroll.",
+  },
+  {
+    icon: FileSpreadsheet,
+    title: "Payroll-ready Excel reports",
+    description:
+      "Export approved hours to Excel with a daily breakdown per employee, ready-to-use payroll formulas, and totals by job site - so payroll is a hand-off, not a rebuild.",
   },
 ];
 
@@ -41,13 +53,52 @@ const STEPS = [
     number: "2",
     title: "Crew clocks in on-site",
     description:
-      "Employees enter their PIN at the tablet, and a photo is captured as proof of who was there.",
+      "Employees enter their PIN at the tablet, and a photo is captured as proof of who was there - even offline.",
   },
   {
     number: "3",
-    title: "Review and export",
+    title: "Approve and export",
     description:
-      "Check the live dashboard, catch issues with alerts, and export reports when payroll's due.",
+      "Review and approve each day's hours on the dashboard, then export payroll-ready Excel reports when it's time to run payroll.",
+  },
+];
+
+const SCENARIO = [
+  {
+    time: "7:00 AM",
+    title: "Supervisor arrives and clocks in the crew",
+    description:
+      "The supervisor opens the tablet on-site and pulls up today's crew of 8. Each person enters their PIN one by one to clock in, with a photo captured as proof for each - no signal required.",
+  },
+  {
+    time: "10:00 AM",
+    title: "First half of the crew starts break",
+    description:
+      "4 of the 8 employees head to break. The supervisor starts a break for each of them on the tablet, while the other 4 keep working.",
+  },
+  {
+    time: "10:30 AM",
+    title: "Second half starts break, first half ends theirs",
+    description:
+      "30 minutes later, the first group is back to work - the supervisor ends their break. At the same time, the remaining 4 employees head out, and the supervisor starts their break.",
+  },
+  {
+    time: "11:00 AM",
+    title: "Second half ends their break",
+    description:
+      "The second group returns and the supervisor ends their break too. The whole crew is back on the clock, working.",
+  },
+  {
+    time: "3:30 PM",
+    title: "End of shift - clock everyone out",
+    description:
+      "The supervisor clocks out all 8 employees at the end of the day, each with a final photo as proof.",
+  },
+  {
+    time: "No Wi-Fi, no problem",
+    title: "Every event was already saved",
+    description:
+      "The job site never had a signal all day. It didn't matter - every clock-in, break, and clock-out was saved on the tablet the moment it happened, and synced automatically once the device found a connection back at the office.",
   },
 ];
 
@@ -66,8 +117,9 @@ export default function LandingPage() {
               </h1>
               <p className="mt-5 max-w-lg text-base text-gray-600 sm:text-lg">
                 Orbitsworks gives job-site crews PIN clock-ins with photo
-                proof, live supervisor dashboards, and payroll-ready reports
-                - built for construction and field service teams.
+                proof, live supervisor dashboards, admin-approved hours, and
+                payroll-ready reports - built for construction and field
+                service teams.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link
@@ -167,6 +219,42 @@ export default function LandingPage() {
                   </p>
                 </div>
               ))}
+            </div>
+
+            {/* Real scenario walkthrough */}
+            <div className="mt-16 rounded-2xl border border-gray-200 bg-white p-8 sm:p-10">
+              <h3 className="text-xl font-semibold text-gray-950">
+                A real morning on the job site
+              </h3>
+              <p className="mt-2 text-sm text-gray-600">
+                Here's what a shift looks like for a crew of 8, from clock-in
+                to clock-out - staggered breaks and all.
+              </p>
+              <ol className="mt-8 space-y-6">
+                {SCENARIO.map((step, index) => (
+                  <li key={step.title} className="flex gap-4">
+                    <div className="flex flex-shrink-0 flex-col items-center">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-xs font-semibold text-white">
+                        {index + 1}
+                      </div>
+                      {index < SCENARIO.length - 1 && (
+                        <div className="mt-1 w-px flex-1 bg-gray-200" />
+                      )}
+                    </div>
+                    <div className="pb-2">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-accent">
+                        {step.time}
+                      </span>
+                      <h4 className="mt-1 text-base font-semibold text-gray-950">
+                        {step.title}
+                      </h4>
+                      <p className="mt-1 text-sm leading-relaxed text-gray-600">
+                        {step.description}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
             </div>
           </div>
         </section>
