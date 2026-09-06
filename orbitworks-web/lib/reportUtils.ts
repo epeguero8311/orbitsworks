@@ -5,6 +5,23 @@ import type {
   AttendanceRecord,
 } from "@/lib/types";
 
+export const APPROVALS_CUTOVER_DATE = "2026-09-05";
+
+export const COMPANY_TIMEZONE = "America/Chicago";
+
+export function localDateKey(d: Date, timeZone: string = COMPANY_TIMEZONE): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === "year")!.value;
+  const m = parts.find((p) => p.type === "month")!.value;
+  const day = parts.find((p) => p.type === "day")!.value;
+  return `${y}-${m}-${day}`;
+}
+
 export function formatHours(hours: number) {
   const h = Math.floor(hours);
   const m = Math.round((hours - h) * 60);

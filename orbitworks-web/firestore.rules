@@ -175,6 +175,13 @@ service cloud.firestore {
           request.auth.token.companyId == companyId &&
           (request.auth.token.role == 'admin' || request.auth.token.role == 'supervisor');
       }
+
+      match /timesheetApprovals/{eventId} {
+        allow read: if request.auth != null &&
+          request.auth.token.companyId == companyId &&
+          request.auth.token.role == 'admin';
+        allow write: if false;
+      }
     }
 
     match /invites/{inviteId} {

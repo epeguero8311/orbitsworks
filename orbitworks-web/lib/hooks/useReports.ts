@@ -27,10 +27,12 @@ import type {
 } from "@/lib/types";
 import {
   dateKey,
+  localDateKey,
   startOfWeek,
   minutesSinceMidnight,
   parseTimeToMinutes,
   formatMinutesAsTime,
+  APPROVALS_CUTOVER_DATE,
 } from "@/lib/reportUtils";
 
 type EventWithDate = ClockEvent & { timestamp: Timestamp };
@@ -92,6 +94,72 @@ export function useReports() {
           const effectiveTimestamp = data.adjustedTimestamp ?? data.timestamp;
           return { id: d.id, ...data, timestamp: effectiveTimestamp };
         });
+
+        // ---- Timesheet approval gating ----
+        // A session whose clock-in date is on/after APPROVALS_CUTOVER_DATE
+        // must be explicitly approved on the Timesheet Approvals page to
+        // count anywhere in this report/export. Sessions before the
+        // cutover have no timesheetApprovals doc and are included exactly
+        // as they always were.
+        const approvalsRef = collection(db, "companies", userData.companyId, "timesheetApprovals");
+        const approvalsQuery = query(
+          approvalsRef,
+          where("date", ">=", APPROVALS_CUTOVER_DATE),
+          where("date", "<=", endDate)
+        );
+        const approvalsSnapshot = await getDocs(approvalsQuery);
+        const approvalStatusByClockInId = new Map<string, "pending" | "approved">();
+        approvalsSnapshot.docs.forEach((d) => {
+          const data = d.data() as { status?: "pending" | "approved" };
+          approvalStatusByClockInId.set(d.id, data.status ?? "pending");
+        });
+
+        const excludedEventIds = new Set<string>();
+        const eventsByEmployeeForGating = new Map<string, EventWithDate[]>();
+        for (const event of events) {
+          const list = eventsByEmployeeForGating.get(event.employeeId) ?? [];
+          list.push(event);
+          eventsByEmployeeForGating.set(event.employeeId, list);
+        }
+        eventsByEmployeeForGating.forEach((employeeEvents) => {
+          let sessionIds: string[] = [];
+          let sessionClockInId: string | null = null;
+          let sessionRequiresApproval = false;
+
+          const closeSession = () => {
+            if (sessionClockInId && sessionRequiresApproval) {
+              const status = approvalStatusByClockInId.get(sessionClockInId);
+              if (status !== "approved") {
+                sessionIds.forEach((id) => excludedEventIds.add(id));
+              }
+            }
+          };
+
+          for (const event of employeeEvents) {
+            if (event.type === "in") {
+              closeSession();
+              sessionIds = [event.id];
+              sessionClockInId = event.id;
+              // localDateKey, not dateKey - must agree with the same
+              // Chicago-anchored date the approval doc was stamped with,
+              // or an evening session can silently disagree with its own
+              // approval doc and get excluded incorrectly.
+              sessionRequiresApproval =
+                localDateKey(event.timestamp.toDate()) >= APPROVALS_CUTOVER_DATE;
+            } else if (sessionClockInId) {
+              sessionIds.push(event.id);
+              if (event.type === "out") {
+                closeSession();
+                sessionIds = [];
+                sessionClockInId = null;
+                sessionRequiresApproval = false;
+              }
+            }
+          }
+          closeSession();
+        });
+
+        const gatedEvents = events.filter((event) => !excludedEventIds.has(event.id));
 
         const employeesRef = collection(db, "companies", userData.companyId, "employees");
         const employeesSnapshot = await getDocs(employeesRef);
@@ -218,7 +286,7 @@ export function useReports() {
 
         // ---- Payroll summaries + sessions + weekly hours buckets ----
         const byEmployee = new Map<string, EventWithDate[]>();
-        for (const event of events) {
+        for (const event of gatedEvents) {
           const list = byEmployee.get(event.employeeId) ?? [];
           list.push(event);
           byEmployee.set(event.employeeId, list);
@@ -393,7 +461,7 @@ export function useReports() {
 
         // ---- Attendance + employees/day + job sites ----
         const byEmployeeDay = new Map<string, EventWithDate[]>();
-        for (const event of events) {
+        for (const event of gatedEvents) {
           const day = dateKey(event.timestamp.toDate());
           const key = `${event.employeeId}__${day}`;
           const list = byEmployeeDay.get(key) ?? [];

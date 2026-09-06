@@ -100,6 +100,20 @@ export interface ClockEvent {
 
 // ---- Alerts ----
 
+export interface TimesheetApproval {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  date: string;
+  siteId: string | null;
+  siteName: string;
+  status: "pending" | "approved";
+  approvedByUid?: string;
+  approvedByName?: string;
+  approvedAt?: Timestamp;
+  createdAt?: Timestamp;
+}
+
 export interface AlertActionRecord {
   id: string;
   alertKey: string;
