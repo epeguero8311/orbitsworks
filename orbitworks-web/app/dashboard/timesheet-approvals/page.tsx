@@ -41,7 +41,6 @@ export default function TimesheetApprovalsPage() {
         pendingCount={pendingCount}
         onShiftDay={shiftDay}
         onSetDate={applyDate}
-        onAddTimestamp={() => setAddingOpen(true)}
       />
 
       <ApprovalsTable
@@ -49,6 +48,7 @@ export default function TimesheetApprovalsPage() {
         loading={loading}
         onSetStatus={setApprovalStatus}
         onDeleteSession={deleteTimesheetSession}
+        onAddTimestamp={() => setAddingOpen(true)}
       />
 
       {addingOpen && (

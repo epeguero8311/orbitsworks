@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { Calendar, Plus } from "lucide-react";
+import { Calendar } from "lucide-react";
 
 export function ApprovalsDayHeader({
   date,
@@ -9,14 +9,12 @@ export function ApprovalsDayHeader({
   pendingCount,
   onShiftDay,
   onSetDate,
-  onAddTimestamp,
 }: {
   date: string;
   minDate: string;
   pendingCount: number;
   onShiftDay: (days: number) => void;
   onSetDate: (date: string) => void;
-  onAddTimestamp: () => void;
 }) {
   const dateInputRef = useRef<HTMLInputElement>(null);
   const atMinDate = date <= minDate;
@@ -45,17 +43,7 @@ export function ApprovalsDayHeader({
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 className="text-2xl font-semibold text-gray-950">Timesheet Approvals</h1>
-        <div className="mt-1 flex items-center gap-3">
-          <p className="text-sm text-gray-600">{pendingCount} pending today</p>
-          <button
-            type="button"
-            onClick={onAddTimestamp}
-            className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add Timestamp
-          </button>
-        </div>
+        <p className="mt-1 text-sm text-gray-600">{pendingCount} pending today</p>
       </div>
       <div className="flex items-center gap-2">
         <button

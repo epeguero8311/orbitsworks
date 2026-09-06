@@ -8,6 +8,31 @@ const db = admin.firestore();
 
 const FREE_EMPLOYEE_CAP = 8;
 
+// Matches the timezone autoClockOutStaleSessions already uses for its
+// schedule. Cloud Functions' runtime clock reads in UTC by default, so
+// computing a "which calendar day is this" date key with raw
+// Date.getFullYear()/getMonth()/getDate() silently shifts any evening
+// event (e.g. after ~7 PM Central) onto the next day once UTC crosses
+// midnight. That mismatch broke timesheetApprovals lookups: a session
+// added for "today" could get stamped with tomorrow's date, so it never
+// showed up (or couldn't be approved) on the day the admin actually
+// picked. This helper fixes the day boundary to a real timezone instead
+// of the server's own clock.
+const COMPANY_TIMEZONE = "America/Chicago";
+
+function localDateKey(d: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: COMPANY_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === "year")!.value;
+  const m = parts.find((p) => p.type === "month")!.value;
+  const day = parts.find((p) => p.type === "day")!.value;
+  return `${y}-${m}-${day}`;
+}
+
 async function deactivateEmployeeAuth(linkedUserId: string) {
   await admin.auth().updateUser(linkedUserId, { disabled: true });
   await admin.auth().revokeRefreshTokens(linkedUserId);
@@ -675,7 +700,7 @@ export const onClockEventCreated = onDocumentCreated(
     // right around midnight could land on the "wrong" date row.
     if (data.type === "in") {
       const ts: Date = data.timestamp ? data.timestamp.toDate() : new Date();
-      const dateKey = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, "0")}-${String(ts.getDate()).padStart(2, "0")}`;
+      const dateKey = localDateKey(ts);
 
       await db
         .collection("companies")
@@ -1267,7 +1292,7 @@ export const setApprovalStatus = onCall(async (request) => {
       throw new HttpsError("not-found", "Timesheet approval not found.");
     }
     const ts: Date = eventData.timestamp ? eventData.timestamp.toDate() : new Date();
-    const dateKeyStr = `${ts.getFullYear()}-${String(ts.getMonth() + 1).padStart(2, "0")}-${String(ts.getDate()).padStart(2, "0")}`;
+    const dateKeyStr = localDateKey(ts);
     await approvalRef.set({
       employeeId: eventData.employeeId ?? "",
       employeeName: eventData.employeeName ?? "",

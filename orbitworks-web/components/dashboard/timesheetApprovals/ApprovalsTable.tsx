@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Plus } from "lucide-react";
 import type { ApprovalRow } from "@/lib/hooks/useTimesheetApprovals";
 import type { ClockEvent } from "@/lib/types";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
@@ -12,11 +12,13 @@ export function ApprovalsTable({
   loading,
   onSetStatus,
   onDeleteSession,
+  onAddTimestamp,
 }: {
   rows: ApprovalRow[];
   loading: boolean;
   onSetStatus: (eventId: string, status: "pending" | "approved") => Promise<void>;
   onDeleteSession: (approvalId: string, eventIds: string[]) => Promise<void>;
+  onAddTimestamp: () => void;
 }) {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<ApprovalRow | null>(null);
@@ -52,6 +54,16 @@ export function ApprovalsTable({
 
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className="flex justify-end border-b border-gray-200 px-6 py-3">
+        <button
+          type="button"
+          onClick={onAddTimestamp}
+          className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add Timestamp
+        </button>
+      </div>
       {loading ? (
         <p className="p-6 text-sm text-gray-600">Loading...</p>
       ) : rows.length === 0 ? (
@@ -121,9 +133,19 @@ export function ApprovalsTable({
                   <div className="flex justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => setEditingRow(row)}
-                      className="rounded-md p-1 text-gray-600 hover:bg-gray-100"
-                      aria-label="Edit timestamp"
+                      onClick={() => row.status !== "approved" && setEditingRow(row)}
+                      disabled={row.status === "approved"}
+                      className="rounded-md p-1 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent"
+                      aria-label={
+                        row.status === "approved"
+                          ? "Set to Pending to edit"
+                          : "Edit timestamp"
+                      }
+                      title={
+                        row.status === "approved"
+                          ? "Set to Pending to edit"
+                          : undefined
+                      }
                     >
                       <Pencil className="h-4 w-4" />
                     </button>
