@@ -41,7 +41,15 @@
         }
       ],
       "expo-font",
-      "expo-splash-screen"
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#3b6fe0"
+        }
+      ]
     ],
     "extra": {
       "eas": {

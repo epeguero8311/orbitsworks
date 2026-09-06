@@ -8,6 +8,31 @@ const db = admin.firestore();
 
 const FREE_EMPLOYEE_CAP = 8;
 
+// Matches the timezone autoClockOutStaleSessions already uses for its
+// schedule. Cloud Functions' runtime clock reads in UTC by default, so
+// computing a "which calendar day is this" date key with raw
+// Date.getFullYear()/getMonth()/getDate() silently shifts any evening
+// event (e.g. after ~7 PM Central) onto the next day once UTC crosses
+// midnight. That mismatch broke timesheetApprovals lookups: a session
+// added for "today" could get stamped with tomorrow's date, so it never
+// showed up (or couldn't be approved) on the day the admin actually
+// picked. This helper fixes the day boundary to a real timezone instead
+// of the server's own clock.
+const COMPANY_TIMEZONE = "America/Chicago";
+
+function localDateKey(d: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: COMPANY_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === "year")!.value;
+  const m = parts.find((p) => p.type === "month")!.value;
+  const day = parts.find((p) => p.type === "day")!.value;
+  return `${y}-${m}-${day}`;
+}
+
 async function deactivateEmployeeAuth(linkedUserId: string) {
   await admin.auth().updateUser(linkedUserId, { disabled: true });
   await admin.auth().revokeRefreshTokens(linkedUserId);
@@ -665,6 +690,36 @@ export const onClockEventCreated = onDocumentCreated(
         // event write and this trigger firing) - safe to ignore, this
         // field is a denormalized convenience, not the source of truth.
       });
+
+    // Every new clock-in starts a session that needs admin review before
+    // it can appear in an approved Excel export. Only fires for
+    // type == "in" - breakStart/breakEnd/out belong to a session whose
+    // approval doc was already created when that session's "in" fired.
+    // NOTE: date is derived from the function's server timezone, same
+    // simplification autoClockOutStaleSessions already makes - a clock-in
+    // right around midnight could land on the "wrong" date row.
+    if (data.type === "in") {
+      const ts: Date = data.timestamp ? data.timestamp.toDate() : new Date();
+      const dateKey = localDateKey(ts);
+
+      await db
+        .collection("companies")
+        .doc(companyId)
+        .collection("timesheetApprovals")
+        .doc(event.params.eventId)
+        .set({
+          employeeId,
+          employeeName: data.employeeName ?? "",
+          date: dateKey,
+          siteId: data.siteId ?? null,
+          siteName: data.siteName ?? "",
+          status: "pending",
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        })
+        .catch((err) => {
+          console.error("Failed to create timesheetApproval for", event.params.eventId, err);
+        });
+    }
   }
 );
 
@@ -1049,6 +1104,276 @@ export const reassignEmployeeSubcontractor = onCall(async (request) => {
     subcontractorName: newSubcontractorName,
     subcontractorHistory: admin.firestore.FieldValue.arrayUnion(assignmentRecord),
   });
+
+  return { success: true };
+});
+// Admin creates a full missing session (in/out, optional break) for a day
+// that has zero clock events at all. Writing the "in" event triggers
+// onClockEventCreated above, which auto-creates the pending
+// timesheetApproval - no separate approval-doc logic needed here.
+export const addManualTimestamp = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if (callerRole !== "admin" || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const d = request.data ?? {};
+  const employeeId = (d.employeeId ? String(d.employeeId) : "").trim();
+  const date = (d.date ? String(d.date) : "").trim();
+  const clockInTime = (d.clockInTime ? String(d.clockInTime) : "").trim();
+  const clockOutTime = (d.clockOutTime ? String(d.clockOutTime) : "").trim();
+  const breakStartTime = d.breakStartTime ? String(d.breakStartTime).trim() : null;
+  const breakEndTime = d.breakEndTime ? String(d.breakEndTime).trim() : null;
+  const siteId = d.siteId ? String(d.siteId) : null;
+  const reason = (d.reason ? String(d.reason) : "").trim();
+
+  // Company override is optional and tri-state: key absent -> use the
+  // employee's current subcontractor assignment (old behavior); key
+  // present with a string -> attribute this session to that
+  // subcontractor; key present as null/"" -> attribute to the main
+  // company regardless of the employee's current assignment.
+  const hasCompanyOverride = Object.prototype.hasOwnProperty.call(d, "subcontractorId");
+  const subcontractorIdOverride = hasCompanyOverride
+    ? (d.subcontractorId ? String(d.subcontractorId) : null)
+    : undefined;
+
+  if (!employeeId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new HttpsError("invalid-argument", "employeeId and a valid date are required.");
+  }
+  if (!/^\d{2}:\d{2}$/.test(clockInTime) || !/^\d{2}:\d{2}$/.test(clockOutTime)) {
+    throw new HttpsError("invalid-argument", "Clock in/out times must be HH:MM.");
+  }
+  if (clockOutTime <= clockInTime) {
+    throw new HttpsError("invalid-argument", "Clock out must be after clock in.");
+  }
+  if ((breakStartTime && !breakEndTime) || (!breakStartTime && breakEndTime)) {
+    throw new HttpsError("invalid-argument", "Break start and end must both be provided or both omitted.");
+  }
+  if (breakStartTime && breakEndTime && breakEndTime <= breakStartTime) {
+    throw new HttpsError("invalid-argument", "Break end must be after break start.");
+  }
+  if (!reason) {
+    throw new HttpsError("invalid-argument", "Reason is required.");
+  }
+
+  const employeeRef = db
+    .collection("companies")
+    .doc(callerCompanyId)
+    .collection("employees")
+    .doc(employeeId);
+  const employeeSnap = await employeeRef.get();
+  if (!employeeSnap.exists) {
+    throw new HttpsError("not-found", "Employee not found.");
+  }
+  const employee = employeeSnap.data() as {
+    name?: string;
+    subcontractorId?: string | null;
+    subcontractorName?: string | null;
+  };
+
+  let sessionSubcontractorId = employee.subcontractorId ?? null;
+  let sessionSubcontractorName = employee.subcontractorName ?? null;
+  if (hasCompanyOverride) {
+    if (subcontractorIdOverride) {
+      const subSnap = await db
+        .collection("companies")
+        .doc(callerCompanyId)
+        .collection("subcontractors")
+        .doc(subcontractorIdOverride)
+        .get();
+      sessionSubcontractorId = subcontractorIdOverride;
+      sessionSubcontractorName = subSnap.exists
+        ? (subSnap.data() as { name?: string }).name ?? null
+        : null;
+    } else {
+      sessionSubcontractorId = null;
+      sessionSubcontractorName = null;
+    }
+  }
+
+  let siteName = "";
+  if (siteId) {
+    const siteSnap = await db
+      .collection("companies")
+      .doc(callerCompanyId)
+      .collection("jobSites")
+      .doc(siteId)
+      .get();
+    if (siteSnap.exists) {
+      siteName = (siteSnap.data() as { name?: string }).name ?? "";
+    }
+  }
+
+  const toTimestamp = (time: string) =>
+    admin.firestore.Timestamp.fromDate(new Date(`${date}T${time}:00`));
+
+  const base = {
+    employeeId,
+    employeeName: employee.name ?? "",
+    siteId,
+    siteName,
+    source: "adminManual" as const,
+    note: reason,
+    createdByUid: request.auth.uid,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    subcontractorId: sessionSubcontractorId,
+    subcontractorName: sessionSubcontractorName,
+  };
+
+  const eventsRef = db.collection("companies").doc(callerCompanyId).collection("clockEvents");
+  const batch = db.batch();
+
+  batch.set(eventsRef.doc(), { ...base, type: "in", timestamp: toTimestamp(clockInTime) });
+  if (breakStartTime && breakEndTime) {
+    batch.set(eventsRef.doc(), { ...base, type: "breakStart", timestamp: toTimestamp(breakStartTime) });
+    batch.set(eventsRef.doc(), { ...base, type: "breakEnd", timestamp: toTimestamp(breakEndTime) });
+  }
+  batch.set(eventsRef.doc(), { ...base, type: "out", timestamp: toTimestamp(clockOutTime) });
+
+  await batch.commit();
+
+  return { success: true };
+});
+
+// Simple pending <-> approved toggle on a session's timesheetApproval doc,
+// keyed by that session's clock-in eventId. No reopen-with-reason gate -
+// the admin agreed a plain toggle is enough here.
+export const setApprovalStatus = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if (callerRole !== "admin" || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const eventId = (request.data && request.data.eventId ? String(request.data.eventId) : "").trim();
+  const status = request.data && request.data.status;
+  if (!eventId || (status !== "pending" && status !== "approved")) {
+    throw new HttpsError("invalid-argument", "eventId and a valid status are required.");
+  }
+
+  const approvalRef = db
+    .collection("companies")
+    .doc(callerCompanyId)
+    .collection("timesheetApprovals")
+    .doc(eventId);
+  const approvalSnap = await approvalRef.get();
+
+  if (!approvalSnap.exists) {
+    // Self-heal: the approval doc is normally created by onClockEventCreated
+    // right after the clock-in event, but that trigger is async and can lag
+    // behind a fast Approve click (or fail silently - it swallows its own
+    // errors). eventId IS the clock-in event's id, so we can rebuild the
+    // approval doc from that event directly instead of failing here.
+    const eventRef = db
+      .collection("companies")
+      .doc(callerCompanyId)
+      .collection("clockEvents")
+      .doc(eventId);
+    const eventSnap = await eventRef.get();
+    if (!eventSnap.exists) {
+      throw new HttpsError("not-found", "Timesheet approval not found.");
+    }
+    const eventData = eventSnap.data() as {
+      employeeId?: string;
+      employeeName?: string;
+      siteId?: string | null;
+      siteName?: string;
+      timestamp?: admin.firestore.Timestamp;
+      type?: string;
+    };
+    if (eventData.type !== "in") {
+      throw new HttpsError("not-found", "Timesheet approval not found.");
+    }
+    const ts: Date = eventData.timestamp ? eventData.timestamp.toDate() : new Date();
+    const dateKeyStr = localDateKey(ts);
+    await approvalRef.set({
+      employeeId: eventData.employeeId ?? "",
+      employeeName: eventData.employeeName ?? "",
+      date: dateKeyStr,
+      siteId: eventData.siteId ?? null,
+      siteName: eventData.siteName ?? "",
+      status: "pending",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
+
+  if (status === "approved") {
+    let approvedByName = "Admin";
+    const callerSnap = await db.collection("users").doc(request.auth.uid).get();
+    if (callerSnap.exists) {
+      const callerData = callerSnap.data() as { name?: string };
+      if (callerData.name) approvedByName = callerData.name;
+    }
+    await approvalRef.update({
+      status: "approved",
+      approvedByUid: request.auth.uid,
+      approvedByName,
+      approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } else {
+    await approvalRef.update({
+      status: "pending",
+      approvedByUid: admin.firestore.FieldValue.delete(),
+      approvedByName: admin.firestore.FieldValue.delete(),
+      approvedAt: admin.firestore.FieldValue.delete(),
+    });
+  }
+
+  return { success: true };
+});
+
+// Deletes an entire work session (clock-in, optional break events, clock-out)
+// plus its timesheetApproval doc, in one batch. eventIds must be the exact
+// event ids that make up the session - the client already has these from
+// pairing the events for display, so the server doesn't need to re-derive
+// session boundaries itself. approvalId is the clock-in event's id (how
+// timesheetApprovals docs are keyed). Irreversible - the modal confirming
+// this on the client should make that unmistakable before calling.
+export const deleteTimesheetSession = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if (callerRole !== "admin" || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const eventIds: string[] = Array.isArray(request.data?.eventIds)
+    ? request.data.eventIds.map((id: unknown) => String(id))
+    : [];
+  const approvalId = (request.data && request.data.approvalId ? String(request.data.approvalId) : "").trim();
+
+  if (eventIds.length === 0 || !approvalId) {
+    throw new HttpsError("invalid-argument", "eventIds and approvalId are required.");
+  }
+
+  const eventsRef = db.collection("companies").doc(callerCompanyId).collection("clockEvents");
+  const approvalRef = db
+    .collection("companies")
+    .doc(callerCompanyId)
+    .collection("timesheetApprovals")
+    .doc(approvalId);
+
+  // Verify every event actually belongs to this company before deleting
+  // anything - a batch has no read-then-check, so this happens up front.
+  const eventSnaps = await Promise.all(eventIds.map((id) => eventsRef.doc(id).get()));
+  const missing = eventSnaps.filter((snap) => !snap.exists);
+  if (missing.length > 0) {
+    throw new HttpsError("not-found", "One or more clock events in this session were not found.");
+  }
+
+  const batch = db.batch();
+  eventIds.forEach((id) => batch.delete(eventsRef.doc(id)));
+  batch.delete(approvalRef);
+  await batch.commit();
 
   return { success: true };
 });

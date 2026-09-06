@@ -10,6 +10,7 @@ import {
   Users,
   Building2,
   Clock,
+  ClipboardCheck,
   FileText,
   CreditCard,
   Settings as SettingsIcon,
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/employees", label: "Employees", icon: Users },
   { href: "/dashboard/sites", label: "Jobs", icon: Building2 },
   { href: "/dashboard/time", label: "Time Tracking", icon: Clock },
+  { href: "/dashboard/timesheet-approvals", label: "Approvals", icon: ClipboardCheck },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
   { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
   { href: "/dashboard/settings", label: "Settings", icon: SettingsIcon },
@@ -117,7 +119,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             const isActive =
               item.href === "/dashboard"
                 ? pathname === "/dashboard"
-                : pathname.startsWith(item.href);
+                : pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;
 
             return (

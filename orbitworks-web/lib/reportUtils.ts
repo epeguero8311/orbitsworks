@@ -5,6 +5,8 @@ import type {
   AttendanceRecord,
 } from "@/lib/types";
 
+export const APPROVALS_CUTOVER_DATE = "2026-09-04";
+
 export function formatHours(hours: number) {
   const h = Math.floor(hours);
   const m = Math.round((hours - h) * 60);
