@@ -177,6 +177,11 @@ service cloud.firestore {
       }
 
       match /timesheetApprovals/{eventId} {
+        // Admin-only, server-created. Written only by onClockEventCreated
+        // and setApprovalStatus (both Admin SDK, bypass rules entirely) -
+        // clients can read for the Approvals page but never write
+        // status/approvedBy/approvedAt directly, same lockdown pattern as
+        // adjustmentHistory on clockEvents.
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           request.auth.token.role == 'admin';

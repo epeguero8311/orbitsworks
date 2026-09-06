@@ -136,8 +136,16 @@ export function ApprovalsTable({
                       onClick={() => row.status !== "approved" && setEditingRow(row)}
                       disabled={row.status === "approved"}
                       className="rounded-md p-1 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent"
-                      aria-label={row.status === "approved" ? "Set to Pending to edit" : "Edit timestamp"}
-                      title={row.status === "approved" ? "Set to Pending to edit" : undefined}
+                      aria-label={
+                        row.status === "approved"
+                          ? "Set to Pending to edit"
+                          : "Edit timestamp"
+                      }
+                      title={
+                        row.status === "approved"
+                          ? "Set to Pending to edit"
+                          : undefined
+                      }
                     >
                       <Pencil className="h-4 w-4" />
                     </button>

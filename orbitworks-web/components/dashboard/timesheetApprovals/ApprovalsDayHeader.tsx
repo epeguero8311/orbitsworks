@@ -2,7 +2,6 @@
 
 import { useRef } from "react";
 import { Calendar } from "lucide-react";
-import { localDateKey } from "@/lib/reportUtils";
 
 export function ApprovalsDayHeader({
   date,
@@ -28,7 +27,10 @@ export function ApprovalsDayHeader({
   });
 
   function todayKey() {
-    return localDateKey(new Date());
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate()
+    ).padStart(2, "0")}`;
   }
 
   function openPicker() {

@@ -8,10 +8,16 @@ const db = admin.firestore();
 
 const FREE_EMPLOYEE_CAP = 8;
 
-// Cloud Functions' runtime clock reads in UTC. Computing a "which
-// calendar day" date key with raw Date.getFullYear()/getMonth()/getDate()
-// silently shifts any evening event onto the next day once UTC crosses
-// midnight. This anchors day boundaries to a real timezone instead.
+// Matches the timezone autoClockOutStaleSessions already uses for its
+// schedule. Cloud Functions' runtime clock reads in UTC by default, so
+// computing a "which calendar day is this" date key with raw
+// Date.getFullYear()/getMonth()/getDate() silently shifts any evening
+// event (e.g. after ~7 PM Central) onto the next day once UTC crosses
+// midnight. That mismatch broke timesheetApprovals lookups: a session
+// added for "today" could get stamped with tomorrow's date, so it never
+// showed up (or couldn't be approved) on the day the admin actually
+// picked. This helper fixes the day boundary to a real timezone instead
+// of the server's own clock.
 const COMPANY_TIMEZONE = "America/Chicago";
 
 function localDateKey(d: Date): string {
@@ -686,7 +692,12 @@ export const onClockEventCreated = onDocumentCreated(
       });
 
     // Every new clock-in starts a session that needs admin review before
-    // it can appear in an approved Excel export. Only fires for type=="in".
+    // it can appear in an approved Excel export. Only fires for
+    // type == "in" - breakStart/breakEnd/out belong to a session whose
+    // approval doc was already created when that session's "in" fired.
+    // NOTE: date is derived from the function's server timezone, same
+    // simplification autoClockOutStaleSessions already makes - a clock-in
+    // right around midnight could land on the "wrong" date row.
     if (data.type === "in") {
       const ts: Date = data.timestamp ? data.timestamp.toDate() : new Date();
       const dateKey = localDateKey(ts);
@@ -1120,6 +1131,11 @@ export const addManualTimestamp = onCall(async (request) => {
   const siteId = d.siteId ? String(d.siteId) : null;
   const reason = (d.reason ? String(d.reason) : "").trim();
 
+  // Company override is optional and tri-state: key absent -> use the
+  // employee's current subcontractor assignment (old behavior); key
+  // present with a string -> attribute this session to that
+  // subcontractor; key present as null/"" -> attribute to the main
+  // company regardless of the employee's current assignment.
   const hasCompanyOverride = Object.prototype.hasOwnProperty.call(d, "subcontractorId");
   const subcontractorIdOverride = hasCompanyOverride
     ? (d.subcontractorId ? String(d.subcontractorId) : null)
@@ -1224,7 +1240,8 @@ export const addManualTimestamp = onCall(async (request) => {
 });
 
 // Simple pending <-> approved toggle on a session's timesheetApproval doc,
-// keyed by that session's clock-in eventId.
+// keyed by that session's clock-in eventId. No reopen-with-reason gate -
+// the admin agreed a plain toggle is enough here.
 export const setApprovalStatus = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -1251,9 +1268,9 @@ export const setApprovalStatus = onCall(async (request) => {
   if (!approvalSnap.exists) {
     // Self-heal: the approval doc is normally created by onClockEventCreated
     // right after the clock-in event, but that trigger is async and can lag
-    // behind a fast Approve click (or fail silently). eventId IS the
-    // clock-in event's id, so we can rebuild the approval doc from that
-    // event directly instead of failing here.
+    // behind a fast Approve click (or fail silently - it swallows its own
+    // errors). eventId IS the clock-in event's id, so we can rebuild the
+    // approval doc from that event directly instead of failing here.
     const eventRef = db
       .collection("companies")
       .doc(callerCompanyId)
@@ -1314,7 +1331,11 @@ export const setApprovalStatus = onCall(async (request) => {
 
 // Deletes an entire work session (clock-in, optional break events, clock-out)
 // plus its timesheetApproval doc, in one batch. eventIds must be the exact
-// event ids that make up the session. Irreversible.
+// event ids that make up the session - the client already has these from
+// pairing the events for display, so the server doesn't need to re-derive
+// session boundaries itself. approvalId is the clock-in event's id (how
+// timesheetApprovals docs are keyed). Irreversible - the modal confirming
+// this on the client should make that unmistakable before calling.
 export const deleteTimesheetSession = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -1341,6 +1362,8 @@ export const deleteTimesheetSession = onCall(async (request) => {
     .collection("timesheetApprovals")
     .doc(approvalId);
 
+  // Verify every event actually belongs to this company before deleting
+  // anything - a batch has no read-then-check, so this happens up front.
   const eventSnaps = await Promise.all(eventIds.map((id) => eventsRef.doc(id).get()));
   const missing = eventSnaps.filter((snap) => !snap.exists);
   if (missing.length > 0) {

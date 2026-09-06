@@ -72,6 +72,10 @@ export default function AddTimestampModal({ defaultDate, minDate, onClose, onSub
       let breakStartTime: string | null = null;
       let breakEndTime: string | null = null;
       if (minutes > 0) {
+        // Break is placed at the start of the shift purely so there's a
+        // concrete breakStart/breakEnd pair to write - the exact placement
+        // doesn't matter for pay, since hours are net of break time either
+        // way. addMinutesToTime handles rolling over the hour/day.
         breakStartTime = clockInTime;
         breakEndTime = addMinutesToTime(clockInTime, minutes);
       }

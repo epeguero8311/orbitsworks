@@ -13,7 +13,6 @@ import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
-import { localDateKey } from "@/lib/reportUtils";
 import type { ClockEvent, TimesheetApproval } from "@/lib/types";
 
 export type ApprovalRow = {
@@ -45,6 +44,8 @@ export type ManualTimestampParams = {
   breakStartTime?: string | null;
   breakEndTime?: string | null;
   siteId: string | null;
+  // Omit entirely to use the employee's current company. null = force
+  // main company. string = a specific subcontractor id.
   subcontractorId?: string | null;
   reason: string;
 };
@@ -132,7 +133,8 @@ export function useTimesheetApprovals(date: string) {
     );
 
     const allRows: ApprovalRow[] = [];
-    const isToday = date === localDateKey(new Date());
+    const now = new Date();
+    const isToday = date === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
     byEmployee.forEach((empEvents, employeeId) => {
       const employee = activeEmployeesById.get(employeeId);

@@ -96,11 +96,12 @@ export function useReports() {
         });
 
         // ---- Timesheet approval gating ----
-        // A session whose clock-in date is on/after APPROVALS_CUTOVER_DATE
-        // must be explicitly approved on the Timesheet Approvals page to
-        // count anywhere in this report/export. Sessions before the
-        // cutover have no timesheetApprovals doc and are included exactly
-        // as they always were.
+        // A session (clock-in, any breaks, clock-out) whose clock-in date is
+        // on/after APPROVALS_CUTOVER_DATE must be explicitly approved on the
+        // Timesheet Approvals page to count anywhere in this report/export.
+        // Sessions before the cutover have no timesheetApprovals doc at all
+        // and are included exactly as they always were - this only ever
+        // restricts data from the cutover forward, never touches history.
         const approvalsRef = collection(db, "companies", userData.companyId, "timesheetApprovals");
         const approvalsQuery = query(
           approvalsRef,
@@ -114,6 +115,11 @@ export function useReports() {
           approvalStatusByClockInId.set(d.id, data.status ?? "pending");
         });
 
+        // Walk each employee's events chronologically and mark every event
+        // in an unapproved on/after-cutover session (in, any breakStart/
+        // breakEnd, and out if present) for exclusion. Sessions before the
+        // cutover are never marked, regardless of whether an approval doc
+        // happens to exist for them.
         const excludedEventIds = new Set<string>();
         const eventsByEmployeeForGating = new Map<string, EventWithDate[]>();
         for (const event of events) {

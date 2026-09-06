@@ -5,10 +5,19 @@ import type {
   AttendanceRecord,
 } from "@/lib/types";
 
-export const APPROVALS_CUTOVER_DATE = "2026-09-05";
+export const APPROVALS_CUTOVER_DATE = "2026-09-04";
 
+// Same IANA zone as functions/src/index.ts's localDateKey - keep these two
+// in sync, they must agree on which calendar day an event falls on.
 export const COMPANY_TIMEZONE = "America/Chicago";
 
+// Canonical "what calendar day is this" for anything that has to agree
+// with the timesheetApprovals.date field the Cloud Function writes.
+// dateKey() below is UTC-based and disagrees with the server's
+// Chicago-anchored date for any evening event (roughly 6pm-midnight
+// local), which can make an approved session silently fall outside the
+// gating query's date range and get excluded from an export. Always use
+// this one for approvals-related date comparisons.
 export function localDateKey(d: Date, timeZone: string = COMPANY_TIMEZONE): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
