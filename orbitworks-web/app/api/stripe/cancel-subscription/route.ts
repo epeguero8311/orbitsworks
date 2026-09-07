@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { stripe } from "@/lib/stripe/server";
+import { toClientMessage } from "@/lib/stripe/errors";
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,10 +37,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error("cancel-subscription error:", err);
-    return NextResponse.json(
-      { error: err?.message || "Something went wrong." },
-      { status: 500 }
-    );
+    const { message, status } = toClientMessage(err, "cancel-subscription");
+    return NextResponse.json({ error: message }, { status });
   }
 }
