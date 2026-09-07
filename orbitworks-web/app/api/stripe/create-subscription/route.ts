@@ -71,68 +71,87 @@ export async function POST(request: NextRequest) {
       await companyRef.update({ stripeCustomerId });
     }
 
+    // A stripeSubscriptionId can go stale - deleted directly in Stripe,
+    // or a leftover from a test/live mode mismatch. Don't let a dead
+    // reference crash checkout: if the retrieve fails with
+    // resource_missing, clear the field and fall through to creating a
+    // brand new subscription below, same recovery pattern already used
+    // for a stale stripeCustomerId in create-setup-intent.
+    let existingSub: Stripe.Subscription | null = null;
     if (company.stripeSubscriptionId) {
-      const existingSub = await stripe.subscriptions.retrieve(company.stripeSubscriptionId);
-
-      if (existingSub.status !== "canceled") {
-        const itemId = existingSub.items.data[0]?.id;
-        if (!itemId) {
-          return NextResponse.json(
-            { error: "Existing subscription has no items to update." },
-            { status: 500 }
+      try {
+        existingSub = await stripe.subscriptions.retrieve(company.stripeSubscriptionId);
+      } catch (err: any) {
+        if (err?.code === "resource_missing") {
+          console.warn(
+            `Stripe subscription ${company.stripeSubscriptionId} not found for company ${companyId}. Clearing stale reference and creating a new subscription.`
           );
+          await companyRef.update({ stripeSubscriptionId: FieldValue.delete() });
+          existingSub = null;
+        } else {
+          throw err;
         }
-
-        const updatedSub = await stripe.subscriptions.update(
-          company.stripeSubscriptionId,
-          {
-            items: [{ id: itemId, price: tier.priceId }],
-            proration_behavior: "create_prorations",
-            payment_behavior: "default_incomplete",
-            payment_settings: { payment_method_types: ["card"] },
-            expand: ["latest_invoice.payment_intent"],
-            metadata: { companyId, tierKey: tier.key },
-            ...(pendingPromotionCode
-              ? { discounts: [{ promotion_code: pendingPromotionCode }] }
-              : {}),
-          },
-          {
-            idempotencyKey:
-              "sub-update-" +
-              company.stripeSubscriptionId +
-              "-" +
-              tier.key +
-              "-" +
-              Math.floor(Date.now() / 60000),
-          }
-        );
-
-        await clearPendingPromo();
-
-        const latestInvoice = updatedSub.latest_invoice as InvoiceWithPaymentIntent | string | null;
-        const paymentIntent =
-          typeof latestInvoice === "object" && latestInvoice?.payment_intent
-            ? latestInvoice.payment_intent
-            : null;
-        const clientSecret =
-          typeof paymentIntent === "object" && paymentIntent?.client_secret
-            ? paymentIntent.client_secret
-            : null;
-
-        const piStatus =
-          typeof paymentIntent === "object" && paymentIntent?.status
-            ? paymentIntent.status
-            : null;
-        const needsConfirmation =
-          piStatus === "requires_payment_method" ||
-          piStatus === "requires_confirmation" ||
-          piStatus === "requires_action";
-
-        return NextResponse.json({
-          clientSecret: needsConfirmation ? clientSecret : null,
-          subscriptionId: updatedSub.id,
-        });
       }
+    }
+
+    if (existingSub && existingSub.status !== "canceled") {
+      const itemId = existingSub.items.data[0]?.id;
+      if (!itemId) {
+        return NextResponse.json(
+          { error: "Existing subscription has no items to update." },
+          { status: 500 }
+        );
+      }
+
+      const updatedSub = await stripe.subscriptions.update(
+        existingSub.id,
+        {
+          items: [{ id: itemId, price: tier.priceId }],
+          proration_behavior: "create_prorations",
+          payment_behavior: "default_incomplete",
+          payment_settings: { payment_method_types: ["card"] },
+          expand: ["latest_invoice.payment_intent"],
+          metadata: { companyId, tierKey: tier.key },
+          ...(pendingPromotionCode
+            ? { discounts: [{ promotion_code: pendingPromotionCode }] }
+            : {}),
+        },
+        {
+          idempotencyKey:
+            "sub-update-" +
+            existingSub.id +
+            "-" +
+            tier.key +
+            "-" +
+            Math.floor(Date.now() / 60000),
+        }
+      );
+
+      await clearPendingPromo();
+
+      const latestInvoice = updatedSub.latest_invoice as InvoiceWithPaymentIntent | string | null;
+      const paymentIntent =
+        typeof latestInvoice === "object" && latestInvoice?.payment_intent
+          ? latestInvoice.payment_intent
+          : null;
+      const clientSecret =
+        typeof paymentIntent === "object" && paymentIntent?.client_secret
+          ? paymentIntent.client_secret
+          : null;
+
+      const piStatus =
+        typeof paymentIntent === "object" && paymentIntent?.status
+          ? paymentIntent.status
+          : null;
+      const needsConfirmation =
+        piStatus === "requires_payment_method" ||
+        piStatus === "requires_confirmation" ||
+        piStatus === "requires_action";
+
+      return NextResponse.json({
+        clientSecret: needsConfirmation ? clientSecret : null,
+        subscriptionId: updatedSub.id,
+      });
     }
 
     const subscription = await stripe.subscriptions.create(
