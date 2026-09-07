@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import {
@@ -21,6 +21,7 @@ import ConfirmModal from "@/components/dashboard/billing/ConfirmModal";
 import UpdatePaymentModal from "@/components/dashboard/billing/UpdatePaymentModal";
 import PaymentMethodCard from "@/components/dashboard/billing/PaymentMethodCard";
 import PromoCodeCard from "@/components/dashboard/billing/PromoCodeCard";
+import { Toast, ToastVariant } from "@/components/Toast";
 
 const FREE_CAP = 8;
 
@@ -61,7 +62,7 @@ export default function BillingPage() {
   const { userData } = useAuth();
   const [loading, setLoading] = useState(true);
   const [company, setCompany] = useState<CompanyBilling | null>(null);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
@@ -69,6 +70,11 @@ export default function BillingPage() {
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [confirmStep, setConfirmStep] = useState<0 | 1 | 2>(0);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
+  const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null);
+
+  function showToast(message: string, variant: ToastVariant = "error") {
+    setToast({ message, variant });
+  }
 
   const {
     paymentMethod,
@@ -86,7 +92,7 @@ export default function BillingPage() {
       }
     } catch (err) {
       console.error("Load billing error:", err);
-      setError("Couldn't load billing info.");
+      setLoadError("Couldn't load billing info.");
     } finally {
       setLoading(false);
     }
@@ -108,7 +114,6 @@ export default function BillingPage() {
 
   async function startCheckout(tierKey: string) {
     if (!auth.currentUser) return;
-    setError("");
     setBusy(tierKey);
 
     try {
@@ -131,18 +136,18 @@ export default function BillingPage() {
         setClientSecret(data.clientSecret);
       } else {
         setBusy(null);
+        showToast("Plan updated.", "success");
         pollForUpdate();
       }
     } catch (err: any) {
       console.error("Checkout error:", err);
-      setError(err.message || "Couldn't start checkout. Try again.");
+      showToast(err.message || "Couldn't start checkout. Try again.", "error");
       setBusy(null);
     }
   }
 
   async function startCancel() {
     if (!auth.currentUser) return;
-    setError("");
     setBusy("cancel");
 
     try {
@@ -159,10 +164,11 @@ export default function BillingPage() {
         throw new Error(data.error || "Something went wrong.");
       }
       setBusy(null);
+      showToast("Subscription canceled.", "success");
       pollForUpdate();
     } catch (err: any) {
       console.error("Cancel error:", err);
-      setError(err.message || "Couldn't cancel your subscription. Try again.");
+      showToast(err.message || "Couldn't cancel your subscription. Try again.", "error");
       setBusy(null);
     }
   }
@@ -184,7 +190,6 @@ export default function BillingPage() {
 
   async function proceedWithTierChange(tierKey: string) {
     if (!company) return;
-    setError("");
 
     const tier = PRICE_TIERS.find((t) => t.key === tierKey);
     const isDowngradeBelowCap =
@@ -201,7 +206,7 @@ export default function BillingPage() {
         });
       } catch (err) {
         console.error("Load employees for downgrade error:", err);
-        setError("Couldn't load your employee list. Try again.");
+        showToast("Couldn't load your employee list. Try again.", "error");
       }
       return;
     }
@@ -248,13 +253,8 @@ export default function BillingPage() {
   async function handleConfirmDowngrade(selectedIds: string[]) {
     if (!pendingDowngrade || !userData?.companyId) return;
     setIsDeactivating(true);
-    setError("");
 
     try {
-      // Goes through a callable rather than a raw client batch write, so
-      // any deactivated employee with a real login also gets their Auth
-      // account disabled and refresh tokens revoked - not just their
-      // Firestore "active" field flipped.
       const deactivateEmployeesBulk = httpsCallable(functions, "deactivateEmployeesBulk");
       await deactivateEmployeesBulk({ employeeIds: selectedIds });
 
@@ -268,7 +268,7 @@ export default function BillingPage() {
       }
     } catch (err) {
       console.error("Deactivate employees error:", err);
-      setError("Couldn't update employees. Try again.");
+      showToast("Couldn't update employees. Try again.", "error");
     } finally {
       setIsDeactivating(false);
     }
@@ -282,12 +282,12 @@ export default function BillingPage() {
   async function handleCheckoutSuccess() {
     setClientSecret(null);
     setBusy(null);
+    showToast("Plan updated.", "success");
     pollForUpdate();
   }
 
   async function handleUpdatePaymentClick() {
     if (!auth.currentUser) return;
-    setError("");
     setBusy("update-payment");
 
     try {
@@ -306,7 +306,7 @@ export default function BillingPage() {
       setSetupClientSecret(data.clientSecret);
     } catch (err: any) {
       console.error("Create setup intent error:", err);
-      setError(err.message || "Couldn't start payment update. Try again.");
+      showToast(err.message || "Couldn't start payment update. Try again.", "error");
     } finally {
       setBusy(null);
     }
@@ -318,6 +318,7 @@ export default function BillingPage() {
 
   function handleUpdatePaymentSuccess() {
     setSetupClientSecret(null);
+    showToast("Payment method updated.", "success");
     pollForUpdate();
     reloadPaymentMethod();
   }
@@ -357,7 +358,9 @@ export default function BillingPage() {
       {loading ? (
         <p className="mt-8 text-sm text-gray-600">Loading...</p>
       ) : !company ? (
-        <p className="mt-8 text-sm text-gray-600">Couldn't load billing info.</p>
+        <p className="mt-8 text-sm text-gray-600">
+          {loadError || "Couldn't load billing info."}
+        </p>
       ) : (
         <div className="mt-8 max-w-2xl space-y-6">
           {isPastDue && (
@@ -474,8 +477,6 @@ export default function BillingPage() {
               </div>
             </div>
           </div>
-
-          {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
       )}
 
@@ -548,6 +549,13 @@ export default function BillingPage() {
           onConfirm={handleConfirmDowngrade}
         />
       )}
+
+      <Toast
+        visible={!!toast}
+        message={toast?.message ?? ""}
+        variant={toast?.variant ?? "error"}
+        onClose={() => setToast(null)}
+      />
     </div>
   );
 }

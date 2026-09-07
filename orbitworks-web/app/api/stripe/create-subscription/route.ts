@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
@@ -8,6 +8,21 @@ import { getTierByKey } from "@/lib/stripe/tiers";
 type InvoiceWithPaymentIntent = Stripe.Invoice & {
   payment_intent: Stripe.PaymentIntent | string | null;
 };
+
+function toClientMessage(err: unknown): { message: string; status: number } {
+  if (err instanceof Stripe.errors.StripeCardError) {
+    return { message: err.message || "Your card was declined.", status: 402 };
+  }
+  if (err instanceof Stripe.errors.StripeError) {
+    console.error("Stripe config/request error:", err);
+    return {
+      message: "Something went wrong on our end. Please try again or contact support.",
+      status: 500,
+    };
+  }
+  console.error("Unexpected create-subscription error:", err);
+  return { message: "Something went wrong. Please try again.", status: 500 };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -118,7 +133,7 @@ export async function POST(request: NextRequest) {
             ? paymentIntent.client_secret
             : null;
 
-    const piStatus =
+        const piStatus =
           typeof paymentIntent === "object" && paymentIntent?.status
             ? paymentIntent.status
             : null;
@@ -167,10 +182,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ clientSecret, subscriptionId: subscription.id });
   } catch (err: any) {
-    console.error("create-subscription error:", err);
-    return NextResponse.json(
-      { error: err?.message || "Something went wrong." },
-      { status: 500 }
-    );
+    const { message, status } = toClientMessage(err);
+    return NextResponse.json({ error: message }, { status });
   }
 }
