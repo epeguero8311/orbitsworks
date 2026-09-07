@@ -57,7 +57,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // A stripeCustomerId can go stale the same way a subscription can -
+    // deleted directly in Stripe, or a leftover from a test/live mode
+    // mismatch. Verify it actually exists before trusting it; if not,
+    // clear it and create a fresh customer. Same pattern already used
+    // in create-setup-intent.
     let stripeCustomerId = company.stripeCustomerId ?? null;
+
+    if (stripeCustomerId) {
+      try {
+        await stripe.customers.retrieve(stripeCustomerId);
+      } catch (err: any) {
+        if (err?.code === "resource_missing") {
+          console.warn(
+            `Stripe customer ${stripeCustomerId} not found for company ${companyId}. Creating a new one (likely test/live mode mismatch or deleted customer).`
+          );
+          stripeCustomerId = null;
+        } else {
+          throw err;
+        }
+      }
+    }
 
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create(
@@ -65,18 +85,16 @@ export async function POST(request: NextRequest) {
           name: company.name || undefined,
           metadata: { companyId },
         },
-        { idempotencyKey: `customer-create-${companyId}` }
+        { idempotencyKey: `customer-create-${companyId}-${Math.floor(Date.now() / 60000)}` }
       );
       stripeCustomerId = customer.id;
       await companyRef.update({ stripeCustomerId });
     }
 
-    // A stripeSubscriptionId can go stale - deleted directly in Stripe,
-    // or a leftover from a test/live mode mismatch. Don't let a dead
+    // A stripeSubscriptionId can go stale the same way. Don't let a dead
     // reference crash checkout: if the retrieve fails with
     // resource_missing, clear the field and fall through to creating a
-    // brand new subscription below, same recovery pattern already used
-    // for a stale stripeCustomerId in create-setup-intent.
+    // brand new subscription below.
     let existingSub: Stripe.Subscription | null = null;
     if (company.stripeSubscriptionId) {
       try {
