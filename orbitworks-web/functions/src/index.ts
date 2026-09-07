@@ -154,6 +154,15 @@ export const createCompany = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "A valid name is required.");
   }
 
+  const agreedToTerms = request.data && request.data.agreedToTerms === true;
+  const termsVersion = (request.data && request.data.termsVersion ? String(request.data.termsVersion) : "").trim();
+  if (!agreedToTerms) {
+    throw new HttpsError("failed-precondition", "You must agree to the Terms and Conditions.");
+  }
+  if (!termsVersion || termsVersion.length > 50) {
+    throw new HttpsError("invalid-argument", "Missing terms version.");
+  }
+
   const existingUserDoc = await db.collection("users").doc(uid).get();
   if (existingUserDoc.exists) {
     throw new HttpsError("already-exists", "This account is already set up.");
@@ -197,6 +206,8 @@ export const createCompany = onCall(async (request) => {
     email: email,
     name: name,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    agreedToTermsAt: admin.firestore.FieldValue.serverTimestamp(),
+    termsVersion: termsVersion,
   });
 
   await batch.commit();

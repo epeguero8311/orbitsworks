@@ -11,30 +11,8 @@ import {
 import { httpsCallable } from "firebase/functions";
 import { auth, functions } from "@/lib/firebase";
 import { getAuthErrorMessage, AuthErrorField } from "@/lib/authErrorMessage";
+import { TERMS_VERSION } from "@/components/legal/TermsContent";
 import { Orbit, Eye, EyeOff } from "lucide-react";
-
-function GoogleIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
-      <path
-        fill="#EA4335"
-        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-      />
-      <path
-        fill="#4285F4"
-        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.9-2.26 5.36-4.78 7.02l7.73 6c4.51-4.18 7.09-10.36 7.09-17.49z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M10.53 28.59a14.5 14.5 0 0 1-.76-4.59c0-1.59.27-3.13.76-4.59l-7.98-6.19A23.94 23.94 0 0 0 0 24c0 3.87.92 7.53 2.56 10.78l7.97-6.19z"
-      />
-      <path
-        fill="#34A853"
-        d="M24 48c6.48 0 11.92-2.14 15.89-5.83l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.97 6.19C6.51 42.62 14.62 48 24 48z"
-      />
-    </svg>
-  );
-}
 
 export default function SignupPage() {
   const router = useRouter();
@@ -42,11 +20,11 @@ export default function SignupPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [error, setError] = useState("");
   const [errorField, setErrorField] = useState<AuthErrorField>("none");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [googleNotice, setGoogleNotice] = useState(false);
 
   const emailHasError = errorField === "email" || errorField === "credentials";
   const passwordHasError = errorField === "password" || errorField === "credentials";
@@ -62,6 +40,13 @@ export default function SignupPage() {
     e.preventDefault();
     setError("");
     setErrorField("none");
+
+    if (!agreedToTerms) {
+      setError("You must agree to the Terms and Conditions to continue.");
+      setErrorField("none");
+      return;
+    }
+
     setIsSubmitting(true);
 
     let user: User | null = null;
@@ -88,9 +73,16 @@ export default function SignupPage() {
 
     try {
       // 2. Create the company + admin user doc server-side, with a fresh
-      // companyId the client never gets to choose or influence.
+      // companyId the client never gets to choose or influence. Terms
+      // agreement is re-validated server-side in createCompany - the
+      // client-side checkbox/disabled-button is UX only, not the real gate.
       const createCompany = httpsCallable(functions, "createCompany");
-      await createCompany({ companyName, name });
+      await createCompany({
+        companyName,
+        name,
+        agreedToTerms,
+        termsVersion: TERMS_VERSION,
+      });
 
       // 3. Refresh the ID token so the new custom claims (role, companyId)
       // are active before we land on the dashboard.
@@ -282,6 +274,38 @@ export default function SignupPage() {
               </div>
             </div>
 
+            <div className="mb-5">
+              <label className="flex items-start gap-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={agreedToTerms}
+                  onChange={(e) => {
+                    setAgreedToTerms(e.target.checked);
+                    clearError();
+                  }}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-accent focus:ring-accent"
+                />
+                <span>
+                  I agree to the{" "}
+                  <Link
+                    href="/terms"
+                    target="_blank"
+                    className="font-medium text-accent underline"
+                  >
+                    Terms and Conditions
+                  </Link>{" "}
+                  and{" "}
+                  <Link
+                    href="/privacy"
+                    target="_blank"
+                    className="font-medium text-accent underline"
+                  >
+                    Privacy Policy
+                  </Link>
+                </span>
+              </label>
+            </div>
+
             {error && (
               <p className="mb-4 text-sm text-red-600" role="alert">
                 {error}
@@ -290,31 +314,11 @@ export default function SignupPage() {
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !agreedToTerms}
               className="w-full rounded-lg bg-accent px-3.5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
             >
               {isSubmitting ? "Creating account..." : "Create account"}
             </button>
-
-            <div className="my-5 flex items-center gap-3">
-              <div className="h-px flex-1 bg-gray-200" />
-              <span className="text-xs text-gray-600">or</span>
-              <div className="h-px flex-1 bg-gray-200" />
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setGoogleNotice(true)}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm font-medium text-gray-950 transition-colors hover:border-gray-300"
-            >
-              <GoogleIcon />
-              Continue with Google
-            </button>
-            {googleNotice && (
-              <p className="mt-2 text-center text-xs text-gray-600">
-                Google sign-in isn't set up yet - coming soon.
-              </p>
-            )}
 
             <p className="mt-5 text-center text-sm text-gray-600">
               Already have an account?{" "}
