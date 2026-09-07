@@ -5,7 +5,7 @@ import type {
   AttendanceRecord,
 } from "@/lib/types";
 
-export const APPROVALS_CUTOVER_DATE = "2026-09-04";
+export const APPROVALS_CUTOVER_DATE = "2026-09-06";
 
 // Same IANA zone as functions/src/index.ts's localDateKey - keep these two
 // in sync, they must agree on which calendar day an event falls on.
