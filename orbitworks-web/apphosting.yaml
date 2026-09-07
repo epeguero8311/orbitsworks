@@ -1,4 +1,4 @@
-runConfig:
+﻿runConfig:
   minInstances: 0
   maxInstances: 3
 env:
@@ -29,6 +29,31 @@ env:
       - RUNTIME
   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
     value: "1:248478616055:web:53a3de3a6b2632f61ac6f2"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_TIER1
+    value: "price_1U3lFsLSMIEeUJkgvgIe2yJw"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_TIER2
+    value: "price_1U3lGJLSMIEeUJkg67cg6UYm"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_TIER3
+    value: "price_1U3lGbLSMIEeUJkgJ5yU1aMB"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_TIER4
+    value: "price_1U3lH9LSMIEeUJkg48VPkUjl"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_TIER5
+    value: "price_1U3lHMLSMIEeUJkggB9klwFz"
     availability:
       - BUILD
       - RUNTIME
