@@ -1,4 +1,4 @@
-import NetInfo from "@react-native-community/netinfo";
+﻿import NetInfo from "@react-native-community/netinfo";
 import * as FileSystem from "expo-file-system/legacy";
 import { doc, setDoc, Timestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -6,6 +6,12 @@ import { db as firestoreDb, storage } from "./firebase";
 import { getDb } from "./db";
 
 let syncing = false;
+
+// How long a synced row stays in event_queue before cleanup deletes it.
+// Must stay well above any realistic onSnapshot round-trip delay so the
+// overlay in useLocalStatusOverlay.js never falls back to stale live
+// data while Firestore is still catching up.
+const SYNCED_RETENTION_MS = 60 * 60 * 1000; // 1 hour
 
 async function uploadPhoto(companyId, employeeId, localUri) {
   const response = await fetch(localUri);
@@ -54,7 +60,31 @@ async function syncOne(sqlite, item, companyId) {
     await FileSystem.deleteAsync(item.photoLocalUri, { idempotent: true });
   }
 
-  await sqlite.runAsync("DELETE FROM event_queue WHERE localId = ?", [item.localId]);
+  // Do NOT delete on success - mark 'synced' and keep the row instead.
+  // Deleting immediately opened a race: the local override in
+  // useLocalStatusOverlay disappeared the instant this write finished,
+  // but the onSnapshot listener feeding useTodayShift can take a beat
+  // to catch up, so the UI flashed back to the pre-sync status until it
+  // arrived (the live count flicker). Keeping the row also means
+  // getCurrentLocalStatus (clockStatusLocal.js) always resolves from
+  // real local history instead of falling back to pin_cache.lastEventType,
+  // which only refreshes on pull-to-refresh/login and was the direct
+  // cause of the wrong Clock In/Out confirmation message.
+  await sqlite.runAsync(
+    "UPDATE event_queue SET syncStatus = 'synced' WHERE localId = ?",
+    [item.localId]
+  );
+}
+
+// Purges old synced rows so event_queue doesn't grow unbounded. Safe to
+// call often - only ever removes rows already confirmed written to
+// Firestore, well past any possible listener catch-up delay.
+export async function cleanupSyncedQueueItems() {
+  const sqlite = await getDb();
+  await sqlite.runAsync(
+    "DELETE FROM event_queue WHERE syncStatus = 'synced' AND clientTimestamp < ?",
+    [Date.now() - SYNCED_RETENTION_MS]
+  );
 }
 
 export async function drainQueue(companyId) {
@@ -64,6 +94,8 @@ export async function drainQueue(companyId) {
 
   syncing = true;
   try {
+    await cleanupSyncedQueueItems().catch(() => {});
+
     const sqlite = await getDb();
     const pending = await sqlite.getAllAsync(
       "SELECT * FROM event_queue WHERE syncStatus IN ('pending','failed') ORDER BY clientTimestamp ASC"

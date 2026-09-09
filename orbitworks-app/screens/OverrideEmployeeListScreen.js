@@ -34,10 +34,14 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
     return employees;
   }, [employees, selectedSite, isNoneSite]);
 
+  const STATUS_SORT_ORDER = { in: 0, break: 0, out: 1 };
+
   const eligible = useMemo(() => {
-    return bySite.filter((e) =>
-      direction === "in" ? e.status === "out" : e.status === "in" || e.status === "break"
-    );
+    return bySite
+      .filter((e) =>
+        direction === "in" ? e.status === "out" : e.status === "in" || e.status === "break"
+      )
+      .sort((a, b) => STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status]);
   }, [bySite, direction]);
 
   function handleDirectionChange(next) {

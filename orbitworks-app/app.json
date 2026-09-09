@@ -49,7 +49,9 @@
           "resizeMode": "contain",
           "backgroundColor": "#3b6fe0"
         }
-      ]
+      ],
+      "expo-sqlite",
+      "expo-status-bar"
     ],
     "extra": {
       "eas": {

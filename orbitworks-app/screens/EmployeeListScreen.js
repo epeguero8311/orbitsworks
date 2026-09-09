@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { View, Text, TextInput, FlatList, StyleSheet } from "react-native";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
@@ -6,30 +6,27 @@ import { useTodayShift } from "../lib/hooks/useTodayShift";
 import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
 import ScreenHeader from "../components/ScreenHeader";
 import Avatar from "../components/Avatar";
-
 const STATUS_LABEL = { in: "In", break: "On Break", out: "Out" };
-
+// Clocked in/on break sort before clocked out - matches
+// OverrideEmployeeListScreen's ordering.
+const STATUS_SORT_ORDER = { in: 0, break: 0, out: 1 };
 export default function EmployeeListScreen({ navigation }) {
   const { userData } = useAuth();
   const { colors } = useTheme();
   const { employees: liveEmployees } = useTodayShift(userData?.companyId);
   const employees = useLocalStatusOverlay(liveEmployees);
   const [search, setSearch] = useState("");
-
-  const filtered = employees.filter((e) =>
-    e.name?.toLowerCase().includes(search.trim().toLowerCase())
-  );
-
+  const filtered = employees
+    .filter((e) => e.name?.toLowerCase().includes(search.trim().toLowerCase()))
+    .sort((a, b) => STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status]);
   const dotColor = (status, colors) => {
     if (status === "in") return colors.green;
     if (status === "break") return colors.accent;
     return colors.dotOff;
   };
-
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Employees" onBack={() => navigation.goBack()} />
-
       <View style={styles.searchWrap}>
         <TextInput
           style={[styles.search, { borderColor: colors.border, color: colors.text, backgroundColor: colors.card }]}
@@ -39,7 +36,6 @@ export default function EmployeeListScreen({ navigation }) {
           onChangeText={setSearch}
         />
       </View>
-
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
@@ -64,7 +60,6 @@ export default function EmployeeListScreen({ navigation }) {
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
   searchWrap: { paddingHorizontal: 20, paddingTop: 16 },

@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -11,7 +11,8 @@ const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
 
 // Identifies who is authorizing a break action, not who is going on break -
 // the target employees are picked from a list on the next screen. This PIN
-// exists so every break event records who was responsible for it.
+// exists so every break event records who was responsible for it. Only
+// supervisors can authorize - same restriction as Supervisor Override.
 export default function BreaksPinEntryScreen({ navigation }) {
   const { userData } = useAuth();
   const { colors } = useTheme();
@@ -42,6 +43,13 @@ export default function BreaksPinEntryScreen({ navigation }) {
       if (!employee) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setError("PIN not recognized");
+        setPin("");
+        return;
+      }
+
+      if (!employee.isSupervisor) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setError("Only supervisors can manage breaks");
         setPin("");
         return;
       }

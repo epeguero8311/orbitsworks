@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+﻿import { useCallback, useEffect, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import { getDb } from "../db";
 import { deriveStatus } from "../clockStatus";
 import { subscribeQueueChange } from "../queueEvents";
+
+// A just-synced row stays authoritative for this long after its own
+// clientTimestamp, so a live Firestore listener that has not caught up
+// yet cannot momentarily override it back to the pre-sync status. Must
+// match/exceed SYNCED_RETENTION assumptions in queueSync.js in spirit -
+// this only needs to cover realistic onSnapshot round-trip time, not
+// full retention.
+const GRACE_MS = 30000;
 
 export function useLocalStatusOverlay(employees) {
   const [merged, setMerged] = useState(employees);
@@ -17,7 +25,9 @@ export function useLocalStatusOverlay(employees) {
       `SELECT employeeId, type, MAX(clientTimestamp) as latestTs
        FROM event_queue
        WHERE syncStatus IN ('pending','syncing','failed')
-       GROUP BY employeeId`
+          OR (syncStatus = 'synced' AND clientTimestamp > ?)
+       GROUP BY employeeId`,
+      [Date.now() - GRACE_MS]
     );
     if (rows.length === 0) {
       setMerged(employees);
