@@ -1,4 +1,4 @@
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+﻿import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onDocumentWritten, onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
@@ -1219,8 +1219,17 @@ export const addManualTimestamp = onCall(async (request) => {
     }
   }
 
+  function zonedTimeToUtc(dateStr: string, timeStr: string, timeZone: string): Date {
+    const [year, month, day] = dateStr.split("-").map(Number);
+    const [hour, minute] = timeStr.split(":").map(Number);
+    const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute));
+    const asIfLocal = new Date(utcGuess.toLocaleString("en-US", { timeZone }));
+    const offset = utcGuess.getTime() - asIfLocal.getTime();
+    return new Date(utcGuess.getTime() + offset);
+  }
+
   const toTimestamp = (time: string) =>
-    admin.firestore.Timestamp.fromDate(new Date(`${date}T${time}:00`));
+    admin.firestore.Timestamp.fromDate(zonedTimeToUtc(date, time, COMPANY_TIMEZONE));
 
   const base = {
     employeeId,
@@ -1388,3 +1397,4 @@ export const deleteTimesheetSession = onCall(async (request) => {
 
   return { success: true };
 });
+
