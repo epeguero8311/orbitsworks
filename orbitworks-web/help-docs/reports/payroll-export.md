@@ -22,3 +22,5 @@ Sidebar > Reports. "Export" dropdown is top-right, next to the page title. The p
 
 ## What you'll see
 The Export button only appears once a report has finished calculating for the current date range - it's hidden while loading or before you've run a report.
+
+Any sessions still pending approval on the Timesheet Approvals page (for dates on/after the approvals cutover date) are excluded from every export here - Payroll, Timesheets, Employees, and Attendance - until approved. Their hours won't appear in totals at all.

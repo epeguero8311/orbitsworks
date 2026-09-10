@@ -3,7 +3,9 @@ title: "Inviting a Supervisor"
 category: employees
 keywords: [invite supervisor, add supervisor, new supervisor, supervisor login, invite link,
  supervisor email invite, cancel invite, pending invite, how do i add a supervisor,
- supervisor signup link]
+ supervisor signup link, turn employee into supervisor, convert employee to supervisor,
+ promote employee to supervisor, make employee a supervisor, existing employee supervisor,
+ upgrade employee to supervisor]
 ---
 
 ## What
@@ -26,3 +28,6 @@ Sidebar > Employees > "Supervisors" section (below the employees table).
 ## What you'll see
 - You can't send a second pending invite to the same email - it's blocked with "There's already a pending invite for that email."
 - Pending invites can be canceled with a confirmation step before the supervisor accepts.
+
+## Turning an existing employee into a supervisor
+There's no direct "convert" button. If someone already has a regular employee record, invite them the same way as a new supervisor - use their email in the Supervisors section above. Accepting the invite creates their own login and a separate supervisor record; it does not modify their old employee record. Once they've accepted, go deactivate their original employee record so they're not listed twice.

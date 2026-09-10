@@ -13,24 +13,29 @@ function getClient(): Anthropic {
 
 const MAX_TOKENS = 400;
 
-function buildSystemPrompt(doc: HelpDoc): string {
+function buildSystemPrompt(docs: HelpDoc[]): string {
+  const docBlocks = docs
+    .map((doc) => `--- DOC: ${doc.title} ---\n${doc.body}\n--- END DOC ---`)
+    .join("\n\n");
+
   return [
     "You are the OrbitsWorks in-app help assistant.",
-    "Answer ONLY using the documentation snippet below. Do not use outside knowledge about OrbitsWorks or any other product.",
-    "If the question cannot be answered from this snippet, say you don't have information on that and suggest contacting support. Do not guess.",
+    "Below are several documentation snippets that a search step judged as possibly relevant. Not all of them necessarily apply.",
+    "Answer ONLY using information found in these snippets. Do not use outside knowledge about OrbitsWorks or any other product.",
+    "The user's wording will often differ from the docs' wording (e.g. they say 'convert', 'promote', 'turn into', or 'upgrade' where a doc describes 'invite'). If a snippet describes a process that actually achieves what they're asking for, treat that as answering the question and explain it using that process - do not withhold the answer just because the exact verb differs.",
+    "If the answer requires combining steps from more than one snippet, do that naturally in one coherent answer.",
+    "Only say you don't have information on something if none of the snippets describe a process that achieves it. Do not invent steps that aren't in the docs, and do not stretch a snippet to answer a genuinely different question.",
     "Keep answers short and direct, 2-4 sentences unless steps are needed.",
     "Never mention Firestore, database fields, internal collection names, or implementation details.",
     "Do not use asterisks or bold text, the chat window renders plain text only.",
     "When your answer has more than one step or item, put each one on its own line starting with a dash and a space. Leave a blank line between a short intro sentence and the list. Keep each bullet short.",
     "IMPORTANT: Detect the language of the user's question yourself and respond entirely in that same language, regardless of what language this instruction or the documentation below is written in. If they ask in Spanish, your whole reply must be in Spanish. If they ask in English, reply in English. Never mix languages and never mention that you are translating.",
     "",
-    "--- DOC: " + doc.title + " ---",
-    doc.body,
-    "--- END DOC ---",
+    docBlocks,
   ].join("\n");
 }
 
-export async function askAI(question: string, doc: HelpDoc, history: HelpChatMessage[]): Promise<string> {
+export async function askAI(question: string, docs: HelpDoc[], history: HelpChatMessage[]): Promise<string> {
   const anthropic = getClient();
 
   const messages: Anthropic.MessageParam[] = [
@@ -41,7 +46,7 @@ export async function askAI(question: string, doc: HelpDoc, history: HelpChatMes
   const response = await anthropic.messages.create({
     model: "claude-haiku-4-5",
     max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(doc),
+    system: buildSystemPrompt(docs),
     messages,
   });
 

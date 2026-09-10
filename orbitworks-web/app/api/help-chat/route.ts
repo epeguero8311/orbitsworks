@@ -62,16 +62,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ answer: GREETING_RESPONSE, matchedDoc: null });
   }
 
-  // 6. Doc search
+  // 6. Doc search - now returns up to 3 candidates, not a single winner
   if (process.env.NODE_ENV !== "production") {
     console.log("SEARCH DEBUG for:", question);
     for (const r of debugSearch(question)) {
       console.log("  ", r.doc.slug, "score:", r.score);
     }
   }
-  const match = searchDocs(question);
+  const matches = searchDocs(question);
 
-  if (!match) {
+  if (matches.length === 0) {
     await adminDb.collection("helpChatMisses").add({
       question,
       companyId,
@@ -80,10 +80,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ answer: NO_MATCH_RESPONSE, matchedDoc: null });
   }
 
-  // 7. AI call - wrapped so billing/outage/key issues degrade gracefully instead of a raw 500
+  // 7. AI call - wrapped so billing/outage/key issues degrade gracefully instead of a raw 500.
+  // The AI now sees every candidate doc, not just the top-scored one, so it can
+  // pick the right one (or combine them) instead of being locked into a bad ranking.
   let answer: string;
   try {
-    answer = await askAI(question, match.doc, conversationHistory);
+    answer = await askAI(question, matches.map((m) => m.doc), conversationHistory);
   } catch (err) {
     console.error("askAI failed:", err);
     await adminDb.collection("helpChatErrors").add({
@@ -96,15 +98,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ answer: ERROR_FALLBACK_RESPONSE, matchedDoc: null });
   }
 
-  // 8. Log the answered exchange for review
+  // 8. Log the answered exchange for review.
+  // matchedDocs (plural) is every candidate the AI actually saw - useful for
+  // debugging ranking quality. matchedDoc (singular, top match) is what goes
+  // back to the client, since the existing feedback UI is wired to one doc.
+  const matchedDocs = matches.map((m) => m.doc.slug);
   await adminDb.collection("helpChatLogs").add({
     question,
-    matchedDoc: match.doc.slug,
+    matchedDocs,
     answer,
     companyId,
     uid,
     timestamp: new Date(),
   });
 
-  return NextResponse.json({ answer, matchedDoc: match.doc.slug });
+  return NextResponse.json({ answer, matchedDoc: matchedDocs[0] });
 }
