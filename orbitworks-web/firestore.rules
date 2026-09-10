@@ -189,6 +189,25 @@ service cloud.firestore {
       }
     }
 
+    // Help-chat telemetry - server-only, written by the Admin SDK from
+    // app/api/help-chat/route.ts and lib/help-chat/rateLimit.ts. This is
+    // internal training/eval data (what answered well, what missed, what
+    // errored) - not a user-facing feature, so no client, including admins,
+    // ever needs to read or write it. Explicit deny rather than relying on
+    // the trailing catch-all, same pattern as /pins.
+    match /helpChatLimits/{docId} {
+      allow read, write: if false;
+    }
+    match /helpChatLogs/{logId} {
+      allow read, write: if false;
+    }
+    match /helpChatMisses/{missId} {
+      allow read, write: if false;
+    }
+    match /helpChatErrors/{errId} {
+      allow read, write: if false;
+    }
+
     match /invites/{inviteId} {
       allow create: if request.auth != null &&
         request.auth.token.role == 'admin' &&
