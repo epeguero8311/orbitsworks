@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   createContext,
@@ -85,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       setCurrentUser(user);
+      if (user) user.getIdToken().then((t) => console.log('DEV TOKEN:', t));
 
       if (user) {
         const userDocRef = doc(db, "users", user.uid);

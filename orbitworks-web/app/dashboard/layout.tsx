@@ -22,6 +22,7 @@ import {
 import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { PastDueBanner } from "@/components/PastDueBanner";
+import { HelpChat } from "@/components/help-chat/HelpChat";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutGrid },
@@ -41,8 +42,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
+  const [planTier, setPlanTier] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
   useEffect(() => {
     if (!loading && !currentUser) {
       router.push("/login");
@@ -61,6 +62,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       setCompanyName(data?.name ?? null);
       setLogoUrl(data?.logoUrl ?? null);
       setSubscriptionStatus(data?.subscriptionStatus ?? null);
+      setPlanTier(data?.planTier ?? null);
     });
     return unsubscribe;
   }, [userData?.companyId]);
@@ -173,6 +175,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
           {children}
         </div>
+        <HelpChat isSubscribed={subscriptionStatus === "active" && planTier !== "free"} />
       </main>
     </div>
   );
