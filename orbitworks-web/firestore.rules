@@ -135,6 +135,7 @@ service cloud.firestore {
         allow create: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           isValidClockEventType(request.resource.data) &&
+          isActiveEmployee(companyId, request.resource.data.employeeId) &&
           (
             request.auth.token.role == 'admin' ||
             (request.auth.token.role == 'supervisor' &&
@@ -144,7 +145,7 @@ service cloud.firestore {
         allow update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['timestamp', 'adjustedTimestamp', 'adjustmentHistory', 'employeeId', 'employeeName', 'subcontractorId', 'subcontractorName']) &&
+            .hasAny(['type', 'timestamp', 'adjustedTimestamp', 'adjustmentHistory', 'employeeId', 'employeeName', 'subcontractorId', 'subcontractorName']) &&
           (
             request.auth.token.role == 'admin' ||
             isIdempotentReplay(companyId)
