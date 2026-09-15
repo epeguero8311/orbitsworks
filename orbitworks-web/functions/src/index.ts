@@ -8,6 +8,14 @@ const db = admin.firestore();
 
 const FREE_EMPLOYEE_CAP = 8;
 
+// Same bound as overrideReasonSchema (lib/validators/overrideReason.ts) and
+// OverrideReasonScreen.js's MIN_LENGTH/MAX_LENGTH - kept in sync manually
+// since this package can't import across the app/web boundary. firestore.rules
+// enforces this same bound at write time, so this is a belt-and-suspenders
+// check rather than the only line of defense.
+const OVERRIDE_REASON_MIN_LENGTH = 10;
+const OVERRIDE_REASON_MAX_LENGTH = 500;
+
 // Matches the timezone autoClockOutStaleSessions already uses for its
 // schedule. Cloud Functions' runtime clock reads in UTC by default, so
 // computing a "which calendar day is this" date key with raw
@@ -710,7 +718,11 @@ export const onClockEventCreated = onDocumentCreated(
     // simplification autoClockOutStaleSessions already makes - a clock-in
     // right around midnight could land on the "wrong" date row.
     const isReasonedOverride =
-      data.source === "supervisorOverride" && !!data.reason && !!data.overrideEventId;
+      data.source === "supervisorOverride" &&
+      typeof data.reason === "string" &&
+      data.reason.length >= OVERRIDE_REASON_MIN_LENGTH &&
+      data.reason.length <= OVERRIDE_REASON_MAX_LENGTH &&
+      !!data.overrideEventId;
 
     if (data.type === "in") {
       const ts: Date = data.timestamp ? data.timestamp.toDate() : new Date();

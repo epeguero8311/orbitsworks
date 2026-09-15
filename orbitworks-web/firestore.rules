@@ -21,6 +21,37 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/companies/$(companyId)/employees/$(uid)).data.active == true;
     }
 
+    function isActiveSupervisor(companyId, employeeId) {
+      let e = get(/databases/$(database)/documents/companies/$(companyId)/employees/$(employeeId)).data;
+      return e.active == true && e.isSupervisor == true;
+    }
+
+    function requiresOverrideReason(companyId) {
+      return companyOf(companyId).get('attendanceRules', {}).get('requireOverrideReason', true);
+    }
+
+    // A supervisorOverride clock event must name a real, currently active
+    // supervisor as authorizedById (not just any client-supplied string) so
+    // the audit trail this feature exists to build can't be self-forged by
+    // whoever already has write access to clockEvents. reason, if present,
+    // must always be well-formed (matches overrideReasonSchema's 10-500
+    // bound); it's only required to be present when the company's
+    // "Require Reason for Supervisor Overrides" setting is on - enforced
+    // here rather than only in OverrideReasonScreen.js so it can't be
+    // skipped by writing directly to Firestore.
+    function isValidOverride(companyId, data) {
+      return data.source != 'supervisorOverride' ||
+        (
+          data.authorizedById is string &&
+          isActiveSupervisor(companyId, data.authorizedById) &&
+          (
+            data.reason == null ||
+            (data.reason is string && data.reason.size() >= 10 && data.reason.size() <= 500)
+          ) &&
+          (!requiresOverrideReason(companyId) || data.reason != null)
+        );
+    }
+
     function isValidClockEventType(data) {
       return data.type in ['in', 'out', 'breakStart', 'breakEnd'];
     }
@@ -141,7 +172,8 @@ service cloud.firestore {
             (request.auth.token.role == 'supervisor' &&
              isActiveEmployee(companyId, request.auth.uid))
           ) &&
-          request.resource.data.createdByUid == request.auth.uid;
+          request.resource.data.createdByUid == request.auth.uid &&
+          isValidOverride(companyId, request.resource.data);
         allow update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
@@ -195,7 +227,8 @@ service cloud.firestore {
         // a reason. Same lockdown pattern as timesheetApprovals - clients
         // read for the Approvals page's override-detail view, never write.
         allow read: if request.auth != null &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          request.auth.token.role == 'admin';
         allow write: if false;
       }
     }

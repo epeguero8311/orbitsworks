@@ -11,6 +11,7 @@ export default function SubcontractorsSection() {
     addSubcontractor,
     updateSubcontractor,
     toggleSubcontractorActive,
+    deleteSubcontractor,
   } = useSubcontractors();
 
   const sortedSubcontractors = [...subcontractors].sort(
@@ -32,6 +33,7 @@ export default function SubcontractorsSection() {
   const [editSubPhone, setEditSubPhone] = useState("");
   const [editSubAddress, setEditSubAddress] = useState("");
   const [editSubError, setEditSubError] = useState("");
+  const [confirmingDeleteSub, setConfirmingDeleteSub] = useState(false);
 
   async function handleAddSubcontractor(e: FormEvent) {
     e.preventDefault();
@@ -67,11 +69,13 @@ export default function SubcontractorsSection() {
     setEditSubPhone(subcontractor.phone ?? "");
     setEditSubAddress(subcontractor.address ?? "");
     setEditSubError("");
+    setConfirmingDeleteSub(false);
   }
 
   function cancelEditSub() {
     setEditingSubId(null);
     setEditSubError("");
+    setConfirmingDeleteSub(false);
   }
 
   async function saveEditSub(subcontractor: Subcontractor) {
@@ -93,6 +97,18 @@ export default function SubcontractorsSection() {
     } catch (err) {
       console.error("Edit subcontractor error:", err);
       setEditSubError("Couldn't save changes. Try again.");
+    }
+  }
+
+  async function handleDeleteSub(subcontractor: Subcontractor) {
+    try {
+      await deleteSubcontractor(subcontractor.id);
+      setEditingSubId(null);
+      setConfirmingDeleteSub(false);
+    } catch (err) {
+      console.error("Delete subcontractor error:", err);
+      setEditSubError("Couldn't delete the subcontractor. Try again.");
+      setConfirmingDeleteSub(false);
     }
   }
 
@@ -252,23 +268,49 @@ export default function SubcontractorsSection() {
                           </div>
                         </td>
                         <td className="px-4 py-2.5 align-top" colSpan={2}>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {editSubError && (
-                              <span className="text-xs text-red-600">{editSubError}</span>
-                            )}
-                            <button
-                              onClick={() => saveEditSub(sub)}
-                              className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover"
-                            >
-                              Save
-                            </button>
-                            <button
-                              onClick={cancelEditSub}
-                              className="rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-950 hover:border-gray-300"
-                            >
-                              Cancel
-                            </button>
-                          </div>
+                          {confirmingDeleteSub ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs text-red-700">
+                                Delete this subcontractor? This can&apos;t be undone.
+                              </span>
+                              <button
+                                onClick={() => handleDeleteSub(sub)}
+                                className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
+                              >
+                                Delete
+                              </button>
+                              <button
+                                onClick={() => setConfirmingDeleteSub(false)}
+                                className="rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-950 hover:border-gray-300"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-2">
+                              {editSubError && (
+                                <span className="text-xs text-red-600">{editSubError}</span>
+                              )}
+                              <button
+                                onClick={() => saveEditSub(sub)}
+                                className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={cancelEditSub}
+                                className="rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-950 hover:border-gray-300"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => setConfirmingDeleteSub(true)}
+                                className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </>
                     ) : (

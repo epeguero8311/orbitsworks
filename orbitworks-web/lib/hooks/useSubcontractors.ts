@@ -6,6 +6,7 @@ import {
   addDoc,
   doc,
   updateDoc,
+  deleteDoc,
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -103,11 +104,24 @@ export function useSubcontractors() {
     await updateDoc(subRef, { active: !subcontractor.active });
   }
 
+  async function deleteSubcontractor(subcontractorId: string) {
+    if (!userData?.companyId) return;
+    const subRef = doc(
+      db,
+      "companies",
+      userData.companyId,
+      "subcontractors",
+      subcontractorId
+    );
+    await deleteDoc(subRef);
+  }
+
   return {
     subcontractors,
     loading,
     addSubcontractor,
     updateSubcontractor,
     toggleSubcontractorActive,
+    deleteSubcontractor,
   };
 }
