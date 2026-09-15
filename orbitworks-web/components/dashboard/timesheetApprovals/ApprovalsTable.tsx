@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pencil, Trash2, Plus, ShieldAlert } from "lucide-react";
 import type { ApprovalRow } from "@/lib/hooks/useTimesheetApprovals";
 import type { ClockEvent } from "@/lib/types";
@@ -21,10 +21,34 @@ export function ApprovalsTable({
   onDeleteSession: (approvalId: string, eventIds: string[]) => Promise<void>;
   onAddTimestamp: () => void;
 }) {
-  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<ApprovalRow | null>(null);
   const [deletingRow, setDeletingRow] = useState<ApprovalRow | null>(null);
   const [viewingOverrideEventId, setViewingOverrideEventId] = useState<string | null>(null);
+  // setApprovalStatus is a Cloud Function - the first call after it's been
+  // idle pays a cold-start delay (several seconds, sometimes more), which
+  // otherwise leaves the dropdown looking stuck since it only reflects
+  // Firestore's real value once the listener catches up. Showing the
+  // chosen status immediately (reverted on failure, reconciled below once
+  // the real value arrives) makes every change feel instant regardless of
+  // that round-trip time.
+  const [optimisticStatus, setOptimisticStatus] = useState<
+    Map<string, "pending" | "approved">
+  >(new Map());
+
+  useEffect(() => {
+    setOptimisticStatus((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Map(prev);
+      for (const row of rows) {
+        if (next.get(row.key) === row.status) {
+          next.delete(row.key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [rows]);
 
   function formatHours(hours: number | null) {
     if (hours == null) return "-";
@@ -40,13 +64,16 @@ export function ApprovalsTable({
   }
 
   async function handleStatusChange(row: ApprovalRow, status: "pending" | "approved") {
-    setSavingKey(row.key);
+    setOptimisticStatus((prev) => new Map(prev).set(row.key, status));
     try {
       await onSetStatus(row.eventId, status);
     } catch (err) {
       console.error("Failed to update approval status:", err);
-    } finally {
-      setSavingKey(null);
+      setOptimisticStatus((prev) => {
+        const next = new Map(prev);
+        next.delete(row.key);
+        return next;
+      });
     }
   }
 
@@ -89,6 +116,7 @@ export function ApprovalsTable({
           <tbody>
             {rows.map((row) => {
               const overrideFlag = row.flags.find((f) => f.type === "SUPERVISOR_OVERRIDE");
+              const displayStatus = optimisticStatus.get(row.key) ?? row.status;
               return (
               <tr
                 key={row.key}
@@ -134,13 +162,12 @@ export function ApprovalsTable({
                 <td className="px-6 py-4 text-gray-600">{formatHours(row.breakHours)}</td>
                 <td className="px-6 py-4">
                   <select
-                    value={row.status}
-                    disabled={savingKey === row.key}
+                    value={displayStatus}
                     onChange={(e) =>
                       handleStatusChange(row, e.target.value as "pending" | "approved")
                     }
-                    className={`rounded-full border-0 px-2.5 py-1 text-xs font-medium outline-none disabled:opacity-50 ${
-                      row.status === "approved"
+                    className={`rounded-full border-0 px-2.5 py-1 text-xs font-medium outline-none ${
+                      displayStatus === "approved"
                         ? "bg-green-50 text-green-700"
                         : "bg-amber-50 text-amber-700"
                     }`}
@@ -153,16 +180,16 @@ export function ApprovalsTable({
                   <div className="flex justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => row.status !== "approved" && setEditingRow(row)}
-                      disabled={row.status === "approved"}
+                      onClick={() => displayStatus !== "approved" && setEditingRow(row)}
+                      disabled={displayStatus === "approved"}
                       className="rounded-md p-1 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent"
                       aria-label={
-                        row.status === "approved"
+                        displayStatus === "approved"
                           ? "Set to Pending to edit"
                           : "Edit timestamp"
                       }
                       title={
-                        row.status === "approved"
+                        displayStatus === "approved"
                           ? "Set to Pending to edit"
                           : undefined
                       }
