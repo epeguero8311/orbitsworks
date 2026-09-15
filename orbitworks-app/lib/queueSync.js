@@ -50,6 +50,8 @@ async function syncOne(sqlite, item, companyId) {
     note: item.note ?? null,
     authorizedById: item.authorizedById ?? null,
     authorizedByName: item.authorizedByName ?? null,
+    reason: item.reason ?? null,
+    overrideEventId: item.overrideEventId ?? null,
     createdByUid: item.createdByUid,
     clientTimestamp: Timestamp.fromMillis(item.clientTimestamp),
     timestamp: Timestamp.fromMillis(item.clientTimestamp),

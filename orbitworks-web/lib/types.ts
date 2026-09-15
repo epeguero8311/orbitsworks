@@ -100,6 +100,8 @@ export interface ClockEvent {
   adjustmentHistory?: ClockEventAdjustment[];
   subcontractorId?: string | null;
   subcontractorName?: string | null;
+  reason?: string;
+  overrideEventId?: string;
 }
 
 // ---- Alerts ----
@@ -130,6 +132,13 @@ export interface AlertActionRecord {
 // Only sessions created going forward have one of these - historical
 // clockEvents from before this feature shipped are untouched and stay
 // exportable exactly as they were.
+export interface Flag {
+  type: "SUPERVISOR_OVERRIDE"; // extend later: FACE_MISMATCH, OUTSIDE_GEOFENCE, etc.
+  severity: "info" | "warning" | "critical";
+  overrideEventId: string;
+  createdAt: Timestamp;
+}
+
 export interface TimesheetApproval {
   id: string;
   employeeId: string;
@@ -142,6 +151,28 @@ export interface TimesheetApproval {
   approvedByName?: string;
   approvedAt?: Timestamp;
   createdAt?: Timestamp;
+  flags?: Flag[];
+}
+
+// ---- Supervisor Overrides ----
+//
+// One doc per override BATCH (a supervisor can multi-select several
+// employees before submitting), keyed by the overrideEventId the mobile
+// app generates once, client-side, before looping its queue writes. The
+// onClockEventCreated trigger upserts this doc (arrayUnion on
+// employeeIds) once per ClockEvent it sees carrying that overrideEventId,
+// so it stays correct regardless of write order or partial/delayed sync.
+export interface OverrideEvent {
+  id: string;
+  companyId: string;
+  siteId: string | null;
+  siteName: string;
+  supervisorId: string | null;
+  supervisorName: string | null;
+  action: "in" | "out" | "breakStart" | "breakEnd";
+  reason: string;
+  employeeIds: string[];
+  createdAt: Timestamp;
 }
 
 // ---- Reports ----

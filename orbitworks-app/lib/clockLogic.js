@@ -143,6 +143,8 @@ export async function submitOverrideClockIn({
   authorizedBy,
   siteId,
   siteName,
+  reason,
+  overrideEventId,
 }) {
   const eventsRef = collection(db, "companies", companyId, "clockEvents");
   await addDoc(eventsRef, {
@@ -156,6 +158,8 @@ export async function submitOverrideClockIn({
     source: "supervisorOverride",
     authorizedById: authorizedBy?.id ?? null,
     authorizedByName: authorizedBy?.name ?? null,
+    reason: reason ?? null,
+    overrideEventId: overrideEventId ?? null,
     createdByUid,
     timestamp: serverTimestamp(),
     createdAt: serverTimestamp(),
@@ -170,6 +174,8 @@ export async function submitOverrideClockOut({
   authorizedBy,
   siteId,
   siteName,
+  reason,
+  overrideEventId,
 }) {
   const eventsRef = collection(db, "companies", companyId, "clockEvents");
 
@@ -200,6 +206,8 @@ export async function submitOverrideClockOut({
     source: "supervisorOverride",
     authorizedById: authorizedBy?.id ?? null,
     authorizedByName: authorizedBy?.name ?? null,
+    reason: reason ?? null,
+    overrideEventId: overrideEventId ?? null,
     createdByUid,
     timestamp: serverTimestamp(),
     createdAt: serverTimestamp(),

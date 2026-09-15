@@ -43,6 +43,8 @@ export async function getDb() {
       lastError TEXT,
       subcontractorId TEXT,
       subcontractorName TEXT,
+      reason TEXT,
+      overrideEventId TEXT,
       createdAt INTEGER NOT NULL
     );
 
@@ -61,6 +63,8 @@ export async function getDb() {
     "ALTER TABLE pin_cache ADD COLUMN subcontractorName TEXT",
     "ALTER TABLE event_queue ADD COLUMN subcontractorId TEXT",
     "ALTER TABLE event_queue ADD COLUMN subcontractorName TEXT",
+    "ALTER TABLE event_queue ADD COLUMN reason TEXT",
+    "ALTER TABLE event_queue ADD COLUMN overrideEventId TEXT",
   ];
   for (const migration of migrations) {
     try {

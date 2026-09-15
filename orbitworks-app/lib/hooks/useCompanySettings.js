@@ -7,6 +7,9 @@ const DEFAULTS = {
   appSettings: {
     allowSupervisorOverride: true,
   },
+  attendanceRules: {
+    requireOverrideReason: true,
+  },
 };
 
 export function useCompanySettings(companyId) {
@@ -23,6 +26,10 @@ export function useCompanySettings(companyId) {
         appSettings: {
           ...DEFAULTS.appSettings,
           ...(data?.appSettings ?? {}),
+        },
+        attendanceRules: {
+          ...DEFAULTS.attendanceRules,
+          ...(data?.attendanceRules ?? {}),
         },
       });
       setLoading(false);

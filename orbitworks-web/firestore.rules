@@ -145,7 +145,7 @@ service cloud.firestore {
         allow update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['type', 'timestamp', 'adjustedTimestamp', 'adjustmentHistory', 'employeeId', 'employeeName', 'subcontractorId', 'subcontractorName']) &&
+            .hasAny(['type', 'timestamp', 'adjustedTimestamp', 'adjustmentHistory', 'employeeId', 'employeeName', 'subcontractorId', 'subcontractorName', 'reason']) &&
           (
             request.auth.token.role == 'admin' ||
             isIdempotentReplay(companyId)
@@ -186,6 +186,16 @@ service cloud.firestore {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           request.auth.token.role == 'admin';
+        allow write: if false;
+      }
+
+      match /overrideEvents/{overrideEventId} {
+        // Server-created only, by onClockEventCreated (Admin SDK, bypasses
+        // rules entirely) whenever a supervisorOverride clock event carries
+        // a reason. Same lockdown pattern as timesheetApprovals - clients
+        // read for the Approvals page's override-detail view, never write.
+        allow read: if request.auth != null &&
+          request.auth.token.companyId == companyId;
         allow write: if false;
       }
     }

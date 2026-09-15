@@ -10,6 +10,7 @@ export type AttendanceRules = {
   allowLateClockOut: boolean;
   autoClockOut: boolean;
   gracePeriodMinutes: number;
+  requireOverrideReason: boolean;
 };
 
 export type Alerts = {
@@ -41,6 +42,7 @@ export const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
   allowLateClockOut: true,
   autoClockOut: false,
   gracePeriodMinutes: 0,
+  requireOverrideReason: true,
 };
 
 export const DEFAULT_ALERTS: Alerts = {

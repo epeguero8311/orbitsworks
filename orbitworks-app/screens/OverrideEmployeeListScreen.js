@@ -7,7 +7,8 @@ import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
 import { useTodayShift } from "../lib/hooks/useTodayShift";
 import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
-import { queueOverrideClockIn, queueOverrideClockOut } from "../lib/clockQueue";
+import { useCompanySettings } from "../lib/hooks/useCompanySettings";
+import { submitOverrideBatch } from "../lib/clockQueue";
 import { drainQueue } from "../lib/queueSync";
 import ScreenHeader from "../components/ScreenHeader";
 import Avatar from "../components/Avatar";
@@ -17,6 +18,7 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
   const { userData, currentUser } = useAuth();
   const { colors } = useTheme();
   const { selectedSite } = useSiteSession();
+  const { settings } = useCompanySettings(userData?.companyId);
   const { employees: liveEmployees, loading } = useTodayShift(userData?.companyId);
   const employees = useLocalStatusOverlay(liveEmployees);
   const [direction, setDirection] = useState("in");
@@ -64,30 +66,33 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
   // useQueueSync catches it on the next reconnect/foreground.
   async function handleSubmit() {
     if (selected.length === 0 || submitting) return;
+
+    const siteId = selectedSite && !isNoneSite ? selectedSite.id : null;
+    const siteName = selectedSite && !isNoneSite ? selectedSite.name : "Not specified";
+
+    // A reason gets collected on its own screen first, then submitted from
+    // there - this screen only submits directly when no reason is required.
+    if (settings.attendanceRules.requireOverrideReason) {
+      navigation.navigate("OverrideReason", {
+        selected,
+        direction,
+        siteId,
+        siteName,
+        authorizedBy,
+      });
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const siteId = selectedSite && !isNoneSite ? selectedSite.id : null;
-      const siteName = selectedSite && !isNoneSite ? selectedSite.name : "Not specified";
-
-      for (const emp of selected) {
-        if (direction === "in") {
-          await queueOverrideClockIn({
-            employee: emp,
-            createdByUid: currentUser?.uid,
-            authorizedBy,
-            siteId,
-            siteName,
-          });
-        } else {
-          await queueOverrideClockOut({
-            employee: emp,
-            createdByUid: currentUser?.uid,
-            authorizedBy,
-            siteId,
-            siteName,
-          });
-        }
-      }
+      await submitOverrideBatch({
+        employees: selected,
+        direction,
+        createdByUid: currentUser?.uid,
+        authorizedBy,
+        siteId,
+        siteName,
+      });
       drainQueue(userData.companyId);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       navigation.navigate("Dashboard");

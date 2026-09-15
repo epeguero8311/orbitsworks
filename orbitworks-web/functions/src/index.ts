@@ -709,6 +709,9 @@ export const onClockEventCreated = onDocumentCreated(
     // NOTE: date is derived from the function's server timezone, same
     // simplification autoClockOutStaleSessions already makes - a clock-in
     // right around midnight could land on the "wrong" date row.
+    const isReasonedOverride =
+      data.source === "supervisorOverride" && !!data.reason && !!data.overrideEventId;
+
     if (data.type === "in") {
       const ts: Date = data.timestamp ? data.timestamp.toDate() : new Date();
       const dateKey = localDateKey(ts);
@@ -726,10 +729,106 @@ export const onClockEventCreated = onDocumentCreated(
           siteName: data.siteName ?? "",
           status: "pending",
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          ...(isReasonedOverride
+            ? {
+                flags: [
+                  {
+                    type: "SUPERVISOR_OVERRIDE",
+                    severity: "info",
+                    overrideEventId: data.overrideEventId,
+                    // FieldValue.serverTimestamp() can't be used inside an
+                    // array element, so this uses a concrete timestamp
+                    // instead - it's set at function-execution time, which
+                    // is effectively "now" on the server either way.
+                    createdAt: admin.firestore.Timestamp.now(),
+                  },
+                ],
+              }
+            : {}),
         })
         .catch((err) => {
           console.error("Failed to create timesheetApproval for", event.params.eventId, err);
         });
+    }
+
+    // Supervisor overrides: upsert the shared overrideEvents doc for this
+    // batch - arrayUnion on employeeIds is safe against out-of-order or
+    // concurrent writes from the same multi-employee override batch, since
+    // each ClockEvent in the batch carries the same overrideEventId. For a
+    // clock-in, the timesheetApproval doc was just created above; any other
+    // direction targets a session that's already open, so find that
+    // session's clock-in event and flag its existing approval doc instead.
+    if (isReasonedOverride) {
+      const overrideEventId = data.overrideEventId as string;
+
+      await db
+        .collection("companies")
+        .doc(companyId)
+        .collection("overrideEvents")
+        .doc(overrideEventId)
+        .set(
+          {
+            companyId,
+            siteId: data.siteId ?? null,
+            siteName: data.siteName ?? "",
+            supervisorId: data.authorizedById ?? null,
+            supervisorName: data.authorizedByName ?? null,
+            action: data.type,
+            reason: data.reason,
+            employeeIds: admin.firestore.FieldValue.arrayUnion(employeeId),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        )
+        .catch((err) => {
+          console.error("Failed to upsert overrideEvent", overrideEventId, err);
+        });
+
+      if (data.type !== "in") {
+        const eventTs: admin.firestore.Timestamp =
+          data.timestamp ?? admin.firestore.Timestamp.now();
+
+        const openSessionSnap = await db
+          .collection("companies")
+          .doc(companyId)
+          .collection("clockEvents")
+          .where("employeeId", "==", employeeId)
+          .where("type", "==", "in")
+          .where("timestamp", "<", eventTs)
+          .orderBy("timestamp", "desc")
+          .limit(1)
+          .get()
+          .catch((err) => {
+            console.error("Failed to find open session for override flag", employeeId, err);
+            return null;
+          });
+
+        const clockInDoc =
+          openSessionSnap && !openSessionSnap.empty ? openSessionSnap.docs[0] : null;
+
+        if (clockInDoc) {
+          await db
+            .collection("companies")
+            .doc(companyId)
+            .collection("timesheetApprovals")
+            .doc(clockInDoc.id)
+            .update({
+              flags: admin.firestore.FieldValue.arrayUnion({
+                type: "SUPERVISOR_OVERRIDE",
+                severity: "info",
+                overrideEventId,
+                createdAt: admin.firestore.Timestamp.now(),
+              }),
+            })
+            .catch((err) => {
+              console.error(
+                "Failed to flag timesheetApproval for override",
+                clockInDoc.id,
+                err
+              );
+            });
+        }
+      }
     }
   }
 );

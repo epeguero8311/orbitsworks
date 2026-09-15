@@ -24,6 +24,7 @@ import BreaksPinEntryScreen from "./screens/BreaksPinEntryScreen";
 import BreaksEmployeeListScreen from "./screens/BreaksEmployeeListScreen";
 import OverridePinEntryScreen from "./screens/OverridePinEntryScreen";
 import OverrideEmployeeListScreen from "./screens/OverrideEmployeeListScreen";
+import OverrideReasonScreen from "./screens/OverrideReasonScreen";
 
 // Keep the native splash up until we explicitly hide it below - without
 // this, Expo auto-hides it the instant JS mounts, which is why it was
@@ -75,6 +76,7 @@ function RootNavigator() {
             <Stack.Screen name="BreaksEmployeeList" component={BreaksEmployeeListScreen} />
             <Stack.Screen name="OverridePinEntry" component={OverridePinEntryScreen} />
             <Stack.Screen name="OverrideEmployeeList" component={OverrideEmployeeListScreen} />
+            <Stack.Screen name="OverrideReason" component={OverrideReasonScreen} />
           </>
         ) : (
           <>

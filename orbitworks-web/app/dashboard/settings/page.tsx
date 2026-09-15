@@ -438,6 +438,14 @@ export default function SettingsPage() {
                   setAppSettings((prev) => ({ ...prev, allowSupervisorOverride: v }))
                 }
               />
+              <Toggle
+                label="Require Reason for Supervisor Overrides"
+                description="Require supervisors to provide a reason when overriding an employee's time action."
+                checked={attendanceRules.requireOverrideReason}
+                onChange={(v) =>
+                  setAttendanceRules((prev) => ({ ...prev, requireOverrideReason: v }))
+                }
+              />
             </div>
           </div>
 

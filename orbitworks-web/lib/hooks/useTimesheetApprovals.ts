@@ -13,7 +13,7 @@ import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
-import type { ClockEvent, TimesheetApproval } from "@/lib/types";
+import type { ClockEvent, Flag, TimesheetApproval } from "@/lib/types";
 
 export type ApprovalRow = {
   key: string;
@@ -32,6 +32,7 @@ export type ApprovalRow = {
   clockOutEvent: ClockEvent;
   sessionEventIds: string[];
   isClockedInNow: boolean;
+  flags: Flag[];
 };
 
 type EventWithId = Omit<ClockEvent, "id"> & { id: string };
@@ -198,6 +199,7 @@ export function useTimesheetApprovals(date: string) {
               clockOutEvent: { ...ev },
               sessionEventIds: sessionIds,
               isClockedInNow,
+              flags: approval?.flags ?? [],
             });
           }
           pendingIn = null;

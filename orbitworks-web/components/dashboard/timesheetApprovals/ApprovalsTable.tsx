@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Pencil, Trash2, Plus } from "lucide-react";
+import { Pencil, Trash2, Plus, ShieldAlert } from "lucide-react";
 import type { ApprovalRow } from "@/lib/hooks/useTimesheetApprovals";
 import type { ClockEvent } from "@/lib/types";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import ConfirmDeleteSessionModal from "@/components/dashboard/timesheetApprovals/ConfirmDeleteSessionModal";
+import OverrideDetailsModal from "@/components/dashboard/timesheetApprovals/OverrideDetailsModal";
 
 export function ApprovalsTable({
   rows,
@@ -23,6 +24,7 @@ export function ApprovalsTable({
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<ApprovalRow | null>(null);
   const [deletingRow, setDeletingRow] = useState<ApprovalRow | null>(null);
+  const [viewingOverrideEventId, setViewingOverrideEventId] = useState<string | null>(null);
 
   function formatHours(hours: number | null) {
     if (hours == null) return "-";
@@ -85,8 +87,15 @@ export function ApprovalsTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.key} className="border-b border-gray-200 bg-white last:border-0">
+            {rows.map((row) => {
+              const overrideFlag = row.flags.find((f) => f.type === "SUPERVISOR_OVERRIDE");
+              return (
+              <tr
+                key={row.key}
+                className={`border-b border-gray-200 last:border-0 ${
+                  overrideFlag ? "bg-amber-50" : "bg-white"
+                }`}
+              >
                 <td className="px-6 py-4 font-medium text-gray-950">
                   <span className="flex items-center gap-2">
                     {row.employeeName}
@@ -94,6 +103,17 @@ export function ApprovalsTable({
                       <span className="inline-flex items-center rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
                         Clocked In
                       </span>
+                    )}
+                    {overrideFlag && (
+                      <button
+                        type="button"
+                        onClick={() => setViewingOverrideEventId(overrideFlag.overrideEventId)}
+                        className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-200"
+                        title="View supervisor override details"
+                      >
+                        <ShieldAlert className="h-3 w-3" />
+                        Override
+                      </button>
                     )}
                   </span>
                 </td>
@@ -160,7 +180,8 @@ export function ApprovalsTable({
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -170,6 +191,13 @@ export function ApprovalsTable({
           event={editingRow.clockInEvent}
           allEvents={editEvents}
           onClose={() => setEditingRow(null)}
+        />
+      )}
+
+      {viewingOverrideEventId && (
+        <OverrideDetailsModal
+          overrideEventId={viewingOverrideEventId}
+          onClose={() => setViewingOverrideEventId(null)}
         />
       )}
 

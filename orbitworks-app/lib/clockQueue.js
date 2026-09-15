@@ -3,7 +3,7 @@ import { getDb } from "./db";
 import { getCurrentLocalStatus } from "./clockStatusLocal";
 import { notifyQueueChange } from "./queueEvents";
 
-function makeLocalId() {
+export function makeLocalId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -11,8 +11,8 @@ async function insertQueueItem(item) {
   const db = await getDb();
   await db.runAsync(
     `INSERT INTO event_queue
-      (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, subcontractorId, subcontractorName, syncStatus, attempts, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
+      (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, subcontractorId, subcontractorName, reason, overrideEventId, syncStatus, attempts, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
     [
       item.localId,
       item.employeeId,
@@ -29,6 +29,8 @@ async function insertQueueItem(item) {
       item.clientTimestamp,
       item.subcontractorId ?? null,
       item.subcontractorName ?? null,
+      item.reason ?? null,
+      item.overrideEventId ?? null,
       item.createdAt,
     ]
   );
@@ -108,7 +110,15 @@ export async function queueBreakEvent({ employee, type, createdByUid, authorized
   });
 }
 
-export async function queueOverrideClockIn({ employee, createdByUid, authorizedBy, siteId, siteName }) {
+export async function queueOverrideClockIn({
+  employee,
+  createdByUid,
+  authorizedBy,
+  siteId,
+  siteName,
+  reason,
+  overrideEventId,
+}) {
   const now = Date.now();
   await insertQueueItem({
     localId: makeLocalId(),
@@ -123,12 +133,62 @@ export async function queueOverrideClockIn({ employee, createdByUid, authorizedB
     createdByUid,
     subcontractorId: employee.subcontractorId ?? null,
     subcontractorName: employee.subcontractorName ?? null,
+    reason: reason ?? null,
+    overrideEventId: overrideEventId ?? null,
     clientTimestamp: now,
     createdAt: now,
   });
 }
 
-export async function queueOverrideClockOut({ employee, createdByUid, authorizedBy, siteId, siteName }) {
+// Shared by OverrideEmployeeListScreen (no reason required) and
+// OverrideReasonScreen (reason collected first) so the batch-loop and
+// overrideEventId generation live in exactly one place. One id per batch,
+// generated here, is what lets the onClockEventCreated trigger group a
+// multi-employee override into a single overrideEvents doc server-side.
+export async function submitOverrideBatch({
+  employees,
+  direction,
+  createdByUid,
+  authorizedBy,
+  siteId,
+  siteName,
+  reason,
+}) {
+  const overrideEventId = makeLocalId();
+  for (const employee of employees) {
+    if (direction === "in") {
+      await queueOverrideClockIn({
+        employee,
+        createdByUid,
+        authorizedBy,
+        siteId,
+        siteName,
+        reason,
+        overrideEventId,
+      });
+    } else {
+      await queueOverrideClockOut({
+        employee,
+        createdByUid,
+        authorizedBy,
+        siteId,
+        siteName,
+        reason,
+        overrideEventId,
+      });
+    }
+  }
+}
+
+export async function queueOverrideClockOut({
+  employee,
+  createdByUid,
+  authorizedBy,
+  siteId,
+  siteName,
+  reason,
+  overrideEventId,
+}) {
   const currentStatus = await getCurrentLocalStatus(employee.id);
   const now = Date.now();
 
@@ -162,6 +222,8 @@ export async function queueOverrideClockOut({ employee, createdByUid, authorized
     createdByUid,
     subcontractorId: employee.subcontractorId ?? null,
     subcontractorName: employee.subcontractorName ?? null,
+    reason: reason ?? null,
+    overrideEventId: overrideEventId ?? null,
     clientTimestamp: now,
     createdAt: now,
   });
