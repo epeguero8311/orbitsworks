@@ -253,12 +253,24 @@ service cloud.firestore {
     }
 
     match /invites/{inviteId} {
+      // emailStatus/emailSentAt/emailError/lastEmailAttemptAt are written
+      // only by sendInviteEmail (Cloud Functions) - the Admin SDK bypasses
+      // rules entirely, so blocking these keys here just means no client
+      // request (create or update) may set them, same pattern as the
+      // employees/{employeeId} 'pin' field above.
       allow create: if request.auth != null &&
         request.auth.token.role == 'admin' &&
-        request.auth.token.companyId == request.resource.data.companyId;
-      allow read, update, delete: if request.auth != null &&
+        request.auth.token.companyId == request.resource.data.companyId &&
+        !request.resource.data.keys()
+          .hasAny(['emailStatus', 'emailSentAt', 'emailError', 'lastEmailAttemptAt']);
+      allow read, delete: if request.auth != null &&
         request.auth.token.role == 'admin' &&
         request.auth.token.companyId == resource.data.companyId;
+      allow update: if request.auth != null &&
+        request.auth.token.role == 'admin' &&
+        request.auth.token.companyId == resource.data.companyId &&
+        !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['emailStatus', 'emailSentAt', 'emailError', 'lastEmailAttemptAt']);
     }
 
     match /{document=**} {

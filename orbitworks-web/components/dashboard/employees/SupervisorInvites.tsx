@@ -2,10 +2,26 @@
 
 import { useState, FormEvent } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useInvites } from "@/lib/hooks/useInvites";
-import type { JobSite } from "@/lib/types";
+import type { Invite, JobSite } from "@/lib/types";
+
+const RESEND_COOLDOWN_MS = 60_000;
+
+function emailStatusBadge(invite: Invite) {
+  // Accepted invites are resolved regardless of emailStatus - this also
+  // covers invites created before this field existed, which would
+  // otherwise show a permanently stuck "Sending..." badge.
+  if (invite.status === "accepted" || invite.emailStatus === "sent") {
+    return { text: "Sent", className: "bg-green-50 text-green-700" };
+  }
+  if (invite.emailStatus === "failed") {
+    return { text: "Failed", className: "bg-red-50 text-red-700" };
+  }
+  return { text: "Sending...", className: "bg-gray-100 text-gray-600" };
+}
 
 export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
   const { currentUser, userData } = useAuth();
@@ -20,6 +36,11 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState("");
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [resendCooldownIds, setResendCooldownIds] = useState<Set<string>>(new Set());
+  const [resendMessages, setResendMessages] = useState<
+    Record<string, { text: string; isError: boolean }>
+  >({});
 
   function toggleInviteSite(siteId: string) {
     setInviteSiteIds((prev) =>
@@ -86,6 +107,41 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
     await navigator.clipboard.writeText(link);
     setCopiedInviteId(inviteId);
     setTimeout(() => setCopiedInviteId(null), 2000);
+  }
+
+  async function handleResend(inviteId: string) {
+    setResendingId(inviteId);
+    setResendMessages((prev) => {
+      const next = { ...prev };
+      delete next[inviteId];
+      return next;
+    });
+
+    try {
+      const resendInviteEmailFn = httpsCallable(functions, "resendInviteEmail");
+      await resendInviteEmailFn({ inviteId });
+      setResendMessages((prev) => ({
+        ...prev,
+        [inviteId]: { text: "Sent!", isError: false },
+      }));
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Couldn't resend the invite.";
+      setResendMessages((prev) => ({
+        ...prev,
+        [inviteId]: { text: message, isError: true },
+      }));
+    } finally {
+      setResendingId(null);
+      setResendCooldownIds((prev) => new Set(prev).add(inviteId));
+      setTimeout(() => {
+        setResendCooldownIds((prev) => {
+          const next = new Set(prev);
+          next.delete(inviteId);
+          return next;
+        });
+      }, RESEND_COOLDOWN_MS);
+    }
   }
 
   async function handleConfirmDelete(inviteId: string) {
@@ -202,6 +258,7 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
                 <th className="px-6 py-3 font-medium">Email</th>
                 <th className="px-6 py-3 font-medium">Job sites</th>
                 <th className="px-6 py-3 font-medium">Status</th>
+                <th className="px-6 py-3 font-medium">Email</th>
                 <th className="px-6 py-3 font-medium"></th>
               </tr>
             </thead>
@@ -226,6 +283,15 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
                       }`}
                     >
                       {invite.status === "accepted" ? "Accepted" : "Pending"}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
+                        emailStatusBadge(invite).className
+                      }`}
+                    >
+                      {emailStatusBadge(invite).text}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-right">
@@ -254,6 +320,32 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-4">
+                        {resendMessages[invite.id] && (
+                          <span
+                            className={`text-xs font-medium ${
+                              resendMessages[invite.id].isError
+                                ? "text-red-600"
+                                : "text-green-700"
+                            }`}
+                          >
+                            {resendMessages[invite.id].text}
+                          </span>
+                        )}
+                        {invite.status === "pending" &&
+                          invite.emailStatus !== "sent" && (
+                          <button
+                            onClick={() => handleResend(invite.id)}
+                            disabled={
+                              resendingId === invite.id ||
+                              resendCooldownIds.has(invite.id)
+                            }
+                            className="text-sm font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {resendingId === invite.id
+                              ? "Resending..."
+                              : "Resend"}
+                          </button>
+                        )}
                         {invite.status === "pending" && (
                           <button
                             onClick={() =>
