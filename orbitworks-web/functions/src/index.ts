@@ -1,5 +1,7 @@
 export { createCompany, acceptInvite } from "./company";
 
+export { sendInviteEmail, resendInviteEmail } from "./invites";
+
 export {
   setEmployeeActive,
   deactivateEmployeesBulk,

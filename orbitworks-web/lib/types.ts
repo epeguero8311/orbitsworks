@@ -62,6 +62,10 @@ export interface Invite {
   email: string;
   assignedSiteIds: string[];
   status: "pending" | "accepted";
+  emailStatus: "pending" | "sent" | "failed";
+  emailSentAt?: Timestamp | null;
+  emailError?: string | null;
+  lastEmailAttemptAt?: Timestamp | null;
 }
 
 export interface ClockEventAdjustment {
