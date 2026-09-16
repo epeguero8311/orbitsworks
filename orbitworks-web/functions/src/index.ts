@@ -3,11 +3,13 @@ export { createCompany, acceptInvite } from "./company";
 export { sendInviteEmail, resendInviteEmail } from "./invites";
 
 export {
+  addEmployee,
   setEmployeeActive,
   deactivateEmployeesBulk,
   setSupervisorStatus,
   onEmployeeWrite,
   reassignEmployeeSubcontractor,
+  removeSupervisor,
 } from "./employees";
 
 export {

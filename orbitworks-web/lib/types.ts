@@ -46,6 +46,7 @@ export interface Employee {
   phone?: string;
   dob?: string;
   isSupervisor?: boolean;
+  linkedUserId?: string;
   active: boolean;
   pin: string;
   subcontractorId?: string | null;

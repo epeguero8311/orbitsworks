@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import { collection, addDoc, doc, updateDoc, getDocs, serverTimestamp } from "firebase/firestore";
+import { doc, updateDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { db, storage } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, storage, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import type { JobSite, Job, Subcontractor } from "@/lib/types";
-import { generateUniquePin } from "@/lib/pinUtils";
 import { UpgradeToast } from "@/components/UpgradeToast";
 
 export function AddEmployeeForm({
@@ -57,22 +57,6 @@ export function AddEmployeeForm({
     setIsSubmitting(true);
 
     try {
-      const employeesRef = collection(
-        db,
-        "companies",
-        userData.companyId,
-        "employees"
-      );
-
-      // Check existing PINs company-wide so the new one is guaranteed unique.
-      const existingSnapshot = await getDocs(employeesRef);
-      const existingPins = new Set(
-        existingSnapshot.docs
-          .map((d) => (d.data() as { pin?: string }).pin)
-          .filter((p): p is string => !!p)
-      );
-      const pin = generateUniquePin(existingPins);
-
       const jobTitleToSave = selectedJob ? selectedJob.name : customJobTitle.trim();
       const hourlyRateToSave = selectedJob
         ? null
@@ -82,27 +66,28 @@ export function AddEmployeeForm({
 
       const selectedSubcontractor = subcontractors.find((s) => s.id === subcontractorId) ?? null;
 
-      const employeeDoc = await addDoc(employeesRef, {
+      // Employee creation (and its PIN, reserved transactionally) happens
+      // entirely server-side - see addEmployee in functions/src/employees.ts.
+      const addEmployeeFn = httpsCallable(functions, "addEmployee");
+      const result = await addEmployeeFn({
         name: name.trim(),
-        jobId: jobId,
+        jobId,
         jobTitle: jobTitleToSave,
         assignedSiteIds: selectedSiteIds,
         hourlyRate: hourlyRateToSave,
-        active: true,
-        pin,
-        subcontractorId: subcontractorId,
+        subcontractorId,
         subcontractorName: selectedSubcontractor ? selectedSubcontractor.name : null,
-        createdAt: serverTimestamp(),
       });
+      const { employeeId, pin } = result.data as { employeeId: string; pin: string };
 
       if (photoFile) {
         const photoRef = ref(
           storage,
-          `companies/${userData.companyId}/employees/${employeeDoc.id}/reference.jpg`
+          `companies/${userData.companyId}/employees/${employeeId}/reference.jpg`
         );
         await uploadBytes(photoRef, photoFile);
         const photoUrl = await getDownloadURL(photoRef);
-        await updateDoc(employeeDoc, { photoUrl });
+        await updateDoc(doc(db, "companies", userData.companyId, "employees", employeeId), { photoUrl });
       }
 
       setCreatedPin(pin);
@@ -115,12 +100,10 @@ export function AddEmployeeForm({
       setPhotoFile(null);
     } catch (err: any) {
       console.error("Add employee error:", err);
-      // The Firestore rule blocks employee creation at the plan's cap with
-      // a generic permission-denied - this is the only reason an admin's
-      // own employee-create write would ever be rejected, so treat it as
-      // the cap message rather than a raw error.
-      if (err?.code === "permission-denied") {
+      if (err?.code === "functions/resource-exhausted") {
         setShowUpgradeToast(true);
+      } else if (err?.code === "functions/failed-precondition") {
+        setError(err.message || "Subscription is past due.");
       } else {
         setError("Couldn't add the employee. Try again.");
       }

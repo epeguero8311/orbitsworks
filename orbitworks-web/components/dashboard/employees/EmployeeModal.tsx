@@ -116,6 +116,7 @@ export function EmployeeModal({
             isDeleting={m.isDeleting}
             deleteError={m.deleteError}
             onDelete={m.handleDelete}
+            isSupervisorRemoval={m.isSupervisorRemoval}
           />
 
           <div className="flex gap-3">

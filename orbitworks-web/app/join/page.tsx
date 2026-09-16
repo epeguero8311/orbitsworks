@@ -89,9 +89,16 @@ function JoinForm() {
         } catch (cleanupErr) {
           console.error("Rollback failed:", cleanupErr);
         }
-        // Never surface the raw Cloud Function error text here - it's not
-        // meant for end users.
-        setError("Something went wrong. Try again.");
+        // Most Cloud Function error text isn't meant for end users, but a
+        // few codes have a specific, known cause worth explaining instead
+        // of falling back to a generic message.
+        if (code === "functions/resource-exhausted") {
+          setError(
+            "This company has reached its employee limit. Ask your admin to upgrade the plan or free up a slot before you can join."
+          );
+        } else {
+          setError("Something went wrong. Try again.");
+        }
         setErrorField("none");
       }
       setIsSubmitting(false);

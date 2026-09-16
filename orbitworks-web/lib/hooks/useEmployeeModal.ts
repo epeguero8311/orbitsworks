@@ -259,12 +259,26 @@ export function useEmployeeModal({
     setIsDeleting(true);
 
     try {
-      const employeeRef = doc(db, "companies", companyId, "employees", employee.id);
-      await deleteDoc(employeeRef);
+      if (employee.linkedUserId) {
+        // Supervisors have a linked Firebase Auth account - detaching it
+        // (Auth user + users/{uid} deletion) requires the Admin SDK, so
+        // this goes through removeSupervisor rather than a plain client
+        // delete. The employees/{employeeId} doc itself is kept (clock
+        // history lives there), just stripped back to a normal employee.
+        const removeSupervisorFn = httpsCallable(functions, "removeSupervisor");
+        await removeSupervisorFn({ employeeId: employee.id });
+      } else {
+        const employeeRef = doc(db, "companies", companyId, "employees", employee.id);
+        await deleteDoc(employeeRef);
+      }
       onClose();
     } catch (err) {
       console.error("Delete employee error:", err);
-      setDeleteError("Couldn't delete this employee. Try again.");
+      setDeleteError(
+        employee.linkedUserId
+          ? "Couldn't remove this supervisor. Try again."
+          : "Couldn't delete this employee. Try again."
+      );
       setIsDeleting(false);
     }
   }
@@ -325,5 +339,6 @@ export function useEmployeeModal({
     isDeleting,
     deleteError,
     handleDelete,
+    isSupervisorRemoval: !!employee.linkedUserId,
   };
 }
