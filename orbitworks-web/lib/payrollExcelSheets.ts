@@ -37,6 +37,7 @@ export function addJobsLookupSheet(workbook: any, jobs: Job[]): { count: number 
 
 export type PayrollDayRow = {
   employeeName: string;
+  dateKey: string;
   dateLabel: string;
   hours: number;
   breakHours: number;
@@ -75,6 +76,7 @@ export function buildDayRows(
 
     rows.push({
       employeeName,
+      dateKey: dateStr,
       dateLabel,
       hours,
       breakHours: breakHoursByEmployeeDay.get(key) ?? 0,
@@ -84,9 +86,13 @@ export function buildDayRows(
     });
   }
 
+  // dateKey is the raw YYYY-MM-DD key, so it sorts chronologically as a
+  // plain string - dateLabel ("Jan 5, 2026") does not: string comparison
+  // puts "Jan 12" before "Jan 5" and orders months alphabetically instead
+  // of calendar order.
   rows.sort((a, b) =>
     a.employeeName === b.employeeName
-      ? (a.dateLabel < b.dateLabel ? -1 : 1)
+      ? (a.dateKey < b.dateKey ? -1 : 1)
       : a.employeeName.localeCompare(b.employeeName)
   );
   return rows;
@@ -205,7 +211,7 @@ export function addPayrollSheet(
     companyName,
     (a, b) =>
       a.employeeName === b.employeeName
-        ? a.dateLabel < b.dateLabel
+        ? a.dateKey < b.dateKey
           ? -1
           : 1
         : a.employeeName.localeCompare(b.employeeName)
