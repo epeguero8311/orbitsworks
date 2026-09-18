@@ -34,13 +34,21 @@ function formatDayLabel(dateKeyStr: string) {
   });
 }
 
+// The table's floor width. Below this, the wrapper's overflow-x-auto takes
+// over instead of squeezing columns. It has to be wide enough that even at
+// this minimum, the Status column (see STATUS_MIN_CONTENT_PX below) still
+// has room for the full word "Approved" plus its chevron and both icon
+// buttons - that requirement is what sets this number, not an arbitrary
+// round figure.
+const TABLE_MIN_WIDTH_PX = 1200;
+
 // The checkbox column is a fixed 40px - it never needs to grow with the
 // window. Every other column is a percentage of the table's own width, but
 // scaled down by the same 40px (via calc) so the full set of columns,
 // fixed column included, always sums to exactly 100% of the container.
 // Without that adjustment, a plain "9%" + a hardcoded "40px" column would
 // not add up to 100% and the table would either overflow its card or fall
-// short of it - exactly the dead-space bug this fixes.
+// short of it - exactly the dead-space bug that showed up before this.
 const CHECKBOX_COLUMN_WIDTH = "40px";
 const CHECKBOX_COLUMN_PX = 40;
 
@@ -50,28 +58,34 @@ function scaledWidth(percent: number): string {
 }
 
 // Target percentages (of the full table width) for every column after the
-// fixed checkbox column. Day mode has no Date column, so its Name/Time
-// pick up the width Date would have used. Both variants total 100.
+// fixed checkbox column. Day mode has no Date column, so its Name/Company/
+// Site/Time pick up the width Date would have used. Both variants total
+// 100 and both give Status the same 22% - that is not decorative: at
+// TABLE_MIN_WIDTH_PX (the narrowest this ever renders without scrolling),
+// 22% of the table minus its px-6 cell padding still comfortably fits
+// "Approved" + the select's chevron + the pencil and trash buttons with
+// room to spare. A smaller Status share was exactly what cut "Approved"
+// off as "App" before.
 const DAY_PERCENTAGES = {
-  name: 18,
-  company: 12,
-  site: 12,
+  name: 14,
+  company: 10,
+  site: 10,
   time: 20,
   shift: 8,
   breakCol: 8,
   worked: 8,
-  status: 14,
+  status: 22,
 };
 const WEEK_PERCENTAGES = {
   date: 8,
-  name: 14,
-  company: 12,
-  site: 12,
+  name: 11,
+  company: 9,
+  site: 10,
   time: 16,
   shift: 8,
   breakCol: 8,
   worked: 8,
-  status: 14,
+  status: 22,
 };
 
 function buildColumnWidths(mode: "day" | "week"): string[] {
@@ -303,11 +317,11 @@ export function ApprovalsTable({
         <td className="px-6 py-5 text-gray-600">{formatHours(row.breakHours)}</td>
         <td className="px-6 py-5 text-gray-600">{formatWorked(row.hours, row.breakHours)}</td>
         <td className="px-6 py-5">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
             <select
               value={displayStatus}
               onChange={(e) => handleStatusChange(row, e.target.value as "pending" | "approved")}
-              className={`min-w-0 flex-1 rounded-full border-0 px-3 py-1.5 text-xs font-medium outline-none ${
+              className={`shrink-0 rounded-full border-0 px-3 py-1.5 text-xs font-medium outline-none ${
                 displayStatus === "approved"
                   ? "bg-green-50 text-green-700"
                   : "bg-amber-50 text-amber-700"
@@ -316,7 +330,7 @@ export function ApprovalsTable({
               <option value="pending">Pending</option>
               <option value="approved">Approved</option>
             </select>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => displayStatus !== "approved" && setEditingRow(row)}
@@ -413,7 +427,10 @@ export function ApprovalsTable({
         </p>
       ) : (
         <div className="w-full overflow-x-auto rounded-b-xl">
-          <table className="w-full min-w-[960px] table-fixed text-left text-sm">
+          <table
+            className="w-full table-fixed text-left text-sm"
+            style={{ minWidth: `${TABLE_MIN_WIDTH_PX}px` }}
+          >
             <colgroup>
               {columnWidths.map((width, i) => (
                 <col key={i} style={{ width }} />
