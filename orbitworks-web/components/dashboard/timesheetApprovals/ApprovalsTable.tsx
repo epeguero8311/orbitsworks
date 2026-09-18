@@ -34,12 +34,75 @@ function formatDayLabel(dateKeyStr: string) {
   });
 }
 
-// Percentage widths for <colgroup>, in table order, so the table always
-// fills its container (table-fixed) instead of auto-sizing wider than the
-// card and getting clipped by the card's overflow-hidden. Two variants
-// because Week mode inserts a Date column.
-const DAY_COLUMN_WIDTHS = ["9%", "13%", "12%", "12%", "12%", "8%", "8%", "8%", "12%", "6%"];
-const WEEK_COLUMN_WIDTHS = ["9%", "8%", "12%", "11%", "11%", "12%", "7%", "7%", "7%", "11%", "5%"];
+// The checkbox column is a fixed 40px - it never needs to grow with the
+// window. Every other column is a percentage of the table's own width, but
+// scaled down by the same 40px (via calc) so the full set of columns,
+// fixed column included, always sums to exactly 100% of the container.
+// Without that adjustment, a plain "9%" + a hardcoded "40px" column would
+// not add up to 100% and the table would either overflow its card or fall
+// short of it - exactly the dead-space bug this fixes.
+const CHECKBOX_COLUMN_WIDTH = "40px";
+const CHECKBOX_COLUMN_PX = 40;
+
+function scaledWidth(percent: number): string {
+  const reservedPx = (percent * CHECKBOX_COLUMN_PX) / 100;
+  return `calc(${percent}% - ${reservedPx}px)`;
+}
+
+// Target percentages (of the full table width) for every column after the
+// fixed checkbox column. Day mode has no Date column, so its Name/Time
+// pick up the width Date would have used. Both variants total 100.
+const DAY_PERCENTAGES = {
+  name: 18,
+  company: 12,
+  site: 12,
+  time: 20,
+  shift: 8,
+  breakCol: 8,
+  worked: 8,
+  status: 14,
+};
+const WEEK_PERCENTAGES = {
+  date: 8,
+  name: 14,
+  company: 12,
+  site: 12,
+  time: 16,
+  shift: 8,
+  breakCol: 8,
+  worked: 8,
+  status: 14,
+};
+
+function buildColumnWidths(mode: "day" | "week"): string[] {
+  if (mode === "week") {
+    const p = WEEK_PERCENTAGES;
+    return [
+      CHECKBOX_COLUMN_WIDTH,
+      scaledWidth(p.date),
+      scaledWidth(p.name),
+      scaledWidth(p.company),
+      scaledWidth(p.site),
+      scaledWidth(p.time),
+      scaledWidth(p.shift),
+      scaledWidth(p.breakCol),
+      scaledWidth(p.worked),
+      scaledWidth(p.status),
+    ];
+  }
+  const p = DAY_PERCENTAGES;
+  return [
+    CHECKBOX_COLUMN_WIDTH,
+    scaledWidth(p.name),
+    scaledWidth(p.company),
+    scaledWidth(p.site),
+    scaledWidth(p.time),
+    scaledWidth(p.shift),
+    scaledWidth(p.breakCol),
+    scaledWidth(p.worked),
+    scaledWidth(p.status),
+  ];
+}
 
 export function ApprovalsTable({
   rows,
@@ -173,8 +236,11 @@ export function ApprovalsTable({
     ? [editingRow.clockInEvent, editingRow.clockOutEvent]
     : [];
 
-  const columnCount = mode === "week" ? 11 : 10;
-  const columnWidths = mode === "week" ? WEEK_COLUMN_WIDTHS : DAY_COLUMN_WIDTHS;
+  // checkbox + (Date in week mode) + Name/Company/Site/Time/Shift/Break/
+  // Worked/Status - the pencil/trash actions live inside the Status cell,
+  // not a column of their own, so there is no separate actions column here.
+  const columnCount = mode === "week" ? 10 : 9;
+  const columnWidths = buildColumnWidths(mode);
 
   function renderRow(row: ApprovalRow) {
     const overrideFlag = row.flags.find((f) => f.type === "SUPERVISOR_OVERRIDE");
@@ -237,39 +303,39 @@ export function ApprovalsTable({
         <td className="px-6 py-5 text-gray-600">{formatHours(row.breakHours)}</td>
         <td className="px-6 py-5 text-gray-600">{formatWorked(row.hours, row.breakHours)}</td>
         <td className="px-6 py-5">
-          <select
-            value={displayStatus}
-            onChange={(e) => handleStatusChange(row, e.target.value as "pending" | "approved")}
-            className={`w-full max-w-[140px] rounded-full border-0 px-3 py-1.5 text-xs font-medium outline-none ${
-              displayStatus === "approved"
-                ? "bg-green-50 text-green-700"
-                : "bg-amber-50 text-amber-700"
-            }`}
-          >
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-          </select>
-        </td>
-        <td className="px-6 py-5 text-right">
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => displayStatus !== "approved" && setEditingRow(row)}
-              disabled={displayStatus === "approved"}
-              className="rounded-md p-1 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent"
-              aria-label={displayStatus === "approved" ? "Set to Pending to edit" : "Edit timestamp"}
-              title={displayStatus === "approved" ? "Set to Pending to edit" : undefined}
+          <div className="flex items-center justify-between gap-2">
+            <select
+              value={displayStatus}
+              onChange={(e) => handleStatusChange(row, e.target.value as "pending" | "approved")}
+              className={`min-w-0 flex-1 rounded-full border-0 px-3 py-1.5 text-xs font-medium outline-none ${
+                displayStatus === "approved"
+                  ? "bg-green-50 text-green-700"
+                  : "bg-amber-50 text-amber-700"
+              }`}
             >
-              <Pencil className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setDeletingRow(row)}
-              className="rounded-md p-1 text-gray-600 hover:bg-red-50 hover:text-red-600"
-              aria-label="Delete session"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+            </select>
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => displayStatus !== "approved" && setEditingRow(row)}
+                disabled={displayStatus === "approved"}
+                className="rounded-md p-1 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent"
+                aria-label={displayStatus === "approved" ? "Set to Pending to edit" : "Edit timestamp"}
+                title={displayStatus === "approved" ? "Set to Pending to edit" : undefined}
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeletingRow(row)}
+                className="rounded-md p-1 text-gray-600 hover:bg-red-50 hover:text-red-600"
+                aria-label="Delete session"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </td>
       </tr>
@@ -346,8 +412,8 @@ export function ApprovalsTable({
           to create one.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-b-xl">
-          <table className="w-full min-w-[1040px] table-fixed text-left text-sm">
+        <div className="w-full overflow-x-auto rounded-b-xl">
+          <table className="w-full min-w-[960px] table-fixed text-left text-sm">
             <colgroup>
               {columnWidths.map((width, i) => (
                 <col key={i} style={{ width }} />
@@ -356,17 +422,15 @@ export function ApprovalsTable({
             <thead className="border-b border-gray-200 text-gray-600">
               <tr>
                 <th className="px-6 py-3.5 font-medium">
-                  <span className="flex items-center gap-2 whitespace-nowrap">
-                    <input
-                      ref={headerCheckboxRef}
-                      type="checkbox"
-                      checked={allSelected}
-                      onChange={toggleSelectAll}
-                      aria-label="Select all"
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    <span className="text-xs font-normal text-gray-500">Select All</span>
-                  </span>
+                  <input
+                    ref={headerCheckboxRef}
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleSelectAll}
+                    aria-label="Select all"
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <span className="sr-only">Select All</span>
                 </th>
                 {mode === "week" && <th className="px-6 py-3.5 font-medium">Date</th>}
                 <th className="px-6 py-3.5 font-medium">Name</th>
@@ -377,7 +441,6 @@ export function ApprovalsTable({
                 <th className="px-6 py-3.5 font-medium">Break</th>
                 <th className="px-6 py-3.5 font-medium">Worked</th>
                 <th className="px-6 py-3.5 font-medium">Status</th>
-                <th className="px-6 py-3.5 font-medium"></th>
               </tr>
             </thead>
             <tbody>{renderBody()}</tbody>
