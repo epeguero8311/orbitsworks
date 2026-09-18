@@ -39,6 +39,7 @@ export default function TimesheetApprovalsPage() {
     loading,
     addManualTimestamp,
     setApprovalStatus,
+    setApprovalStatusBulk,
     deleteTimesheetSession,
   } = useTimesheetApprovals(rangeStart, rangeEnd);
   const [addingOpen, setAddingOpen] = useState(false);
@@ -75,6 +76,7 @@ export default function TimesheetApprovalsPage() {
         mode={mode}
         weekDays={mode === "week" ? weekDays : undefined}
         onSetStatus={setApprovalStatus}
+        onSetStatusBulk={setApprovalStatusBulk}
         onDeleteSession={deleteTimesheetSession}
         onAddTimestamp={() => setAddingOpen(true)}
       />

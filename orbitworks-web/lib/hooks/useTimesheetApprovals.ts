@@ -66,7 +66,17 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     setLoading(true);
 
     const start = new Date(`${startDate}T00:00:00`);
+    // A session that clocks in on the last displayed day can clock out
+    // after midnight, into the next calendar day. The query has to
+    // range-filter on the raw `timestamp` field (never adjustedTimestamp -
+    // an admin correction must never move a session in or out of the
+    // fetched window), so it fetches one extra day past endDate to make
+    // sure that clock-out event is pulled in too. Sessions are bucketed by
+    // their clock-in day below, so this buffer day's own sessions get
+    // filtered back out of the final rows - it only exists to complete
+    // sessions that started inside the requested range.
     const end = new Date(`${endDate}T23:59:59`);
+    end.setDate(end.getDate() + 1);
 
     const eventsRef = collection(db, "companies", userData.companyId, "clockEvents");
     const eventsQuery = query(
@@ -218,10 +228,18 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
       }
     });
 
-    allRows.sort((a, b) =>
+    // The events query above fetches one buffer day past endDate so an
+    // overnight session's clock-out is available for pairing. A session
+    // belongs to the day it clocked in, not out, so drop any session
+    // paired from that buffer day here - this is the single place both
+    // Day and Week mode go through, so they can never disagree on which
+    // day a session belongs to.
+    const visibleRows = allRows.filter((r) => r.date >= startDate && r.date <= endDate);
+
+    visibleRows.sort((a, b) =>
       a.date === b.date ? a.employeeName.localeCompare(b.employeeName) : a.date.localeCompare(b.date)
     );
-    return allRows;
+    return visibleRows;
   }, [employees, events, approvals, startDate, endDate, settings?.name]);
 
   const pendingCount = useMemo(
@@ -239,6 +257,11 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     await fn({ eventId, status });
   };
 
+  const setApprovalStatusBulk = async (eventIds: string[], status: "pending" | "approved") => {
+    const fn = httpsCallable(functions, "setApprovalStatusBulk");
+    await fn({ eventIds, status });
+  };
+
   const deleteTimesheetSession = async (approvalId: string, eventIds: string[]) => {
     const fn = httpsCallable(functions, "deleteTimesheetSession");
     await fn({ approvalId, eventIds });
@@ -251,6 +274,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     error,
     addManualTimestamp,
     setApprovalStatus,
+    setApprovalStatusBulk,
     deleteTimesheetSession,
   };
 }

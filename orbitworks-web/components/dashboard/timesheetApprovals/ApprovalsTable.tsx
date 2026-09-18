@@ -34,12 +34,20 @@ function formatDayLabel(dateKeyStr: string) {
   });
 }
 
+// Percentage widths for <colgroup>, in table order, so the table always
+// fills its container (table-fixed) instead of auto-sizing wider than the
+// card and getting clipped by the card's overflow-hidden. Two variants
+// because Week mode inserts a Date column.
+const DAY_COLUMN_WIDTHS = ["9%", "13%", "12%", "12%", "12%", "8%", "8%", "8%", "12%", "6%"];
+const WEEK_COLUMN_WIDTHS = ["9%", "8%", "12%", "11%", "11%", "12%", "7%", "7%", "7%", "11%", "5%"];
+
 export function ApprovalsTable({
   rows,
   loading,
   mode,
   weekDays,
   onSetStatus,
+  onSetStatusBulk,
   onDeleteSession,
   onAddTimestamp,
 }: {
@@ -48,6 +56,7 @@ export function ApprovalsTable({
   mode: "day" | "week";
   weekDays?: string[];
   onSetStatus: (eventId: string, status: "pending" | "approved") => Promise<void>;
+  onSetStatusBulk: (eventIds: string[], status: "pending" | "approved") => Promise<void>;
   onDeleteSession: (approvalId: string, eventIds: string[]) => Promise<void>;
   onAddTimestamp: () => void;
 }) {
@@ -131,18 +140,19 @@ export function ApprovalsTable({
       keys.forEach((key) => next.set(key, "approved"));
       return next;
     });
-    const results = await Promise.allSettled(keys.map((key) => onSetStatus(key, "approved")));
-    const failedKeys = keys.filter((_, i) => results[i].status === "rejected");
-    if (failedKeys.length > 0) {
-      console.error(`Failed to approve ${failedKeys.length} of ${keys.length} selected rows.`);
+    try {
+      await onSetStatusBulk(keys, "approved");
+      setSelectedKeys(new Set());
+    } catch (err) {
+      console.error("Failed to approve selected rows:", err);
       setOptimisticStatus((prev) => {
         const next = new Map(prev);
-        failedKeys.forEach((key) => next.delete(key));
+        keys.forEach((key) => next.delete(key));
         return next;
       });
+    } finally {
+      setBulkSubmitting(false);
     }
-    setBulkSubmitting(false);
-    setSelectedKeys(new Set());
   }
 
   async function handleStatusChange(row: ApprovalRow, status: "pending" | "approved") {
@@ -164,18 +174,20 @@ export function ApprovalsTable({
     : [];
 
   const columnCount = mode === "week" ? 11 : 10;
+  const columnWidths = mode === "week" ? WEEK_COLUMN_WIDTHS : DAY_COLUMN_WIDTHS;
 
   function renderRow(row: ApprovalRow) {
     const overrideFlag = row.flags.find((f) => f.type === "SUPERVISOR_OVERRIDE");
     const displayStatus = optimisticStatus.get(row.key) ?? row.status;
+    const highlightOverride = !!overrideFlag && displayStatus === "pending";
     return (
       <tr
         key={row.key}
         className={`border-b border-gray-200 last:border-0 ${
-          overrideFlag ? "bg-amber-50" : "bg-white"
+          highlightOverride ? "bg-amber-50" : "bg-white"
         }`}
       >
-        <td className="px-6 py-4">
+        <td className="px-6 py-5">
           <input
             type="checkbox"
             checked={selectedKeys.has(row.key)}
@@ -185,10 +197,10 @@ export function ApprovalsTable({
           />
         </td>
         {mode === "week" && (
-          <td className="px-6 py-4 text-gray-600">{formatDayLabel(row.date)}</td>
+          <td className="px-6 py-5 text-gray-600">{formatDayLabel(row.date)}</td>
         )}
-        <td className="px-6 py-4 font-medium text-gray-950">
-          <span className="flex items-center gap-2">
+        <td className="px-6 py-5 font-medium text-gray-950">
+          <span className="flex flex-wrap items-center gap-2">
             {row.employeeName}
             {row.isClockedInNow && (
               <span className="inline-flex items-center rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
@@ -208,7 +220,7 @@ export function ApprovalsTable({
             )}
           </span>
         </td>
-        <td className="px-6 py-4 text-gray-600">
+        <td className="px-6 py-5 text-gray-600">
           {row.isSubcontractor ? (
             <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
               {row.companyName}
@@ -217,18 +229,18 @@ export function ApprovalsTable({
             row.companyName
           )}
         </td>
-        <td className="px-6 py-4 text-gray-600">{row.siteName}</td>
-        <td className="px-6 py-4 font-mono text-xs text-gray-600">
+        <td className="px-6 py-5 text-gray-600">{row.siteName}</td>
+        <td className="px-6 py-5 font-mono text-xs text-gray-600">
           {formatTime(row.clockInEvent)} - {formatTime(row.clockOutEvent)}
         </td>
-        <td className="px-6 py-4 text-gray-600">{formatHours(row.hours)}</td>
-        <td className="px-6 py-4 text-gray-600">{formatHours(row.breakHours)}</td>
-        <td className="px-6 py-4 text-gray-600">{formatWorked(row.hours, row.breakHours)}</td>
-        <td className="px-6 py-4">
+        <td className="px-6 py-5 text-gray-600">{formatHours(row.hours)}</td>
+        <td className="px-6 py-5 text-gray-600">{formatHours(row.breakHours)}</td>
+        <td className="px-6 py-5 text-gray-600">{formatWorked(row.hours, row.breakHours)}</td>
+        <td className="px-6 py-5">
           <select
             value={displayStatus}
             onChange={(e) => handleStatusChange(row, e.target.value as "pending" | "approved")}
-            className={`rounded-full border-0 px-2.5 py-1 text-xs font-medium outline-none ${
+            className={`w-full max-w-[140px] rounded-full border-0 px-3 py-1.5 text-xs font-medium outline-none ${
               displayStatus === "approved"
                 ? "bg-green-50 text-green-700"
                 : "bg-amber-50 text-amber-700"
@@ -238,7 +250,7 @@ export function ApprovalsTable({
             <option value="approved">Approved</option>
           </select>
         </td>
-        <td className="px-6 py-4 text-right">
+        <td className="px-6 py-5 text-right">
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -279,8 +291,8 @@ export function ApprovalsTable({
       if (dayRows.length === 0) {
         return (
           <tr key={day} className="border-b border-gray-200 bg-gray-50 last:border-0">
-            <td colSpan={columnCount} className="px-6 py-2 text-xs text-gray-400">
-              {formatDayLabel(day)} · No entries
+            <td colSpan={columnCount} className="px-6 py-3 text-xs text-gray-400">
+              {formatDayLabel(day)} - No entries
             </td>
           </tr>
         );
@@ -334,33 +346,43 @@ export function ApprovalsTable({
           to create one.
         </p>
       ) : (
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-gray-200 text-gray-600">
-            <tr>
-              <th className="px-6 py-3 font-medium">
-                <input
-                  ref={headerCheckboxRef}
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleSelectAll}
-                  aria-label="Select all"
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-              </th>
-              {mode === "week" && <th className="px-6 py-3 font-medium">Date</th>}
-              <th className="px-6 py-3 font-medium">Name</th>
-              <th className="px-6 py-3 font-medium">Company</th>
-              <th className="px-6 py-3 font-medium">Site</th>
-              <th className="px-6 py-3 font-medium">Time</th>
-              <th className="px-6 py-3 font-medium">Shift</th>
-              <th className="px-6 py-3 font-medium">Break</th>
-              <th className="px-6 py-3 font-medium">Worked</th>
-              <th className="px-6 py-3 font-medium">Status</th>
-              <th className="px-6 py-3 font-medium"></th>
-            </tr>
-          </thead>
-          <tbody>{renderBody()}</tbody>
-        </table>
+        <div className="overflow-x-auto rounded-b-xl">
+          <table className="w-full min-w-[1040px] table-fixed text-left text-sm">
+            <colgroup>
+              {columnWidths.map((width, i) => (
+                <col key={i} style={{ width }} />
+              ))}
+            </colgroup>
+            <thead className="border-b border-gray-200 text-gray-600">
+              <tr>
+                <th className="px-6 py-3.5 font-medium">
+                  <span className="flex items-center gap-2 whitespace-nowrap">
+                    <input
+                      ref={headerCheckboxRef}
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      aria-label="Select all"
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    <span className="text-xs font-normal text-gray-500">Select All</span>
+                  </span>
+                </th>
+                {mode === "week" && <th className="px-6 py-3.5 font-medium">Date</th>}
+                <th className="px-6 py-3.5 font-medium">Name</th>
+                <th className="px-6 py-3.5 font-medium">Company</th>
+                <th className="px-6 py-3.5 font-medium">Site</th>
+                <th className="px-6 py-3.5 font-medium">Time</th>
+                <th className="px-6 py-3.5 font-medium">Shift</th>
+                <th className="px-6 py-3.5 font-medium">Break</th>
+                <th className="px-6 py-3.5 font-medium">Worked</th>
+                <th className="px-6 py-3.5 font-medium">Status</th>
+                <th className="px-6 py-3.5 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody>{renderBody()}</tbody>
+          </table>
+        </div>
       )}
 
       {editingRow && (
