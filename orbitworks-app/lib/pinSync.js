@@ -62,12 +62,20 @@ export async function getPinTableLastSync() {
   return row ? Number(row.value) : null;
 }
 
+// A deactivated employee whose clock session is still open (deactivation
+// should have auto-closed it server-side, but this is the safety net for
+// when that write fails, and the only way a backfilled-but-not-yet-synced
+// orphan can still self-serve a clock-out) must still be findable here so
+// they can be clocked OUT - never back in, callers that only allow "in"
+// must check the returned `active` flag themselves (see clockQueue.js).
 export async function findEmployeeByPinLocal(pin) {
   const db = await getDb();
   const hashedPin = await hashPin(pin);
 
   const row = await db.getFirstAsync(
-    "SELECT * FROM pin_cache WHERE hashedPin = ? AND active = 1",
+    `SELECT * FROM pin_cache
+     WHERE hashedPin = ?
+       AND (active = 1 OR lastEventType IN ('in', 'breakStart', 'breakEnd'))`,
     [hashedPin]
   );
 
@@ -80,6 +88,7 @@ export async function findEmployeeByPinLocal(pin) {
     photoUrl: row.photoUrl,
     assignedSiteIds: JSON.parse(row.assignedSiteIds || "[]"),
     isSupervisor: !!row.isSupervisor,
+    active: !!row.active,
     subcontractorId: row.subcontractorId ?? null,
     subcontractorName: row.subcontractorName ?? null,
   };

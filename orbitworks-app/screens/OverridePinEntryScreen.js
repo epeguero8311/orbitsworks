@@ -54,6 +54,17 @@ export default function OverridePinEntryScreen({ navigation }) {
         return;
       }
 
+      // findEmployeeByPin now also resolves an inactive employee who still
+      // has an open session, purely so THEY can be clocked out - a
+      // deactivated supervisor must never be able to use that same PIN
+      // match to authorize actions on someone else's clock events.
+      if (!employee.active) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setError("This supervisor account is no longer active");
+        setPin("");
+        return;
+      }
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       navigation.replace("OverrideEmployeeList", { authorizedBy: employee });
       setPin("");

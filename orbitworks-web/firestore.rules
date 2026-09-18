@@ -21,6 +21,21 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/companies/$(companyId)/employees/$(uid)).data.active == true;
     }
 
+    // A deactivated employee can still have an open clock session (the
+    // deactivation write itself auto-closes it, but this is the safety net
+    // for when that write fails, plus the backfill path for sessions that
+    // were already orphaned before that fix shipped). Such an employee must
+    // still be clockable OUT - just never back IN or onto a new break -
+    // so admin manual clock-out, the Alerts panel, and the mobile app can
+    // all still close it out. lastEventType is the same denormalized field
+    // onClockEventCreated keeps in sync, so this needs only one get(), no
+    // query.
+    function isActiveOrClosingOpenSession(companyId, employeeId, data) {
+      let e = get(/databases/$(database)/documents/companies/$(companyId)/employees/$(employeeId)).data;
+      return e.active == true ||
+        (e.get('lastEventType', 'out') != 'out' && data.type in ['out', 'breakEnd']);
+    }
+
     function isActiveSupervisor(companyId, employeeId) {
       let e = get(/databases/$(database)/documents/companies/$(companyId)/employees/$(employeeId)).data;
       return e.active == true && e.isSupervisor == true;
@@ -145,9 +160,12 @@ service cloud.firestore {
             (underCap(companyId) && notPastDue(companyId))
           );
 
-        allow delete: if request.auth != null &&
-          request.auth.token.role == 'admin' &&
-          request.auth.token.companyId == companyId;
+        // Employees are never hard-deleted, only deactivated (active:
+        // false) - clockEvents denormalize employeeName/siteName at write
+        // time, so historical timesheets only survive if this doc itself
+        // is never removed. Deleting it would also orphan any still-open
+        // session beyond recovery.
+        allow delete: if false;
       }
 
       match /pins/{pinId} {
@@ -166,7 +184,7 @@ service cloud.firestore {
         allow create: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           isValidClockEventType(request.resource.data) &&
-          isActiveEmployee(companyId, request.resource.data.employeeId) &&
+          isActiveOrClosingOpenSession(companyId, request.resource.data.employeeId, request.resource.data) &&
           (
             request.auth.token.role == 'admin' ||
             (request.auth.token.role == 'supervisor' &&

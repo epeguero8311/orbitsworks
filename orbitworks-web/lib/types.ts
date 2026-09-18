@@ -93,7 +93,8 @@ export interface ClockEvent {
     | "adminManual"
     | "autoClockOut"
     | "supervisorPin"
-    | "autoBreakEnd";
+    | "autoBreakEnd"
+    | "employeeDeactivated";
   note?: string;
   photoUrl?: string;
   location?: { lat: number; lng: number } | string;

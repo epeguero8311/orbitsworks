@@ -23,7 +23,11 @@ export default function ClockEventLookup() {
   const { runTimesheet } = useEmployeeTimesheet();
   const { searchClockEvents } = useClockEvents();
 
-  const employees = allEmployees.filter((e) => e.active);
+  // Deactivated employees still need to be searchable/exportable here -
+  // their historical clock events and timesheet don't go away when they
+  // leave, so restricting this list to active employees would make a
+  // departed employee's history permanently unreachable from this tool.
+  const employees = allEmployees;
   const sites = allSites.filter((s) => s.active);
 
   const [lookupEmployeeId, setLookupEmployeeId] = useState("");
@@ -151,6 +155,7 @@ export default function ClockEventLookup() {
               {employees.map((emp) => (
                 <option key={emp.id} value={emp.id}>
                   {emp.name}
+                  {!emp.active ? " (Inactive)" : ""}
                 </option>
               ))}
             </select>

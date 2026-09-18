@@ -26,14 +26,16 @@ export function EmployeeDeleteSection({
           onClick={onStartConfirm}
           className="rounded-lg border border-red-200 px-5 py-2.5 text-sm font-medium text-red-700 hover:border-red-300 hover:bg-red-50"
         >
-          {isSupervisorRemoval ? "Remove supervisor" : "Delete employee"}
+          {isSupervisorRemoval ? "Remove supervisor" : "Deactivate employee"}
         </button>
       )}
 
       {!isSupervisorRemoval && confirmingDelete && (
         <div className="mt-3 flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5">
           <p className="text-sm text-red-800">
-            Delete {employeeName}? This can&apos;t be undone.
+            Deactivate {employeeName}? Any open clock session will be
+            automatically closed. They can be reactivated later - nothing is
+            deleted.
           </p>
           <button
             onClick={onCancelConfirm}
@@ -47,7 +49,7 @@ export function EmployeeDeleteSection({
             disabled={isDeleting}
             className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
           >
-            {isDeleting ? "Deleting..." : "Yes, delete"}
+            {isDeleting ? "Deactivating..." : "Yes, deactivate"}
           </button>
         </div>
       )}

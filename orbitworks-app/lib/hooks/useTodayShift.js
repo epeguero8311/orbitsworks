@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { useEffect, useRef, useState } from "react";
+import { collection, doc, getDoc, query, where, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 import { deriveStatus } from "../clockStatus";
 
@@ -15,6 +15,12 @@ export function useTodayShift(companyId) {
   const [todayInEvents, setTodayInEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Docs for inactive-but-still-open employees, fetched on demand outside
+  // the active==true listener below (id -> doc data, or "pending" while
+  // in flight). Deactivation should auto-close a session the moment it
+  // happens, so this only ever fills in for the safety-net/backfill case.
+  const inactiveOpenDocsRef = useRef({});
+
   useEffect(() => {
     if (!companyId) {
       setEmployees([]);
@@ -23,6 +29,8 @@ export function useTodayShift(companyId) {
       setLoading(false);
       return;
     }
+
+    inactiveOpenDocsRef.current = {};
 
     let employeesData = [];
     let eventsData = [];
@@ -37,6 +45,11 @@ export function useTodayShift(companyId) {
     const applyStatus = () => {
       const todayStart = startOfToday();
       const latestEventByEmployee = {};
+      // Unlike latestEventByEmployee (today-only, used for status of
+      // employees already in employeesData), this covers all time - it's
+      // what lets an inactive employee whose session has been open since
+      // before today still be found as "open" below.
+      const latestEventAllTime = {};
       const todayIns = [];
 
       eventsData.forEach((evt) => {
@@ -45,6 +58,10 @@ export function useTodayShift(companyId) {
         if (ts >= todayStart && evt.type === "in") {
           todayIns.push({ employeeId: evt.employeeId, timestamp: ts });
         }
+        const existingAll = latestEventAllTime[evt.employeeId];
+        if (!existingAll || ts > existingAll.ts) {
+          latestEventAllTime[evt.employeeId] = { type: evt.type, ts };
+        }
         if (ts < todayStart) return;
         const existing = latestEventByEmployee[evt.employeeId];
         if (!existing || ts > existing.ts) {
@@ -52,9 +69,39 @@ export function useTodayShift(companyId) {
         }
       });
 
-      const merged = employeesData.map((emp) => ({
+      // A deactivated employee with a still-open session must still be
+      // clockable OUT (never back in) - the active==true employees query
+      // below excludes them, so they're found here instead, from the
+      // clockEvents listener alone, and their doc fetched separately.
+      const activeIds = new Set(employeesData.map((e) => e.id));
+      const openInactiveIds = Object.keys(latestEventAllTime).filter(
+        (id) => latestEventAllTime[id].type !== "out" && !activeIds.has(id)
+      );
+
+      openInactiveIds.forEach((id) => {
+        if (inactiveOpenDocsRef.current[id]) return;
+        inactiveOpenDocsRef.current[id] = "pending";
+        getDoc(doc(db, "companies", companyId, "employees", id))
+          .then((snap) => {
+            if (!snap.exists()) return;
+            inactiveOpenDocsRef.current[id] = { id: snap.id, ...snap.data() };
+            applyStatus();
+          })
+          .catch((error) => {
+            delete inactiveOpenDocsRef.current[id];
+            console.log("[useTodayShift] inactive employee fetch error:", error.message);
+          });
+      });
+
+      const extraInactive = openInactiveIds
+        .map((id) => inactiveOpenDocsRef.current[id])
+        .filter((entry) => entry && entry !== "pending");
+
+      const merged = [...employeesData, ...extraInactive].map((emp) => ({
         ...emp,
-        status: deriveStatus(latestEventByEmployee[emp.id]?.type),
+        status: deriveStatus(
+          (latestEventByEmployee[emp.id] || latestEventAllTime[emp.id])?.type
+        ),
       }));
 
       setEmployees(merged);

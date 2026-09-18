@@ -179,6 +179,7 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
         renderItem={({ item }) => {
           const isSelected = selectedIds.includes(item.id);
           const isOnBreak = item.status === "break";
+          const isInactive = item.active === false;
           return (
             <TouchableOpacity
               style={[
@@ -197,7 +198,11 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
                 <Text style={[styles.name, { color: colors.text }]}>{item.name}</Text>
                 <Text style={[styles.jobTitle, { color: colors.subtext }]}>{item.jobTitle}</Text>
               </View>
-              {direction === "out" && isOnBreak ? (
+              {isInactive ? (
+                <View style={[styles.breakBadge, { backgroundColor: colors.red ?? "#dc2626" }]}>
+                  <Text style={styles.breakBadgeText}>Inactive</Text>
+                </View>
+              ) : direction === "out" && isOnBreak ? (
                 <View style={[styles.breakBadge, { backgroundColor: colors.accent }]}>
                   <Text style={styles.breakBadgeText}>On break</Text>
                 </View>

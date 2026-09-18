@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { doc, updateDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
 import { db, storage, functions } from "@/lib/firebase";
@@ -268,8 +268,14 @@ export function useEmployeeModal({
         const removeSupervisorFn = httpsCallable(functions, "removeSupervisor");
         await removeSupervisorFn({ employeeId: employee.id });
       } else {
-        const employeeRef = doc(db, "companies", companyId, "employees", employee.id);
-        await deleteDoc(employeeRef);
+        // Employees are never hard-deleted, only deactivated - clockEvents
+        // denormalize employeeName/siteName at write time, so historical
+        // timesheets only survive if this doc itself is never removed.
+        // firestore.rules blocks a direct delete on this collection now
+        // too; this callable is what actually flips active off (and, via
+        // the same server-side write path, closes any session still open).
+        const setEmployeeActiveFn = httpsCallable(functions, "setEmployeeActive");
+        await setEmployeeActiveFn({ employeeId: employee.id, active: false });
       }
       onClose();
     } catch (err) {
@@ -277,7 +283,7 @@ export function useEmployeeModal({
       setDeleteError(
         employee.linkedUserId
           ? "Couldn't remove this supervisor. Try again."
-          : "Couldn't delete this employee. Try again."
+          : "Couldn't deactivate this employee. Try again."
       );
       setIsDeleting(false);
     }

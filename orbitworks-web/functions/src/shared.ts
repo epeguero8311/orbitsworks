@@ -42,3 +42,71 @@ export async function deactivateEmployeeAuth(linkedUserId: string) {
   await admin.auth().updateUser(linkedUserId, { disabled: true });
   await admin.auth().revokeRefreshTokens(linkedUserId);
 }
+
+// Deactivating an employee (setEmployeeActive, deactivateEmployeesBulk,
+// removeSupervisor) must never leave a clock session dangling open - that
+// day's hours would never get paid and Missed Clock Out alerts would fire
+// forever with no way to resolve them. This runs inline in the same
+// request that flips active, right after that write, rather than as a
+// separate scheduled job - closing the gap the moment it opens instead of
+// hoping a nightly sweep catches it. Finds the employee's latest clock
+// event (regardless of how old it is - a stale session could be days old)
+// and, if it isn't already "out", writes a closing "out" (and a
+// "breakEnd" first if they were left on break) stamped with the
+// deactivation moment. isActiveOrClosingOpenSession in firestore.rules
+// is what lets these same event types still be written client-side for an
+// already-inactive employee (the manual/alert/mobile clock-out surfaces)
+// as a safety net if this write itself fails.
+export async function closeOpenSessionForDeactivation(
+  companyId: string,
+  employeeId: string,
+  deactivatedByUid: string
+): Promise<void> {
+  const eventsRef = db.collection("companies").doc(companyId).collection("clockEvents");
+  const latestSnap = await eventsRef
+    .where("employeeId", "==", employeeId)
+    .orderBy("timestamp", "desc")
+    .limit(1)
+    .get();
+  if (latestSnap.empty) return;
+
+  const latest = latestSnap.docs[0].data() as {
+    type?: string;
+    siteId?: string | null;
+    siteName?: string;
+    employeeName?: string;
+    subcontractorId?: string | null;
+    subcontractorName?: string | null;
+  };
+  if (!latest.type || latest.type === "out") return;
+
+  const now = admin.firestore.Timestamp.now();
+  const base = {
+    employeeId,
+    employeeName: latest.employeeName ?? "",
+    siteId: latest.siteId ?? null,
+    siteName: latest.siteName ?? "",
+    subcontractorId: latest.subcontractorId ?? null,
+    subcontractorName: latest.subcontractorName ?? null,
+    createdByUid: deactivatedByUid,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const batch = db.batch();
+  if (latest.type === "breakStart") {
+    batch.set(eventsRef.doc(), {
+      ...base,
+      type: "breakEnd",
+      source: "employeeDeactivated",
+      timestamp: now,
+    });
+  }
+  batch.set(eventsRef.doc(), {
+    ...base,
+    type: "out",
+    source: "employeeDeactivated",
+    note: "Automatically clocked out - employee was deactivated",
+    timestamp: now,
+  });
+  await batch.commit();
+}

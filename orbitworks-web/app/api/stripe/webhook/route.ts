@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe/server";
 import { getTierByPriceId } from "@/lib/stripe/tiers";
 import { adminDb, adminAuth } from "@/lib/firebase/admin";
+import { Timestamp, FieldValue } from "firebase-admin/firestore";
 import Stripe from "stripe";
 
 const FREE_EMPLOYEE_CAP = 8;
@@ -32,6 +33,63 @@ function shuffle<T>(arr: T[]): T[] {
 async function deactivateEmployeeAuth(linkedUserId: string) {
   await adminAuth.updateUser(linkedUserId, { disabled: true });
   await adminAuth.revokeRefreshTokens(linkedUserId);
+}
+
+// Mirrors closeOpenSessionForDeactivation in functions/src/shared.ts (same
+// "cannot import across deployables" reasoning as deactivateEmployeeAuth
+// above). Deactivating an employee here (a plan downgrade/cancellation
+// pushing a company over its new cap) must not leave a clock session
+// dangling open any more than the admin-initiated setEmployeeActive path
+// does - so this runs inline in the same webhook handler, right after the
+// active flip, not as a separate job.
+async function closeOpenSessionForDeactivation(companyId: string, employeeId: string) {
+  const eventsRef = adminDb.collection("companies").doc(companyId).collection("clockEvents");
+  const latestSnap = await eventsRef
+    .where("employeeId", "==", employeeId)
+    .orderBy("timestamp", "desc")
+    .limit(1)
+    .get();
+  if (latestSnap.empty) return;
+
+  const latest = latestSnap.docs[0].data() as {
+    type?: string;
+    siteId?: string | null;
+    siteName?: string;
+    employeeName?: string;
+    subcontractorId?: string | null;
+    subcontractorName?: string | null;
+  };
+  if (!latest.type || latest.type === "out") return;
+
+  const now = Timestamp.now();
+  const base = {
+    employeeId,
+    employeeName: latest.employeeName ?? "",
+    siteId: latest.siteId ?? null,
+    siteName: latest.siteName ?? "",
+    subcontractorId: latest.subcontractorId ?? null,
+    subcontractorName: latest.subcontractorName ?? null,
+    createdByUid: "system",
+    createdAt: FieldValue.serverTimestamp(),
+  };
+
+  const batch = adminDb.batch();
+  if (latest.type === "breakStart") {
+    batch.set(eventsRef.doc(), {
+      ...base,
+      type: "breakEnd",
+      source: "employeeDeactivated",
+      timestamp: now,
+    });
+  }
+  batch.set(eventsRef.doc(), {
+    ...base,
+    type: "out",
+    source: "employeeDeactivated",
+    note: "Automatically clocked out - employee was deactivated (plan downgrade over the employee cap)",
+    timestamp: now,
+  });
+  await batch.commit();
 }
 
 // Reverts a company to the permanent free tier, whether triggered by a
@@ -66,6 +124,7 @@ async function autoRevertToFree(companyId: string) {
     await batch.commit();
 
     for (const emp of toDeactivate) {
+      await closeOpenSessionForDeactivation(companyId, emp.id);
       if (emp.linkedUserId) {
         await deactivateEmployeeAuth(emp.linkedUserId);
       }

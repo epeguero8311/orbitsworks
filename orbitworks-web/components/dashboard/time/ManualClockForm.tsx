@@ -14,7 +14,13 @@ export default function ManualClockForm() {
   const { sites: allSites } = useSites();
   const { statusOf, isEligibleFor, recordManualClockEvent } = useClockEvents();
 
-  const employees = allEmployees.filter((e) => e.active);
+  // Active employees are always eligible; an inactive one only shows up
+  // here if they still have an open session (deactivation should have
+  // auto-closed it, but this is the safety net for when that write
+  // fails). isEligibleFor below already keeps them clock-out-only - an
+  // inactive employee is never "eligible" for "in"/"breakStart" since
+  // their last known status can't be "out" while their session is open.
+  const employees = allEmployees.filter((e) => e.active || statusOf(e.id) !== "out");
   const sites = allSites.filter((s) => s.active);
 
   const [employeeId, setEmployeeId] = useState("");
@@ -280,6 +286,7 @@ export default function ManualClockForm() {
           {filteredEmployees.map((emp) => (
             <option key={emp.id} value={emp.id}>
               {emp.name}
+              {!emp.active ? " (Inactive - clock out only)" : ""}
             </option>
           ))}
         </select>

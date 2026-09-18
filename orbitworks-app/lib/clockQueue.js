@@ -51,6 +51,15 @@ async function persistPhoto(photoUri, employeeId) {
 export async function queueClockEvent({ employee, photoUri, source, createdByUid, siteId, siteName }) {
   const currentStatus = await getCurrentLocalStatus(employee.id);
   const nextType = currentStatus === "out" ? "in" : "out";
+
+  // findEmployeeByPinLocal now also resolves an inactive employee who
+  // still has an open session, purely so they can be clocked OUT - never
+  // back in. If they were somehow already out (a stale/incorrect cache
+  // read), don't let this fall through to a new clock-in.
+  if (nextType === "in" && employee.active === false) {
+    throw new Error("This employee has been deactivated and can no longer clock in.");
+  }
+
   const persistedUri = await persistPhoto(photoUri, employee.id);
   const now = Date.now();
 
@@ -91,6 +100,12 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
 }
 
 export async function queueBreakEvent({ employee, type, createdByUid, authorizedBy, siteId, siteName }) {
+  // An inactive employee can still end a break they were already on (part
+  // of closing their session out), but never start a new one.
+  if (type === "breakStart" && employee.active === false) {
+    throw new Error("This employee has been deactivated and can no longer start a break.");
+  }
+
   const now = Date.now();
   await insertQueueItem({
     localId: makeLocalId(),
@@ -119,6 +134,10 @@ export async function queueOverrideClockIn({
   reason,
   overrideEventId,
 }) {
+  if (employee.active === false) {
+    throw new Error("This employee has been deactivated and can no longer clock in.");
+  }
+
   const now = Date.now();
   await insertQueueItem({
     localId: makeLocalId(),

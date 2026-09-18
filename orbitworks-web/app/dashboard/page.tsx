@@ -10,6 +10,7 @@ import JobSiteBreakdown from "@/components/dashboard/overview/JobSiteBreakdown";
 import AlertsPanel from "@/components/dashboard/overview/AlertsPanel";
 import EmployeesClockedInTable from "@/components/dashboard/overview/EmployeesClockedInTable";
 import OnBreakTable from "@/components/dashboard/overview/OnBreakTable";
+import DeactivatedSessionsBanner from "@/components/dashboard/overview/DeactivatedSessionsBanner";
 
 export default function DashboardOverviewPage() {
   const { settings } = useCompanySettings();
@@ -43,6 +44,11 @@ export default function DashboardOverviewPage() {
           </Link>
         </div>
       </div>
+
+      <DeactivatedSessionsBanner
+        items={status.deactivatedBackfills}
+        onDismiss={status.dismissDeactivatedBackfill}
+      />
 
       <StatCardsRow
         loading={status.loading}

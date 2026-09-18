@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
-import { db, deactivateEmployeeAuth } from "./shared";
+import { db, deactivateEmployeeAuth, closeOpenSessionForDeactivation } from "./shared";
 import { reserveNewPin } from "./pins";
 
 // Creates the employee doc and reserves its PIN entirely server-side
@@ -125,6 +125,10 @@ export const setEmployeeActive = onCall(async (request) => {
 
   await employeeRef.update({ active: active });
 
+  if (!active) {
+    await closeOpenSessionForDeactivation(callerCompanyId, employeeId, request.auth.uid);
+  }
+
   const linkedUserId = employee.linkedUserId;
   if (linkedUserId) {
     if (!active) {
@@ -169,6 +173,10 @@ export const deactivateEmployeesBulk = onCall(async (request) => {
   }
 
   await batch.commit();
+
+  for (const employeeId of employeeIds) {
+    await closeOpenSessionForDeactivation(callerCompanyId, employeeId, request.auth.uid);
+  }
 
   for (const linkedUserId of linkedUserIds) {
     await deactivateEmployeeAuth(linkedUserId);
@@ -399,6 +407,8 @@ export const removeSupervisor = onCall(async (request) => {
   }
 
   await batch.commit();
+
+  await closeOpenSessionForDeactivation(callerCompanyId, employeeId, request.auth.uid);
 
   return { success: true };
 });

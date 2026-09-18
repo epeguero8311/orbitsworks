@@ -50,7 +50,9 @@ export default function EmployeeListScreen({ navigation }) {
             <View style={styles.statusWrap}>
               <View style={[styles.dot, { backgroundColor: dotColor(item.status, colors) }]} />
               <Text style={[styles.statusLabel, { color: colors.subtext }]}>
-                {STATUS_LABEL[item.status] ?? "Out"}
+                {item.active === false
+                  ? `${STATUS_LABEL[item.status] ?? "Out"} - Inactive`
+                  : STATUS_LABEL[item.status] ?? "Out"}
               </Text>
             </View>
           </View>

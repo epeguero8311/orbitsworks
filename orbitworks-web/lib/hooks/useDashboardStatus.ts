@@ -16,6 +16,7 @@ import {
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
+import { useEmployees } from "@/lib/hooks/useEmployees";
 import { ClockEvent } from "@/lib/types";
 import { deriveStatus, accumulateWorkedMs, getAccumulatedWorkedMs } from "@/lib/clockStatus";
 import {
@@ -27,16 +28,30 @@ import {
 
 const DISPLAY_LIMIT = 8;
 
+export type DeactivatedBackfill = {
+  key: string;
+  employeeId: string;
+  employeeName: string;
+  closedAt: Date;
+};
+
 export function useDashboardStatus() {
   const { userData, currentUser } = useAuth();
   const { settings } = useCompanySettings();
+  const { employees } = useEmployees();
   const [events, setEvents] = useState<ClockEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [weeklyAttendance, setWeeklyAttendance] = useState<DayAttendance[]>([]);
   const [loadingChart, setLoadingChart] = useState(true);
   const [weeklyHoursByEmployee, setWeeklyHoursByEmployee] = useState<Map<string, number>>(new Map());
+  const [deactivatedBackfills, setDeactivatedBackfills] = useState<DeactivatedBackfill[]>([]);
 
   const autoClosedRef = useRef<Set<string>>(new Set());
+  const deactivatedClosedRef = useRef<Set<string>>(new Set());
+
+  function dismissDeactivatedBackfill(key: string) {
+    setDeactivatedBackfills((prev) => prev.filter((b) => b.key !== key));
+  }
 
   useEffect(() => {
     if (!userData?.companyId) return;
@@ -253,13 +268,21 @@ export function useDashboardStatus() {
     (a, b) => b[1] - a[1]
   );
 
+  const inactiveEmployeeIds = new Set(
+    employees.filter((e) => !e.active).map((e) => e.id)
+  );
+
   useEffect(() => {
     if (!userData?.companyId || !settings.attendanceRules.autoClockOut) return;
 
     const now = new Date();
+    // Already-inactive employees are handled by the backfill effect below
+    // instead - deliberately excluded here so a stale session belonging to
+    // a deactivated employee isn't force-closed twice under two different
+    // sources/notes.
     const stale = currentlyActive.filter((event) => {
       const d = effectiveDate(event);
-      return d && !isSameDay(d, now);
+      return d && !isSameDay(d, now) && !inactiveEmployeeIds.has(event.employeeId);
     });
 
     stale.forEach(async (event) => {
@@ -319,10 +342,90 @@ export function useDashboardStatus() {
     });
   }, [
     currentlyActive,
+    employees,
     settings.attendanceRules.autoClockOut,
     settings.businessHours.close,
     userData?.companyId,
   ]);
+
+  // Backfill for sessions orphaned before requirement #1's auto-close-on-
+  // deactivation existed: an already-inactive employee with a still-open
+  // session (any age, not just multi-day-stale - a same-day deactivation
+  // that raced the fix could also land here). Runs unconditionally,
+  // independent of the "Auto clock out" setting above, since this is a
+  // data-integrity backfill, not the opt-in business rule. Flags each one
+  // via console.warn and a dismissible banner - the hours for that day are
+  // off either way since we don't know the real deactivation moment, only
+  // when this check happened to run.
+  useEffect(() => {
+    if (!userData?.companyId) return;
+    if (inactiveEmployeeIds.size === 0) return;
+
+    const orphaned = currentlyActive.filter((event) =>
+      inactiveEmployeeIds.has(event.employeeId)
+    );
+
+    orphaned.forEach(async (event) => {
+      if (deactivatedClosedRef.current.has(event.id)) return;
+      deactivatedClosedRef.current.add(event.id);
+
+      try {
+        const now = new Date();
+        const eventsRef = collection(
+          db,
+          "companies",
+          userData!.companyId,
+          "clockEvents"
+        );
+
+        if (deriveStatus(event.type) === "break") {
+          await addDoc(eventsRef, {
+            employeeId: event.employeeId,
+            employeeName: event.employeeName,
+            siteId: event.siteId,
+            siteName: event.siteName,
+            subcontractorId: event.subcontractorId ?? null,
+            subcontractorName: event.subcontractorName ?? null,
+            type: "breakEnd",
+            source: "employeeDeactivated",
+            createdByUid: currentUser?.uid,
+            timestamp: Timestamp.fromDate(now),
+            createdAt: serverTimestamp(),
+          });
+        }
+
+        await addDoc(eventsRef, {
+          employeeId: event.employeeId,
+          employeeName: event.employeeName,
+          siteId: event.siteId,
+          siteName: event.siteName,
+          subcontractorId: event.subcontractorId ?? null,
+          subcontractorName: event.subcontractorName ?? null,
+          type: "out",
+          source: "employeeDeactivated",
+          note: "Backfilled: this employee was already deactivated with an open session - hours for that day may be inaccurate.",
+          createdByUid: currentUser?.uid,
+          timestamp: Timestamp.fromDate(now),
+          createdAt: serverTimestamp(),
+        });
+
+        console.warn(
+          `[Deactivated-employee backfill] Force-closed an orphaned open session for ${event.employeeName} (${event.employeeId}). Hours for that day may be inaccurate.`
+        );
+        setDeactivatedBackfills((prev) => [
+          ...prev,
+          {
+            key: event.id,
+            employeeId: event.employeeId,
+            employeeName: event.employeeName,
+            closedAt: now,
+          },
+        ]);
+      } catch (err) {
+        console.error("Deactivated-employee backfill clock-out error:", err);
+      }
+    });
+  }, [currentlyActive, employees, userData?.companyId]);
 
   return {
     loading,
@@ -339,5 +442,7 @@ export function useDashboardStatus() {
     workedMsByEmployee,
     avgHoursWorked,
     activeSites,
+    deactivatedBackfills,
+    dismissDeactivatedBackfill,
   };
 }
