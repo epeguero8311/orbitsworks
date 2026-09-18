@@ -27,4 +27,8 @@ export {
   addManualTimestamp,
 } from "./clockEvents";
 
-export { setApprovalStatus, deleteTimesheetSession } from "./timesheetApprovals";
+export {
+  setApprovalStatus,
+  setApprovalStatusBulk,
+  deleteTimesheetSession,
+} from "./timesheetApprovals";

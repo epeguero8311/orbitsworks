@@ -3,28 +3,46 @@
 import { useRef } from "react";
 import { Calendar } from "lucide-react";
 
-export function ApprovalsDayHeader({
+export function ApprovalsHeader({
+  mode,
+  onModeChange,
   date,
   minDate,
+  weekStart,
+  weekEnd,
+  atMin,
   pendingCount,
-  onShiftDay,
+  onShiftRange,
   onSetDate,
 }: {
+  mode: "day" | "week";
+  onModeChange: (mode: "day" | "week") => void;
   date: string;
   minDate: string;
+  weekStart: string;
+  weekEnd: string;
+  atMin: boolean;
   pendingCount: number;
-  onShiftDay: (days: number) => void;
+  onShiftRange: (steps: number) => void;
   onSetDate: (date: string) => void;
 }) {
   const dateInputRef = useRef<HTMLInputElement>(null);
-  const atMinDate = date <= minDate;
 
-  const dateLabel = new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
+  const dayLabel = new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
     day: "numeric",
     year: "numeric",
   });
+
+  const weekLabel = `${new Date(`${weekStart}T00:00:00`).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  })} - ${new Date(`${weekEnd}T00:00:00`).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })}`;
 
   function todayKey() {
     const d = new Date();
@@ -43,9 +61,31 @@ export function ApprovalsDayHeader({
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 className="text-2xl font-semibold text-gray-950">Timesheet Approvals</h1>
-        <p className="mt-1 text-sm text-gray-600">{pendingCount} pending today</p>
+        <p className="mt-1 text-sm text-gray-600">
+          {pendingCount} pending {mode === "week" ? "this week" : "today"}
+        </p>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-md border border-gray-200 p-0.5">
+          <button
+            type="button"
+            onClick={() => onModeChange("day")}
+            className={`rounded px-3 py-1 text-sm font-medium ${
+              mode === "day" ? "bg-accent text-white" : "text-gray-600 hover:bg-gray-100"
+            }`}
+          >
+            Day
+          </button>
+          <button
+            type="button"
+            onClick={() => onModeChange("week")}
+            className={`rounded px-3 py-1 text-sm font-medium ${
+              mode === "week" ? "bg-accent text-white" : "text-gray-600 hover:bg-gray-100"
+            }`}
+          >
+            Week
+          </button>
+        </div>
         <button
           onClick={() => onSetDate(todayKey())}
           className="rounded-md border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:border-gray-300"
@@ -53,15 +93,17 @@ export function ApprovalsDayHeader({
           Today
         </button>
         <button
-          onClick={() => onShiftDay(-1)}
-          disabled={atMinDate}
+          onClick={() => onShiftRange(-1)}
+          disabled={atMin}
           className="rounded-md border border-gray-200 px-2 py-1.5 text-sm text-gray-600 hover:border-gray-300 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-gray-200"
         >
           {"<"}
         </button>
-        <span className="text-sm font-medium text-gray-950">{dateLabel}</span>
+        <span className="text-sm font-medium text-gray-950">
+          {mode === "week" ? weekLabel : dayLabel}
+        </span>
         <button
-          onClick={() => onShiftDay(1)}
+          onClick={() => onShiftRange(1)}
           className="rounded-md border border-gray-200 px-2 py-1.5 text-sm text-gray-600 hover:border-gray-300"
         >
           {">"}

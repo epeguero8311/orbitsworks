@@ -13,6 +13,7 @@ import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
+import { localDateKey } from "@/lib/reportUtils";
 import type { ClockEvent, Flag, TimesheetApproval } from "@/lib/types";
 
 export type ApprovalRow = {
@@ -51,7 +52,7 @@ export type ManualTimestampParams = {
   reason: string;
 };
 
-export function useTimesheetApprovals(date: string) {
+export function useTimesheetApprovals(startDate: string, endDate: string = startDate) {
   const { userData } = useAuth();
   const { employees } = useEmployees();
   const { settings } = useCompanySettings();
@@ -64,8 +65,18 @@ export function useTimesheetApprovals(date: string) {
     if (!userData?.companyId) return;
     setLoading(true);
 
-    const start = new Date(`${date}T00:00:00`);
-    const end = new Date(`${date}T23:59:59`);
+    const start = new Date(`${startDate}T00:00:00`);
+    // A session that clocks in on the last displayed day can clock out
+    // after midnight, into the next calendar day. The query has to
+    // range-filter on the raw `timestamp` field (never adjustedTimestamp -
+    // an admin correction must never move a session in or out of the
+    // fetched window), so it fetches one extra day past endDate to make
+    // sure that clock-out event is pulled in too. Sessions are bucketed by
+    // their clock-in day below, so this buffer day's own sessions get
+    // filtered back out of the final rows - it only exists to complete
+    // sessions that started inside the requested range.
+    const end = new Date(`${endDate}T23:59:59`);
+    end.setDate(end.getDate() + 1);
 
     const eventsRef = collection(db, "companies", userData.companyId, "clockEvents");
     const eventsQuery = query(
@@ -87,13 +98,17 @@ export function useTimesheetApprovals(date: string) {
       },
       (err) => {
         console.error("Timesheet approvals events listener error:", err);
-        setError("Couldn't load clock events for this day.");
+        setError("Couldn't load clock events for this range.");
         setLoading(false);
       }
     );
 
     const approvalsRef = collection(db, "companies", userData.companyId, "timesheetApprovals");
-    const approvalsQuery = query(approvalsRef, where("date", "==", date));
+    const approvalsQuery = query(
+      approvalsRef,
+      where("date", ">=", startDate),
+      where("date", "<=", endDate)
+    );
 
     const unsubApprovals = onSnapshot(
       approvalsQuery,
@@ -113,7 +128,7 @@ export function useTimesheetApprovals(date: string) {
       unsubEvents();
       unsubApprovals();
     };
-  }, [userData?.companyId, date]);
+  }, [userData?.companyId, startDate, endDate]);
 
   const rows = useMemo<ApprovalRow[]>(() => {
     const mainCompanyName = settings?.name || "Main company";
@@ -135,14 +150,17 @@ export function useTimesheetApprovals(date: string) {
 
     const allRows: ApprovalRow[] = [];
     const now = new Date();
-    const isToday = date === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const rangeIncludesToday = startDate <= todayKey && todayKey <= endDate;
 
     byEmployee.forEach((empEvents, employeeId) => {
       const employee = activeEmployeesById.get(employeeId);
       if (!employee) return;
 
       const isClockedInNow =
-        isToday && empEvents.length > 0 && empEvents[empEvents.length - 1].type !== "out";
+        rangeIncludesToday &&
+        empEvents.length > 0 &&
+        empEvents[empEvents.length - 1].type !== "out";
       const companyName = employee.subcontractorId
         ? employee.subcontractorName || "Subcontractor"
         : mainCompanyName;
@@ -188,7 +206,7 @@ export function useTimesheetApprovals(date: string) {
               employeeName: employee.name,
               companyName,
               isSubcontractor,
-              date,
+              date: approval?.date ?? localDateKey(inTs),
               siteName: pendingIn.siteName || "Not specified",
               siteId: pendingIn.siteId ?? null,
               hours: durationMs / (1000 * 60 * 60),
@@ -210,9 +228,19 @@ export function useTimesheetApprovals(date: string) {
       }
     });
 
-    allRows.sort((a, b) => a.employeeName.localeCompare(b.employeeName));
-    return allRows;
-  }, [employees, events, approvals, date, settings?.name]);
+    // The events query above fetches one buffer day past endDate so an
+    // overnight session's clock-out is available for pairing. A session
+    // belongs to the day it clocked in, not out, so drop any session
+    // paired from that buffer day here - this is the single place both
+    // Day and Week mode go through, so they can never disagree on which
+    // day a session belongs to.
+    const visibleRows = allRows.filter((r) => r.date >= startDate && r.date <= endDate);
+
+    visibleRows.sort((a, b) =>
+      a.date === b.date ? a.employeeName.localeCompare(b.employeeName) : a.date.localeCompare(b.date)
+    );
+    return visibleRows;
+  }, [employees, events, approvals, startDate, endDate, settings?.name]);
 
   const pendingCount = useMemo(
     () => rows.filter((r) => r.status === "pending").length,
@@ -229,6 +257,11 @@ export function useTimesheetApprovals(date: string) {
     await fn({ eventId, status });
   };
 
+  const setApprovalStatusBulk = async (eventIds: string[], status: "pending" | "approved") => {
+    const fn = httpsCallable(functions, "setApprovalStatusBulk");
+    await fn({ eventIds, status });
+  };
+
   const deleteTimesheetSession = async (approvalId: string, eventIds: string[]) => {
     const fn = httpsCallable(functions, "deleteTimesheetSession");
     await fn({ approvalId, eventIds });
@@ -241,6 +274,7 @@ export function useTimesheetApprovals(date: string) {
     error,
     addManualTimestamp,
     setApprovalStatus,
+    setApprovalStatusBulk,
     deleteTimesheetSession,
   };
 }

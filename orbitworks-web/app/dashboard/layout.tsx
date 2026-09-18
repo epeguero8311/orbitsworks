@@ -172,7 +172,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           )}
         </div>
 
-        <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
+        <div className="w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
           {children}
         </div>
         <HelpChat isSubscribed={subscriptionStatus === "active" && planTier !== "free"} />
