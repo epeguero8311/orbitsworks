@@ -34,13 +34,12 @@ function formatDayLabel(dateKeyStr: string) {
   });
 }
 
-// The table's floor width. Below this, the wrapper's overflow-x-auto takes
-// over instead of squeezing columns. It has to be wide enough that even at
-// this minimum, the Status column (see STATUS_MIN_CONTENT_PX below) still
-// has room for the full word "Approved" plus its chevron and both icon
-// buttons - that requirement is what sets this number, not an arbitrary
-// round figure.
-const TABLE_MIN_WIDTH_PX = 1200;
+// The table has no minimum width - it is always exactly 100% of its card,
+// on any desktop window, so it can never need a horizontal scrollbar. A
+// forced minimum here was what caused one: on a card narrower than that
+// minimum, the table stayed at the minimum instead of shrinking, and the
+// wrapper's overflow-x-auto kicked in. The overflow-x-auto wrapper stays
+// only as a fallback for genuinely tiny (phone-width) viewports.
 
 // The checkbox column is a fixed 40px - it never needs to grow with the
 // window. Every other column is a percentage of the table's own width, but
@@ -48,7 +47,7 @@ const TABLE_MIN_WIDTH_PX = 1200;
 // fixed column included, always sums to exactly 100% of the container.
 // Without that adjustment, a plain "9%" + a hardcoded "40px" column would
 // not add up to 100% and the table would either overflow its card or fall
-// short of it - exactly the dead-space bug that showed up before this.
+// short of it.
 const CHECKBOX_COLUMN_WIDTH = "40px";
 const CHECKBOX_COLUMN_PX = 40;
 
@@ -58,34 +57,32 @@ function scaledWidth(percent: number): string {
 }
 
 // Target percentages (of the full table width) for every column after the
-// fixed checkbox column. Day mode has no Date column, so its Name/Company/
-// Site/Time pick up the width Date would have used. Both variants total
-// 100 and both give Status the same 22% - that is not decorative: at
-// TABLE_MIN_WIDTH_PX (the narrowest this ever renders without scrolling),
-// 22% of the table minus its px-6 cell padding still comfortably fits
-// "Approved" + the select's chevron + the pencil and trash buttons with
-// room to spare. A smaller Status share was exactly what cut "Approved"
-// off as "App" before.
+// fixed checkbox column. Day mode has no Date column, so its Name/Company
+// pick up the width Date would have used. Both variants total 100. Status
+// gets 20% on both - paired with the tightened, shrink-0 select and icon
+// buttons below, that is enough for "Approved" plus the chevron and both
+// icon buttons on a normal desktop window without forcing the table wider
+// than its card.
 const DAY_PERCENTAGES = {
-  name: 14,
-  company: 10,
+  name: 15,
+  company: 11,
   site: 10,
   time: 20,
   shift: 8,
   breakCol: 8,
   worked: 8,
-  status: 22,
+  status: 20,
 };
 const WEEK_PERCENTAGES = {
   date: 8,
-  name: 11,
-  company: 9,
+  name: 12,
+  company: 10,
   site: 10,
   time: 16,
   shift: 8,
   breakCol: 8,
   worked: 8,
-  status: 22,
+  status: 20,
 };
 
 function buildColumnWidths(mode: "day" | "week"): string[] {
@@ -316,12 +313,12 @@ export function ApprovalsTable({
         <td className="px-6 py-5 text-gray-600">{formatHours(row.hours)}</td>
         <td className="px-6 py-5 text-gray-600">{formatHours(row.breakHours)}</td>
         <td className="px-6 py-5 text-gray-600">{formatWorked(row.hours, row.breakHours)}</td>
-        <td className="px-6 py-5">
-          <div className="flex items-center gap-3">
+        <td className="px-4 py-5">
+          <div className="flex items-center gap-2">
             <select
               value={displayStatus}
               onChange={(e) => handleStatusChange(row, e.target.value as "pending" | "approved")}
-              className={`shrink-0 rounded-full border-0 px-3 py-1.5 text-xs font-medium outline-none ${
+              className={`min-w-[88px] shrink-0 rounded-full border-0 px-2.5 py-1 text-xs font-medium outline-none ${
                 displayStatus === "approved"
                   ? "bg-green-50 text-green-700"
                   : "bg-amber-50 text-amber-700"
@@ -330,7 +327,7 @@ export function ApprovalsTable({
               <option value="pending">Pending</option>
               <option value="approved">Approved</option>
             </select>
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
                 onClick={() => displayStatus !== "approved" && setEditingRow(row)}
@@ -427,10 +424,7 @@ export function ApprovalsTable({
         </p>
       ) : (
         <div className="w-full overflow-x-auto rounded-b-xl">
-          <table
-            className="w-full table-fixed text-left text-sm"
-            style={{ minWidth: `${TABLE_MIN_WIDTH_PX}px` }}
-          >
+          <table className="w-full table-fixed text-left text-sm">
             <colgroup>
               {columnWidths.map((width, i) => (
                 <col key={i} style={{ width }} />
@@ -457,7 +451,7 @@ export function ApprovalsTable({
                 <th className="px-6 py-3.5 font-medium">Shift</th>
                 <th className="px-6 py-3.5 font-medium">Break</th>
                 <th className="px-6 py-3.5 font-medium">Worked</th>
-                <th className="px-6 py-3.5 font-medium">Status</th>
+                <th className="px-4 py-3.5 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>{renderBody()}</tbody>
