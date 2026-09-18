@@ -132,12 +132,12 @@ export function addPayrollSheet(
 
   sheet.columns = [
     { width: 24 },
-    { width: 16 },
+    { width: 26 },
     { width: 18 },
     { width: 14 },
     { width: 14 },
     { width: 14 },
-    { width: 16 },
+    { width: 24 },
     { width: 22 },
     { width: 12 },
   ];
@@ -158,12 +158,12 @@ export function addPayrollSheet(
   const summaryHeader = sheet.getRow(summaryHeaderRowNum);
   [
     "Employee",
-    "Total Hours",
+    "Total Hours (Including Break)",
     "Total Break Hrs",
     "Sessions",
     "Open Sessions",
     "Hourly Rate",
-    "Estimated Pay",
+    "Estimated Pay (Excluding Break)",
     "Company",
   ].forEach((h, i) => (summaryHeader.getCell(i + 1).value = h));
   styleHeaderRow(summaryHeader);
@@ -198,7 +198,7 @@ export function addPayrollSheet(
 
   const dailyHeaderRow = dailyTitleRow + 1;
   const dailyHeader = sheet.getRow(dailyHeaderRow);
-  ["Employee", "Date", "Job", "Hourly Rate", "Hours", "Break", "Estimated Pay", "Company"].forEach(
+  ["Employee", "Date", "Job", "Hourly Rate", "Hours", "Break", "Estimated Pay (Excluding Break)", "Company"].forEach(
     (h, i) => (dailyHeader.getCell(i + 1).value = h)
   );
   dailyHeader.getCell(9).value = "Default Rate";
@@ -328,15 +328,15 @@ export function addEmployeeHistorySheet(
 
   sheet.columns = [
     { width: 14 }, // A Date
-    { width: 20 }, // B Job Site
+    { width: 26 }, // B Job Site / Total Hours (Excluding Break)
     { width: 16 }, // C Job
     { width: 13 }, // D Hourly Rate
-    { width: 11 }, // E Clock In
+    { width: 16 }, // E Clock In / Estimated Pay (Excluding Break)
     { width: 11 }, // F Clock Out
     { width: 9 },  // G Hours
     { width: 9 },  // H Break
     { width: 12 }, // I Net Hours (hidden)
-    { width: 13 }, // J Estimated Pay
+    { width: 24 }, // J Estimated Pay (Excluding Break)
     { width: 30 }, // K Notes
     { width: 10 }, // L Adjusted
     { width: 12 }, // M Default Rate (hidden)
@@ -351,7 +351,7 @@ export function addEmployeeHistorySheet(
   // ---- Weekly summary block ----
   const summaryHeaderRowNum = 2;
   const summaryHeader = sheet.getRow(summaryHeaderRowNum);
-  ["Week Of", "Total Hours", "Regular Hours", "Overtime Hours", "Estimated Pay"].forEach(
+  ["Week Of", "Total Hours (Excluding Break)", "Regular Hours", "Overtime Hours", "Estimated Pay (Excluding Break)"].forEach(
     (h, i) => (summaryHeader.getCell(i + 1).value = h)
   );
   styleHeaderRow(summaryHeader);
@@ -424,7 +424,7 @@ export function addEmployeeHistorySheet(
     "Hours",
     "Break",
     "Net Hours",
-    "Estimated Pay",
+    "Estimated Pay (Excluding Break)",
     "Notes",
     "Adjusted",
   ].forEach((h, i) => (dailyHeader.getCell(i + 1).value = h));

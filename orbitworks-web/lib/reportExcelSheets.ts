@@ -141,7 +141,7 @@ export function addSummarySheet(
 
   summarySheet.columns = [
     { key: "employeeName", width: 26 },
-    { key: "totalHours", width: 16 },
+    { key: "totalHours", width: 26 },
     { key: "totalBreakHours", width: 16 },
     { key: "company", width: 22 },
   ];
@@ -177,7 +177,7 @@ export function addSummarySheet(
 
     const headerRow = summarySheet.getRow(r);
     headerRow.getCell(1).value = "Employee";
-    headerRow.getCell(2).value = "Total Hours";
+    headerRow.getCell(2).value = "Total Hours (Including Break)";
     headerRow.getCell(3).value = "Total Break Hrs";
     headerRow.getCell(4).value = "Company";
     styleHeaderRow(headerRow);

@@ -24,14 +24,16 @@ export default function PayrollTable({
       <div className="mt-3 grid gap-4 sm:grid-cols-3">
         <div className="rounded-lg border border-gray-200 bg-white p-4">
           <p className="text-xs font-medium text-gray-600">
-            Total hours ({startDate} to {endDate})
+            Total hours - including break ({startDate} to {endDate})
           </p>
           <p className="mt-1 text-2xl font-semibold text-gray-950">
             {formatHours(totalHoursAll)}
           </p>
         </div>
         <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <p className="text-xs font-medium text-gray-600">Estimated payroll</p>
+          <p className="text-xs font-medium text-gray-600">
+            Estimated payroll - excluding break
+          </p>
           <p className="mt-1 text-2xl font-semibold text-gray-950">
             ${totalEstimatedPay.toFixed(2)}
           </p>
@@ -61,10 +63,10 @@ export default function PayrollTable({
             <thead className="border-b border-gray-200 text-gray-600">
               <tr>
                 <th className="px-4 py-2 font-medium">Employee</th>
-                <th className="px-4 py-2 font-medium">Total hours</th>
+                <th className="px-4 py-2 font-medium">Total hours (incl. break)</th>
                 <th className="px-4 py-2 font-medium">Sessions</th>
                 <th className="px-4 py-2 font-medium">Missing clock-out</th>
-                <th className="px-4 py-2 font-medium">Est. pay</th>
+                <th className="px-4 py-2 font-medium">Est. pay (excl. break)</th>
               </tr>
             </thead>
             <tbody>

@@ -103,13 +103,13 @@ export function toPayrollCsv(
 ) {
   const header = [
     "Employee",
-    "Total Hours (decimal)",
-    "Total Hours (h:m)",
+    "Total Hours (Including Break, decimal)",
+    "Total Hours (Including Break, h:m)",
     "Total Break Hrs (decimal)",
     "Completed Sessions",
     "Missing Clock-Outs",
     "Hourly Rate",
-    "Estimated Pay",
+    "Estimated Pay (Excluding Break)",
   ];
   const rows = summaries.map((s) => [
     s.employeeName,
