@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pencil, Trash2, Plus, ShieldAlert } from "lucide-react";
 import type { ApprovalRow } from "@/lib/hooks/useTimesheetApprovals";
 import type { ClockEvent } from "@/lib/types";
@@ -8,15 +8,45 @@ import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal"
 import ConfirmDeleteSessionModal from "@/components/dashboard/timesheetApprovals/ConfirmDeleteSessionModal";
 import OverrideDetailsModal from "@/components/dashboard/timesheetApprovals/OverrideDetailsModal";
 
+function formatHours(hours: number | null) {
+  if (hours == null) return "-";
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  return `${h}h ${m}m`;
+}
+
+function formatWorked(shiftHours: number | null, breakHours: number | null) {
+  if (shiftHours == null) return "-";
+  return formatHours(shiftHours - (breakHours ?? 0));
+}
+
+function formatTime(event: ClockEvent) {
+  const ts = event.adjustedTimestamp ?? event.timestamp;
+  if (!ts) return "-";
+  return ts.toDate().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function formatDayLabel(dateKeyStr: string) {
+  return new Date(`${dateKeyStr}T00:00:00`).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export function ApprovalsTable({
   rows,
   loading,
+  mode,
+  weekDays,
   onSetStatus,
   onDeleteSession,
   onAddTimestamp,
 }: {
   rows: ApprovalRow[];
   loading: boolean;
+  mode: "day" | "week";
+  weekDays?: string[];
   onSetStatus: (eventId: string, status: "pending" | "approved") => Promise<void>;
   onDeleteSession: (approvalId: string, eventIds: string[]) => Promise<void>;
   onAddTimestamp: () => void;
@@ -34,6 +64,9 @@ export function ApprovalsTable({
   const [optimisticStatus, setOptimisticStatus] = useState<
     Map<string, "pending" | "approved">
   >(new Map());
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [bulkSubmitting, setBulkSubmitting] = useState(false);
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setOptimisticStatus((prev) => {
@@ -48,19 +81,68 @@ export function ApprovalsTable({
       }
       return changed ? next : prev;
     });
+    setSelectedKeys((prev) => {
+      if (prev.size === 0) return prev;
+      const validKeys = new Set(rows.map((r) => r.key));
+      let changed = false;
+      const next = new Set(prev);
+      for (const key of prev) {
+        if (!validKeys.has(key)) {
+          next.delete(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
   }, [rows]);
 
-  function formatHours(hours: number | null) {
-    if (hours == null) return "-";
-    const h = Math.floor(hours);
-    const m = Math.round((hours - h) * 60);
-    return `${h}h ${m}m`;
+  const allSelected = rows.length > 0 && rows.every((r) => selectedKeys.has(r.key));
+  const someSelected = rows.some((r) => selectedKeys.has(r.key));
+
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = someSelected && !allSelected;
+    }
+  }, [someSelected, allSelected]);
+
+  function toggleRowSelected(key: string) {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
 
-  function formatTime(event: ClockEvent) {
-    const ts = event.adjustedTimestamp ?? event.timestamp;
-    if (!ts) return "-";
-    return ts.toDate().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  function toggleSelectAll() {
+    setSelectedKeys(allSelected ? new Set() : new Set(rows.map((r) => r.key)));
+  }
+
+  function cancelSelection() {
+    setSelectedKeys(new Set());
+  }
+
+  async function approveAllSelected() {
+    const keys = Array.from(selectedKeys);
+    if (keys.length === 0) return;
+    setBulkSubmitting(true);
+    setOptimisticStatus((prev) => {
+      const next = new Map(prev);
+      keys.forEach((key) => next.set(key, "approved"));
+      return next;
+    });
+    const results = await Promise.allSettled(keys.map((key) => onSetStatus(key, "approved")));
+    const failedKeys = keys.filter((_, i) => results[i].status === "rejected");
+    if (failedKeys.length > 0) {
+      console.error(`Failed to approve ${failedKeys.length} of ${keys.length} selected rows.`);
+      setOptimisticStatus((prev) => {
+        const next = new Map(prev);
+        failedKeys.forEach((key) => next.delete(key));
+        return next;
+      });
+    }
+    setBulkSubmitting(false);
+    setSelectedKeys(new Set());
   }
 
   async function handleStatusChange(row: ApprovalRow, status: "pending" | "approved") {
@@ -81,6 +163,132 @@ export function ApprovalsTable({
     ? [editingRow.clockInEvent, editingRow.clockOutEvent]
     : [];
 
+  const columnCount = mode === "week" ? 11 : 10;
+
+  function renderRow(row: ApprovalRow) {
+    const overrideFlag = row.flags.find((f) => f.type === "SUPERVISOR_OVERRIDE");
+    const displayStatus = optimisticStatus.get(row.key) ?? row.status;
+    return (
+      <tr
+        key={row.key}
+        className={`border-b border-gray-200 last:border-0 ${
+          overrideFlag ? "bg-amber-50" : "bg-white"
+        }`}
+      >
+        <td className="px-6 py-4">
+          <input
+            type="checkbox"
+            checked={selectedKeys.has(row.key)}
+            onChange={() => toggleRowSelected(row.key)}
+            aria-label={`Select ${row.employeeName}`}
+            className="h-4 w-4 rounded border-gray-300"
+          />
+        </td>
+        {mode === "week" && (
+          <td className="px-6 py-4 text-gray-600">{formatDayLabel(row.date)}</td>
+        )}
+        <td className="px-6 py-4 font-medium text-gray-950">
+          <span className="flex items-center gap-2">
+            {row.employeeName}
+            {row.isClockedInNow && (
+              <span className="inline-flex items-center rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
+                Clocked In
+              </span>
+            )}
+            {overrideFlag && (
+              <button
+                type="button"
+                onClick={() => setViewingOverrideEventId(overrideFlag.overrideEventId)}
+                className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-200"
+                title="View supervisor override details"
+              >
+                <ShieldAlert className="h-3 w-3" />
+                Override
+              </button>
+            )}
+          </span>
+        </td>
+        <td className="px-6 py-4 text-gray-600">
+          {row.isSubcontractor ? (
+            <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
+              {row.companyName}
+            </span>
+          ) : (
+            row.companyName
+          )}
+        </td>
+        <td className="px-6 py-4 text-gray-600">{row.siteName}</td>
+        <td className="px-6 py-4 font-mono text-xs text-gray-600">
+          {formatTime(row.clockInEvent)} - {formatTime(row.clockOutEvent)}
+        </td>
+        <td className="px-6 py-4 text-gray-600">{formatHours(row.hours)}</td>
+        <td className="px-6 py-4 text-gray-600">{formatHours(row.breakHours)}</td>
+        <td className="px-6 py-4 text-gray-600">{formatWorked(row.hours, row.breakHours)}</td>
+        <td className="px-6 py-4">
+          <select
+            value={displayStatus}
+            onChange={(e) => handleStatusChange(row, e.target.value as "pending" | "approved")}
+            className={`rounded-full border-0 px-2.5 py-1 text-xs font-medium outline-none ${
+              displayStatus === "approved"
+                ? "bg-green-50 text-green-700"
+                : "bg-amber-50 text-amber-700"
+            }`}
+          >
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+          </select>
+        </td>
+        <td className="px-6 py-4 text-right">
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => displayStatus !== "approved" && setEditingRow(row)}
+              disabled={displayStatus === "approved"}
+              className="rounded-md p-1 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent"
+              aria-label={displayStatus === "approved" ? "Set to Pending to edit" : "Edit timestamp"}
+              title={displayStatus === "approved" ? "Set to Pending to edit" : undefined}
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeletingRow(row)}
+              className="rounded-md p-1 text-gray-600 hover:bg-red-50 hover:text-red-600"
+              aria-label="Delete session"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  function renderBody() {
+    if (mode !== "week") return rows.map(renderRow);
+
+    const rowsByDate = new Map<string, ApprovalRow[]>();
+    rows.forEach((row) => {
+      const list = rowsByDate.get(row.date) ?? [];
+      list.push(row);
+      rowsByDate.set(row.date, list);
+    });
+
+    return (weekDays ?? []).flatMap((day) => {
+      const dayRows = rowsByDate.get(day) ?? [];
+      if (dayRows.length === 0) {
+        return (
+          <tr key={day} className="border-b border-gray-200 bg-gray-50 last:border-0">
+            <td colSpan={columnCount} className="px-6 py-2 text-xs text-gray-400">
+              {formatDayLabel(day)} · No entries
+            </td>
+          </tr>
+        );
+      }
+      return dayRows.map(renderRow);
+    });
+  }
+
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
       <div className="flex justify-end border-b border-gray-200 px-6 py-3">
@@ -93,123 +301,65 @@ export function ApprovalsTable({
           Add Timestamp
         </button>
       </div>
+      {selectedKeys.size > 0 && (
+        <div className="flex items-center justify-between border-b border-gray-200 bg-accent/5 px-6 py-2.5">
+          <span className="text-sm font-medium text-gray-950">
+            {selectedKeys.size} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={approveAllSelected}
+              disabled={bulkSubmitting}
+              className="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {bulkSubmitting ? "Approving..." : "Approve All"}
+            </button>
+            <button
+              type="button"
+              onClick={cancelSelection}
+              disabled={bulkSubmitting}
+              className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       {loading ? (
         <p className="p-6 text-sm text-gray-600">Loading...</p>
       ) : rows.length === 0 ? (
         <p className="p-6 text-sm text-gray-600">
-          No timesheets for this day yet. Use Add Timestamp above to create one.
+          No timesheets for this {mode === "week" ? "week" : "day"} yet. Use Add Timestamp above
+          to create one.
         </p>
       ) : (
         <table className="w-full text-left text-sm">
           <thead className="border-b border-gray-200 text-gray-600">
             <tr>
+              <th className="px-6 py-3 font-medium">
+                <input
+                  ref={headerCheckboxRef}
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  aria-label="Select all"
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+              </th>
+              {mode === "week" && <th className="px-6 py-3 font-medium">Date</th>}
               <th className="px-6 py-3 font-medium">Name</th>
               <th className="px-6 py-3 font-medium">Company</th>
               <th className="px-6 py-3 font-medium">Site</th>
               <th className="px-6 py-3 font-medium">Time</th>
-              <th className="px-6 py-3 font-medium">Hours</th>
+              <th className="px-6 py-3 font-medium">Shift</th>
               <th className="px-6 py-3 font-medium">Break</th>
+              <th className="px-6 py-3 font-medium">Worked</th>
               <th className="px-6 py-3 font-medium">Status</th>
               <th className="px-6 py-3 font-medium"></th>
             </tr>
           </thead>
-          <tbody>
-            {rows.map((row) => {
-              const overrideFlag = row.flags.find((f) => f.type === "SUPERVISOR_OVERRIDE");
-              const displayStatus = optimisticStatus.get(row.key) ?? row.status;
-              return (
-              <tr
-                key={row.key}
-                className={`border-b border-gray-200 last:border-0 ${
-                  overrideFlag ? "bg-amber-50" : "bg-white"
-                }`}
-              >
-                <td className="px-6 py-4 font-medium text-gray-950">
-                  <span className="flex items-center gap-2">
-                    {row.employeeName}
-                    {row.isClockedInNow && (
-                      <span className="inline-flex items-center rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                        Clocked In
-                      </span>
-                    )}
-                    {overrideFlag && (
-                      <button
-                        type="button"
-                        onClick={() => setViewingOverrideEventId(overrideFlag.overrideEventId)}
-                        className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-200"
-                        title="View supervisor override details"
-                      >
-                        <ShieldAlert className="h-3 w-3" />
-                        Override
-                      </button>
-                    )}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-gray-600">
-                  {row.isSubcontractor ? (
-                    <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
-                      {row.companyName}
-                    </span>
-                  ) : (
-                    row.companyName
-                  )}
-                </td>
-                <td className="px-6 py-4 text-gray-600">{row.siteName}</td>
-                <td className="px-6 py-4 font-mono text-xs text-gray-600">
-                  {formatTime(row.clockInEvent)} - {formatTime(row.clockOutEvent)}
-                </td>
-                <td className="px-6 py-4 text-gray-600">{formatHours(row.hours)}</td>
-                <td className="px-6 py-4 text-gray-600">{formatHours(row.breakHours)}</td>
-                <td className="px-6 py-4">
-                  <select
-                    value={displayStatus}
-                    onChange={(e) =>
-                      handleStatusChange(row, e.target.value as "pending" | "approved")
-                    }
-                    className={`rounded-full border-0 px-2.5 py-1 text-xs font-medium outline-none ${
-                      displayStatus === "approved"
-                        ? "bg-green-50 text-green-700"
-                        : "bg-amber-50 text-amber-700"
-                    }`}
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="approved">Approved</option>
-                  </select>
-                </td>
-                <td className="px-6 py-4 text-right">
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => displayStatus !== "approved" && setEditingRow(row)}
-                      disabled={displayStatus === "approved"}
-                      className="rounded-md p-1 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent"
-                      aria-label={
-                        displayStatus === "approved"
-                          ? "Set to Pending to edit"
-                          : "Edit timestamp"
-                      }
-                      title={
-                        displayStatus === "approved"
-                          ? "Set to Pending to edit"
-                          : undefined
-                      }
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeletingRow(row)}
-                      className="rounded-md p-1 text-gray-600 hover:bg-red-50 hover:text-red-600"
-                      aria-label="Delete session"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              );
-            })}
-          </tbody>
+          <tbody>{renderBody()}</tbody>
         </table>
       )}
 
