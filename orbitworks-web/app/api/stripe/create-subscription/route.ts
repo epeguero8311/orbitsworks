@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     const role = decoded.role as string | undefined;
     const companyId = decoded.companyId as string | undefined;
 
-    if (!companyId || role !== "admin") {
+    if (!companyId || role !== "owner") {
       return NextResponse.json({ error: "Not authorized." }, { status: 403 });
     }
 

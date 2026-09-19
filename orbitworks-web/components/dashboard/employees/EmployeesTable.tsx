@@ -32,8 +32,9 @@ export function EmployeesTable({
 }) {
   const [showUpgradeToast, setShowUpgradeToast] = useState(false);
   const [companyFilter, setCompanyFilter] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
 
-  const filteredEmployees = useMemo(() => {
+  const companyFilteredEmployees = useMemo(() => {
     if (!companyFilter) return employees;
     if (companyFilter === "__main__") {
       return employees.filter((e) => !e.subcontractorId);
@@ -41,7 +42,18 @@ export function EmployeesTable({
     return employees.filter((e) => e.subcontractorId === companyFilter);
   }, [employees, companyFilter]);
 
-  const activeCount = filteredEmployees.filter((e) => e.active).length;
+  const inactiveCount = companyFilteredEmployees.filter((e) => !e.active).length;
+
+  // Deleting an employee (deactivating) removes them from the list you
+  // actually work off of day to day - "Show inactive" is the deliberate
+  // second step to see them again, whether to reactivate or to reach the
+  // permanent-removal step for a former supervisor/admin.
+  const filteredEmployees = useMemo(() => {
+    if (showInactive) return companyFilteredEmployees;
+    return companyFilteredEmployees.filter((e) => e.active);
+  }, [companyFilteredEmployees, showInactive]);
+
+  const activeCount = companyFilteredEmployees.filter((e) => e.active).length;
 
   // Active employees first, inactive ones pushed to the bottom. Array.sort
   // is stable in modern JS engines, so relative order within each group is
@@ -122,6 +134,17 @@ export function EmployeesTable({
               {employeeLimit != null ? ` / ${employeeLimit}` : ""}
             </span>
           )}
+          {!loading && inactiveCount > 0 && (
+            <label className="flex cursor-pointer items-center gap-1.5 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+                className="rounded border-gray-300 text-accent focus:ring-accent"
+              />
+              Show inactive ({inactiveCount})
+            </label>
+          )}
         </div>
       </div>
 
@@ -169,11 +192,15 @@ export function EmployeesTable({
                         />
                       ) : null}
                       {employee.name}
-                      {employee.isSupervisor && (
+                      {employee.isAdmin ? (
+                        <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
+                          Admin
+                        </span>
+                      ) : employee.isSupervisor ? (
                         <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
                           Supervisor
                         </span>
-                      )}
+                      ) : null}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-gray-600">

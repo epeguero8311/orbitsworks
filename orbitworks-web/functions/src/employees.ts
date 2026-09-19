@@ -15,7 +15,7 @@ export const addEmployee = onCall(async (request) => {
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
@@ -84,7 +84,7 @@ export const setEmployeeActive = onCall(async (request) => {
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
@@ -147,7 +147,7 @@ export const deactivateEmployeesBulk = onCall(async (request) => {
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
@@ -185,20 +185,31 @@ export const deactivateEmployeesBulk = onCall(async (request) => {
   return { success: true, deactivatedCount: employeeIds.length };
 });
 
-export const setSupervisorStatus = onCall(async (request) => {
+// Direct promotion/demotion between supervisor and admin for an employee
+// who already has a linked login (accepted an invite via addEmployee ->
+// promote-in-place or a fresh invite). Not a re-invite - the existing
+// account, PIN, and clock history are untouched; only the role-like
+// fields on the employee doc, users/{uid}.role, and the custom claim
+// move together. To promote an employee with no linked account yet, use
+// the invite flow (invites/{id} with linkExistingEmployeeId) instead. To
+// remove them entirely, use deleteEmployee.
+export const setEmployeeRole = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
   const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
-  const isSupervisor = !!(request.data && request.data.isSupervisor);
+  const newRole = request.data && request.data.role ? String(request.data.role) : "";
   if (!employeeId) {
     throw new HttpsError("invalid-argument", "employeeId is required.");
+  }
+  if (newRole !== "supervisor" && newRole !== "admin") {
+    throw new HttpsError("invalid-argument", 'role must be "supervisor" or "admin".');
   }
 
   const employeeRef = db
@@ -211,14 +222,38 @@ export const setSupervisorStatus = onCall(async (request) => {
     throw new HttpsError("not-found", "Employee not found.");
   }
   const employee = employeeSnap.data() as { linkedUserId?: string };
-
-  await employeeRef.update({ isSupervisor });
-
-  if (!isSupervisor && employee.linkedUserId) {
-    // No claim change needed today: acceptInvite always grants role
-    // "supervisor" and there is no lesser role to fall back to. If that
-    // changes, set the downgraded claim here.
+  const linkedUserId = employee.linkedUserId;
+  if (!linkedUserId) {
+    throw new HttpsError(
+      "failed-precondition",
+      "This employee has no linked account yet - invite them first."
+    );
   }
+
+  const userRef = db.collection("users").doc(linkedUserId);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    throw new HttpsError("not-found", "Linked account not found.");
+  }
+  // Company must always keep >=1 owner - the owner's role can never be
+  // changed through this action (there is no employee-level path back to
+  // them in the first place, since the signup account never gets an
+  // employee doc, but this guard makes the invariant explicit).
+  const linkedUser = userSnap.data() as { role?: string };
+  if (linkedUser.role === "owner") {
+    throw new HttpsError("failed-precondition", "The company owner's role can't be changed here.");
+  }
+
+  await employeeRef.update({
+    isSupervisor: true,
+    isAdmin: newRole === "admin",
+  });
+  await userRef.update({ role: newRole });
+  await admin.auth().setCustomUserClaims(linkedUserId, {
+    role: newRole,
+    companyId: callerCompanyId,
+    employeeId,
+  });
 
   return { success: true };
 });
@@ -248,7 +283,7 @@ export const reassignEmployeeSubcontractor = onCall(async (request) => {
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
@@ -340,20 +375,23 @@ export const reassignEmployeeSubcontractor = onCall(async (request) => {
   return { success: true };
 });
 
-// Fully detaches a supervisor's login so the same email can be invited
-// fresh later (Firebase Auth enforces unique emails per project, so
-// leaving the old Auth user behind is what makes re-inviting fail).
-// employees/{employeeId} itself is never deleted - clock history lives on
-// it - only isSupervisor/linkedUserId are stripped, turning it back into
-// a normal employee record. Auto-marked inactive since it no longer has
-// login access; an admin can reactivate it as a plain employee later.
-export const removeSupervisor = onCall(async (request) => {
+// Permanently deletes an employee record, no matter the role (plain
+// employee, supervisor, or admin) or current active/inactive status.
+// clockEvents, timesheetApprovals, overrideEvents, and shiftNotes are
+// NEVER touched - they all denormalize employeeName/siteName/etc at
+// write time, so historical timesheets and reports keep reading
+// correctly without this doc existing. If linked, the Auth account and
+// users/{uid} doc are deleted first (so the same email can be invited
+// fresh later - Firebase Auth enforces unique emails per project), any
+// pending invite for that email is cleared, and the employee's PIN
+// reservation is released so a future employee can reuse it.
+export const deleteEmployee = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
@@ -371,30 +409,43 @@ export const removeSupervisor = onCall(async (request) => {
   if (!employeeSnap.exists) {
     throw new HttpsError("not-found", "Employee not found.");
   }
-  const employee = employeeSnap.data() as { linkedUserId?: string };
+  const employee = employeeSnap.data() as { linkedUserId?: string; pin?: string };
   const linkedUserId = employee.linkedUserId;
-  if (!linkedUserId) {
-    throw new HttpsError("failed-precondition", "This employee has no linked supervisor account.");
+
+  let email: string | null = null;
+
+  if (linkedUserId) {
+    const userRef = db.collection("users").doc(linkedUserId);
+    const userSnap = await userRef.get();
+    const userData = userSnap.data() as { email?: string; role?: string } | undefined;
+    // Company must always keep >=1 owner. Structurally the owner never
+    // has an employees doc in the first place, but this guard makes it
+    // explicit rather than relying on that being true forever.
+    if (userData?.role === "owner") {
+      throw new HttpsError("failed-precondition", "The company owner's access can't be removed.");
+    }
+    email = userData?.email ?? null;
+
+    try {
+      await admin.auth().deleteUser(linkedUserId);
+    } catch (err: any) {
+      if (err?.code !== "auth/user-not-found") throw err;
+    }
+    await userRef.delete();
   }
 
-  const userRef = db.collection("users").doc(linkedUserId);
-  const userSnap = await userRef.get();
-  const email = (userSnap.data() as { email?: string } | undefined)?.email ?? null;
-
-  try {
-    await admin.auth().deleteUser(linkedUserId);
-  } catch (err: any) {
-    if (err?.code !== "auth/user-not-found") throw err;
-  }
+  // Closes any still-open clock session before the employee doc is gone
+  // - reads/writes clockEvents only (by employeeId, using the
+  // denormalized name already on the latest event), never the employees
+  // doc itself, so this is safe to run right up until the delete below.
+  await closeOpenSessionForDeactivation(callerCompanyId, employeeId, request.auth.uid);
 
   const batch = db.batch();
-  batch.delete(userRef);
-  batch.update(employeeRef, {
-    isSupervisor: admin.firestore.FieldValue.delete(),
-    linkedUserId: admin.firestore.FieldValue.delete(),
-    active: false,
-  });
-
+  if (employee.pin) {
+    batch.delete(
+      db.collection("companies").doc(callerCompanyId).collection("pins").doc(employee.pin)
+    );
+  }
   if (email) {
     const invitesSnap = await db
       .collection("invites")
@@ -405,10 +456,8 @@ export const removeSupervisor = onCall(async (request) => {
       batch.delete(inviteDoc.ref);
     }
   }
-
+  batch.delete(employeeRef);
   await batch.commit();
-
-  await closeOpenSessionForDeactivation(callerCompanyId, employeeId, request.auth.uid);
 
   return { success: true };
 });

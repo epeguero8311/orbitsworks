@@ -104,7 +104,7 @@ export const setEmployeePin = onCall(async (request) => {
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
@@ -139,7 +139,7 @@ export const backfillEmployeePins = onCall(async (request) => {
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
@@ -202,7 +202,7 @@ export const verifyPin = onCall(async (request) => {
   }
   const companyId = request.auth.token.companyId as string | undefined;
   const role = request.auth.token.role as string | undefined;
-  if (!companyId || (role !== "admin" && role !== "supervisor")) {
+  if (!companyId || (role !== "admin" && role !== "owner" && role !== "supervisor")) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
@@ -280,7 +280,7 @@ export const getPinSyncTable = onCall(async (request) => {
   }
   const companyId = request.auth.token.companyId as string | undefined;
   const role = request.auth.token.role as string | undefined;
-  if (!companyId || (role !== "admin" && role !== "supervisor")) {
+  if (!companyId || (role !== "admin" && role !== "owner" && role !== "supervisor")) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 

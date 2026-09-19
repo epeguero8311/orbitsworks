@@ -70,11 +70,12 @@ function JoinForm() {
 
     try {
       const acceptInvite = httpsCallable(functions, "acceptInvite");
-      await acceptInvite({ name });
+      const result = await acceptInvite({ name });
+      const { role } = result.data as { role?: "supervisor" | "admin" };
 
       await user.getIdToken(true);
 
-      router.push("/mobile-only");
+      router.push(role === "admin" ? "/dashboard" : "/mobile-only");
     } catch (err) {
       console.error("Join setup error:", err);
       const code = (err as { code?: string })?.code;
@@ -146,11 +147,12 @@ function JoinForm() {
           <h2 className="text-2xl font-semibold leading-snug">
             You&apos;re joining
             <br />
-            as a supervisor.
+            the team.
           </h2>
           <p className="mt-3 max-w-sm text-sm text-white/70">
-            Once your account is set up, download the Orbitsworks mobile app
-            to clock your crew in and out on site.
+            Once your account is set up, you&apos;ll get access to the web
+            dashboard and, if you clock in on site, the Orbitsworks mobile
+            app too.
           </p>
         </div>
       </div>
@@ -164,7 +166,7 @@ function JoinForm() {
 
           <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
             <Smartphone className="h-3.5 w-3.5" />
-            Supervisor invite
+            Team invite
           </span>
 
           <h1 className="mt-4 text-2xl font-semibold text-gray-950">

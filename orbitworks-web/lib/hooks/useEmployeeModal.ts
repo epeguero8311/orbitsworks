@@ -1,10 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { doc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  updateDoc,
+  collection,
+  addDoc,
+  serverTimestamp,
+  query,
+  where,
+  getDocs,
+} from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
 import { db, storage, functions } from "@/lib/firebase";
+import { useAuth } from "@/lib/AuthContext";
 import { isValidPinFormat } from "@/lib/pinUtils";
 import type { Employee, Job, Subcontractor } from "@/lib/types";
 
@@ -23,6 +33,9 @@ export function useEmployeeModal({
   companyId: string;
   onClose: () => void;
 }) {
+  const { currentUser } = useAuth();
+  const isLinked = !!employee.linkedUserId;
+
   const [name, setName] = useState(employee.name);
   const [jobId, setJobId] = useState<string | null>(employee.jobId ?? null);
   const [customJobTitle, setCustomJobTitle] = useState(
@@ -32,7 +45,14 @@ export function useEmployeeModal({
     employee.jobId ? "" : employee.hourlyRate != null ? String(employee.hourlyRate) : ""
   );
   const [phone, setPhone] = useState(employee.phone ?? "");
-  const [isSupervisor, setIsSupervisor] = useState(employee.isSupervisor ?? false);
+  // Unlinked employees: toggling this on reveals an email field: Save
+  // creates invites/{id} with linkExistingEmployeeId, and acceptInvite
+  // updates this same doc in place rather than creating a new one.
+  const [promoteToSupervisor, setPromoteToSupervisor] = useState(false);
+  const [promoteEmail, setPromoteEmail] = useState("");
+  // Already-linked employees (have gone through the invite flow above):
+  // this is a direct role change, not a re-invite - see setEmployeeRole.
+  const [isAdmin, setIsAdmin] = useState(employee.isAdmin ?? false);
   const [dob, setDob] = useState(employee.dob ?? "");
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>(
     employee.assignedSiteIds ?? []
@@ -179,6 +199,31 @@ export function useEmployeeModal({
       return;
     }
 
+    const normalizedPromoteEmail = promoteEmail.trim().toLowerCase();
+    if (!isLinked && promoteToSupervisor && !normalizedPromoteEmail) {
+      setError("Enter an email to invite this employee as a supervisor.");
+      return;
+    }
+
+    // Checked across all roles, not just supervisor invites - a pending
+    // admin invite for this email must block this too, otherwise
+    // acceptInvite's query (no explicit ordering) could resolve to
+    // either pending invite.
+    if (!isLinked && promoteToSupervisor) {
+      const existingInvites = await getDocs(
+        query(
+          collection(db, "invites"),
+          where("companyId", "==", companyId),
+          where("email", "==", normalizedPromoteEmail),
+          where("status", "==", "pending")
+        )
+      );
+      if (!existingInvites.empty) {
+        setError("There's already a pending invite for that email.");
+        return;
+      }
+    }
+
     setIsSaving(true);
 
     // PIN goes first and, if it's rejected (bad format, or the server-
@@ -236,12 +281,27 @@ export function useEmployeeModal({
 
       await updateDoc(employeeRef, updates);
 
-      // isSupervisor is a role-like field, so it goes through a callable
-      // (server-verified, keeps custom claims consistent) rather than
-      // being bundled into the plain field updateDoc above.
-      if (isSupervisor !== (employee.isSupervisor ?? false)) {
-        const setSupervisorStatus = httpsCallable(functions, "setSupervisorStatus");
-        await setSupervisorStatus({ employeeId: employee.id, isSupervisor });
+      // isAdmin/isSupervisor/linkedUserId are role-like fields, blocked
+      // from the plain updateDoc above by firestore.rules - they only
+      // ever move through the invite flow or setEmployeeRole so the
+      // linked account's users/{uid}.role and custom claim stay in sync.
+      if (!isLinked && promoteToSupervisor) {
+        await addDoc(collection(db, "invites"), {
+          email: normalizedPromoteEmail,
+          companyId,
+          role: "supervisor",
+          assignedSiteIds: employee.assignedSiteIds ?? [],
+          invitedByUid: currentUser?.uid ?? "",
+          linkExistingEmployeeId: employee.id,
+          status: "pending",
+          createdAt: serverTimestamp(),
+        });
+      } else if (isLinked && isAdmin !== (employee.isAdmin ?? false)) {
+        const setEmployeeRole = httpsCallable(functions, "setEmployeeRole");
+        await setEmployeeRole({
+          employeeId: employee.id,
+          role: isAdmin ? "admin" : "supervisor",
+        });
       }
 
       setSuccess("Saved.");
@@ -259,32 +319,18 @@ export function useEmployeeModal({
     setIsDeleting(true);
 
     try {
-      if (employee.linkedUserId) {
-        // Supervisors have a linked Firebase Auth account - detaching it
-        // (Auth user + users/{uid} deletion) requires the Admin SDK, so
-        // this goes through removeSupervisor rather than a plain client
-        // delete. The employees/{employeeId} doc itself is kept (clock
-        // history lives there), just stripped back to a normal employee.
-        const removeSupervisorFn = httpsCallable(functions, "removeSupervisor");
-        await removeSupervisorFn({ employeeId: employee.id });
-      } else {
-        // Employees are never hard-deleted, only deactivated - clockEvents
-        // denormalize employeeName/siteName at write time, so historical
-        // timesheets only survive if this doc itself is never removed.
-        // firestore.rules blocks a direct delete on this collection now
-        // too; this callable is what actually flips active off (and, via
-        // the same server-side write path, closes any session still open).
-        const setEmployeeActiveFn = httpsCallable(functions, "setEmployeeActive");
-        await setEmployeeActiveFn({ employeeId: employee.id, active: false });
-      }
+      // Works the same no matter the role (plain employee, supervisor,
+      // or admin) or current active/inactive status - deleteEmployee
+      // always does a real removal from the employees collection.
+      // clockEvents/timesheetApprovals denormalize employeeName/siteName
+      // at write time, so historical timesheets and reports are never
+      // touched by this.
+      const deleteEmployeeFn = httpsCallable(functions, "deleteEmployee");
+      await deleteEmployeeFn({ employeeId: employee.id });
       onClose();
     } catch (err) {
       console.error("Delete employee error:", err);
-      setDeleteError(
-        employee.linkedUserId
-          ? "Couldn't remove this supervisor. Try again."
-          : "Couldn't deactivate this employee. Try again."
-      );
+      setDeleteError("Couldn't delete this employee. Try again.");
       setIsDeleting(false);
     }
   }
@@ -314,8 +360,13 @@ export function useEmployeeModal({
     handleJobSelect,
     phone,
     setPhone,
-    isSupervisor,
-    setIsSupervisor,
+    isLinked,
+    promoteToSupervisor,
+    setPromoteToSupervisor,
+    promoteEmail,
+    setPromoteEmail,
+    isAdmin,
+    setIsAdmin,
     dob,
     setDob,
     // sites
@@ -345,6 +396,5 @@ export function useEmployeeModal({
     isDeleting,
     deleteError,
     handleDelete,
-    isSupervisorRemoval: !!employee.linkedUserId,
   };
 }

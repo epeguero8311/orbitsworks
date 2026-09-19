@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, FormEvent } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
@@ -23,9 +23,42 @@ function emailStatusBadge(invite: Invite) {
   return { text: "Sending...", className: "bg-gray-100 text-gray-600" };
 }
 
-export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
+const ROLE_COPY = {
+  supervisor: {
+    listTitle: "Supervisors",
+    formTitle: "Supervisor invites",
+    description:
+      "Invite supervisors by email. Once they accept, they'll show up above in the employee list too - supervisors can clock in and out like anyone else, plus manage their assigned sites from the mobile app.",
+    placeholder: "supervisor@company.com",
+  },
+  admin: {
+    listTitle: "Admins",
+    formTitle: "Admin invites",
+    description:
+      "Invite admins by email. Admins get full web dashboard access - employees, sites, timesheets, and everything else except billing. Once they accept, they'll show up above in the employee list too.",
+    placeholder: "admin@company.com",
+  },
+} as const;
+
+// Renders the invite list + form for one role. List/invite/resend/cancel
+// behavior is identical for supervisor and admin invites - only which
+// invites are shown, whether job sites are assignable, and copy differ.
+// Kept as one component so a fix here (e.g. the cross-role duplicate-
+// invite check below) can't be applied to one role and forgotten for
+// the other, the way it was before this was unified.
+export function InviteManager({
+  role,
+  sites,
+}: {
+  role: "supervisor" | "admin";
+  sites?: JobSite[];
+}) {
+  const copy = ROLE_COPY[role];
   const { currentUser, userData } = useAuth();
-  const { invites, loading: loadingInvites, cancelInvite } = useInvites();
+  const { invites: allInvites, loading: loadingInvites, cancelInvite } = useInvites();
+  const invites = allInvites.filter((inv) =>
+    role === "admin" ? inv.role === "admin" : inv.role !== "admin"
+  );
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteSiteIds, setInviteSiteIds] = useState<string[]>([]);
@@ -53,7 +86,7 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
   function siteNames(ids: string[]) {
     if (ids.length === 0) return "None specified";
     return ids
-      .map((id) => sites.find((s) => s.id === id)?.name)
+      .map((id) => sites?.find((s) => s.id === id)?.name)
       .filter(Boolean)
       .join(", ");
   }
@@ -68,7 +101,11 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
     try {
       const normalizedEmail = inviteEmail.trim().toLowerCase();
 
-      const existing = invites.find(
+      // Checked against allInvites, not the role-filtered `invites` above -
+      // a pending invite for this email under the other role must block
+      // this one too, otherwise acceptInvite's query (no explicit
+      // ordering) could resolve to either one.
+      const existing = allInvites.find(
         (inv) =>
           inv.email.toLowerCase() === normalizedEmail &&
           inv.status === "pending"
@@ -82,8 +119,8 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
       await addDoc(collection(db, "invites"), {
         email: normalizedEmail,
         companyId: userData.companyId,
-        role: "supervisor",
-        assignedSiteIds: inviteSiteIds,
+        role,
+        assignedSiteIds: role === "supervisor" ? inviteSiteIds : [],
         status: "pending",
         invitedByUid: currentUser.uid,
         createdAt: serverTimestamp(),
@@ -158,12 +195,14 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
     }
   }
 
+  const emailInputId = `${role}InviteEmail`;
+
   return (
     <div>
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
         <div className="border-b border-gray-200 px-6 py-4">
           <h3 className="text-base font-semibold text-gray-950">
-            Supervisors
+            {copy.listTitle}
           </h3>
         </div>
         {deleteError && (
@@ -180,7 +219,9 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
             <thead className="border-b border-gray-200 text-gray-600">
               <tr>
                 <th className="px-6 py-3 font-medium">Email</th>
-                <th className="px-6 py-3 font-medium">Job sites</th>
+                {role === "supervisor" && (
+                  <th className="px-6 py-3 font-medium">Job sites</th>
+                )}
                 <th className="px-6 py-3 font-medium">Status</th>
                 <th className="px-6 py-3 font-medium">Email status</th>
                 <th className="px-6 py-3 font-medium"></th>
@@ -195,9 +236,11 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
                   <td className="px-6 py-4 text-gray-950">
                     {invite.email}
                   </td>
-                  <td className="px-6 py-4 text-gray-600">
-                    {siteNames(invite.assignedSiteIds)}
-                  </td>
+                  {role === "supervisor" && (
+                    <td className="px-6 py-4 text-gray-600">
+                      {siteNames(invite.assignedSiteIds)}
+                    </td>
+                  )}
                   <td className="px-6 py-4">
                     <span
                       className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -301,66 +344,63 @@ export function SupervisorInvites({ sites }: { sites: JobSite[] }) {
       </div>
 
       <h2 className="mt-10 text-xl font-semibold text-gray-950">
-        Supervisor invites
+        {copy.formTitle}
       </h2>
-      <p className="mt-1.5 text-sm text-gray-600">
-        Invite supervisors by email. Once they accept, they'll show up
-        above in the employee list too - supervisors can clock in and out
-        like anyone else, plus manage their assigned sites from the mobile
-        app.
-      </p>
+      <p className="mt-1.5 text-sm text-gray-600">{copy.description}</p>
 
       <form
         onSubmit={handleInvite}
         className="mt-5 rounded-xl border border-gray-200 bg-white p-6"
       >
         <label
-          htmlFor="inviteEmail"
+          htmlFor={emailInputId}
           className="mb-2 block text-sm font-medium text-gray-950"
         >
           Email
         </label>
         <input
-          id="inviteEmail"
+          id={emailInputId}
           type="email"
           required
           value={inviteEmail}
           onChange={(e) => setInviteEmail(e.target.value)}
           className="w-full max-w-sm rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          placeholder="supervisor@company.com"
+          placeholder={copy.placeholder}
         />
 
-        <div className="mt-5">
-          <span className="mb-2 block text-sm font-medium text-gray-950">
-            Assign to job sites
-          </span>
-          {sites.length === 0 ? (
-            <p className="text-sm text-gray-600">
-              No active job sites yet - add one on the Job Sites page first.
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {sites.map((site) => (
-                <label
-                  key={site.id}
-                  className={`cursor-pointer rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
-                    inviteSiteIds.includes(site.id)
-                      ? "border-accent bg-accent/10 text-accent"
-                      : "border-gray-200 text-gray-600 hover:border-gray-300"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    className="hidden"
-                    checked={inviteSiteIds.includes(site.id)}
-                    onChange={() => toggleInviteSite(site.id)}
-                  />
-                  {site.name}
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
+        {role === "supervisor" && (
+          <div className="mt-5">
+            <span className="mb-2 block text-sm font-medium text-gray-950">
+              Assign to job sites
+            </span>
+            {!sites || sites.length === 0 ? (
+              <p className="text-sm text-gray-600">
+                No active job sites yet - add one on the Job Sites page first.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {sites.map((site) => (
+                  <label
+                    key={site.id}
+                    className={`cursor-pointer rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
+                      inviteSiteIds.includes(site.id)
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-gray-200 text-gray-600 hover:border-gray-300"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="hidden"
+                      checked={inviteSiteIds.includes(site.id)}
+                      onChange={() => toggleInviteSite(site.id)}
+                    />
+                    {site.name}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {inviteError && (
           <p className="mt-4 text-sm text-red-600">{inviteError}</p>

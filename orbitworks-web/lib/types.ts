@@ -46,6 +46,7 @@ export interface Employee {
   phone?: string;
   dob?: string;
   isSupervisor?: boolean;
+  isAdmin?: boolean;
   linkedUserId?: string;
   active: boolean;
   pin: string;
@@ -61,7 +62,14 @@ export interface Employee {
 export interface Invite {
   id: string;
   email: string;
+  companyId: string;
+  role: "supervisor" | "admin";
   assignedSiteIds: string[];
+  invitedByUid: string;
+  // Set only when this invite promotes an existing employee record in
+  // place (Edit Employee modal's Supervisor access toggle) rather than
+  // creating a brand new one - see acceptInvite in functions/src/company.ts.
+  linkExistingEmployeeId?: string;
   status: "pending" | "accepted";
   emailStatus: "pending" | "sent" | "failed";
   emailSentAt?: Timestamp | null;

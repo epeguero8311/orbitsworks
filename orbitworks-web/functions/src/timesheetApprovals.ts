@@ -85,7 +85,7 @@ export const setApprovalStatus = onCall(async (request) => {
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
@@ -127,7 +127,7 @@ export const setApprovalStatusBulk = onCall(async (request) => {
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
@@ -192,7 +192,7 @@ export const deleteTimesheetSession = onCall(async (request) => {
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 

@@ -11,7 +11,7 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
-type UserRole = "admin" | "supervisor";
+export type UserRole = "owner" | "admin" | "supervisor";
 
 type UserData = {
   role: UserRole;
@@ -20,6 +20,15 @@ type UserData = {
   email?: string;
   assignedSiteIds?: string[];
 };
+
+// Owner is a superset of admin - the single original-signup account per
+// company, the only role with billing/Stripe access, but otherwise able
+// to do everything admin can. Anywhere client code used to check
+// role === "admin" to gate a general (non-billing) action should use
+// this instead.
+export function isAdminOrOwner(role: UserRole | null | undefined): boolean {
+  return role === "admin" || role === "owner";
+}
 
 type AuthContextType = {
   currentUser: User | null;

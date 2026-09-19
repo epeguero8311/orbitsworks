@@ -2,11 +2,18 @@ const ACCENT_COLOR = "#3b6fe0";
 
 export function buildInviteEmail(params: {
   companyName: string;
-  role: "supervisor";
+  role: "supervisor" | "admin";
   joinLink: string;
   companyLogoUrl?: string;
 }): { subject: string; html: string } {
-  const { companyName, joinLink, companyLogoUrl } = params;
+  const { companyName, role, joinLink, companyLogoUrl } = params;
+
+  const roleLabel = role === "admin" ? "Admin" : "Supervisor";
+  const roleArticle = role === "admin" ? "an" : "a";
+  const roleDescription =
+    role === "admin"
+      ? "As an admin, you'll get your own login with full access to the web dashboard - manage employees, sites, timesheets, and everything else except billing."
+      : "As a supervisor, you'll get your own login, can clock yourself in and out, and can clock other employees in and out on job sites.";
 
   const subject = `You're invited to join ${companyName} on OrbitsWorks`;
 
@@ -36,9 +43,8 @@ export function buildInviteEmail(params: {
             <tr>
               <td style="padding: 16px 40px 0 40px;">
                 <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #374151;">
-                  You've been invited to join <strong>${companyName}</strong> on OrbitsWorks as a
-                  <strong>Supervisor</strong>. As a supervisor, you'll get your own login, can clock
-                  yourself in and out, and can clock other employees in and out on job sites.
+                  You've been invited to join <strong>${companyName}</strong> on OrbitsWorks as ${roleArticle}
+                  <strong>${roleLabel}</strong>. ${roleDescription}
                 </p>
               </td>
             </tr>

@@ -12,8 +12,9 @@ type InviteData = {
   email?: string;
   companyId?: string;
   status?: "pending" | "accepted";
-  role?: "supervisor";
+  role?: "supervisor" | "admin";
   invitedByUid?: string;
+  linkExistingEmployeeId?: string;
   lastEmailAttemptAt?: admin.firestore.Timestamp | null;
 };
 
@@ -108,7 +109,7 @@ export const resendInviteEmail = onCall(
     }
     const callerRole = request.auth.token.role as string | undefined;
     const callerCompanyId = request.auth.token.companyId as string | undefined;
-    if (callerRole !== "admin" || !callerCompanyId) {
+    if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
       throw new HttpsError("permission-denied", "Not authorized.");
     }
 

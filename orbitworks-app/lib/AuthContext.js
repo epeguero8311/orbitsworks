@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, onSnapshot } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
 const AuthContext = createContext(null);
@@ -10,6 +10,7 @@ export function AuthProvider({ children }) {
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [accountDisabled, setAccountDisabled] = useState(false);
+  const [linkedEmployeeId, setLinkedEmployeeId] = useState(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -32,6 +33,7 @@ export function AuthProvider({ children }) {
       } else {
         setUserData(null);
         setAccountDisabled(false);
+        setLinkedEmployeeId(null);
       }
 
       setLoading(false);
@@ -48,18 +50,23 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    const employeeRef = doc(
-      db,
-      "companies",
-      userData.companyId,
-      "employees",
-      currentUser.uid
-    );
+    // employees doc ID is never assumed to equal the linked auth uid - a
+    // supervisor promoted-in-place keeps their original employee doc ID,
+    // and a fresh invite gets an auto-generated one. linkedUserId is the
+    // join, so this has to be a query, not a doc(uid) lookup.
+    const employeesRef = collection(db, "companies", userData.companyId, "employees");
+    const employeeQuery = query(employeesRef, where("linkedUserId", "==", currentUser.uid));
 
     const unsubscribe = onSnapshot(
-      employeeRef,
+      employeeQuery,
       (snap) => {
-        if (!snap.exists() || snap.data().active === false) {
+        if (snap.empty) {
+          setAccountDisabled(true);
+          setLinkedEmployeeId(null);
+          return;
+        }
+        setLinkedEmployeeId(snap.docs[0].id);
+        if (snap.docs[0].data().active === false) {
           setAccountDisabled(true);
         }
       },
@@ -79,7 +86,7 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const value = { currentUser, userData, loading, accountDisabled, signOutUser };
+  const value = { currentUser, userData, loading, accountDisabled, linkedEmployeeId, signOutUser };
 
   return (
     <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

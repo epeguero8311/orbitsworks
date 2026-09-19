@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "@/lib/firebase";
-import { useAuth } from "@/lib/AuthContext";
+import { useAuth, isAdminOrOwner } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { ClockEvent } from "@/lib/types";
 import {
@@ -20,7 +20,7 @@ export function useClockEventDetail({
   allEvents: ClockEvent[];
 }) {
   const { userData } = useAuth();
-  const isAdmin = userData?.role === "admin";
+  const isAdmin = isAdminOrOwner(userData?.role);
   const { employees } = useEmployees();
 
   const liveEvent = allEvents.find((e) => e.id === event.id) ?? event;

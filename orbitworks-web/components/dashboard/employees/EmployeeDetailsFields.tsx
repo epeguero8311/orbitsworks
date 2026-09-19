@@ -15,8 +15,13 @@ export function EmployeeDetailsFields({
   onCustomHourlyRateChange,
   phone,
   onPhoneChange,
-  isSupervisor,
-  onIsSupervisorChange,
+  isLinked,
+  promoteToSupervisor,
+  onPromoteToSupervisorChange,
+  promoteEmail,
+  onPromoteEmailChange,
+  isAdmin,
+  onIsAdminChange,
   dob,
   onDobChange,
 }: {
@@ -32,8 +37,13 @@ export function EmployeeDetailsFields({
   onCustomHourlyRateChange: (value: string) => void;
   phone: string;
   onPhoneChange: (value: string) => void;
-  isSupervisor: boolean;
-  onIsSupervisorChange: (value: boolean) => void;
+  isLinked: boolean;
+  promoteToSupervisor: boolean;
+  onPromoteToSupervisorChange: (value: boolean) => void;
+  promoteEmail: string;
+  onPromoteEmailChange: (value: string) => void;
+  isAdmin: boolean;
+  onIsAdminChange: (value: boolean) => void;
   dob: string;
   onDobChange: (value: string) => void;
 }) {
@@ -115,29 +125,75 @@ export function EmployeeDetailsFields({
           className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
         />
 
-        <div className="mt-3 flex items-center justify-between rounded-lg border border-gray-200 px-3.5 py-2.5">
-          <div>
-            <p className="text-sm font-medium text-gray-950">Supervisor access</p>
-            <p className="text-xs text-gray-600">
-              Can override clock-ins and manage breaks on mobile.
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={isSupervisor}
-            onClick={() => onIsSupervisorChange(!isSupervisor)}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-              isSupervisor ? "bg-accent" : "bg-gray-200"
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                isSupervisor ? "translate-x-6" : "translate-x-1"
+        {isLinked ? (
+          <div className="mt-3 flex items-center justify-between rounded-lg border border-gray-200 px-3.5 py-2.5">
+            <div>
+              <p className="text-sm font-medium text-gray-950">Admin access</p>
+              <p className="text-xs text-gray-600">
+                Full web dashboard access, not just clock overrides. Doesn&apos;t include billing.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isAdmin}
+              onClick={() => onIsAdminChange(!isAdmin)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+                isAdmin ? "bg-accent" : "bg-gray-200"
               }`}
-            />
-          </button>
-        </div>
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  isAdmin ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+        ) : (
+          <div className="mt-3 rounded-lg border border-gray-200 px-3.5 py-2.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-950">Supervisor access</p>
+                <p className="text-xs text-gray-600">
+                  Can override clock-ins and manage breaks on mobile.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={promoteToSupervisor}
+                onClick={() => onPromoteToSupervisorChange(!promoteToSupervisor)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+                  promoteToSupervisor ? "bg-accent" : "bg-gray-200"
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    promoteToSupervisor ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+            {promoteToSupervisor && (
+              <div className="mt-3">
+                <label className="mb-1.5 block text-xs font-medium text-gray-950">
+                  Email to invite
+                </label>
+                <input
+                  type="email"
+                  value={promoteEmail}
+                  onChange={(e) => onPromoteEmailChange(e.target.value)}
+                  className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                  placeholder="supervisor@company.com"
+                />
+                <p className="mt-1.5 text-xs text-gray-600">
+                  Saving sends an invite. Their existing PIN, clock history,
+                  and site assignments carry over once they accept.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div>
         <label className="mb-2 block text-sm font-medium text-gray-950">

@@ -6,6 +6,15 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/companies/$(companyId)).data;
     }
 
+    // Owner is a superset of admin - the single original-signup account
+    // per company, the only role with billing/Stripe access, but
+    // otherwise able to do everything admin can. Everywhere the app used
+    // to gate on role == 'admin' for general (non-billing) actions now
+    // goes through this helper instead.
+    function isAdminOrOwner() {
+      return request.auth.token.role == 'admin' || request.auth.token.role == 'owner';
+    }
+
     function underCap(companyId) {
       let c = companyOf(companyId);
       let cap = c.get('employeeCap', null);
@@ -17,8 +26,24 @@ service cloud.firestore {
       return companyOf(companyId).get('subscriptionStatus', 'active') != 'past_due';
     }
 
-    function isActiveEmployee(companyId, uid) {
-      return get(/databases/$(database)/documents/companies/$(companyId)/employees/$(uid)).data.active == true;
+    // The calling supervisor's own employee doc, looked up by the
+    // employeeId custom claim rather than request.auth.uid - employees
+    // doc IDs are never assumed to equal the linked auth uid (a
+    // promoted-in-place employee keeps its original doc ID), so this is
+    // the only way rules can resolve "my own employee record" with a
+    // single get() (rules can't run a where('linkedUserId','==',uid)
+    // query). The employeeId claim is set by acceptInvite and
+    // setEmployeeRole whenever a user gets linked to an employee doc.
+    // Falls back to request.auth.uid when the employeeId claim isn't on
+    // the token yet - true for every already-signed-in supervisor until
+    // they get a fresh ID token (migrate-owner-role.js backfills the
+    // claim, but there's no way to force a refresh of tokens already in
+    // flight). Safe because doc id == uid for every employee linked
+    // before this claim existed, so the fallback resolves to the same
+    // doc the old uid-keyed lookup did.
+    function isActiveEmployee(companyId) {
+      let employeeId = request.auth.token.get('employeeId', request.auth.uid);
+      return get(/databases/$(database)/documents/companies/$(companyId)/employees/$(employeeId)).data.active == true;
     }
 
     // A deactivated employee can still have an open clock session (the
@@ -80,7 +105,7 @@ service cloud.firestore {
     // replay, never an after-the-fact edit of someone's clocked time.
     function isIdempotentReplay(companyId) {
       return request.auth.token.role == 'supervisor' &&
-        isActiveEmployee(companyId, request.auth.uid) &&
+        isActiveEmployee(companyId) &&
         resource.data.createdByUid == request.auth.uid &&
         request.resource.data.createdByUid == request.auth.uid &&
         request.resource.data.localId == resource.data.localId &&
@@ -92,7 +117,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if request.auth != null && (
         request.auth.uid == userId ||
-        (request.auth.token.role == 'admin' &&
+        (isAdminOrOwner() &&
          request.auth.token.companyId == resource.data.companyId)
       );
       allow create, update, delete: if false;
@@ -103,7 +128,7 @@ service cloud.firestore {
         request.auth.token.companyId == companyId;
       allow create: if false;
       allow update: if request.auth != null &&
-        request.auth.token.role == 'admin' &&
+        isAdminOrOwner() &&
         request.auth.token.companyId == companyId &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'planTier',
@@ -120,7 +145,7 @@ service cloud.firestore {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId;
         allow write: if request.auth != null &&
-          request.auth.token.role == 'admin' &&
+          isAdminOrOwner() &&
           request.auth.token.companyId == companyId;
       }
 
@@ -128,7 +153,7 @@ service cloud.firestore {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId;
         allow write: if request.auth != null &&
-          request.auth.token.role == 'admin' &&
+          isAdminOrOwner() &&
           request.auth.token.companyId == companyId;
       }
 
@@ -136,7 +161,7 @@ service cloud.firestore {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId;
         allow write: if request.auth != null &&
-          request.auth.token.role == 'admin' &&
+          isAdminOrOwner() &&
           request.auth.token.companyId == companyId;
       }
 
@@ -145,26 +170,33 @@ service cloud.firestore {
           request.auth.token.companyId == companyId;
 
         allow create: if request.auth != null &&
-          request.auth.token.role == 'admin' &&
+          isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
           (request.resource.data.active != true || (underCap(companyId) && notPastDue(companyId)));
 
+        // isAdmin/isSupervisor/linkedUserId are role-like fields - only
+        // acceptInvite, setEmployeeRole, and deleteEmployee (all Admin
+        // SDK, bypass rules) may change them, so they're kept in sync
+        // with users/{uid}.role and the custom claim. Same lockdown
+        // pattern as 'pin' below.
         allow update: if request.auth != null &&
-          request.auth.token.role == 'admin' &&
+          isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin']) &&
+            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId']) &&
           (
             request.resource.data.active != true ||
             resource.data.active == true ||
             (underCap(companyId) && notPastDue(companyId))
           );
 
-        // Employees are never hard-deleted, only deactivated (active:
-        // false) - clockEvents denormalize employeeName/siteName at write
-        // time, so historical timesheets only survive if this doc itself
-        // is never removed. Deleting it would also orphan any still-open
-        // session beyond recovery.
+        // No client, including admins, may delete an employee doc
+        // directly - the only path is the deleteEmployee callable (Admin
+        // SDK, bypasses rules), which closes any open session, releases
+        // the PIN, and cleans up the linked Auth account/invite first.
+        // clockEvents/timesheetApprovals denormalize employeeName/
+        // siteName/etc at write time, so historical timesheets and
+        // reports still read correctly after this doc is gone.
         allow delete: if false;
       }
 
@@ -186,9 +218,9 @@ service cloud.firestore {
           isValidClockEventType(request.resource.data) &&
           isActiveOrClosingOpenSession(companyId, request.resource.data.employeeId, request.resource.data) &&
           (
-            request.auth.token.role == 'admin' ||
+            isAdminOrOwner() ||
             (request.auth.token.role == 'supervisor' &&
-             isActiveEmployee(companyId, request.auth.uid))
+             isActiveEmployee(companyId))
           ) &&
           request.resource.data.createdByUid == request.auth.uid &&
           isValidOverride(companyId, request.resource.data);
@@ -197,11 +229,11 @@ service cloud.firestore {
           !request.resource.data.diff(resource.data).affectedKeys()
             .hasAny(['type', 'timestamp', 'adjustedTimestamp', 'adjustmentHistory', 'employeeId', 'employeeName', 'subcontractorId', 'subcontractorName', 'reason']) &&
           (
-            request.auth.token.role == 'admin' ||
+            isAdminOrOwner() ||
             isIdempotentReplay(companyId)
           );
         allow delete: if request.auth != null &&
-          request.auth.token.role == 'admin' &&
+          isAdminOrOwner() &&
           request.auth.token.companyId == companyId;
       }
 
@@ -211,9 +243,9 @@ service cloud.firestore {
         allow create: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           (
-            request.auth.token.role == 'admin' ||
+            isAdminOrOwner() ||
             (request.auth.token.role == 'supervisor' &&
-             isActiveEmployee(companyId, request.auth.uid))
+             isActiveEmployee(companyId))
           ) &&
           request.resource.data.resolvedByUid == request.auth.uid;
         allow update, delete: if false;
@@ -224,18 +256,18 @@ service cloud.firestore {
           request.auth.token.companyId == companyId;
         allow write: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          (request.auth.token.role == 'admin' || request.auth.token.role == 'supervisor');
+          (isAdminOrOwner() || request.auth.token.role == 'supervisor');
       }
 
       match /timesheetApprovals/{eventId} {
-        // Admin-only, server-created. Written only by onClockEventCreated
-        // and setApprovalStatus (both Admin SDK, bypass rules entirely) -
-        // clients can read for the Approvals page but never write
-        // status/approvedBy/approvedAt directly, same lockdown pattern as
-        // adjustmentHistory on clockEvents.
+        // Admin/owner-only, server-created. Written only by
+        // onClockEventCreated and setApprovalStatus (both Admin SDK,
+        // bypass rules entirely) - clients can read for the Approvals
+        // page but never write status/approvedBy/approvedAt directly,
+        // same lockdown pattern as adjustmentHistory on clockEvents.
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          request.auth.token.role == 'admin';
+          isAdminOrOwner();
         allow write: if false;
       }
 
@@ -246,7 +278,7 @@ service cloud.firestore {
         // read for the Approvals page's override-detail view, never write.
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          request.auth.token.role == 'admin';
+          isAdminOrOwner();
         allow write: if false;
       }
     }
@@ -277,15 +309,16 @@ service cloud.firestore {
       // request (create or update) may set them, same pattern as the
       // employees/{employeeId} 'pin' field above.
       allow create: if request.auth != null &&
-        request.auth.token.role == 'admin' &&
+        isAdminOrOwner() &&
         request.auth.token.companyId == request.resource.data.companyId &&
+        request.resource.data.role in ['supervisor', 'admin'] &&
         !request.resource.data.keys()
           .hasAny(['emailStatus', 'emailSentAt', 'emailError', 'lastEmailAttemptAt']);
       allow read, delete: if request.auth != null &&
-        request.auth.token.role == 'admin' &&
+        isAdminOrOwner() &&
         request.auth.token.companyId == resource.data.companyId;
       allow update: if request.auth != null &&
-        request.auth.token.role == 'admin' &&
+        isAdminOrOwner() &&
         request.auth.token.companyId == resource.data.companyId &&
         !request.resource.data.diff(resource.data).affectedKeys()
           .hasAny(['emailStatus', 'emailSentAt', 'emailError', 'lastEmailAttemptAt']);
