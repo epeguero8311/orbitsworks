@@ -45,10 +45,15 @@ export function useEmployeeModal({
     employee.jobId ? "" : employee.hourlyRate != null ? String(employee.hourlyRate) : ""
   );
   const [phone, setPhone] = useState(employee.phone ?? "");
-  // Unlinked employees: toggling this on reveals an email field: Save
+  // Unlinked employees: the email field is optional. With an email, Save
   // creates invites/{id} with linkExistingEmployeeId, and acceptInvite
-  // updates this same doc in place rather than creating a new one.
-  const [promoteToSupervisor, setPromoteToSupervisor] = useState(false);
+  // updates this same doc in place rather than creating a new one. Left
+  // blank, Save instead calls setEmployeePinSupervisor directly - the
+  // employee stays unlinked (no login, no app/dashboard access) but can
+  // authorize overrides and breaks on mobile with just their PIN.
+  const [promoteToSupervisor, setPromoteToSupervisor] = useState(
+    !employee.linkedUserId && (employee.isSupervisor ?? false)
+  );
   const [promoteEmail, setPromoteEmail] = useState("");
   // Already-linked employees (have gone through the invite flow above):
   // this is a direct role change, not a re-invite - see setEmployeeRole.
@@ -199,17 +204,18 @@ export function useEmployeeModal({
       return;
     }
 
+    // Email is optional here - with one, Save sends a real invite
+    // (accepting it links a login). Without one, Save just flips
+    // isSupervisor directly via setEmployeePinSupervisor, no invite
+    // involved, so there's nothing to dedupe against.
     const normalizedPromoteEmail = promoteEmail.trim().toLowerCase();
-    if (!isLinked && promoteToSupervisor && !normalizedPromoteEmail) {
-      setError("Enter an email to invite this employee as a supervisor.");
-      return;
-    }
+    const wasPinSupervisor = !isLinked && (employee.isSupervisor ?? false);
 
     // Checked across all roles, not just supervisor invites - a pending
     // admin invite for this email must block this too, otherwise
     // acceptInvite's query (no explicit ordering) could resolve to
     // either pending invite.
-    if (!isLinked && promoteToSupervisor) {
+    if (!isLinked && promoteToSupervisor && normalizedPromoteEmail) {
       const existingInvites = await getDocs(
         query(
           collection(db, "invites"),
@@ -283,9 +289,11 @@ export function useEmployeeModal({
 
       // isAdmin/isSupervisor/linkedUserId are role-like fields, blocked
       // from the plain updateDoc above by firestore.rules - they only
-      // ever move through the invite flow or setEmployeeRole so the
-      // linked account's users/{uid}.role and custom claim stay in sync.
-      if (!isLinked && promoteToSupervisor) {
+      // ever move through the invite flow, setEmployeeRole, or
+      // setEmployeePinSupervisor so a linked account's users/{uid}.role
+      // and custom claim stay in sync (an unlinked PIN-only supervisor
+      // has neither, so there's nothing to keep in sync for them).
+      if (!isLinked && promoteToSupervisor && normalizedPromoteEmail) {
         await addDoc(collection(db, "invites"), {
           email: normalizedPromoteEmail,
           companyId,
@@ -295,6 +303,12 @@ export function useEmployeeModal({
           linkExistingEmployeeId: employee.id,
           status: "pending",
           createdAt: serverTimestamp(),
+        });
+      } else if (!isLinked && promoteToSupervisor !== wasPinSupervisor) {
+        const setEmployeePinSupervisor = httpsCallable(functions, "setEmployeePinSupervisor");
+        await setEmployeePinSupervisor({
+          employeeId: employee.id,
+          isSupervisor: promoteToSupervisor,
         });
       } else if (isLinked && isAdmin !== (employee.isAdmin ?? false)) {
         const setEmployeeRole = httpsCallable(functions, "setEmployeeRole");

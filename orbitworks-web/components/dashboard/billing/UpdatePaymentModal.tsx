@@ -9,6 +9,7 @@ import {
 } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import { auth } from "@/lib/firebase";
+import { authedFetch } from "@/lib/authedFetch";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY as string
@@ -40,13 +41,9 @@ function UpdateForm({ onSuccess }: { onSuccess: () => void }) {
     }
 
     try {
-      const idToken = await auth.currentUser.getIdToken();
-      const res = await fetch("/api/stripe/update-payment-method", {
+      const res = await authedFetch("/api/stripe/update-payment-method", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paymentMethodId: setupIntent.payment_method }),
       });
       const data = await res.json();

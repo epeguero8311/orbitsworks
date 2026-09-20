@@ -258,6 +258,55 @@ export const setEmployeeRole = onCall(async (request) => {
   return { success: true };
 });
 
+// Grants or revokes PIN-only supervisor override access for an employee
+// with no linked login - they can authorize clock-in overrides and
+// start/end breaks for others on mobile using just their PIN, without
+// ever getting an invite email or an app/dashboard account. Separate
+// from setEmployeeRole above, which only handles employees who already
+// have a linked account: an employee granted access here stays
+// unlinked, and firestore.rules' isActiveSupervisor() only ever checks
+// the employee doc's isSupervisor/active fields, never linkedUserId, so
+// this is sufficient on its own for override authority. Adding an email
+// later (Edit Employee modal) upgrades them to a real invite through the
+// normal linkExistingEmployeeId flow instead of this callable.
+export const setEmployeePinSupervisor = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
+  const isSupervisor = !!(request.data && request.data.isSupervisor);
+  if (!employeeId) {
+    throw new HttpsError("invalid-argument", "employeeId is required.");
+  }
+
+  const employeeRef = db
+    .collection("companies")
+    .doc(callerCompanyId)
+    .collection("employees")
+    .doc(employeeId);
+  const employeeSnap = await employeeRef.get();
+  if (!employeeSnap.exists) {
+    throw new HttpsError("not-found", "Employee not found.");
+  }
+  const employee = employeeSnap.data() as { linkedUserId?: string };
+  if (employee.linkedUserId) {
+    throw new HttpsError(
+      "failed-precondition",
+      "This employee already has a login - use the role toggle instead."
+    );
+  }
+
+  await employeeRef.update({ isSupervisor });
+
+  return { success: true };
+});
+
 export const onEmployeeWrite = onDocumentWritten(
   "companies/{companyId}/employees/{employeeId}",
   async (event) => {

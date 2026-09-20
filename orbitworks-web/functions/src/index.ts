@@ -7,6 +7,7 @@ export {
   setEmployeeActive,
   deactivateEmployeesBulk,
   setEmployeeRole,
+  setEmployeePinSupervisor,
   onEmployeeWrite,
   reassignEmployeeSubcontractor,
   deleteEmployee,

@@ -177,7 +177,7 @@ export function EmployeeDetailsFields({
             {promoteToSupervisor && (
               <div className="mt-3">
                 <label className="mb-1.5 block text-xs font-medium text-gray-950">
-                  Email to invite
+                  Email to invite (optional)
                 </label>
                 <input
                   type="email"
@@ -187,8 +187,9 @@ export function EmployeeDetailsFields({
                   placeholder="supervisor@company.com"
                 />
                 <p className="mt-1.5 text-xs text-gray-600">
-                  Saving sends an invite. Their existing PIN, clock history,
-                  and site assignments carry over once they accept.
+                  {promoteEmail.trim()
+                    ? "Saving sends an invite. Their existing PIN, clock history, and site assignments carry over once they accept, and they'll be able to log into the app."
+                    : "Leave blank to grant this immediately with no invite - they can override clock-ins and start/end breaks using just their PIN, but won't get app login access."}
                 </p>
               </div>
             )}

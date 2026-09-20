@@ -175,8 +175,9 @@ service cloud.firestore {
           (request.resource.data.active != true || (underCap(companyId) && notPastDue(companyId)));
 
         // isAdmin/isSupervisor/linkedUserId are role-like fields - only
-        // acceptInvite, setEmployeeRole, and deleteEmployee (all Admin
-        // SDK, bypass rules) may change them, so they're kept in sync
+        // acceptInvite, setEmployeeRole, setEmployeePinSupervisor, and
+        // deleteEmployee (all Admin SDK, bypass rules) may change them,
+        // so they're kept in sync
         // with users/{uid}.role and the custom claim. Same lockdown
         // pattern as 'pin' below.
         allow update: if request.auth != null &&

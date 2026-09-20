@@ -56,7 +56,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       return;
     }
     if (!loading && userData && userData.role !== "owner" && pathname.startsWith("/dashboard/billing")) {
-      router.push("/dashboard");
+      router.push("/403");
     }
   }, [loading, currentUser, userData, pathname, router]);
 

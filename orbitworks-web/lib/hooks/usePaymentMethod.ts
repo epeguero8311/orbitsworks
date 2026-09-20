@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { auth } from "@/lib/firebase";
+import { authedFetch } from "@/lib/authedFetch";
 
 export type PaymentMethodInfo = {
   brand: string;
@@ -22,10 +23,7 @@ export function usePaymentMethod(companyId: string | undefined) {
     }
     setError("");
     try {
-      const idToken = await auth.currentUser.getIdToken();
-      const res = await fetch("/api/stripe/payment-method", {
-        headers: { Authorization: `Bearer ${idToken}` },
-      });
+      const res = await authedFetch("/api/stripe/payment-method");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't load payment method.");
       setPaymentMethod(data.paymentMethod ?? null);
