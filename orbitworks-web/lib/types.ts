@@ -46,7 +46,13 @@ export interface Employee {
   phone?: string;
   dob?: string;
   isSupervisor?: boolean;
+  isAdmin?: boolean;
   linkedUserId?: string;
+  // Denormalized from users/{linkedUserId}.email at acceptInvite time so
+  // the Edit Employee modal can always show who a supervisor/admin's
+  // login belongs to without an extra read. Unset for employees who were
+  // never invited (plain, or PIN-only supervisor with no login).
+  email?: string;
   active: boolean;
   pin: string;
   subcontractorId?: string | null;
@@ -61,7 +67,14 @@ export interface Employee {
 export interface Invite {
   id: string;
   email: string;
+  companyId: string;
+  role: "supervisor" | "admin";
   assignedSiteIds: string[];
+  invitedByUid: string;
+  // Set only when this invite promotes an existing employee record in
+  // place (Edit Employee modal's Supervisor access toggle) rather than
+  // creating a brand new one - see acceptInvite in functions/src/company.ts.
+  linkExistingEmployeeId?: string;
   status: "pending" | "accepted";
   emailStatus: "pending" | "sent" | "failed";
   emailSentAt?: Timestamp | null;

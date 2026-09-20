@@ -31,7 +31,9 @@ const NAV_ITEMS = [
   { href: "/dashboard/time", label: "Time Tracking", icon: Clock },
   { href: "/dashboard/timesheet-approvals", label: "Approvals", icon: ClipboardCheck },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
-  { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
+  // Billing is filtered out below for non-owners - only the owner has
+  // Stripe access.
+  { href: "/dashboard/billing", label: "Billing", icon: CreditCard, ownerOnly: true },
   { href: "/dashboard/settings", label: "Settings", icon: SettingsIcon },
 ];
 
@@ -51,8 +53,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     }
     if (!loading && userData?.role === "supervisor") {
       router.push("/mobile-only");
+      return;
     }
-  }, [loading, currentUser, userData?.role, router]);
+    if (!loading && userData && userData.role !== "owner" && pathname.startsWith("/dashboard/billing")) {
+      router.push("/403");
+    }
+  }, [loading, currentUser, userData, pathname, router]);
 
   useEffect(() => {
     if (!userData?.companyId) return;
@@ -117,7 +123,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex-1 space-y-1 px-4 py-5">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => !item.ownerOnly || userData?.role === "owner").map((item) => {
             const isActive =
               item.href === "/dashboard"
                 ? pathname === "/dashboard"

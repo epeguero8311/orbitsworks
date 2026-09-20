@@ -9,7 +9,7 @@ import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { AddEmployeeForm } from "@/components/dashboard/employees/AddEmployeeForm";
 import { EmployeesTable } from "@/components/dashboard/employees/EmployeesTable";
 import { EmployeeModal } from "@/components/dashboard/employees/EmployeeModal";
-import { SupervisorInvites } from "@/components/dashboard/employees/SupervisorInvites";
+import { InviteManager } from "@/components/dashboard/employees/InviteManager";
 import type { Employee } from "@/lib/types";
 export default function EmployeesPage() {
   const { userData } = useAuth();
@@ -49,7 +49,10 @@ export default function EmployeesPage() {
         />
       </div>
       <div className="mt-10">
-        <SupervisorInvites sites={activeSites} />
+        <InviteManager role="supervisor" sites={activeSites} />
+      </div>
+      <div className="mt-10">
+        <InviteManager role="admin" />
       </div>
       {employeeForModal && (
         <EmployeeModal

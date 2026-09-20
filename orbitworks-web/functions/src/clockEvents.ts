@@ -277,7 +277,7 @@ export const correctClockEvent = onCall(async (request) => {
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
@@ -351,7 +351,7 @@ export const reassignClockEvent = onCall(async (request) => {
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
@@ -451,7 +451,7 @@ export const addManualTimestamp = onCall(async (request) => {
   }
   const callerRole = request.auth.token.role as string | undefined;
   const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if (callerRole !== "admin" || !callerCompanyId) {
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 

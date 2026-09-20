@@ -20,13 +20,13 @@ import Avatar from "../components/Avatar";
 const ASK_SITE_KEY = "orbitworks_ask_site_each_time";
 
 export default function DashboardScreen({ navigation }) {
-  const { userData, currentUser } = useAuth();
+  const { userData, currentUser, linkedEmployeeId } = useAuth();
   const { colors, isDark } = useTheme();
   const { selectedSite } = useSiteSession();
   const { employees: liveEmployees, loading } = useTodayShift(userData?.companyId);
   const employees = useLocalStatusOverlay(liveEmployees);
   const { settings } = useCompanySettings(userData?.companyId);
-  const localSupervisor = useLocalEmployee(currentUser?.uid);
+  const localSupervisor = useLocalEmployee(linkedEmployeeId);
   const [askSite, setAskSite] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -52,7 +52,7 @@ export default function DashboardScreen({ navigation }) {
   // Live Firestore data wins when it is available (it is fresher and
   // reflects real-time status). The local cache is the fallback for a
   // fully offline cold start, before any live snapshot has arrived.
-  const supervisor = employees.find((e) => e.id === currentUser?.uid);
+  const supervisor = employees.find((e) => e.id === linkedEmployeeId);
   const displayName = supervisor?.name ?? localSupervisor?.name ?? currentUser?.email ?? "";
   const avatarPhotoUrl = supervisor?.photoUrl ?? localSupervisor?.photoUrl ?? null;
 

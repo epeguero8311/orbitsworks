@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, auth, functions } from "@/lib/firebase";
+import { authedFetch } from "@/lib/authedFetch";
 import { useAuth } from "@/lib/AuthContext";
 import { PRICE_TIERS } from "@/lib/stripe/tiers";
 import { usePaymentMethod } from "@/lib/hooks/usePaymentMethod";
@@ -115,13 +116,9 @@ export function useBillingPage() {
     setBusy(tierKey);
 
     try {
-      const idToken = await auth.currentUser.getIdToken();
-      const res = await fetch("/api/stripe/create-subscription", {
+      const res = await authedFetch("/api/stripe/create-subscription", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tierKey }),
       });
 
@@ -149,13 +146,9 @@ export function useBillingPage() {
     setBusy("cancel");
 
     try {
-      const idToken = await auth.currentUser.getIdToken();
-      const res = await fetch("/api/stripe/cancel-subscription", {
+      const res = await authedFetch("/api/stripe/cancel-subscription", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
+        headers: { "Content-Type": "application/json" },
       });
       const data = await res.json();
       if (!res.ok) {
@@ -293,13 +286,9 @@ export function useBillingPage() {
     setBusy("update-payment");
 
     try {
-      const idToken = await auth.currentUser.getIdToken();
-      const res = await fetch("/api/stripe/create-setup-intent", {
+      const res = await authedFetch("/api/stripe/create-setup-intent", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
+        headers: { "Content-Type": "application/json" },
       });
       const data = await res.json();
       if (!res.ok) {
@@ -327,13 +316,9 @@ export function useBillingPage() {
 
   async function handleApplyPromo(code: string) {
     if (!auth.currentUser) throw new Error("Not signed in.");
-    const idToken = await auth.currentUser.getIdToken();
-    const res = await fetch("/api/stripe/apply-promo", {
+    const res = await authedFetch("/api/stripe/apply-promo", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${idToken}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code }),
     });
     const data = await res.json();

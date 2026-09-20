@@ -75,8 +75,15 @@ export function EmployeeModal({
           onCustomHourlyRateChange={m.setCustomHourlyRate}
           phone={m.phone}
           onPhoneChange={m.setPhone}
-          isSupervisor={m.isSupervisor}
-          onIsSupervisorChange={m.setIsSupervisor}
+          isLinked={m.isLinked}
+          promoteToSupervisor={m.promoteToSupervisor}
+          onPromoteToSupervisorChange={m.setPromoteToSupervisor}
+          promoteEmail={m.promoteEmail}
+          onPromoteEmailChange={m.setPromoteEmail}
+          isAdmin={m.isAdmin}
+          onIsAdminChange={m.setIsAdmin}
+          isSupervisorAccess={m.isSupervisorAccess}
+          onIsSupervisorAccessChange={m.setIsSupervisorAccess}
           dob={m.dob}
           onDobChange={m.setDob}
         />
@@ -116,7 +123,7 @@ export function EmployeeModal({
             isDeleting={m.isDeleting}
             deleteError={m.deleteError}
             onDelete={m.handleDelete}
-            isSupervisorRemoval={m.isSupervisorRemoval}
+            isLinked={m.isLinked}
           />
 
           <div className="flex gap-3">

@@ -6,10 +6,11 @@ export {
   addEmployee,
   setEmployeeActive,
   deactivateEmployeesBulk,
-  setSupervisorStatus,
+  setEmployeeRole,
+  setEmployeePinSupervisor,
   onEmployeeWrite,
   reassignEmployeeSubcontractor,
-  removeSupervisor,
+  deleteEmployee,
 } from "./employees";
 
 export {

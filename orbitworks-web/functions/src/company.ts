@@ -70,7 +70,7 @@ export const createCompany = onCall(async (request) => {
 
   const userRef = db.collection("users").doc(uid);
   batch.set(userRef, {
-    role: "admin",
+    role: "owner",
     companyId: companyId,
     email: email,
     name: name,
@@ -81,7 +81,7 @@ export const createCompany = onCall(async (request) => {
 
   await batch.commit();
 
-  await admin.auth().setCustomUserClaims(uid, { role: "admin", companyId: companyId });
+  await admin.auth().setCustomUserClaims(uid, { role: "owner", companyId: companyId });
 
   return { companyId: companyId };
 });
@@ -121,10 +121,76 @@ export const acceptInvite = onCall(async (request) => {
   const inviteDoc = inviteQuery.docs[0];
   const invite = inviteDoc.data() as {
     companyId: string;
+    role?: "supervisor" | "admin";
     assignedSiteIds?: string[];
+    linkExistingEmployeeId?: string;
   };
+  const role: "supervisor" | "admin" = invite.role === "admin" ? "admin" : "supervisor";
 
   const companyRef = db.collection("companies").doc(invite.companyId);
+  const employeesRef = companyRef.collection("employees");
+
+  // --- Promote an existing employee in place (Edit Employee modal's
+  // Supervisor access toggle) - update the SAME doc, never create a new
+  // one, never touch clockEvents. The employee's own assignedSiteIds is
+  // authoritative here, not whatever the invite snapshotted, since an
+  // admin could have edited it after sending the invite.
+  if (invite.linkExistingEmployeeId) {
+    const employeeRef = employeesRef.doc(invite.linkExistingEmployeeId);
+    const employeeSnap = await employeeRef.get();
+    if (!employeeSnap.exists) {
+      await admin.auth().deleteUser(uid);
+      throw new HttpsError("not-found", "The employee record for this invite no longer exists.");
+    }
+    const employee = employeeSnap.data() as { linkedUserId?: string; assignedSiteIds?: string[] };
+    if (employee.linkedUserId) {
+      await admin.auth().deleteUser(uid);
+      throw new HttpsError("failed-precondition", "This employee already has a linked account.");
+    }
+
+    const batch = db.batch();
+
+    const userRef = db.collection("users").doc(uid);
+    batch.set(userRef, {
+      role,
+      companyId: invite.companyId,
+      assignedSiteIds: employee.assignedSiteIds || [],
+      name: name,
+      email: email,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    batch.update(employeeRef, {
+      linkedUserId: uid,
+      // Only a supervisor invite implies override/break authority by
+      // default - an admin invite doesn't, since AdminInvites offers no
+      // supervisor-access step at invite time. An owner can still turn
+      // Supervisor access on for an admin afterward via setEmployeeRole.
+      isSupervisor: role !== "admin",
+      isAdmin: role === "admin",
+      email: email,
+    });
+
+    batch.update(inviteDoc.ref, {
+      status: "accepted",
+      acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
+      acceptedByUid: uid,
+    });
+
+    await batch.commit();
+
+    await admin.auth().setCustomUserClaims(uid, {
+      role,
+      companyId: invite.companyId,
+      employeeId: invite.linkExistingEmployeeId,
+    });
+
+    return { companyId: invite.companyId, role };
+  }
+
+  // --- Fresh invite: no employee history, create a brand new doc with
+  // an auto-generated ID (never assumed to equal uid - see linkedUserId
+  // as the join instead).
   const companySnap = await companyRef.get();
   const companyData = companySnap.data() as
     | { employeeCap?: number | null; activeEmployeeCount?: number }
@@ -141,14 +207,14 @@ export const acceptInvite = onCall(async (request) => {
     );
   }
 
-  const employeesRef = companyRef.collection("employees");
   const pin = await reserveNewPin(invite.companyId);
+  const employeeRef = employeesRef.doc();
 
   const batch = db.batch();
 
   const userRef = db.collection("users").doc(uid);
   batch.set(userRef, {
-    role: "supervisor",
+    role,
     companyId: invite.companyId,
     assignedSiteIds: invite.assignedSiteIds || [],
     name: name,
@@ -156,14 +222,17 @@ export const acceptInvite = onCall(async (request) => {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
-  const employeeRef = employeesRef.doc(uid);
   batch.set(employeeRef, {
     name: name,
-    jobTitle: "Supervisor",
+    jobTitle: role === "admin" ? "Admin" : "Supervisor",
     assignedSiteIds: invite.assignedSiteIds || [],
     active: true,
-    isSupervisor: true,
+    // See the promote-in-place branch above for why this follows role
+    // instead of being unconditionally true.
+    isSupervisor: role !== "admin",
+    isAdmin: role === "admin",
     linkedUserId: uid,
+    email: email,
     pin: pin,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
@@ -174,7 +243,7 @@ export const acceptInvite = onCall(async (request) => {
   batch.set(
     pinRef,
     {
-      employeeId: uid,
+      employeeId: employeeRef.id,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     },
     { merge: true }
@@ -189,9 +258,10 @@ export const acceptInvite = onCall(async (request) => {
   await batch.commit();
 
   await admin.auth().setCustomUserClaims(uid, {
-    role: "supervisor",
+    role,
     companyId: invite.companyId,
+    employeeId: employeeRef.id,
   });
 
-  return { companyId: invite.companyId };
+  return { companyId: invite.companyId, role };
 });

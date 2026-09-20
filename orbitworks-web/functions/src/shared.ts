@@ -43,8 +43,9 @@ export async function deactivateEmployeeAuth(linkedUserId: string) {
   await admin.auth().revokeRefreshTokens(linkedUserId);
 }
 
-// Deactivating an employee (setEmployeeActive, deactivateEmployeesBulk,
-// removeSupervisor) must never leave a clock session dangling open - that
+// Deactivating or deleting an employee (setEmployeeActive,
+// deactivateEmployeesBulk, deleteEmployee) must never leave a clock
+// session dangling open - that
 // day's hours would never get paid and Missed Clock Out alerts would fire
 // forever with no way to resolve them. This runs inline in the same
 // request that flips active, right after that write, rather than as a
