@@ -48,6 +48,11 @@ export interface Employee {
   isSupervisor?: boolean;
   isAdmin?: boolean;
   linkedUserId?: string;
+  // Denormalized from users/{linkedUserId}.email at acceptInvite time so
+  // the Edit Employee modal can always show who a supervisor/admin's
+  // login belongs to without an extra read. Unset for employees who were
+  // never invited (plain, or PIN-only supervisor with no login).
+  email?: string;
   active: boolean;
   pin: string;
   subcontractorId?: string | null;

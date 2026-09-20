@@ -164,6 +164,7 @@ export const acceptInvite = onCall(async (request) => {
       linkedUserId: uid,
       isSupervisor: true,
       isAdmin: role === "admin",
+      email: email,
     });
 
     batch.update(inviteDoc.ref, {
@@ -225,6 +226,7 @@ export const acceptInvite = onCall(async (request) => {
     isSupervisor: true,
     isAdmin: role === "admin",
     linkedUserId: uid,
+    email: email,
     pin: pin,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });

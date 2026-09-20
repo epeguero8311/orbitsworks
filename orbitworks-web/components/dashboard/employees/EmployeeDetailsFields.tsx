@@ -126,28 +126,35 @@ export function EmployeeDetailsFields({
         />
 
         {isLinked ? (
-          <div className="mt-3 flex items-center justify-between rounded-lg border border-gray-200 px-3.5 py-2.5">
-            <div>
-              <p className="text-sm font-medium text-gray-950">Admin access</p>
-              <p className="text-xs text-gray-600">
-                Full web dashboard access, not just clock overrides. Doesn&apos;t include billing.
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={isAdmin}
-              onClick={() => onIsAdminChange(!isAdmin)}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                isAdmin ? "bg-accent" : "bg-gray-200"
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  isAdmin ? "translate-x-6" : "translate-x-1"
+          <div className="mt-3 rounded-lg border border-gray-200 px-3.5 py-2.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-950">Admin access</p>
+                <p className="text-xs text-gray-600">
+                  Full web dashboard access, not just clock overrides. Doesn&apos;t include billing.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isAdmin}
+                onClick={() => onIsAdminChange(!isAdmin)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+                  isAdmin ? "bg-accent" : "bg-gray-200"
                 }`}
-              />
-            </button>
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    isAdmin ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+            {promoteEmail && (
+              <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-600">
+                Login email: <span className="text-gray-950">{promoteEmail}</span>
+              </p>
+            )}
           </div>
         ) : (
           <div className="mt-3 rounded-lg border border-gray-200 px-3.5 py-2.5">

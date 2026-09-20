@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   doc,
   updateDoc,
@@ -54,7 +54,11 @@ export function useEmployeeModal({
   const [promoteToSupervisor, setPromoteToSupervisor] = useState(
     !employee.linkedUserId && (employee.isSupervisor ?? false)
   );
-  const [promoteEmail, setPromoteEmail] = useState("");
+  // Linked employees already have this denormalized onto the doc (set by
+  // acceptInvite). Unlinked ones don't get it until they accept - see the
+  // effect below, which looks it up from the still-pending invite so the
+  // email they were invited with keeps showing here even before then.
+  const [promoteEmail, setPromoteEmail] = useState(employee.email ?? "");
   // Already-linked employees (have gone through the invite flow above):
   // this is a direct role change, not a re-invite - see setEmployeeRole.
   const [isAdmin, setIsAdmin] = useState(employee.isAdmin ?? false);
@@ -71,6 +75,31 @@ export function useEmployeeModal({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+
+  // Unlinked employee promoted via the toggle but not accepted yet -
+  // employee.email isn't denormalized onto the doc until acceptInvite
+  // runs, so look up the still-pending invite instead. Keeps the email
+  // visible in that same container the whole time the invite is pending.
+  useEffect(() => {
+    if (isLinked || employee.email || !companyId) return;
+    let cancelled = false;
+    (async () => {
+      const pendingSnap = await getDocs(
+        query(
+          collection(db, "invites"),
+          where("companyId", "==", companyId),
+          where("linkExistingEmployeeId", "==", employee.id),
+          where("status", "==", "pending")
+        )
+      );
+      if (cancelled || pendingSnap.empty) return;
+      const pendingEmail = pendingSnap.docs[0].data().email as string | undefined;
+      if (pendingEmail) setPromoteEmail(pendingEmail);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, employee.id, employee.email, isLinked]);
 
   // ---- Company (subcontractor) reassignment ----
   const [selectedCompanyValue, setSelectedCompanyValue] = useState(

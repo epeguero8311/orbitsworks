@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Download, UserPlus } from "lucide-react";
+import { Building2, Download, UserPlus } from "lucide-react";
+import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useDashboardStatus } from "@/lib/hooks/useDashboardStatus";
 import StatCardsRow from "@/components/dashboard/overview/StatCardsRow";
@@ -13,6 +14,7 @@ import OnBreakTable from "@/components/dashboard/overview/OnBreakTable";
 import DeactivatedSessionsBanner from "@/components/dashboard/overview/DeactivatedSessionsBanner";
 
 export default function DashboardOverviewPage() {
+  const { userData } = useAuth();
   const { settings } = useCompanySettings();
   const status = useDashboardStatus();
 
@@ -21,8 +23,12 @@ export default function DashboardOverviewPage() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-gray-950">
-            Welcome, {settings.name ?? "..."}
+            Welcome, {userData?.name ?? "..."}
           </h1>
+          <div className="mt-1 flex items-center gap-1.5 text-sm text-gray-600">
+            <Building2 className="h-3.5 w-3.5" />
+            <span>{settings.name ?? "..."}</span>
+          </div>
           <p className="mt-1.5 text-sm text-gray-600">
             Here's what's happening across your job sites today.
           </p>
