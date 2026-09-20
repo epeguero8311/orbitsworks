@@ -162,7 +162,11 @@ export const acceptInvite = onCall(async (request) => {
 
     batch.update(employeeRef, {
       linkedUserId: uid,
-      isSupervisor: true,
+      // Only a supervisor invite implies override/break authority by
+      // default - an admin invite doesn't, since AdminInvites offers no
+      // supervisor-access step at invite time. An owner can still turn
+      // Supervisor access on for an admin afterward via setEmployeeRole.
+      isSupervisor: role !== "admin",
       isAdmin: role === "admin",
       email: email,
     });
@@ -223,7 +227,9 @@ export const acceptInvite = onCall(async (request) => {
     jobTitle: role === "admin" ? "Admin" : "Supervisor",
     assignedSiteIds: invite.assignedSiteIds || [],
     active: true,
-    isSupervisor: true,
+    // See the promote-in-place branch above for why this follows role
+    // instead of being unconditionally true.
+    isSupervisor: role !== "admin",
     isAdmin: role === "admin",
     linkedUserId: uid,
     email: email,

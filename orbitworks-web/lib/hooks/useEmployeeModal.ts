@@ -237,6 +237,13 @@ export function useEmployeeModal({
       return;
     }
 
+    if (isLinked && !isAdmin && !isSupervisorAccess) {
+      setError(
+        "Turn on at least one of Supervisor or Admin access, or use Delete to remove this employee entirely."
+      );
+      return;
+    }
+
     // Email is optional here - with one, Save sends a real invite
     // (accepting it links a login). Without one, Save just flips
     // isSupervisor directly via setEmployeePinSupervisor, no invite

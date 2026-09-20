@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, query, where, getDocs } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
@@ -101,16 +101,21 @@ export function InviteManager({
     try {
       const normalizedEmail = inviteEmail.trim().toLowerCase();
 
-      // Checked against allInvites, not the role-filtered `invites` above -
-      // a pending invite for this email under the other role must block
-      // this one too, otherwise acceptInvite's query (no explicit
-      // ordering) could resolve to either one.
-      const existing = allInvites.find(
-        (inv) =>
-          inv.email.toLowerCase() === normalizedEmail &&
-          inv.status === "pending"
+      // A fresh query, not the allInvites listener snapshot above (which
+      // can lag a moment behind a very recent write from another tab/
+      // admin) - and checked company-wide, not just this role's list, so
+      // a pending invite under the other role blocks this one too.
+      // Otherwise acceptInvite's query (no explicit ordering) could
+      // resolve to either one.
+      const existingInvites = await getDocs(
+        query(
+          collection(db, "invites"),
+          where("companyId", "==", userData.companyId),
+          where("email", "==", normalizedEmail),
+          where("status", "==", "pending")
+        )
       );
-      if (existing) {
+      if (!existingInvites.empty) {
         setInviteError("There's already a pending invite for that email.");
         setIsInviting(false);
         return;

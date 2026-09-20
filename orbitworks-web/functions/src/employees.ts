@@ -214,6 +214,18 @@ export const setEmployeeRole = onCall(async (request) => {
   if (!employeeId) {
     throw new HttpsError("invalid-argument", "employeeId is required.");
   }
+  // The dashboard/claim role only has two values (admin or supervisor) -
+  // there's no third "neither" state for a linked account, so turning
+  // both off here would silently leave dashboardRole (and therefore the
+  // role claim / firestore.rules' role=='supervisor' clock-write access)
+  // stuck on "supervisor" while the UI implies all elevated access was
+  // just revoked. To fully cut someone off, delete them instead.
+  if (!isAdmin && !isSupervisor) {
+    throw new HttpsError(
+      "invalid-argument",
+      "A linked employee needs at least one access type - use Delete to remove them entirely."
+    );
+  }
 
   const employeeRef = db
     .collection("companies")
@@ -476,7 +488,19 @@ export const deleteEmployee = onCall(async (request) => {
       throw new HttpsError("failed-precondition", "The company owner's access can't be removed.");
     }
     email = userData?.email ?? null;
+  }
 
+  // Closes any still-open clock session before anything else - pure
+  // Firestore, safe to retry, and doesn't depend on Auth state, so it
+  // runs before the Auth/user deletion below rather than after. That
+  // keeps the only real failure window to the final batch.commit()
+  // itself: if this threw after the Auth account were already gone, the
+  // employee doc would survive pointing at a dead linkedUserId, making
+  // the Edit Employee modal claim a login still works when it doesn't.
+  await closeOpenSessionForDeactivation(callerCompanyId, employeeId, request.auth.uid);
+
+  if (linkedUserId) {
+    const userRef = db.collection("users").doc(linkedUserId);
     try {
       await admin.auth().deleteUser(linkedUserId);
     } catch (err: any) {
@@ -484,12 +508,6 @@ export const deleteEmployee = onCall(async (request) => {
     }
     await userRef.delete();
   }
-
-  // Closes any still-open clock session before the employee doc is gone
-  // - reads/writes clockEvents only (by employeeId, using the
-  // denormalized name already on the latest event), never the employees
-  // doc itself, so this is safe to run right up until the delete below.
-  await closeOpenSessionForDeactivation(callerCompanyId, employeeId, request.auth.uid);
 
   const batch = db.batch();
   if (employee.pin) {

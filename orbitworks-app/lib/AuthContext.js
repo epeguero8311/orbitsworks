@@ -42,11 +42,18 @@ export function AuthProvider({ children }) {
     return unsubscribe;
   }, []);
 
-  // Live-watch the linked employee record for supervisors so a
-  // deactivation done on the web takes effect immediately, instead of
-  // waiting on the next Firebase Auth token refresh.
+  // Live-watch the linked employee record for supervisors and admins (both
+  // can have a linked employee doc and clock in on mobile - see join
+  // page copy) so a deactivation done on the web takes effect
+  // immediately, instead of waiting on the next Firebase Auth token
+  // refresh.
   useEffect(() => {
-    if (!currentUser || !userData || userData.role !== "supervisor" || !userData.companyId) {
+    if (
+      !currentUser ||
+      !userData ||
+      (userData.role !== "supervisor" && userData.role !== "admin") ||
+      !userData.companyId
+    ) {
       return;
     }
 
@@ -66,9 +73,7 @@ export function AuthProvider({ children }) {
           return;
         }
         setLinkedEmployeeId(snap.docs[0].id);
-        if (snap.docs[0].data().active === false) {
-          setAccountDisabled(true);
-        }
+        setAccountDisabled(snap.docs[0].data().active === false);
       },
       (error) => {
         console.log("Employee status listener error:", error);
