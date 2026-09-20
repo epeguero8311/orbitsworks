@@ -188,16 +188,23 @@ export const deactivateEmployeesBulk = onCall(async (request) => {
 // Direct promotion/demotion for an employee who already has a linked
 // login (accepted an invite via addEmployee -> promote-in-place or a
 // fresh invite). Not a re-invite - the existing account, PIN, and clock
-// history are untouched. isAdmin and isSupervisor are independent: admin
-// gates web dashboard access (users/{uid}.role and the custom claim,
-// which every admin-only route/rule checks), while isSupervisor gates
-// mobile override/break authority (firestore.rules' isActiveSupervisor()
-// checks only this field, never the role claim) - an admin with
-// isSupervisor false can use the dashboard but can't authorize overrides
-// on mobile, and vice versa. To promote an employee with no linked
-// account yet, use the invite flow (invites/{id} with
+// history are untouched, so this is also how you walk someone back down
+// the employee -> supervisor -> admin ladder (in either direction)
+// without ever losing their login/email, unlike deleteEmployee.
+//
+// isAdmin and isSupervisor are independent: admin gates web dashboard
+// access (users/{uid}.role and the custom claim, which every admin-only
+// route/rule checks), while isSupervisor gates eligibility to be cited
+// as the authorizing supervisor on a supervisorOverride clock event
+// (firestore.rules' isActiveSupervisor() checks only this field, never
+// the role claim). Both false is a valid "linked but no elevated role"
+// state - dashboardRole still falls back to "supervisor" as the claim
+// floor for any linked account (so they keep basic app login and can
+// still clock themselves/others in and out), they just can't reach the
+// dashboard or authorize overrides. To promote an employee with no
+// linked account yet, use the invite flow (invites/{id} with
 // linkExistingEmployeeId) or setEmployeePinSupervisor instead. To remove
-// them entirely, use deleteEmployee.
+// the login/account entirely, use deleteEmployee.
 export const setEmployeeRole = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -214,19 +221,6 @@ export const setEmployeeRole = onCall(async (request) => {
   if (!employeeId) {
     throw new HttpsError("invalid-argument", "employeeId is required.");
   }
-  // The dashboard/claim role only has two values (admin or supervisor) -
-  // there's no third "neither" state for a linked account, so turning
-  // both off here would silently leave dashboardRole (and therefore the
-  // role claim / firestore.rules' role=='supervisor' clock-write access)
-  // stuck on "supervisor" while the UI implies all elevated access was
-  // just revoked. To fully cut someone off, delete them instead.
-  if (!isAdmin && !isSupervisor) {
-    throw new HttpsError(
-      "invalid-argument",
-      "A linked employee needs at least one access type - use Delete to remove them entirely."
-    );
-  }
-
   const employeeRef = db
     .collection("companies")
     .doc(callerCompanyId)
