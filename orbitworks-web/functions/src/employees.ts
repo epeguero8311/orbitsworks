@@ -185,14 +185,19 @@ export const deactivateEmployeesBulk = onCall(async (request) => {
   return { success: true, deactivatedCount: employeeIds.length };
 });
 
-// Direct promotion/demotion between supervisor and admin for an employee
-// who already has a linked login (accepted an invite via addEmployee ->
-// promote-in-place or a fresh invite). Not a re-invite - the existing
-// account, PIN, and clock history are untouched; only the role-like
-// fields on the employee doc, users/{uid}.role, and the custom claim
-// move together. To promote an employee with no linked account yet, use
-// the invite flow (invites/{id} with linkExistingEmployeeId) instead. To
-// remove them entirely, use deleteEmployee.
+// Direct promotion/demotion for an employee who already has a linked
+// login (accepted an invite via addEmployee -> promote-in-place or a
+// fresh invite). Not a re-invite - the existing account, PIN, and clock
+// history are untouched. isAdmin and isSupervisor are independent: admin
+// gates web dashboard access (users/{uid}.role and the custom claim,
+// which every admin-only route/rule checks), while isSupervisor gates
+// mobile override/break authority (firestore.rules' isActiveSupervisor()
+// checks only this field, never the role claim) - an admin with
+// isSupervisor false can use the dashboard but can't authorize overrides
+// on mobile, and vice versa. To promote an employee with no linked
+// account yet, use the invite flow (invites/{id} with
+// linkExistingEmployeeId) or setEmployeePinSupervisor instead. To remove
+// them entirely, use deleteEmployee.
 export const setEmployeeRole = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -204,12 +209,10 @@ export const setEmployeeRole = onCall(async (request) => {
   }
 
   const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
-  const newRole = request.data && request.data.role ? String(request.data.role) : "";
+  const isAdmin = !!(request.data && request.data.isAdmin);
+  const isSupervisor = !!(request.data && request.data.isSupervisor);
   if (!employeeId) {
     throw new HttpsError("invalid-argument", "employeeId is required.");
-  }
-  if (newRole !== "supervisor" && newRole !== "admin") {
-    throw new HttpsError("invalid-argument", 'role must be "supervisor" or "admin".');
   }
 
   const employeeRef = db
@@ -244,13 +247,12 @@ export const setEmployeeRole = onCall(async (request) => {
     throw new HttpsError("failed-precondition", "The company owner's role can't be changed here.");
   }
 
-  await employeeRef.update({
-    isSupervisor: true,
-    isAdmin: newRole === "admin",
-  });
-  await userRef.update({ role: newRole });
+  const dashboardRole = isAdmin ? "admin" : "supervisor";
+
+  await employeeRef.update({ isSupervisor, isAdmin });
+  await userRef.update({ role: dashboardRole });
   await admin.auth().setCustomUserClaims(linkedUserId, {
-    role: newRole,
+    role: dashboardRole,
     companyId: callerCompanyId,
     employeeId,
   });

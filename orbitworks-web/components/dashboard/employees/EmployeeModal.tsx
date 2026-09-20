@@ -82,6 +82,8 @@ export function EmployeeModal({
           onPromoteEmailChange={m.setPromoteEmail}
           isAdmin={m.isAdmin}
           onIsAdminChange={m.setIsAdmin}
+          isSupervisorAccess={m.isSupervisorAccess}
+          onIsSupervisorAccessChange={m.setIsSupervisorAccess}
           dob={m.dob}
           onDobChange={m.setDob}
         />

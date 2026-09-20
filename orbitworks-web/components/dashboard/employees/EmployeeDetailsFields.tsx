@@ -22,6 +22,8 @@ export function EmployeeDetailsFields({
   onPromoteEmailChange,
   isAdmin,
   onIsAdminChange,
+  isSupervisorAccess,
+  onIsSupervisorAccessChange,
   dob,
   onDobChange,
 }: {
@@ -44,6 +46,8 @@ export function EmployeeDetailsFields({
   onPromoteEmailChange: (value: string) => void;
   isAdmin: boolean;
   onIsAdminChange: (value: boolean) => void;
+  isSupervisorAccess: boolean;
+  onIsSupervisorAccessChange: (value: boolean) => void;
   dob: string;
   onDobChange: (value: string) => void;
 }) {
@@ -126,8 +130,31 @@ export function EmployeeDetailsFields({
         />
 
         {isLinked ? (
-          <div className="mt-3 rounded-lg border border-gray-200 px-3.5 py-2.5">
+          <div className="mt-3 space-y-3 rounded-lg border border-gray-200 px-3.5 py-2.5">
             <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-950">Supervisor access</p>
+                <p className="text-xs text-gray-600">
+                  Can override clock-ins and manage breaks on mobile.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isSupervisorAccess}
+                onClick={() => onIsSupervisorAccessChange(!isSupervisorAccess)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+                  isSupervisorAccess ? "bg-accent" : "bg-gray-200"
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    isSupervisorAccess ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </div>
+            <div className="flex items-center justify-between border-t border-gray-100 pt-3">
               <div>
                 <p className="text-sm font-medium text-gray-950">Admin access</p>
                 <p className="text-xs text-gray-600">
@@ -150,11 +177,10 @@ export function EmployeeDetailsFields({
                 />
               </button>
             </div>
-            {promoteEmail && (
-              <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-600">
-                Login email: <span className="text-gray-950">{promoteEmail}</span>
-              </p>
-            )}
+            <p className="border-t border-gray-100 pt-3 text-xs text-gray-600">
+              Login email:{" "}
+              <span className="text-gray-950">{promoteEmail || "No email on file"}</span>
+            </p>
           </div>
         ) : (
           <div className="mt-3 rounded-lg border border-gray-200 px-3.5 py-2.5">

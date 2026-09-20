@@ -60,8 +60,12 @@ export function useEmployeeModal({
   // email they were invited with keeps showing here even before then.
   const [promoteEmail, setPromoteEmail] = useState(employee.email ?? "");
   // Already-linked employees (have gone through the invite flow above):
-  // this is a direct role change, not a re-invite - see setEmployeeRole.
+  // these are two independent toggles, not a re-invite - see
+  // setEmployeeRole. isAdmin gates dashboard access; isSupervisorAccess
+  // gates mobile override/break authority - a linked employee can be
+  // either, both, or neither.
   const [isAdmin, setIsAdmin] = useState(employee.isAdmin ?? false);
+  const [isSupervisorAccess, setIsSupervisorAccess] = useState(employee.isSupervisor ?? false);
   const [dob, setDob] = useState(employee.dob ?? "");
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>(
     employee.assignedSiteIds ?? []
@@ -339,11 +343,16 @@ export function useEmployeeModal({
           employeeId: employee.id,
           isSupervisor: promoteToSupervisor,
         });
-      } else if (isLinked && isAdmin !== (employee.isAdmin ?? false)) {
+      } else if (
+        isLinked &&
+        (isAdmin !== (employee.isAdmin ?? false) ||
+          isSupervisorAccess !== (employee.isSupervisor ?? false))
+      ) {
         const setEmployeeRole = httpsCallable(functions, "setEmployeeRole");
         await setEmployeeRole({
           employeeId: employee.id,
-          role: isAdmin ? "admin" : "supervisor",
+          isAdmin,
+          isSupervisor: isSupervisorAccess,
         });
       }
 
@@ -410,6 +419,8 @@ export function useEmployeeModal({
     setPromoteEmail,
     isAdmin,
     setIsAdmin,
+    isSupervisorAccess,
+    setIsSupervisorAccess,
     dob,
     setDob,
     // sites

@@ -14,6 +14,11 @@
 // employeeId == linkedUserId == doc id for all of them; this just makes
 // that explicit as a claim instead of an assumption.
 //
+// Also backfills `email` onto every already-linked employee doc from
+// users/{linkedUserId}.email, since acceptInvite only started
+// denormalizing it there going forward - without this, the Edit Employee
+// modal shows no email for anyone linked before that change shipped.
+//
 // Must run (and be verified via the summary output) BEFORE firestore.rules
 // or any Cloud Function that expects "owner" or the employeeId claim to
 // exist gets deployed.
@@ -207,6 +212,58 @@ async function backfillEmployeeIdClaims() {
   return problems;
 }
 
+// Every employee doc linked via acceptInvite now gets `email` denormalized
+// onto it directly (so the Edit Employee modal can show it without an
+// extra read), but that only applies going forward - any employee linked
+// before that change shipped has no `email` field on their doc at all.
+// Backfills it from users/{linkedUserId}.email, which has always been set.
+async function backfillEmployeeEmails() {
+  const companiesSnap = await db.collection("companies").get();
+  console.log(`\n=== employee email backfill: ${companiesSnap.size} companies ===`);
+
+  let backfilled = 0;
+  let alreadySet = 0;
+  const problems = [];
+
+  for (const companyDoc of companiesSnap.docs) {
+    const companyId = companyDoc.id;
+    const employeesSnap = await db
+      .collection("companies")
+      .doc(companyId)
+      .collection("employees")
+      .get();
+
+    for (const employeeDoc of employeesSnap.docs) {
+      const employee = employeeDoc.data();
+      const linkedUserId = employee.linkedUserId;
+      if (!linkedUserId) continue;
+      if (employee.email) {
+        alreadySet++;
+        continue;
+      }
+
+      const userSnap = await db.collection("users").doc(linkedUserId).get();
+      if (!userSnap.exists || !userSnap.data().email) {
+        const msg = `Company ${companyId}, employee ${employeeDoc.id}: linkedUserId ${linkedUserId} has no users/{uid}.email to backfill from. NEEDS MANUAL REVIEW.`;
+        console.error(msg);
+        problems.push(msg);
+        continue;
+      }
+
+      const email = userSnap.data().email;
+      console.log(`Company ${companyId}: setting email for employee ${employeeDoc.id} -> ${email}.`);
+
+      if (APPLY) {
+        await employeeDoc.ref.update({ email });
+      }
+      backfilled++;
+    }
+  }
+
+  console.log(`\nBackfilled: ${backfilled}  Already set: ${alreadySet}  Problems: ${problems.length}`);
+  return problems;
+}
+
 async function main() {
   console.log(
     APPLY
@@ -216,8 +273,9 @@ async function main() {
 
   const ownerProblems = await migrateOwners();
   const claimProblems = await backfillEmployeeIdClaims();
+  const emailProblems = await backfillEmployeeEmails();
 
-  const allProblems = [...ownerProblems, ...claimProblems];
+  const allProblems = [...ownerProblems, ...claimProblems, ...emailProblems];
   if (allProblems.length) {
     console.log(`\n--- ${allProblems.length} problem(s) need manual review before deploying rules ---`);
     allProblems.forEach((p) => console.log(" - " + p));
