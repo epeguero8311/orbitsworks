@@ -57,6 +57,37 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Pro plan hasn't launched in prod yet. Left blank on purpose - tiers.ts
+  # treats an empty/missing value as "tier not configured" and silently
+  # omits it from PRICE_TIERS rather than crashing the build (see
+  # lib/stripe/tiers.ts). Fill these in with real live-mode price IDs from
+  # the OrbitWorks Stripe account (acct_1R1W6JLSMIEeUJkg, livemode=true)
+  # before launch.
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER1
+    value: ""
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER2
+    value: ""
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER3
+    value: ""
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER4
+    value: ""
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER5
+    value: ""
+    availability:
+      - BUILD
+      - RUNTIME
   - variable: FIREBASE_ADMIN_PROJECT_ID
     secret: FIREBASE_ADMIN_PROJECT_ID
   - variable: FIREBASE_ADMIN_CLIENT_EMAIL

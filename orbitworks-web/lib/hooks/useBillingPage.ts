@@ -14,7 +14,7 @@ import { httpsCallable } from "firebase/functions";
 import { db, auth, functions } from "@/lib/firebase";
 import { authedFetch } from "@/lib/authedFetch";
 import { useAuth } from "@/lib/AuthContext";
-import { PRICE_TIERS } from "@/lib/stripe/tiers";
+import { PRICE_TIERS, getTierByKey } from "@/lib/stripe/tiers";
 import { usePaymentMethod } from "@/lib/hooks/usePaymentMethod";
 import { ToastVariant } from "@/components/Toast";
 
@@ -49,8 +49,10 @@ type ConfirmAction =
 export function formatTierLabel(planTier: string): string {
   if (planTier === "free") return "Free plan (up to 8 employees)";
   if (planTier === "custom") return "Custom plan";
-  const tier = PRICE_TIERS.find((t) => t.key === planTier);
-  return tier ? tier.label : planTier;
+  const tier = getTierByKey(planTier);
+  if (!tier) return planTier;
+  const productLabel = tier.product === "pro" ? "Pro" : "Core";
+  return `${productLabel} - ${tier.label}`;
 }
 
 export function useBillingPage() {
