@@ -30,7 +30,7 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
       selectedSite && !isNoneSite
         ? employees.filter((e) => e.assignedSiteIds?.includes(selectedSite.id))
         : isNoneSite
-        ? []
+        ? employees.filter((e) => !e.assignedSiteIds || e.assignedSiteIds.length === 0)
         : employees;
     return bySite.filter((e) => e.status === "in" || e.status === "break");
   }, [employees, selectedSite, isNoneSite]);

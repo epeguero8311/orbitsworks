@@ -43,7 +43,7 @@ export default function DashboardScreen({ navigation }) {
     selectedSite && !isNoneSite
       ? employees.filter((e) => e.assignedSiteIds?.includes(selectedSite.id))
       : isNoneSite
-      ? []
+      ? employees.filter((e) => !e.assignedSiteIds || e.assignedSiteIds.length === 0)
       : employees;
 
   const clockedInCount = filteredEmployees.filter((e) => e.status === "in" || e.status === "break").length;

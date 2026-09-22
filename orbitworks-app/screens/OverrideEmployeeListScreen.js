@@ -32,7 +32,9 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
     if (selectedSite && !isNoneSite) {
       return employees.filter((e) => e.assignedSiteIds?.includes(selectedSite.id));
     }
-    if (isNoneSite) return [];
+    if (isNoneSite) {
+      return employees.filter((e) => !e.assignedSiteIds || e.assignedSiteIds.length === 0);
+    }
     return employees;
   }, [employees, selectedSite, isNoneSite]);
 
