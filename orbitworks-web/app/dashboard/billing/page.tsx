@@ -28,7 +28,7 @@ export default function BillingPage() {
           {b.loadError || "Couldn't load billing info."}
         </p>
       ) : (
-        <div className="mt-8 max-w-2xl space-y-6">
+        <div className="mx-auto mt-8 max-w-2xl space-y-6">
           <CurrentPlanCard
             company={b.company}
             isFreePlan={b.isFreePlan}

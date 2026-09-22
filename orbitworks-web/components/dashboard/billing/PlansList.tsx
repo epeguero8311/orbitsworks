@@ -1,16 +1,56 @@
 "use client";
 
-import { getTiersByProduct, PRO_PLAN_ENABLED, type PriceTier } from "@/lib/stripe/tiers";
+import { useState } from "react";
+import {
+  getTierByKey,
+  getTiersByProduct,
+  PRO_PLAN_ENABLED,
+  type PlanProduct,
+  type PriceTier,
+} from "@/lib/stripe/tiers";
+
+const PLAN_DESCRIPTIONS: Record<PlanProduct, string> = {
+  core: "Clock-in/out, timesheets, and approvals.",
+  pro: "Everything in Core, plus geolocation, geofencing, device recognition, face recognition, job site cost analytics, and temporary clock-in links.",
+};
+
+function PlanToggle({
+  selected,
+  onSelect,
+}: {
+  selected: PlanProduct;
+  onSelect: (product: PlanProduct) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-lg bg-gray-100 p-1">
+      {(["core", "pro"] as const).map((product) => {
+        const isSelected = selected === product;
+        return (
+          <button
+            key={product}
+            type="button"
+            onClick={() => onSelect(product)}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium capitalize transition-colors ${
+              isSelected
+                ? "bg-accent text-white"
+                : "text-gray-600 hover:text-gray-950"
+            }`}
+          >
+            {product}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function PlanGroup({
-  title,
   description,
   tiers,
   currentPlanTier,
   busy,
   onTierClick,
 }: {
-  title: string;
   description: string;
   tiers: PriceTier[];
   currentPlanTier: string;
@@ -19,8 +59,7 @@ function PlanGroup({
 }) {
   return (
     <div>
-      <h3 className="text-sm font-semibold text-gray-950">{title}</h3>
-      <p className="mt-1 text-xs text-gray-600">{description}</p>
+      <p className="text-xs text-gray-600">{description}</p>
 
       <div className="mt-3 divide-y divide-gray-100">
         {tiers.map((tier) => {
@@ -81,37 +120,35 @@ export function PlansList({
   busy: string | null;
   onTierClick: (tierKey: string) => void;
 }) {
-  const coreTiers = getTiersByProduct("core");
-  const proTiers = getTiersByProduct("pro");
+  const currentProduct = getTierByKey(currentPlanTier)?.product ?? "core";
+  const [selected, setSelected] = useState<PlanProduct>(currentProduct);
+
+  const tiers = getTiersByProduct(selected);
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6">
-      <h2 className="text-base font-semibold text-gray-950">Plans</h2>
-      <p className="mt-1 text-xs text-gray-600">
-        Pricing is based on your total number of employees, including
-        supervisors.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-base font-semibold text-gray-950">Plans</h2>
+          <p className="mt-1 text-xs text-gray-600">
+            Pricing is based on your total number of employees, including
+            supervisors.
+          </p>
+        </div>
 
-      <div className="mt-5 space-y-6">
+        {PRO_PLAN_ENABLED && (
+          <PlanToggle selected={selected} onSelect={setSelected} />
+        )}
+      </div>
+
+      <div className="mt-5">
         <PlanGroup
-          title="Core"
-          description="Clock-in/out, timesheets, and approvals."
-          tiers={coreTiers}
+          description={PLAN_DESCRIPTIONS[selected]}
+          tiers={tiers}
           currentPlanTier={currentPlanTier}
           busy={busy}
           onTierClick={onTierClick}
         />
-
-        {PRO_PLAN_ENABLED && (
-          <PlanGroup
-            title="Pro"
-            description="Everything in Core, plus geolocation, geofencing, device recognition, face recognition, job site cost analytics, and temporary clock-in links."
-            tiers={proTiers}
-            currentPlanTier={currentPlanTier}
-            busy={busy}
-            onTierClick={onTierClick}
-          />
-        )}
       </div>
     </div>
   );
