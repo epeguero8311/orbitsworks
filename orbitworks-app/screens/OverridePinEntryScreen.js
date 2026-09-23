@@ -2,6 +2,7 @@ import { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as Sentry from "@sentry/react-native";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { findEmployeeByPin } from "../lib/clockLogic";
@@ -37,37 +38,53 @@ export default function OverridePinEntryScreen({ navigation }) {
 
     if (next.length === 4) {
       setChecking(true);
-      const employee = await findEmployeeByPin(userData.companyId, next);
-      setChecking(false);
+      try {
+        const employee = await findEmployeeByPin(userData.companyId, next);
 
-      if (!employee) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        setError("PIN not recognized");
+        if (!employee) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          setError("PIN not recognized");
+          setPin("");
+          return;
+        }
+
+        if (!employee.isSupervisor) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          setError("Only supervisors can use override");
+          setPin("");
+          return;
+        }
+
+        // findEmployeeByPin now also resolves an inactive employee who still
+        // has an open session, purely so THEY can be clocked out - a
+        // deactivated supervisor must never be able to use that same PIN
+        // match to authorize actions on someone else's clock events.
+        if (!employee.active) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          setError("This supervisor account is no longer active");
+          setPin("");
+          return;
+        }
+
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        navigation.replace("OverrideEmployeeList", { authorizedBy: employee });
         setPin("");
-        return;
-      }
-
-      if (!employee.isSupervisor) {
+      } catch (err) {
+        // Previously unhandled - left `checking` stuck true forever with
+        // no error shown. The lockout throw from findEmployeeByPin is
+        // expected/user-facing, not a bug, so it's shown but not reported.
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        setError("Only supervisors can use override");
+        setError(err.message || "Something went wrong. Try again.");
         setPin("");
-        return;
+        if (!err.message?.startsWith("Too many attempts")) {
+          Sentry.captureException(err, {
+            tags: { area: "overridePinEntry" },
+            contexts: { clockAttempt: { companyId: userData?.companyId } },
+          });
+        }
+      } finally {
+        setChecking(false);
       }
-
-      // findEmployeeByPin now also resolves an inactive employee who still
-      // has an open session, purely so THEY can be clocked out - a
-      // deactivated supervisor must never be able to use that same PIN
-      // match to authorize actions on someone else's clock events.
-      if (!employee.active) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        setError("This supervisor account is no longer active");
-        setPin("");
-        return;
-      }
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      navigation.replace("OverrideEmployeeList", { authorizedBy: employee });
-      setPin("");
     }
   };
 

@@ -1,4 +1,5 @@
 import * as FileSystem from "expo-file-system/legacy";
+import * as Sentry from "@sentry/react-native";
 import { getDb } from "./db";
 import { getCurrentLocalStatus } from "./clockStatusLocal";
 import { notifyQueueChange } from "./queueEvents";
@@ -34,6 +35,13 @@ async function insertQueueItem(item) {
       item.createdAt,
     ]
   );
+  Sentry.addBreadcrumb({
+    category: "clockQueue",
+    message: "insertQueueItem",
+    level: "info",
+    data: { localId: item.localId, employeeId: item.employeeId, type: item.type, source: item.source },
+  });
+
   // Any screen showing overlay-derived status should reflect this the
   // instant it happens, not on next focus - this is what makes offline
   // break/override/clock actions feel live instead of stale until nav.

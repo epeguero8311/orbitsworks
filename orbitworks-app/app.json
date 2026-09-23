@@ -51,7 +51,15 @@
         }
       ],
       "expo-sqlite",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "orbitworks-app",
+          "organization": "orbitsworks"
+        }
+      ]
     ],
     "extra": {
       "eas": {

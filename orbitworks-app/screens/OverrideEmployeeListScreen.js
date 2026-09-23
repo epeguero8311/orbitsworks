@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as Sentry from "@sentry/react-native";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
@@ -101,6 +102,17 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.log("[OverrideEmployeeList] override action failed:", err.message);
+      Sentry.captureException(err, {
+        tags: { area: "overrideEmployeeList" },
+        contexts: {
+          clockAttempt: {
+            companyId: userData?.companyId,
+            direction,
+            siteId,
+            employeeCount: selected?.length,
+          },
+        },
+      });
     } finally {
       setSubmitting(false);
     }
