@@ -2,6 +2,7 @@ import { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as Sentry from "@sentry/react-native";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
@@ -43,19 +44,37 @@ export default function PinEntryScreen({ navigation }) {
 
     if (next.length === 4) {
       setChecking(true);
-      const employee = await findEmployeeByPin(userData.companyId, next);
-      setChecking(false);
+      try {
+        const employee = await findEmployeeByPin(userData.companyId, next);
 
-      if (!employee) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        setError("PIN not recognized");
+        if (!employee) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          setError("PIN not recognized");
+          setPin("");
+          return;
+        }
+
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        navigation.navigate("ClockCamera", { employee });
         setPin("");
-        return;
+      } catch (err) {
+        // Previously unhandled - a throw here (e.g. a local SQLite read
+        // failure) left `checking` stuck true forever with no error
+        // shown, since nothing after the await ever ran. The lockout
+        // throw from findEmployeeByPin is expected/user-facing, not a
+        // bug, so it's shown but not reported.
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setError(err.message || "Something went wrong. Try again.");
+        setPin("");
+        if (!err.message?.startsWith("Too many attempts")) {
+          Sentry.captureException(err, {
+            tags: { area: "pinEntry" },
+            contexts: { clockAttempt: { companyId: userData?.companyId } },
+          });
+        }
+      } finally {
+        setChecking(false);
       }
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      navigation.navigate("ClockCamera", { employee });
-      setPin("");
     }
   };
 

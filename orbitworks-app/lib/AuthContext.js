@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc, collection, query, where, onSnapshot } from "firebase/firestore";
+import * as Sentry from "@sentry/react-native";
 import { auth, db } from "./firebase";
 
 const AuthContext = createContext(null);
@@ -22,18 +23,27 @@ export function AuthProvider({ children }) {
           const userDocSnap = await getDoc(userDocRef);
 
           if (userDocSnap.exists()) {
-            setUserData(userDocSnap.data());
+            const data = userDocSnap.data();
+            setUserData(data);
+            Sentry.setUser({ id: user.uid, email: user.email ?? undefined });
+            Sentry.setTag("companyId", data.companyId ?? "unknown");
+            Sentry.setTag("role", data.role ?? "unknown");
           } else {
             setUserData(null);
           }
         } catch (error) {
           console.log("Error fetching user data:", error);
+          Sentry.captureException(error, {
+            tags: { area: "auth-fetch-user-doc" },
+            contexts: { auth: { uid: user.uid } },
+          });
           setUserData(null);
         }
       } else {
         setUserData(null);
         setAccountDisabled(false);
         setLinkedEmployeeId(null);
+        Sentry.setUser(null);
       }
 
       setLoading(false);
@@ -77,6 +87,12 @@ export function AuthProvider({ children }) {
       },
       (error) => {
         console.log("Employee status listener error:", error);
+        Sentry.captureException(error, {
+          tags: { area: "auth-employee-listener" },
+          contexts: {
+            auth: { uid: currentUser.uid, companyId: userData.companyId },
+          },
+        });
       }
     );
 

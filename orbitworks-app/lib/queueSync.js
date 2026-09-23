@@ -2,6 +2,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import { doc, setDoc, Timestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import * as Sentry from "@sentry/react-native";
 import { db as firestoreDb, storage } from "./firebase";
 import { getDb } from "./db";
 
@@ -31,9 +32,29 @@ async function uploadPhoto(companyId, employeeId, localUri) {
 async function syncOne(sqlite, item, companyId) {
   const eventRef = doc(firestoreDb, "companies", companyId, "clockEvents", item.localId);
 
+  Sentry.addBreadcrumb({
+    category: "queueSync",
+    message: "syncOne:start",
+    level: "info",
+    data: {
+      localId: item.localId,
+      employeeId: item.employeeId,
+      type: item.type,
+      source: item.source,
+      hasPhoto: !!item.photoLocalUri,
+      attempts: item.attempts,
+    },
+  });
+
   let photoUrl = null;
   if (item.photoLocalUri) {
     photoUrl = await uploadPhoto(companyId, item.employeeId, item.photoLocalUri);
+    Sentry.addBreadcrumb({
+      category: "queueSync",
+      message: "syncOne:photoUploaded",
+      level: "info",
+      data: { localId: item.localId },
+    });
   }
 
   await setDoc(eventRef, {
@@ -56,6 +77,13 @@ async function syncOne(sqlite, item, companyId) {
     clientTimestamp: Timestamp.fromMillis(item.clientTimestamp),
     timestamp: Timestamp.fromMillis(item.clientTimestamp),
     createdAt: Timestamp.fromMillis(item.createdAt),
+  });
+
+  Sentry.addBreadcrumb({
+    category: "queueSync",
+    message: "syncOne:firestoreWritten",
+    level: "info",
+    data: { localId: item.localId },
   });
 
   if (item.photoLocalUri) {
@@ -92,7 +120,14 @@ export async function cleanupSyncedQueueItems() {
 export async function drainQueue(companyId) {
   if (syncing || !companyId) return;
   const net = await NetInfo.fetch();
-  if (!net.isConnected) return;
+  if (!net.isConnected) {
+    Sentry.addBreadcrumb({
+      category: "queueSync",
+      message: "drainQueue:skipped-offline",
+      level: "info",
+    });
+    return;
+  }
 
   syncing = true;
   try {
@@ -103,18 +138,64 @@ export async function drainQueue(companyId) {
       "SELECT * FROM event_queue WHERE syncStatus IN ('pending','failed') ORDER BY clientTimestamp ASC"
     );
 
+    Sentry.addBreadcrumb({
+      category: "queueSync",
+      message: "drainQueue:start",
+      level: "info",
+      data: { companyId, pendingCount: pending.length },
+    });
+
+    let syncedCount = 0;
+    let failedCount = 0;
+
     for (const item of pending) {
       await sqlite.runAsync("UPDATE event_queue SET syncStatus = 'syncing' WHERE localId = ?", [item.localId]);
       try {
         await syncOne(sqlite, item, companyId);
+        syncedCount++;
       } catch (err) {
         console.log("Sync failed for", item.localId, err.message);
+        failedCount++;
+        // A persistent failure (attempts keeps climbing) means this item
+        // will never sync on its own - e.g. a Firestore rules rejection
+        // or a malformed field - as opposed to a one-off network blip.
+        // Report every failure so Sentry's grouping/count shows which
+        // this is; tag by attempts bucket so a chronically-stuck item
+        // stands out from a first-try retry in the issue list.
+        Sentry.captureException(err, {
+          tags: {
+            area: "queueSync",
+            eventType: item.type,
+            source: item.source ?? "unknown",
+            persistent: item.attempts >= 2 ? "true" : "false",
+          },
+          contexts: {
+            clockQueueItem: {
+              localId: item.localId,
+              companyId,
+              employeeId: item.employeeId,
+              type: item.type,
+              source: item.source,
+              attempts: item.attempts,
+              hasPhoto: !!item.photoLocalUri,
+              errorMessage: err.message,
+              errorCode: err.code,
+            },
+          },
+        });
         await sqlite.runAsync(
           "UPDATE event_queue SET syncStatus = 'failed', attempts = attempts + 1, lastError = ? WHERE localId = ?",
           [err.message || "Unknown error", item.localId]
         );
       }
     }
+
+    Sentry.addBreadcrumb({
+      category: "queueSync",
+      message: "drainQueue:finished",
+      level: "info",
+      data: { companyId, syncedCount, failedCount },
+    });
   } finally {
     syncing = false;
   }

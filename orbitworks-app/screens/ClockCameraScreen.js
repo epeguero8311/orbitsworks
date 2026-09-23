@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
+import * as Sentry from "@sentry/react-native";
 import { useAuth } from "../lib/AuthContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
 import { queueClockEvent } from "../lib/clockQueue";
@@ -70,6 +71,21 @@ export default function ClockCameraScreen({ route, navigation }) {
       navigation.replace("ClockConfirm", { employeeName: employee.name, resultType });
     } catch (error) {
       console.log("Clock event failed:", error);
+      // This is the only local write attempt for a self clock-in/out -
+      // if it throws, nothing was recorded anywhere (not even locally),
+      // and until now nothing surfaced that beyond this console.log lost
+      // the moment the app restarts. Report it so a real failure here
+      // (vs. e.g. the user backing out) is finally visible.
+      Sentry.captureException(error, {
+        tags: { area: "clockCamera" },
+        contexts: {
+          clockAttempt: {
+            employeeId: employee?.id,
+            companyId: userData?.companyId,
+            siteId,
+          },
+        },
+      });
       if (isMounted.current) setSubmitting(false);
     }
   };

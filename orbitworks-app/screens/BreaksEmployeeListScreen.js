@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as Sentry from "@sentry/react-native";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
@@ -68,6 +69,16 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.log("[BreaksEmployeeList] break action failed:", err.message);
+      Sentry.captureException(err, {
+        tags: { area: "breaksEmployeeList" },
+        contexts: {
+          clockAttempt: {
+            companyId: userData?.companyId,
+            type,
+            employeeCount: targets?.length,
+          },
+        },
+      });
     } finally {
       setSubmitting(false);
     }
