@@ -25,6 +25,21 @@ import BreaksEmployeeListScreen from "./screens/BreaksEmployeeListScreen";
 import OverridePinEntryScreen from "./screens/OverridePinEntryScreen";
 import OverrideEmployeeListScreen from "./screens/OverrideEmployeeListScreen";
 import OverrideReasonScreen from "./screens/OverrideReasonScreen";
+import * as Sentry from '@sentry/react-native';
+
+Sentry.init({
+  dsn: 'https://f796828c3aaf68527b01e471a0aa9404@o4512133013176320.ingest.us.sentry.io/4512133093261312',
+
+  // Adds more context data to events (IP address, cookies, user, etc.)
+  // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
+  sendDefaultPii: true,
+
+  // Enable Logs
+  enableLogs: false,
+
+  // uncomment the line below to enable Spotlight (https://spotlightjs.com)
+  // spotlight: __DEV__,
+});
 
 // Keep the native splash up until we explicitly hide it below - without
 // this, Expo auto-hides it the instant JS mounts, which is why it was
@@ -89,7 +104,7 @@ function RootNavigator() {
   );
 }
 
-export default function App() {
+export default Sentry.wrap(function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
@@ -99,4 +114,4 @@ export default function App() {
       </AuthProvider>
     </ThemeProvider>
   );
-}
+});
