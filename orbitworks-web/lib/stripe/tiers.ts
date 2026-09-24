@@ -160,3 +160,10 @@ export function getTierByPriceId(priceId: string): PriceTier | null {
 export function getTiersByProduct(product: PlanProduct): PriceTier[] {
   return PRICE_TIERS.filter((t) => t.product === product);
 }
+
+// Central check for gating a Pro-only feature. "free" and "custom" plans
+// (and any unrecognized/missing planTier) are never Pro.
+export function isProPlan(planTier: string | undefined | null): boolean {
+  if (!planTier) return false;
+  return getTierByKey(planTier)?.product === "pro";
+}

@@ -219,7 +219,7 @@ export interface AttendanceStats {
 }
 
 export interface TimeTrendsPoint {
-  weekLabel: string;
+  dateLabel: string;
   avgHours: number;
 }
 
@@ -234,6 +234,7 @@ export interface JobSiteReport {
   employeeCount: number;
   avgHours: number;
   onTimePercent: number;
+  totalCost: number;
 }
 
 export interface SessionRecord {

@@ -43,7 +43,7 @@ export function useReports() {
   const [error, setError] = useState("");
   const [summaries, setSummaries] = useState<EmployeeSummary[] | null>(null);
   const [attendance, setAttendance] = useState<AttendanceStats | null>(null);
-  const [hoursPerWeek, setHoursPerWeek] = useState<TimeTrendsPoint[]>([]);
+  const [hoursPerDay, setHoursPerDay] = useState<TimeTrendsPoint[]>([]);
   const [employeesPerDay, setEmployeesPerDay] = useState<EmployeesPerDayPoint[]>([]);
   const [avgHoursPerEmployee, setAvgHoursPerEmployee] = useState(0);
   const [jobSiteReports, setJobSiteReports] = useState<JobSiteReport[]>([]);
@@ -176,11 +176,12 @@ export function useReports() {
         setBreakHoursByEmployeeDay(payroll.breakHoursByEmployeeDay);
         setSessions(payroll.sessions);
         setAvgHoursPerEmployee(payroll.avgHoursPerEmployee);
-        setHoursPerWeek(payroll.hoursPerWeek);
+        setHoursPerDay(payroll.hoursPerDay);
 
         const attendanceResult = computeAttendanceAndSiteReports(
           gatedEvents,
           payroll.siteHoursTotal,
+          payroll.siteCostTotal,
           subcontractorByEmployeeId,
           settings.businessHours.open,
           settings.attendanceRules.gracePeriodMinutes ?? 0
@@ -204,7 +205,7 @@ export function useReports() {
     error,
     summaries,
     attendance,
-    hoursPerWeek,
+    hoursPerDay,
     employeesPerDay,
     avgHoursPerEmployee,
     jobSiteReports,

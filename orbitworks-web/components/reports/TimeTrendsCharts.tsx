@@ -14,11 +14,11 @@ import {
 import type { TimeTrendsPoint, EmployeesPerDayPoint } from "@/lib/types";
 
 export default function TimeTrendsCharts({
-  hoursPerWeek,
+  hoursPerDay,
   employeesPerDay,
   avgHoursPerEmployee,
 }: {
-  hoursPerWeek: TimeTrendsPoint[];
+  hoursPerDay: TimeTrendsPoint[];
   employeesPerDay: EmployeesPerDayPoint[];
   avgHoursPerEmployee: number;
 }) {
@@ -36,17 +36,19 @@ export default function TimeTrendsCharts({
 
       <div className="mt-3 grid gap-4 lg:grid-cols-2">
         <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <p className="text-sm font-medium text-gray-950">Avg hours worked per week</p>
+          <p className="text-sm font-medium text-gray-950">Avg hours worked per day</p>
           <div className="mt-3 h-56">
-            {hoursPerWeek.length === 0 ? (
+            {hoursPerDay.length === 0 ? (
               <p className="text-sm text-gray-600">No data in this range.</p>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={hoursPerWeek}>
+                <LineChart data={hoursPerDay}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="weekLabel" tick={{ fontSize: 12 }} stroke="#6b7280" />
+                  <XAxis dataKey="dateLabel" tick={{ fontSize: 12 }} stroke="#6b7280" />
                   <YAxis tick={{ fontSize: 12 }} stroke="#6b7280" />
-                  <Tooltip />
+                  <Tooltip
+                    formatter={(value) => [`${Number(value).toFixed(1)}h`, "Avg hours"]}
+                  />
                   <Line
                     type="monotone"
                     dataKey="avgHours"

@@ -15,7 +15,6 @@ import type {
 import {
   dateKey,
   localDateKey,
-  startOfWeek,
   minutesSinceMidnight,
   parseTimeToMinutes,
   formatMinutesAsTime,
@@ -202,8 +201,9 @@ export function computePayrollAndSessions(
   hoursByEmployeeDay: Map<string, number>;
   breakHoursByEmployeeDay: Map<string, number>;
   avgHoursPerEmployee: number;
-  hoursPerWeek: TimeTrendsPoint[];
+  hoursPerDay: TimeTrendsPoint[];
   siteHoursTotal: Map<string, number>;
+  siteCostTotal: Map<string, number>;
 } {
   const byEmployee = new Map<string, EventWithDate[]>();
   for (const event of gatedEvents) {
@@ -213,9 +213,10 @@ export function computePayrollAndSessions(
   }
 
   const results: EmployeeSummary[] = [];
-  const weeklyHoursTotals = new Map<string, number>();
-  const weeklyHoursEmployees = new Map<string, Set<string>>();
+  const dailyHoursTotals = new Map<string, number>();
+  const dailyHoursEmployees = new Map<string, Set<string>>();
   const siteHoursTotal = new Map<string, number>();
+  const siteCostTotal = new Map<string, number>();
   const sessionsOut: SessionRecord[] = [];
   const hoursByDayOut = new Map<string, number>();
   const breakHoursByDayOut = new Map<string, number>();
@@ -295,13 +296,12 @@ export function computePayrollAndSessions(
             subcontractorName: currentCompany.name,
           });
 
-          const weekKey = dateKey(startOfWeek(pendingIn.timestamp.toDate()));
-          weeklyHoursTotals.set(weekKey, (weeklyHoursTotals.get(weekKey) ?? 0) + hrs);
-          const empSet = weeklyHoursEmployees.get(weekKey) ?? new Set<string>();
-          empSet.add(employeeId);
-          weeklyHoursEmployees.set(weekKey, empSet);
-
           const dayKey = dateKey(pendingIn.timestamp.toDate());
+          dailyHoursTotals.set(dayKey, (dailyHoursTotals.get(dayKey) ?? 0) + hrs);
+          const empSet = dailyHoursEmployees.get(dayKey) ?? new Set<string>();
+          empSet.add(employeeId);
+          dailyHoursEmployees.set(dayKey, empSet);
+
           const hbdKey = `${employeeId}__${dayKey}`;
           hoursByDayOut.set(hbdKey, (hoursByDayOut.get(hbdKey) ?? 0) + hrs);
           breakHoursByDayOut.set(hbdKey, (breakHoursByDayOut.get(hbdKey) ?? 0) + breakHrs);
@@ -311,6 +311,14 @@ export function computePayrollAndSessions(
               pendingIn.siteId,
               (siteHoursTotal.get(pendingIn.siteId) ?? 0) + hrs
             );
+            const rate = defaultRateByEmployeeId.get(employeeId);
+            if (rate != null) {
+              const netSessionHrs = hrs - breakHrs;
+              siteCostTotal.set(
+                pendingIn.siteId,
+                (siteCostTotal.get(pendingIn.siteId) ?? 0) + netSessionHrs * rate
+              );
+            }
           }
         }
         pendingIn = null;
@@ -363,15 +371,15 @@ export function computePayrollAndSessions(
   const totalHoursAll = results.reduce((sum, s) => sum + s.totalHours, 0);
   const avgHoursPerEmployee = results.length > 0 ? totalHoursAll / results.length : 0;
 
-  const hoursPerWeek: TimeTrendsPoint[] = Array.from(weeklyHoursTotals.entries())
+  const hoursPerDay: TimeTrendsPoint[] = Array.from(dailyHoursTotals.entries())
     .sort(([a], [b]) => (a < b ? -1 : 1))
-    .map(([weekKey, total]) => {
-      const empCount = weeklyHoursEmployees.get(weekKey)?.size ?? 1;
-      const label = new Date(weekKey + "T00:00:00").toLocaleDateString("en-US", {
+    .map(([dayKey, total]) => {
+      const empCount = dailyHoursEmployees.get(dayKey)?.size ?? 1;
+      const label = new Date(dayKey + "T00:00:00").toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
       });
-      return { weekLabel: label, avgHours: total / empCount };
+      return { dateLabel: label, avgHours: Math.round((total / empCount) * 10) / 10 };
     });
 
   return {
@@ -380,8 +388,9 @@ export function computePayrollAndSessions(
     hoursByEmployeeDay: hoursByDayOut,
     breakHoursByEmployeeDay: breakHoursByDayOut,
     avgHoursPerEmployee,
-    hoursPerWeek,
+    hoursPerDay,
     siteHoursTotal,
+    siteCostTotal,
   };
 }
 
@@ -389,6 +398,7 @@ export function computePayrollAndSessions(
 export function computeAttendanceAndSiteReports(
   gatedEvents: EventWithDate[],
   siteHoursTotal: Map<string, number>,
+  siteCostTotal: Map<string, number>,
   subcontractorByEmployeeId: Map<string, SubcontractorInfo>,
   businessOpenTime: string,
   gracePeriodMinutes: number
@@ -525,6 +535,7 @@ export function computeAttendanceAndSiteReports(
         employeeCount: empSet.size,
         avgHours: empSet.size > 0 ? hours / empSet.size : 0,
         onTimePercent: arrivals > 0 ? (onTimeAtSite / arrivals) * 100 : 0,
+        totalCost: siteCostTotal.get(siteId) ?? 0,
       };
     })
     .sort((a, b) => b.employeeCount - a.employeeCount);
