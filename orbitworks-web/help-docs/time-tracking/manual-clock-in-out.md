@@ -3,7 +3,8 @@ title: "Manually Clocking an Employee In, Out, or on Break"
 category: time-tracking
 keywords: [manual clock in, manual clock out, clock employee in, clock employee out, start break,
  end break, clock in from admin, clock in for someone, tablet down, override clock in,
- how do i clock someone in, manual entry, admin clock event]
+ how do i clock someone in, manual entry, admin clock event, employee stuck clocked in,
+ stale open session, stuck from previous day, can't clock in, employee stuck from yesterday]
 ---
 
 ## What
@@ -26,3 +27,4 @@ Sidebar > Time Tracking > the manual entry form at the top of the page.
 - Only employees eligible for the selected direction show up - e.g. picking "Clock in" hides anyone already clocked in.
 - Clocking someone "out" while they're on break automatically logs an "End break" event first, so the break is closed out before the clock-out.
 - If Settings has "Allow early clock in" or "Allow late clock out" turned off, clocking in before business open or out after business close is blocked with a message telling you to enable it in Settings.
+- An employee still showing clocked in (or on break) from a previous day is marked "Stuck clocked in from a previous day" in the picker. Clocking them "in" automatically closes that old session first (backdated to that day's business close, or end of day if they clocked in after close), then records the fresh clock-in - one click does both, no separate clock-out step needed.
