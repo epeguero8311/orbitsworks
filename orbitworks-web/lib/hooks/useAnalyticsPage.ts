@@ -8,8 +8,6 @@ import { useSiteCosts, type WorkerFilter } from "@/lib/hooks/useSiteCosts";
 import { isProPlan } from "@/lib/stripe/tiers";
 import { resolvePreset, type DateRangePreset } from "@/lib/validators/dateRange";
 
-const DEFAULT_RANGE = resolvePreset("thisMonth", new Date())!;
-
 export function useAnalyticsPage() {
   const { userData } = useAuth();
   const [planTier, setPlanTier] = useState<string | null>(null);
@@ -27,24 +25,28 @@ export function useAnalyticsPage() {
 
   const isPro = isProPlan(planTier);
 
+  // Lazy initializers so "now" is read when this hook first mounts, not
+  // whenever this module happened to be evaluated - a long-lived SPA
+  // session that never hard-reloads must still default to the current
+  // month, not whatever month was current at first import.
   const [preset, setPreset] = useState<DateRangePreset>("thisMonth");
-  const [startDate, setStartDate] = useState(DEFAULT_RANGE.start);
-  const [endDate, setEndDate] = useState(DEFAULT_RANGE.end);
+  const [startDate, setStartDate] = useState(() => resolvePreset("thisMonth", new Date())!.start);
+  const [endDate, setEndDate] = useState(() => resolvePreset("thisMonth", new Date())!.end);
   const [siteFilter, setSiteFilter] = useState<string | null>(null);
   const [workerFilter, setWorkerFilter] = useState<WorkerFilter>("all");
 
   const { loading, error, summary, comparison, sites, runAnalytics } = useSiteCosts();
 
   const run = useCallback(
-    (start: string, end: string, site: string | null, worker: WorkerFilter) => {
-      runAnalytics(start, end, site, worker);
+    (p: DateRangePreset, start: string, end: string, site: string | null, worker: WorkerFilter) => {
+      runAnalytics(p, start, end, site, worker);
     },
     [runAnalytics]
   );
 
   useEffect(() => {
     if (!isPro) return;
-    run(startDate, endDate, siteFilter, workerFilter);
+    run(preset, startDate, endDate, siteFilter, workerFilter);
     // Only re-runs when Pro status resolves - filter changes go through
     // their own handlers below instead of round-tripping through state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -56,7 +58,7 @@ export function useAnalyticsPage() {
     if (!resolved) return;
     setStartDate(resolved.start);
     setEndDate(resolved.end);
-    run(resolved.start, resolved.end, siteFilter, workerFilter);
+    run(next, resolved.start, resolved.end, siteFilter, workerFilter);
   }
 
   function handleCustomDateChange(field: "start" | "end", value: string) {
@@ -66,17 +68,17 @@ export function useAnalyticsPage() {
   }
 
   function handleApplyCustomRange() {
-    run(startDate, endDate, siteFilter, workerFilter);
+    run("custom", startDate, endDate, siteFilter, workerFilter);
   }
 
   function handleSiteFilterChange(value: string | null) {
     setSiteFilter(value);
-    run(startDate, endDate, value, workerFilter);
+    run(preset, startDate, endDate, value, workerFilter);
   }
 
   function handleWorkerFilterChange(value: WorkerFilter) {
     setWorkerFilter(value);
-    run(startDate, endDate, siteFilter, value);
+    run(preset, startDate, endDate, siteFilter, value);
   }
 
   return {

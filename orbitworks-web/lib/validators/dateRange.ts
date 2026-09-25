@@ -45,15 +45,61 @@ export function resolvePreset(
   }
 }
 
-// The previous equivalent period, same length, immediately before
-// `start` - used for the stat cards' "vs previous period" comparison.
-export function previousEquivalentRange(start: string, end: string): { start: string; end: string } {
+// Same length, immediately before `start` - the only sensible comparison
+// for "custom", since it has no calendar unit to align to.
+function rollingPreviousRange(start: string, end: string): { start: string; end: string } {
   const startDate = new Date(start + "T00:00:00");
   const endDate = new Date(end + "T00:00:00");
   const lengthDays = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1;
   const prevEnd = addDays(startDate, -1);
   const prevStart = addDays(prevEnd, -(lengthDays - 1));
   return { start: dateKey(prevStart), end: dateKey(prevEnd) };
+}
+
+// The comparison range for the stat cards' "up/down X% vs <period>" line.
+// For the calendar presets this is the actual prior calendar unit (not a
+// rolling N-day shift), so a partial "this month so far" compares against
+// the SAME elapsed days at the start of last month (month-to-date vs
+// month-to-date), and a complete "last month" compares against the full
+// month before it. Only "custom" falls back to a rolling shift, since it
+// has no calendar unit to align to.
+export function previousComparisonRange(
+  preset: DateRangePreset,
+  start: string,
+  end: string,
+  now: Date
+): { start: string; end: string } {
+  const elapsedDays =
+    Math.round(
+      (new Date(end + "T00:00:00").getTime() - new Date(start + "T00:00:00").getTime()) / 86_400_000
+    ) + 1;
+
+  switch (preset) {
+    case "thisWeek": {
+      const prevWeekStart = addDays(startOfWeek(now), -7);
+      return { start: dateKey(prevWeekStart), end: dateKey(addDays(prevWeekStart, elapsedDays - 1)) };
+    }
+    case "lastWeek": {
+      const startDate = new Date(start + "T00:00:00");
+      const endDate = new Date(end + "T00:00:00");
+      return { start: dateKey(addDays(startDate, -7)), end: dateKey(addDays(endDate, -7)) };
+    }
+    case "thisMonth": {
+      const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const prevMonthStart = startOfMonth(prevMonthDate);
+      const prevMonthEnd = endOfMonth(prevMonthDate);
+      const candidateEnd = addDays(prevMonthStart, elapsedDays - 1);
+      const prevEnd = candidateEnd.getTime() < prevMonthEnd.getTime() ? candidateEnd : prevMonthEnd;
+      return { start: dateKey(prevMonthStart), end: dateKey(prevEnd) };
+    }
+    case "lastMonth": {
+      const thisMonthStart = new Date(start + "T00:00:00");
+      const twoMonthsAgo = new Date(thisMonthStart.getFullYear(), thisMonthStart.getMonth() - 1, 1);
+      return { start: dateKey(startOfMonth(twoMonthsAgo)), end: dateKey(endOfMonth(twoMonthsAgo)) };
+    }
+    case "custom":
+      return rollingPreviousRange(start, end);
+  }
 }
 
 export function previousPeriodLabel(preset: DateRangePreset): string {

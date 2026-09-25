@@ -13,7 +13,7 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { dateKey, startOfWeek, APPROVALS_CUTOVER_DATE } from "@/lib/reportUtils";
-import { previousEquivalentRange, percentChange } from "@/lib/validators/dateRange";
+import { previousComparisonRange, percentChange, type DateRangePreset } from "@/lib/validators/dateRange";
 import { computeExcludedEventIds, type EventWithDate } from "@/lib/reportComputations";
 import { computeAnalytics, type CostEvent, type CostEmployeeInfo, type CostJobInfo, type WorkerFilter } from "@/lib/siteCosts";
 import type { AnalyticsSummary } from "@/lib/types";
@@ -136,6 +136,7 @@ export function useSiteCosts() {
 
   const runAnalytics = useCallback(
     async (
+      preset: DateRangePreset,
       rangeStart: string,
       rangeEnd: string,
       siteFilter: string | null,
@@ -167,7 +168,7 @@ export function useSiteCosts() {
         );
         setSummary(current);
 
-        const prevRange = previousEquivalentRange(rangeStart, rangeEnd);
+        const prevRange = previousComparisonRange(preset, rangeStart, rangeEnd, new Date());
         const previous = await fetchAndCompute(
           userData.companyId,
           prevRange.start,
