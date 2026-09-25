@@ -7,11 +7,23 @@ export interface JobSite {
   active: boolean;
 }
 
+export interface RateHistoryEntry {
+  rate: number;
+  effectiveFrom: string;
+}
+
 export interface Job {
   id: string;
   name: string;
   hourlyRate: number;
   active: boolean;
+  // Ordered oldest-first. Seeded with a single entry (current hourlyRate,
+  // effectiveFrom the job's creation date) the first time a rate change
+  // goes through the "Effective from" prompt - jobs saved before that
+  // never had a rate change and have no history until they get one.
+  // Analytics resolves a past date's rate from here instead of the live
+  // hourlyRate, so a raise today can't rewrite yesterday's cost.
+  rateHistory?: RateHistoryEntry[];
 }
 
 export interface Subcontractor {
@@ -62,6 +74,9 @@ export interface Employee {
   // is readable without a live clockEvents query - same field the mobile
   // app uses for offline status.
   lastEventType?: "in" | "out" | "breakStart" | "breakEnd";
+  // Only meaningful when jobId is unset (custom rate) - see Job.rateHistory
+  // for the job-linked equivalent. Same seed-on-first-edit behavior.
+  rateHistory?: RateHistoryEntry[];
 }
 
 export interface Invite {
@@ -281,4 +296,56 @@ export interface ShiftNote {
   createdByUid: string;
   createdByName: string;
   timestamp?: Timestamp;
+}
+
+// ---- Analytics (Pro) ----
+//
+// Cost math lives in lib/siteCosts.ts, a pure module with no Firebase
+// imports - these types are its input/output shapes, kept here alongside
+// every other report type per project convention.
+
+export interface SiteWeeklyCostPoint {
+  weekLabel: string;
+  weekStart: string;
+  costBySite: Record<string, number>;
+  totalCost: number;
+}
+
+export interface EmployeeSiteCost {
+  employeeId: string;
+  employeeName: string;
+  siteId: string;
+  hours: number;
+  otHours: number;
+  cost: number;
+  otCost: number;
+  isSubcontractor: boolean;
+  missingRate: boolean;
+  isLive: boolean;
+}
+
+export interface SiteCostReport {
+  siteId: string;
+  siteName: string;
+  hours: number;
+  cost: number;
+  otHours: number;
+  otCost: number;
+  inHouseCost: number;
+  subCost: number;
+  headcount: number;
+  avgHourlyRate: number | null;
+}
+
+export interface AnalyticsSummary {
+  siteReports: SiteCostReport[];
+  employeeSiteCosts: EmployeeSiteCost[];
+  weeklyTrend: SiteWeeklyCostPoint[];
+  totalLaborCost: number;
+  totalHours: number;
+  totalOtCost: number;
+  mostExpensiveSite: { siteId: string; siteName: string; cost: number } | null;
+  unapprovedHoursIncluded: number;
+  employeesMissingRateCount: number;
+  missingClockOutsExcluded: number;
 }

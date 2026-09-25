@@ -47,6 +47,7 @@ export const createCompany = onCall(async (request) => {
     authMode: "individual",
     businessHours: { open: "08:00", close: "17:00" },
     weeklyOvertimeThreshold: 40,
+    overtimeMultiplier: 1.5,
     attendanceRules: {
       allowEarlyClockIn: true,
       allowLateClockOut: true,

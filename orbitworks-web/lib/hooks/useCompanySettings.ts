@@ -32,6 +32,7 @@ export type CompanySettings = {
   logoUrl: string | null;
   businessHours: { open: string; close: string };
   weeklyOvertimeThreshold: number;
+  overtimeMultiplier: number;
   attendanceRules: AttendanceRules;
   alerts: Alerts;
   appSettings: AppSettings;
@@ -64,6 +65,7 @@ const DEFAULT_SETTINGS: CompanySettings = {
   logoUrl: null,
   businessHours: { open: "08:00", close: "17:00" },
   weeklyOvertimeThreshold: 40,
+  overtimeMultiplier: 1.5,
   attendanceRules: DEFAULT_ATTENDANCE_RULES,
   alerts: DEFAULT_ALERTS,
   appSettings: DEFAULT_APP_SETTINGS,
@@ -87,6 +89,7 @@ export function useCompanySettings() {
           close: data.businessHours?.close ?? "17:00",
         },
         weeklyOvertimeThreshold: data.weeklyOvertimeThreshold ?? 40,
+        overtimeMultiplier: data.overtimeMultiplier ?? 1.5,
         attendanceRules: {
           ...DEFAULT_ATTENDANCE_RULES,
           ...(data.attendanceRules ?? {}),

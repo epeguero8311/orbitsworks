@@ -5,6 +5,8 @@ export default function StatCard({
   label,
   value,
   loading,
+  changePercent,
+  changeLabel,
 }: {
   icon: React.ElementType;
   iconBg: string;
@@ -12,6 +14,10 @@ export default function StatCard({
   label: string;
   value: string | number;
   loading: boolean;
+  // Optional "up/down X% vs <period>" line - only Analytics passes this
+  // today, every other caller leaves it unset and renders unchanged.
+  changePercent?: number | null;
+  changeLabel?: string;
 }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-5">
@@ -26,6 +32,16 @@ export default function StatCard({
           <p className="text-2xl font-semibold text-gray-950">
             {loading ? "-" : value}
           </p>
+          {!loading && changeLabel && changePercent != null && (
+            <p
+              className={`mt-0.5 text-xs font-medium ${
+                changePercent >= 0 ? "text-red-600" : "text-green-700"
+              }`}
+            >
+              {changePercent >= 0 ? "up" : "down"} {Math.abs(changePercent).toFixed(0)}%{" "}
+              {changeLabel}
+            </p>
+          )}
         </div>
       </div>
     </div>

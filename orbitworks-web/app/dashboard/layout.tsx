@@ -12,6 +12,7 @@ import {
   Clock,
   ClipboardCheck,
   FileText,
+  BarChart3,
   CreditCard,
   Settings as SettingsIcon,
   LogOut,
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/time", label: "Time Tracking", icon: Clock },
   { href: "/dashboard/timesheet-approvals", label: "Approvals", icon: ClipboardCheck },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
+  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, pro: true },
   // Billing is filtered out below for non-owners - only the owner has
   // Stripe access.
   { href: "/dashboard/billing", label: "Billing", icon: CreditCard, ownerOnly: true },
@@ -142,6 +144,11 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               >
                 <Icon className="h-[18px] w-[18px]" />
                 {item.label}
+                {item.pro && (
+                  <span className="ml-auto rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+                    PRO
+                  </span>
+                )}
               </Link>
             );
           })}

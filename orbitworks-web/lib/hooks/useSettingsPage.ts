@@ -28,6 +28,7 @@ export function useSettingsPage() {
   const [businessOpen, setBusinessOpen] = useState("08:00");
   const [businessClose, setBusinessClose] = useState("17:00");
   const [otThreshold, setOtThreshold] = useState("40");
+  const [otMultiplier, setOtMultiplier] = useState("1.5");
   const [attendanceRules, setAttendanceRules] = useState<AttendanceRules>(
     DEFAULT_ATTENDANCE_RULES
   );
@@ -58,6 +59,9 @@ export function useSettingsPage() {
             data.weeklyOvertimeThreshold != null
               ? String(data.weeklyOvertimeThreshold)
               : "40"
+          );
+          setOtMultiplier(
+            data.overtimeMultiplier != null ? String(data.overtimeMultiplier) : "1.5"
           );
           setAttendanceRules({
             ...DEFAULT_ATTENDANCE_RULES,
@@ -118,6 +122,7 @@ export function useSettingsPage() {
         weeklyOvertimeThreshold: otThreshold.trim()
           ? parseFloat(otThreshold.trim())
           : 40,
+        overtimeMultiplier: otMultiplier.trim() ? parseFloat(otMultiplier.trim()) : 1.5,
         attendanceRules,
         alerts,
         appSettings,
@@ -148,6 +153,8 @@ export function useSettingsPage() {
     setBusinessClose,
     otThreshold,
     setOtThreshold,
+    otMultiplier,
+    setOtMultiplier,
     attendanceRules,
     setAttendanceRules,
     alerts,

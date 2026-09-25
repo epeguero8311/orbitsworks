@@ -73,6 +73,10 @@ export function EmployeeModal({
           onCustomJobTitleChange={m.setCustomJobTitle}
           customHourlyRate={m.customHourlyRate}
           onCustomHourlyRateChange={m.setCustomHourlyRate}
+          confirmingRateChange={m.confirmingRateChange}
+          rateEffectiveFrom={m.rateEffectiveFrom}
+          onRateEffectiveFromChange={m.setRateEffectiveFrom}
+          onCancelRateChange={() => m.setConfirmingRateChange(false)}
           phone={m.phone}
           onPhoneChange={m.setPhone}
           isLinked={m.isLinked}

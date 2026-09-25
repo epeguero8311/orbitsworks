@@ -16,6 +16,8 @@ import { httpsCallable } from "firebase/functions";
 import { db, storage, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { isValidPinFormat } from "@/lib/pinUtils";
+import { dateKey } from "@/lib/reportUtils";
+import { appendRateHistory } from "@/lib/rateHistory";
 import type { Employee, Job, Subcontractor } from "@/lib/types";
 
 export function useEmployeeModal({
@@ -75,6 +77,12 @@ export function useEmployeeModal({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  // ---- Custom hourly rate change (rateHistory) ----
+  // Only relevant when jobId stays unset (custom rate) - a job-linked
+  // rate's history lives on the job doc instead, see JobsSection.tsx.
+  const [confirmingRateChange, setConfirmingRateChange] = useState(false);
+  const [rateEffectiveFrom, setRateEffectiveFrom] = useState(dateKey(new Date()));
 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -237,6 +245,19 @@ export function useEmployeeModal({
       return;
     }
 
+    // A custom rate change needs an effective date before it commits, so
+    // Analytics can keep costing past hours at the old rate - see
+    // appendRateHistory. Job-linked rates are unaffected here; that
+    // history lives on the job doc (JobsSection.tsx).
+    const staysOnCustomRate = !employee.jobId && jobId === null;
+    const nextCustomRate = customHourlyRate.trim() ? parseFloat(customHourlyRate.trim()) : null;
+    const customRateChanged =
+      staysOnCustomRate && nextCustomRate !== (employee.hourlyRate ?? null);
+    if (customRateChanged && !confirmingRateChange) {
+      setConfirmingRateChange(true);
+      return;
+    }
+
     // Email is optional here - with one, Save sends a real invite
     // (accepting it links a login). Without one, Save just flips
     // isSupervisor directly via setEmployeePinSupervisor, no invite
@@ -309,6 +330,15 @@ export function useEmployeeModal({
         assignedSiteIds: selectedSiteIds,
       };
 
+      if (customRateChanged) {
+        updates.rateHistory = appendRateHistory(
+          employee.rateHistory,
+          employee.hourlyRate ?? 0,
+          nextCustomRate ?? 0,
+          rateEffectiveFrom
+        );
+      }
+
       if (photoFile) {
         const photoRef = ref(
           storage,
@@ -356,6 +386,7 @@ export function useEmployeeModal({
         });
       }
 
+      setConfirmingRateChange(false);
       setSuccess("Saved.");
     } catch (err) {
       console.error("Update employee error:", err);
@@ -407,6 +438,10 @@ export function useEmployeeModal({
     setCustomJobTitle,
     customHourlyRate,
     setCustomHourlyRate,
+    confirmingRateChange,
+    setConfirmingRateChange,
+    rateEffectiveFrom,
+    setRateEffectiveFrom,
     selectableJobs,
     selectedJob,
     handleJobSelect,

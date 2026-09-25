@@ -46,6 +46,8 @@ export default function SettingsPage() {
             setAlerts={s.setAlerts}
             otThreshold={s.otThreshold}
             setOtThreshold={s.setOtThreshold}
+            otMultiplier={s.otMultiplier}
+            setOtMultiplier={s.setOtMultiplier}
           />
 
           <AppSettingsCard
