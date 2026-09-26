@@ -25,18 +25,6 @@ export function sourceLabel(source: ClockEvent["source"]) {
   }
 }
 
-export function locationDisplay(location: ClockEvent["location"]) {
-  if (!location) {
-    return { text: "No location recorded", mapUrl: null as string | null };
-  }
-  if (typeof location === "string") {
-    return { text: location, mapUrl: null as string | null };
-  }
-  const text = `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`;
-  const mapUrl = `https://www.google.com/maps?q=${location.lat},${location.lng}`;
-  return { text, mapUrl };
-}
-
 export function toDatetimeLocalValue(date: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(

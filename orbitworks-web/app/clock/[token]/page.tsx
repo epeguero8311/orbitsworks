@@ -32,6 +32,35 @@ interface RedeemResult {
 
 const PIN_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
 
+interface BrowserLocation {
+  lat: number;
+  lng: number;
+  accuracy: number;
+}
+
+// Best-effort only - resolves null on denial, timeout, or any error.
+// Never awaited before letting the person proceed; called once, in
+// parallel with the PIN/camera steps, so a slow/no fix never adds delay
+// to the clock-in itself.
+function getBestEffortBrowserLocation(): Promise<BrowserLocation | null> {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) =>
+        resolve({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        }),
+      () => resolve(null),
+      { timeout: 6000, maximumAge: 60000 }
+    );
+  });
+}
+
 export default function TempClockLinkPage() {
   const params = useParams<{ token: string }>();
   const token = params.token;
@@ -45,6 +74,10 @@ export default function TempClockLinkPage() {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // Kicked off once, alongside camera permission - by the time PIN entry
+  // and the photo are done, this has almost always already resolved, so
+  // submit() never has to wait on it in practice.
+  const locationRef = useRef<Promise<BrowserLocation | null> | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -156,8 +189,16 @@ export default function TempClockLinkPage() {
     setStep("submitting");
     setErrorMessage("");
     try {
+      const location = locationRef.current ? await locationRef.current : null;
       const redeemFn = httpsCallable(functions, "redeemTempClockLink");
-      const res = await redeemFn({ token, pin, photo });
+      const res = await redeemFn({
+        token,
+        pin,
+        photo,
+        lat: location?.lat,
+        lng: location?.lng,
+        accuracy: location?.accuracy,
+      });
       setResult(res.data as RedeemResult);
       setStep("done");
     } catch (err) {
@@ -209,6 +250,7 @@ export default function TempClockLinkPage() {
           </div>
           <button
             onClick={() => {
+              locationRef.current = getBestEffortBrowserLocation();
               setStep("cameraPermission");
               requestCameraPermission();
             }}

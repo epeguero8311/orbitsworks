@@ -5,6 +5,18 @@ export interface JobSite {
   name: string;
   address?: string;
   active: boolean;
+  // Forward-geocoded from `address` (Pro only - see geocodeJobSiteAddress
+  // in functions/src/geocoding.ts) so onClockEventCreated can compute
+  // distanceFromSiteM on each clock event. Sites created before this
+  // feature, or whose address didn't geocode, simply have neither field -
+  // distance just doesn't show for them (see ClockEvent below).
+  lat?: number;
+  lng?: number;
+  geocodedAddress?: string;
+  // How close a clock event's coordinates must be to count as "on site"
+  // (see classifySiteProximity in lib/geo.ts). No editing UI exists for
+  // this yet - unset sites just use DEFAULT_SITE_RADIUS_METERS.
+  radiusMeters?: number;
 }
 
 export interface RateHistoryEntry {
@@ -126,7 +138,17 @@ export interface ClockEvent {
     | "tempLink";
   note?: string;
   photoUrl?: string;
-  location?: { lat: number; lng: number } | string;
+  // Raw device coordinates, captured client-side (mobile app / temp link
+  // page) alongside the photo - never blocks a clock event on failure.
+  // undefined means this event predates the Geolocation feature (or is a
+  // source that never captures location, e.g. adminManual/autoClockOut);
+  // null means the feature ran but no fix was available (permission
+  // denied, GPS timeout). locationAddress/distanceFromSiteM are filled in
+  // once, server-side, by onClockEventCreated - never re-computed after.
+  location?: { lat: number; lng: number } | string | null;
+  locationAccuracyM?: number | null;
+  locationAddress?: string;
+  distanceFromSiteM?: number | null;
   authorizedById?: string;
   authorizedByName?: string;
   createdByUid?: string;
@@ -374,4 +396,25 @@ export interface AnalyticsSummary {
   unapprovedHoursIncluded: number;
   employeesMissingRateCount: number;
   missingClockOutsExcluded: number;
+}
+
+// ---- Geolocation (Pro) ----
+//
+// Computation lives in lib/geo.ts, a pure module with no React/Firebase
+// imports - these types are its input/output shapes, kept here alongside
+// every other feature's types per project convention (see SiteCostReport
+// etc. above).
+
+export type AccuracyTier = "high" | "medium" | "low";
+
+export interface AccuracyInfo {
+  tier: AccuracyTier;
+  label: string;
+}
+
+export type SiteProximityTier = "on" | "near" | "off" | "unknown";
+
+export interface SiteProximityInfo {
+  tier: SiteProximityTier;
+  label: string;
 }

@@ -12,14 +12,44 @@ import {
   query,
   orderBy,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import { isProPlan } from "@/lib/stripe/tiers";
 import type { JobSite } from "@/lib/types";
+
+interface GeocodeResult {
+  found: boolean;
+  lat?: number;
+  lng?: number;
+  formattedAddress?: string;
+}
+
+// Best-effort, Pro only - the callable itself re-checks Pro server-side
+// (see geocodeJobSiteAddress), this is just to skip the call entirely for
+// Core companies. A failed/not-found lookup is swallowed: the site is
+// still saved with its typed address, just without lat/lng, same as any
+// site created before this feature existed - distance simply doesn't
+// show for it yet (see JobSite in lib/types.ts).
+async function geocodeAddress(address: string): Promise<Partial<JobSite>> {
+  if (!address) return {};
+  try {
+    const geocodeFn = httpsCallable(functions, "geocodeJobSiteAddress");
+    const result = await geocodeFn({ address });
+    const data = result.data as GeocodeResult;
+    if (!data.found || data.lat == null || data.lng == null) return {};
+    return { lat: data.lat, lng: data.lng, geocodedAddress: data.formattedAddress };
+  } catch (err) {
+    console.error("Job site geocoding failed:", err);
+    return {};
+  }
+}
 
 export function useSites() {
   const { userData } = useAuth();
   const [sites, setSites] = useState<JobSite[]>([]);
   const [loading, setLoading] = useState(true);
+  const [planTier, setPlanTier] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userData?.companyId) return;
@@ -52,8 +82,20 @@ export function useSites() {
     return unsubscribe;
   }, [userData?.companyId]);
 
+  useEffect(() => {
+    if (!userData?.companyId) return;
+    const companyRef = doc(db, "companies", userData.companyId);
+    const unsubscribe = onSnapshot(companyRef, (snapshot) => {
+      setPlanTier(snapshot.exists() ? snapshot.data().planTier ?? null : null);
+    });
+    return unsubscribe;
+  }, [userData?.companyId]);
+
   async function addSite(name: string, address: string) {
     if (!userData?.companyId) return;
+    const trimmedAddress = address.trim();
+    const geocoded = isProPlan(planTier) ? await geocodeAddress(trimmedAddress) : {};
+
     const sitesRef = collection(
       db,
       "companies",
@@ -62,18 +104,27 @@ export function useSites() {
     );
     await addDoc(sitesRef, {
       name: name.trim(),
-      address: address.trim(),
+      address: trimmedAddress,
       active: true,
       createdAt: serverTimestamp(),
+      ...geocoded,
     });
   }
 
   async function updateSite(siteId: string, name: string, address: string) {
     if (!userData?.companyId) return;
+    const trimmedAddress = address.trim();
+    const geocoded = isProPlan(planTier) ? await geocodeAddress(trimmedAddress) : {};
+
     const siteRef = doc(db, "companies", userData.companyId, "jobSites", siteId);
     await updateDoc(siteRef, {
       name: name.trim(),
-      address: address.trim(),
+      address: trimmedAddress,
+      // A cleared address means no coordinates either - don't leave a
+      // stale lat/lng pointing at whatever the address used to be.
+      lat: geocoded.lat ?? null,
+      lng: geocoded.lng ?? null,
+      geocodedAddress: geocoded.geocodedAddress ?? null,
     });
   }
 

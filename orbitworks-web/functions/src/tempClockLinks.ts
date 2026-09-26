@@ -15,6 +15,35 @@ function deriveStatus(eventType: string | null | undefined): "in" | "out" | "bre
   return "out";
 }
 
+// Basic sanity bounds on browser-supplied coordinates - this endpoint has
+// no request.auth, so unlike every other write path here there's no
+// signed-in caller to trust; a garbage/spoofed value just gets dropped
+// rather than written, same "never a blocker" treatment as a real
+// permission-denied/GPS-timeout miss.
+function parseLocation(
+  data: Record<string, unknown> | undefined
+): { lat: number; lng: number } | null {
+  const lat = data?.lat;
+  const lng = data?.lng;
+  if (
+    typeof lat !== "number" ||
+    typeof lng !== "number" ||
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    lat < -90 ||
+    lat > 90 ||
+    lng < -180 ||
+    lng > 180
+  ) {
+    return null;
+  }
+  return { lat, lng };
+}
+
+function parseAccuracy(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
 async function uploadTempLinkPhoto(
   companyId: string,
   employeeId: string,
@@ -267,6 +296,8 @@ export const redeemTempClockLink = onCall(async (request) => {
   const token = (request.data?.token ? String(request.data.token) : "").trim();
   const pin = (request.data?.pin ? String(request.data.pin) : "").trim();
   const photoBase64 = request.data?.photo ? String(request.data.photo) : "";
+  const location = parseLocation(request.data);
+  const locationAccuracyM = location ? parseAccuracy(request.data?.accuracy) : null;
 
   if (!token) {
     throw new HttpsError("invalid-argument", "Missing link token.");
@@ -374,12 +405,15 @@ export const redeemTempClockLink = onCall(async (request) => {
     authorizedByName: link.createdByName,
     createdByUid: link.createdByUid,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    location,
+    locationAccuracyM,
   };
 
   const batch = db.batch();
   // Mirrors clockQueue.js's queueClockEvent: clocking out while on break
   // auto-closes the break first, so a temp-link clock-out behaves exactly
-  // like the kiosk's would for the same employee.
+  // like the kiosk's would for the same employee. Same location on both -
+  // they're the same physical moment/device.
   if (currentStatus === "break" && nextType === "out") {
     batch.set(eventsRef.doc(), {
       ...base,

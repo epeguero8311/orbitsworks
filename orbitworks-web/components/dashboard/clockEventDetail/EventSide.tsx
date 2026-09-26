@@ -1,11 +1,8 @@
 "use client";
 
 import { ClockEvent } from "@/lib/types";
-import {
-  effectiveDate,
-  locationDisplay,
-  sourceLabel,
-} from "@/lib/clockEventDetailUtils";
+import { effectiveDate, sourceLabel } from "@/lib/clockEventDetailUtils";
+import { EventLocation } from "@/components/time/EventLocation";
 
 export function EventSide({
   label,
@@ -54,7 +51,6 @@ export function EventSide({
   }
 
   const badge = sourceLabel(event.source);
-  const loc = locationDisplay(event.location);
   const isAdjusted = !!event.adjustedTimestamp;
   const hasHistory = !!event.adjustmentHistory && event.adjustmentHistory.length > 0;
   const displayDate = effectiveDate(event);
@@ -102,19 +98,7 @@ export function EventSide({
         {badge.text}
       </span>
 
-      <p className="mt-2 text-xs text-gray-600">
-        {loc.mapUrl ? (
-          <button
-            type="button"
-            onClick={() => window.open(loc.mapUrl as string, "_blank")}
-            className="text-accent hover:underline"
-          >
-            {loc.text}
-          </button>
-        ) : (
-          loc.text
-        )}
-      </p>
+      <EventLocation event={event} />
 
       {event.note && (
         <p className="mt-2 text-xs text-gray-600">Note: {event.note}</p>

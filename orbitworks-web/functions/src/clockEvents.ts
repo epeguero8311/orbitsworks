@@ -9,13 +9,20 @@ import {
   OVERRIDE_REASON_MIN_LENGTH,
   OVERRIDE_REASON_MAX_LENGTH,
 } from "./shared";
+import { MAPBOX_TOKEN, haversineMeters, reverseGeocode } from "./geocoding";
+
+// Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
+// why this can't just be imported.
+function isProPlan(planTier: string | undefined | null): boolean {
+  return !!planTier && planTier.startsWith("pro_");
+}
 
 // Keeps employees/{employeeId}.lastEventType in sync with the most
 // recent clock event, so getPinSyncTable can hand the mobile app a
 // current-status snapshot without a separate per-employee query. This
 // is what lets the app determine in/out/break offline.
 export const onClockEventCreated = onDocumentCreated(
-  "companies/{companyId}/clockEvents/{eventId}",
+  { document: "companies/{companyId}/clockEvents/{eventId}", secrets: [MAPBOX_TOKEN] },
   async (event) => {
     const data = event.data?.data();
     if (!data || !data.employeeId) return;
@@ -168,6 +175,50 @@ export const onClockEventCreated = onDocumentCreated(
               );
             });
         }
+      }
+    }
+
+    // Geolocation (Pro): data.location is only ever a raw {lat,lng} at
+    // write time (mobile app / temp link) - the client never resolves an
+    // address or a distance itself. Only Pro companies' clients are ever
+    // wired up to capture location at all, but the plan is re-checked here
+    // too so this can never spend a Mapbox call on a Core company's data
+    // even if a stray/old client sent coordinates. Runs after everything
+    // else above so a slow/failed geocode never delays the
+    // timesheetApproval/overrideEvent writes those features depend on.
+    const rawLocation = data.location as { lat: number; lng: number } | null | undefined;
+    if (rawLocation && typeof rawLocation.lat === "number" && typeof rawLocation.lng === "number") {
+      const companySnap = await db.collection("companies").doc(companyId).get();
+      const planTier = companySnap.data()?.planTier as string | undefined;
+
+      if (isProPlan(planTier)) {
+        const { lat, lng } = rawLocation;
+        let distanceFromSiteM: number | null = null;
+
+        const siteId = data.siteId as string | null | undefined;
+        if (siteId) {
+          const siteSnap = await db
+            .collection("companies")
+            .doc(companyId)
+            .collection("jobSites")
+            .doc(siteId)
+            .get();
+          const site = siteSnap.data() as { lat?: number; lng?: number } | undefined;
+          if (site && typeof site.lat === "number" && typeof site.lng === "number") {
+            distanceFromSiteM = Math.round(haversineMeters(lat, lng, site.lat, site.lng));
+          }
+        }
+
+        const locationAddress = await reverseGeocode(lat, lng);
+
+        await event.data!.ref
+          .update({
+            distanceFromSiteM,
+            ...(locationAddress ? { locationAddress } : {}),
+          })
+          .catch((err) => {
+            console.error("Failed to enrich clock event location", event.params.eventId, err);
+          });
       }
     }
   }
