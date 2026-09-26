@@ -45,6 +45,10 @@ export async function getDb() {
       subcontractorName TEXT,
       reason TEXT,
       overrideEventId TEXT,
+      lat REAL,
+      lng REAL,
+      locationAccuracyM REAL,
+      locationAttempted INTEGER NOT NULL DEFAULT 0,
       createdAt INTEGER NOT NULL
     );
 
@@ -65,6 +69,10 @@ export async function getDb() {
     "ALTER TABLE event_queue ADD COLUMN subcontractorName TEXT",
     "ALTER TABLE event_queue ADD COLUMN reason TEXT",
     "ALTER TABLE event_queue ADD COLUMN overrideEventId TEXT",
+    "ALTER TABLE event_queue ADD COLUMN lat REAL",
+    "ALTER TABLE event_queue ADD COLUMN lng REAL",
+    "ALTER TABLE event_queue ADD COLUMN locationAccuracyM REAL",
+    "ALTER TABLE event_queue ADD COLUMN locationAttempted INTEGER NOT NULL DEFAULT 0",
   ];
   for (const migration of migrations) {
     try {

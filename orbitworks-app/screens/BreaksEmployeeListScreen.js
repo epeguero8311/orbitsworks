@@ -7,8 +7,10 @@ import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
 import { useTodayShift } from "../lib/hooks/useTodayShift";
 import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
+import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import { queueBreakEvent } from "../lib/clockQueue";
 import { drainQueue } from "../lib/queueSync";
+import { getBestEffortLocationIfPro } from "../lib/location";
 import ScreenHeader from "../components/ScreenHeader";
 import Avatar from "../components/Avatar";
 
@@ -17,6 +19,7 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
   const { userData, currentUser } = useAuth();
   const { colors } = useTheme();
   const { selectedSite } = useSiteSession();
+  const { isPro } = useCompanySettings(userData?.companyId);
   const { employees: liveEmployees, loading } = useTodayShift(userData?.companyId);
   const employees = useLocalStatusOverlay(liveEmployees);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -52,6 +55,9 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
     if (targets.length === 0 || submitting) return;
     setSubmitting(true);
     try {
+      // One fix for the whole batch, not one per employee - a GPS fix
+      // doesn't change from employee to employee in the same action.
+      const location = await getBestEffortLocationIfPro(isPro);
       for (const emp of targets) {
         await queueBreakEvent({
           employee: emp,
@@ -60,6 +66,7 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
           authorizedBy,
           siteId: selectedSite && !isNoneSite ? selectedSite.id : null,
           siteName: selectedSite && !isNoneSite ? selectedSite.name : "Not specified",
+          location,
         });
       }
       drainQueue(userData.companyId);

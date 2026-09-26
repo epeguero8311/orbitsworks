@@ -52,6 +52,19 @@ async function syncOne(sqlite, item, companyId) {
     authorizedByName: item.authorizedByName ?? null,
     reason: item.reason ?? null,
     overrideEventId: item.overrideEventId ?? null,
+    // Omitted entirely (not even null) for a Core-plan company, where
+    // clockQueue.js never attempts a fix at all - that's what makes the
+    // dashboard show nothing for these, same as a pre-feature event.
+    // locationAttempted=1 means it did attempt (a Pro company): location
+    // is either the raw fix or null (denied/timeout - shows "Location not
+    // shared"). onClockEventCreated fills in locationAddress/
+    // distanceFromSiteM server-side; this client never computes either.
+    ...(item.locationAttempted
+      ? {
+          location: item.lat != null && item.lng != null ? { lat: item.lat, lng: item.lng } : null,
+          locationAccuracyM: item.locationAccuracyM ?? null,
+        }
+      : {}),
     createdByUid: item.createdByUid,
     clientTimestamp: Timestamp.fromMillis(item.clientTimestamp),
     timestamp: Timestamp.fromMillis(item.clientTimestamp),

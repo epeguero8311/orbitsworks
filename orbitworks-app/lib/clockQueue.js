@@ -9,10 +9,18 @@ export function makeLocalId() {
 
 async function insertQueueItem(item) {
   const db = await getDb();
+  // locationAttempted distinguishes "Geolocation ran but got no fix"
+  // (item.location === null - a Pro company, permission denied or GPS
+  // timeout) from "never attempted" (item.location === undefined - a
+  // Core company, where callers never invoke getBestEffortLocation at
+  // all). Both collapse to NULL lat/lng, so this flag is the only thing
+  // that lets queueSync.js reproduce the right one server-side: the
+  // former should show "Location not shared", the latter nothing.
+  const locationAttempted = item.location !== undefined ? 1 : 0;
   await db.runAsync(
     `INSERT INTO event_queue
-      (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, subcontractorId, subcontractorName, reason, overrideEventId, syncStatus, attempts, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
+      (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, subcontractorId, subcontractorName, reason, overrideEventId, lat, lng, locationAccuracyM, locationAttempted, syncStatus, attempts, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
     [
       item.localId,
       item.employeeId,
@@ -31,6 +39,10 @@ async function insertQueueItem(item) {
       item.subcontractorName ?? null,
       item.reason ?? null,
       item.overrideEventId ?? null,
+      item.location?.lat ?? null,
+      item.location?.lng ?? null,
+      item.location?.accuracyM ?? null,
+      locationAttempted,
       item.createdAt,
     ]
   );
@@ -48,7 +60,7 @@ async function persistPhoto(photoUri, employeeId) {
   return dest;
 }
 
-export async function queueClockEvent({ employee, photoUri, source, createdByUid, siteId, siteName }) {
+export async function queueClockEvent({ employee, photoUri, source, createdByUid, siteId, siteName, location }) {
   const currentStatus = await getCurrentLocalStatus(employee.id);
   const nextType = currentStatus === "out" ? "in" : "out";
 
@@ -75,6 +87,7 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
       createdByUid,
       subcontractorId: employee.subcontractorId ?? null,
       subcontractorName: employee.subcontractorName ?? null,
+      location,
       clientTimestamp: now - 1,
       createdAt: now,
     });
@@ -92,6 +105,7 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
     createdByUid,
     subcontractorId: employee.subcontractorId ?? null,
     subcontractorName: employee.subcontractorName ?? null,
+    location,
     clientTimestamp: now,
     createdAt: now,
   });
@@ -99,7 +113,7 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
   return nextType;
 }
 
-export async function queueBreakEvent({ employee, type, createdByUid, authorizedBy, siteId, siteName }) {
+export async function queueBreakEvent({ employee, type, createdByUid, authorizedBy, siteId, siteName, location }) {
   // An inactive employee can still end a break they were already on (part
   // of closing their session out), but never start a new one.
   if (type === "breakStart" && employee.active === false) {
@@ -120,6 +134,7 @@ export async function queueBreakEvent({ employee, type, createdByUid, authorized
     createdByUid,
     subcontractorId: employee.subcontractorId ?? null,
     subcontractorName: employee.subcontractorName ?? null,
+    location,
     clientTimestamp: now,
     createdAt: now,
   });
@@ -133,6 +148,7 @@ export async function queueOverrideClockIn({
   siteName,
   reason,
   overrideEventId,
+  location,
 }) {
   if (employee.active === false) {
     throw new Error("This employee has been deactivated and can no longer clock in.");
@@ -154,6 +170,7 @@ export async function queueOverrideClockIn({
     subcontractorName: employee.subcontractorName ?? null,
     reason: reason ?? null,
     overrideEventId: overrideEventId ?? null,
+    location,
     clientTimestamp: now,
     createdAt: now,
   });
@@ -172,6 +189,7 @@ export async function submitOverrideBatch({
   siteId,
   siteName,
   reason,
+  location,
 }) {
   const overrideEventId = makeLocalId();
   for (const employee of employees) {
@@ -184,6 +202,7 @@ export async function submitOverrideBatch({
         siteName,
         reason,
         overrideEventId,
+        location,
       });
     } else {
       await queueOverrideClockOut({
@@ -194,6 +213,7 @@ export async function submitOverrideBatch({
         siteName,
         reason,
         overrideEventId,
+        location,
       });
     }
   }
@@ -207,6 +227,7 @@ export async function queueOverrideClockOut({
   siteName,
   reason,
   overrideEventId,
+  location,
 }) {
   const currentStatus = await getCurrentLocalStatus(employee.id);
   const now = Date.now();
@@ -223,6 +244,7 @@ export async function queueOverrideClockOut({
       createdByUid,
       subcontractorId: employee.subcontractorId ?? null,
       subcontractorName: employee.subcontractorName ?? null,
+      location,
       clientTimestamp: now - 1,
       createdAt: now,
     });
@@ -243,6 +265,7 @@ export async function queueOverrideClockOut({
     subcontractorName: employee.subcontractorName ?? null,
     reason: reason ?? null,
     overrideEventId: overrideEventId ?? null,
+    location,
     clientTimestamp: now,
     createdAt: now,
   });

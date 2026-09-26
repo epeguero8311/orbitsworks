@@ -17,7 +17,7 @@ const MAX_LENGTH = 500;
 // instead of submitting directly. Collects one reason for the whole
 // batch, then does the same queue submission that screen would have.
 export default function OverrideReasonScreen({ navigation, route }) {
-  const { selected, direction, siteId, siteName, authorizedBy } = route.params;
+  const { selected, direction, siteId, siteName, authorizedBy, location } = route.params;
   const { userData, currentUser } = useAuth();
   const { colors } = useTheme();
   const [reason, setReason] = useState("");
@@ -38,6 +38,7 @@ export default function OverrideReasonScreen({ navigation, route }) {
         siteId,
         siteName,
         reason: trimmed,
+        location,
       });
       drainQueue(userData.companyId);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

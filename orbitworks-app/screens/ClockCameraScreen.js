@@ -4,13 +4,16 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../lib/AuthContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
+import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import { queueClockEvent } from "../lib/clockQueue";
 import { drainQueue } from "../lib/queueSync";
+import { getBestEffortLocationIfPro } from "../lib/location";
 
 export default function ClockCameraScreen({ route, navigation }) {
   const { employee } = route.params;
   const { userData, currentUser } = useAuth();
   const { selectedSite } = useSiteSession();
+  const { isPro } = useCompanySettings(userData?.companyId);
   const [permission, requestPermission] = useCameraPermissions();
   const [submitting, setSubmitting] = useState(false);
   const cameraRef = useRef(null);
@@ -44,7 +47,14 @@ export default function ClockCameraScreen({ route, navigation }) {
     const siteId = !selectedSite || isNone ? null : selectedSite.id;
     const siteName = !selectedSite ? "Not specified" : isNone ? "Not specified" : selectedSite.name;
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.5 });
+      // Runs concurrently with the photo capture (not before/after it) so
+      // a slow GPS fix never adds to the time this button already takes -
+      // getBestEffortLocationIfPro has its own internal timeout and never
+      // throws, and resolves to undefined immediately for a Core company.
+      const [photo, location] = await Promise.all([
+        cameraRef.current.takePictureAsync({ quality: 0.5 }),
+        getBestEffortLocationIfPro(isPro),
+      ]);
       // Local-first: this only touches the filesystem and SQLite, no
       // network, so it resolves near-instantly whether online or not.
       const resultType = await queueClockEvent({
@@ -54,6 +64,7 @@ export default function ClockCameraScreen({ route, navigation }) {
         createdByUid: currentUser.uid,
         siteId,
         siteName,
+        location,
       });
       // Fire-and-forget: if there is signal right now this starts
       // uploading immediately in the background. If not, useQueueSync

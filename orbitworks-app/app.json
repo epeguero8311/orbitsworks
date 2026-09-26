@@ -40,6 +40,14 @@
           "cameraPermission": "OrbitWorks needs camera access to capture proof photos for clock-ins."
         }
       ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "OrbitWorks needs location access to record where clock-ins and clock-outs happen (Pro plans only).",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isIosBackgroundLocationEnabled": false
+        }
+      ],
       "expo-font",
       [
         "expo-splash-screen",
