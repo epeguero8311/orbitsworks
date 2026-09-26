@@ -52,9 +52,25 @@ export async function POST(request: NextRequest) {
       "https://nominatim.openstreetmap.org/reverse" +
       `?format=jsonv2&lat=${roundedLat}&lon=${roundedLng}`;
 
-    const nominatimRes = await fetch(nominatimUrl, {
-      headers: { "User-Agent": NOMINATIM_USER_AGENT },
-    });
+    // A hung Nominatim request shouldn't hold this route open indefinitely -
+    // failing fast here just means the client falls back to showing the
+    // raw coordinates, same as any other lookup failure.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    let nominatimRes: Response;
+    try {
+      nominatimRes = await fetch(nominatimUrl, {
+        headers: { "User-Agent": NOMINATIM_USER_AGENT },
+        signal: controller.signal,
+      });
+    } catch {
+      // Timeout (AbortError) or a network-level failure reaching
+      // Nominatim - an expected, handled case, not worth logging as a
+      // server error. The client falls back to raw coordinates.
+      return NextResponse.json({ address: null });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!nominatimRes.ok) {
       return NextResponse.json({ address: null });

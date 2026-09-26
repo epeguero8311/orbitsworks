@@ -45,6 +45,12 @@ export function EventLocation({ event }: { event: ClockEvent }) {
     if (lat == null || lng == null || event.locationAddress) return;
 
     let cancelled = false;
+    // A slow/dead connection on the admin's own end should never leave
+    // this stuck on "Locating..." forever - it just falls back to the
+    // raw coordinates, same as any other lookup failure.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     setAddressLoading(true);
     (async () => {
       try {
@@ -52,6 +58,7 @@ export function EventLocation({ event }: { event: ClockEvent }) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ lat, lng, eventId: event.id }),
+          signal: controller.signal,
         });
         const data = await res.json();
         if (!cancelled && res.ok && data.address) {
@@ -66,6 +73,8 @@ export function EventLocation({ event }: { event: ClockEvent }) {
 
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
+      controller.abort();
     };
   }, [event.id, event.locationAddress, lat, lng]);
 

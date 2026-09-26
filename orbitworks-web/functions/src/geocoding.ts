@@ -25,6 +25,22 @@ export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: 
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+// Caps how long a stalled Mapbox request can hold up a function
+// invocation - a hung external call shouldn't eat into the same budget
+// as the rest of onClockEventCreated's work (or, for geocodeJobSiteAddress,
+// leave an admin's "Add site" click spinning indefinitely).
+const FETCH_TIMEOUT_MS = 5000;
+
+async function fetchWithTimeout(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // Rounds to a ~11m grid cell. Most clock-ins cluster at the same handful
 // of job sites, so caching the resolved address by grid cell (rather than
 // keying it to a specific event, or to the site) turns "one Mapbox call
@@ -54,7 +70,7 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string |
 
   try {
     const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${token}&types=address&limit=1`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return null;
     const json = (await res.json()) as { features?: Array<{ place_name?: string }> };
     const address = json.features?.[0]?.place_name ?? null;
@@ -80,7 +96,7 @@ async function forwardGeocode(
     const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
       address
     )}.json?access_token=${token}&limit=1`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return null;
     const json = (await res.json()) as {
       features?: Array<{ center?: [number, number]; place_name?: string }>;
