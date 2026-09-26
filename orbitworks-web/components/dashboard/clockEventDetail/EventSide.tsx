@@ -41,14 +41,14 @@ export function EventSide({
   onToggleHistory: (id: string | null) => void;
 }) {
   if (!event) {
+    const emptyMessage =
+      label === "Clock out" ? "Still clocked in" : "No matching clock in";
     return (
       <div className="flex-1 rounded-lg border border-dashed border-gray-200 p-4">
         <p className="text-xs font-medium uppercase tracking-wide text-gray-600">
           {label}
         </p>
-        <p className="mt-3 text-sm text-gray-600">
-          No matching event found for this day.
-        </p>
+        <p className="mt-3 text-sm text-gray-600">{emptyMessage}</p>
       </div>
     );
   }

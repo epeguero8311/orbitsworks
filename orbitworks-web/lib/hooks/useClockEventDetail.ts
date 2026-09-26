@@ -8,9 +8,9 @@ import { useEmployees } from "@/lib/hooks/useEmployees";
 import { ClockEvent } from "@/lib/types";
 import {
   effectiveDate,
-  findPairedEvent,
   toDatetimeLocalValue,
 } from "@/lib/clockEventDetailUtils";
+import { findSession } from "@/lib/clockPairing";
 
 export function useClockEventDetail({
   event,
@@ -36,9 +36,7 @@ export function useClockEventDetail({
   const [reassignSubmitting, setReassignSubmitting] = useState(false);
   const [reassignError, setReassignError] = useState<string | null>(null);
 
-  const pair = findPairedEvent(liveEvent, allEvents);
-  const clockInEvent = liveEvent.type === "in" ? liveEvent : pair;
-  const clockOutEvent = liveEvent.type === "out" ? liveEvent : pair;
+  const { clockInEvent, clockOutEvent } = findSession(allEvents, liveEvent.id);
 
   const dayDate = effectiveDate(liveEvent);
   const dayLabel = dayDate

@@ -1,46 +1,8 @@
 import type { ClockEvent } from "@/lib/types";
 
-export function isSameCalendarDay(a: Date, b: Date) {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
 export function effectiveDate(event: ClockEvent): Date | null {
   const ts = event.adjustedTimestamp ?? event.timestamp;
   return ts ? ts.toDate() : null;
-}
-
-export function findPairedEvent(
-  event: ClockEvent,
-  allEvents: ClockEvent[]
-): ClockEvent | null {
-  const clickedDate = effectiveDate(event);
-  if (!clickedDate) return null;
-  const wantType = event.type === "in" ? "out" : "in";
-
-  const candidates = allEvents.filter((e) => {
-    const d = effectiveDate(e);
-    return (
-      e.id !== event.id &&
-      e.employeeId === event.employeeId &&
-      e.type === wantType &&
-      d &&
-      isSameCalendarDay(d, clickedDate)
-    );
-  });
-
-  if (candidates.length === 0) return null;
-
-  candidates.sort((a, b) => {
-    const dA = effectiveDate(a)!.getTime();
-    const dB = effectiveDate(b)!.getTime();
-    return Math.abs(dA - clickedDate.getTime()) - Math.abs(dB - clickedDate.getTime());
-  });
-
-  return candidates[0];
 }
 
 export function sourceLabel(source: ClockEvent["source"]) {
