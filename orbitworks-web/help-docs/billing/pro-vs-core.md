@@ -21,8 +21,5 @@ Core tells you WHEN someone clocked in. Pro tells you WHERE it happened and what
 
 For any company running more than a couple of job sites, Pro usually pays for itself the first time it catches one avoidable overtime week or settles one "were they actually there" dispute.
 
-## What it costs
-Pro runs about 60% more than the matching Core tier - for example $49/mo for 15 employees vs. Core's $29/mo, up to $199/mo for 100 employees vs. Core's $129/mo. Like Core, pricing is based on total employees, including supervisors.
-
 ## How to upgrade
 Sidebar > Billing > toggle to "Pro" > choose a tier > confirm. It takes effect immediately and the rest of the current billing period is prorated.
