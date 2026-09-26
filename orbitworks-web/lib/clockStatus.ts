@@ -50,6 +50,8 @@ export function sourceLabel(source: ClockEvent["source"]): { text: string; class
       return { text: "Auto break end", className: "bg-orange-50 text-orange-700" };
     case "employeeDeactivated":
       return { text: "Auto clock-out (deactivated)", className: "bg-red-50 text-red-700" };
+    case "tempLink":
+      return { text: "Temp link", className: "bg-teal-50 text-teal-700" };
     default:
       return { text: "Unknown", className: "bg-gray-50 text-gray-600" };
   }

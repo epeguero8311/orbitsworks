@@ -19,6 +19,7 @@ import {
   Orbit,
   Menu,
   X,
+  Link2,
 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
@@ -33,6 +34,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/timesheet-approvals", label: "Approvals", icon: ClipboardCheck },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
   { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, pro: true },
+  { href: "/dashboard/temp-link", label: "Temp Clock-In Link", icon: Link2, pro: true },
   // Billing is filtered out below for non-owners - only the owner has
   // Stripe access.
   { href: "/dashboard/billing", label: "Billing", icon: CreditCard, ownerOnly: true },

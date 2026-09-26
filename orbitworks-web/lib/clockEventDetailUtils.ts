@@ -56,6 +56,8 @@ export function sourceLabel(source: ClockEvent["source"]) {
       };
     case "adminManual":
       return { text: "Admin manual", className: "bg-blue-50 text-blue-700" };
+    case "tempLink":
+      return { text: "Temp link", className: "bg-teal-50 text-teal-700" };
     default:
       return { text: "Unknown", className: "bg-gray-50 text-gray-600" };
   }

@@ -122,7 +122,8 @@ export interface ClockEvent {
     | "autoClockOut"
     | "supervisorPin"
     | "autoBreakEnd"
-    | "employeeDeactivated";
+    | "employeeDeactivated"
+    | "tempLink";
   note?: string;
   photoUrl?: string;
   location?: { lat: number; lng: number } | string;
@@ -296,6 +297,31 @@ export interface ShiftNote {
   createdByUid: string;
   createdByName: string;
   timestamp?: Timestamp;
+}
+
+// ---- Temp Clock-In Links (Pro) ----
+//
+// companies/{companyId}/tempClockLinks doesn't exist - the collection is
+// top-level (tempClockLinks/{token}), keyed by the token itself, since the
+// public redeem page only ever has the token in its URL, never a
+// companyId to scope a subcollection lookup by. Created only by
+// generateTempClockLink and read/written only by redeemTempClockLink and
+// revokeTempClockLink (all Admin SDK, bypass firestore.rules entirely) -
+// no client ever reads this collection directly, so there's no
+// clientTempClockLink read type here, only what the generate/list UI needs.
+
+export interface TempClockLink {
+  id: string; // the token itself
+  companyId: string;
+  siteId: string;
+  siteName: string;
+  createdByUid: string;
+  createdByName: string;
+  createdAt: Timestamp;
+  expiresAt: Timestamp;
+  durationMinutes: 10 | 30 | 60;
+  revoked: boolean;
+  wrongAttemptCount?: number;
 }
 
 // ---- Analytics (Pro) ----
