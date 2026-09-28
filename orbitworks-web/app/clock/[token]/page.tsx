@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { httpsCallable } from "firebase/functions";
-import { Orbit, MapPin, Check } from "lucide-react";
+import { Orbit, MapPin, Check, X } from "lucide-react";
 import { functions } from "@/lib/firebase";
 
 type Step =
@@ -14,7 +14,9 @@ type Step =
   | "pin"
   | "camera"
   | "submitting"
+  | "reason"
   | "done"
+  | "declined"
   | "error";
 
 interface LinkInfo {
@@ -71,6 +73,19 @@ export default function TempClockLinkPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [result, setResult] = useState<RedeemResult | null>(null);
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  // Geofencing (Pro) Part 3: set only when redeemTempClockLink rejects a
+  // clock-in for being outside the geofence in "require reason" mode -
+  // the reason step reuses the photo already captured above rather than
+  // making the person take a new one.
+  const [reasonMessage, setReasonMessage] = useState("");
+  const [reasonText, setReasonText] = useState("");
+  const [reasonError, setReasonError] = useState("");
+  // Geofencing (Pro) auto site detection - set only when redeemTempClockLink
+  // rejects a clock-in outright (Block mode). declinedEmployeeName comes
+  // from the thrown error's details (see tempClockLinks.ts), since the
+  // normal success response is never reached for a decline.
+  const [declinedMessage, setDeclinedMessage] = useState("");
+  const [declinedEmployeeName, setDeclinedEmployeeName] = useState("");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -185,7 +200,7 @@ export default function TempClockLinkPage() {
     submit(dataUrl);
   }
 
-  async function submit(photo: string) {
+  async function submit(photo: string, reason?: string) {
     setStep("submitting");
     setErrorMessage("");
     try {
@@ -198,12 +213,34 @@ export default function TempClockLinkPage() {
         lat: location?.lat,
         lng: location?.lng,
         accuracy: location?.accuracy,
+        ...(reason ? { reason } : {}),
       });
       setResult(res.data as RedeemResult);
       setStep("done");
     } catch (err) {
       console.error("Clock-in submission failed:", err);
-      setErrorMessage((err as { message?: string })?.message ?? "Something went wrong. Try again.");
+      const message = (err as { message?: string })?.message ?? "Something went wrong. Try again.";
+      // A reason wasn't given (or wasn't long enough) - unlike every other
+      // failure here, this one is expected/recoverable without retyping
+      // the PIN or retaking the photo, so it gets its own step instead of
+      // the generic error step.
+      if ((err as { code?: string })?.code === "functions/failed-precondition") {
+        setReasonMessage(message);
+        setStep("reason");
+        return;
+      }
+      // Block mode - a genuine decline, not a technical failure. Same red
+      // "same visual as a successful clock-in" treatment as the mobile
+      // app's ClockDeclinedScreen, auto-dismissing back to idle instead of
+      // waiting for a "Try again" tap.
+      if ((err as { code?: string })?.code === "functions/permission-denied") {
+        const details = (err as { details?: { employeeName?: string } })?.details;
+        setDeclinedEmployeeName(details?.employeeName ?? "");
+        setDeclinedMessage(message);
+        setStep("declined");
+        return;
+      }
+      setErrorMessage(message);
       setStep("error");
     }
   }
@@ -213,14 +250,49 @@ export default function TempClockLinkPage() {
     setPhotoDataUrl(null);
     setResult(null);
     setErrorMessage("");
+    setReasonMessage("");
+    setReasonText("");
+    setReasonError("");
+    setDeclinedMessage("");
+    setDeclinedEmployeeName("");
     setStep("idle");
   }
+
+  useEffect(() => {
+    if (step !== "declined") return;
+    const timer = setTimeout(reset, 5000);
+    return () => clearTimeout(timer);
+  }, [step]);
 
   function retryPin() {
     setPin("");
     setPhotoDataUrl(null);
+    setReasonMessage("");
+    setReasonText("");
+    setReasonError("");
     setErrorMessage("");
     setStep("pin");
+  }
+
+  function submitReason() {
+    const trimmed = reasonText.trim();
+    if (trimmed.length < 10) {
+      setReasonError("Reason must be at least 10 characters.");
+      return;
+    }
+    if (trimmed.length > 500) {
+      setReasonError("Reason must be 500 characters or fewer.");
+      return;
+    }
+    if (!photoDataUrl) {
+      // Shouldn't happen - the reason step is only reachable after a
+      // photo was already captured - but without one there's nothing
+      // valid to resubmit.
+      retryPin();
+      return;
+    }
+    setReasonError("");
+    submit(photoDataUrl, trimmed);
   }
 
   return (
@@ -341,6 +413,30 @@ export default function TempClockLinkPage() {
         </div>
       )}
 
+      {step === "reason" && (
+        <div className="mt-8 flex w-full max-w-sm flex-col items-center">
+          {photoDataUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photoDataUrl} alt="" className="h-16 w-16 rounded-full object-cover" />
+          )}
+          <p className="mt-4 text-center text-sm text-gray-700">{reasonMessage}</p>
+          <textarea
+            value={reasonText}
+            onChange={(e) => setReasonText(e.target.value)}
+            placeholder="Why are you clocking in from this location?"
+            rows={3}
+            className="mt-4 w-full rounded-lg border border-gray-200 p-3 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+          />
+          {reasonError && <p className="mt-2 text-sm text-red-600">{reasonError}</p>}
+          <button
+            onClick={submitReason}
+            className="mt-6 w-full rounded-lg bg-accent px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+          >
+            Clock In
+          </button>
+        </div>
+      )}
+
       {step === "done" && result && (
         <div className="mt-8 flex w-full max-w-sm flex-col items-center rounded-xl border border-gray-200 bg-white px-6 py-10 text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-accent/10">
@@ -356,6 +452,18 @@ export default function TempClockLinkPage() {
           >
             Done - hand to next person
           </button>
+        </div>
+      )}
+
+      {step === "declined" && (
+        <div className="mt-8 flex w-full max-w-sm flex-col items-center rounded-xl border border-gray-200 bg-white px-6 py-10 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-50">
+            <X className="h-6 w-6 text-red-600" />
+          </div>
+          <p className="mt-4 text-lg font-semibold text-gray-950">
+            {declinedEmployeeName ? `${declinedEmployeeName}, you` : "You"} weren&apos;t clocked in.
+          </p>
+          <p className="mt-1 text-sm text-gray-600">{declinedMessage}</p>
         </div>
       )}
 

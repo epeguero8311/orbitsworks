@@ -5,13 +5,16 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import { isProPlan } from "@/lib/stripe/tiers";
 import {
   AttendanceRules,
   Alerts,
   AppSettings,
+  EnforcementMode,
   DEFAULT_ATTENDANCE_RULES,
   DEFAULT_ALERTS,
   DEFAULT_APP_SETTINGS,
+  DEFAULT_GEOFENCING_SETTINGS,
 } from "@/lib/hooks/useCompanySettings";
 
 export type AuthMode = "individual" | "shared";
@@ -36,6 +39,10 @@ export function useSettingsPage() {
   const [appSettings, setAppSettings] = useState<AppSettings>(
     DEFAULT_APP_SETTINGS
   );
+  const [enforcementMode, setEnforcementMode] = useState<EnforcementMode>(
+    DEFAULT_GEOFENCING_SETTINGS.enforcementMode
+  );
+  const [isPro, setIsPro] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
@@ -75,6 +82,11 @@ export function useSettingsPage() {
             ...DEFAULT_APP_SETTINGS,
             ...(data.appSettings ?? {}),
           });
+          setEnforcementMode(
+            (data.geofencing?.enforcementMode as EnforcementMode) ??
+              DEFAULT_GEOFENCING_SETTINGS.enforcementMode
+          );
+          setIsPro(isProPlan(data.planTier));
         }
       } catch (err) {
         console.error("Load company error:", err);
@@ -126,6 +138,7 @@ export function useSettingsPage() {
         attendanceRules,
         alerts,
         appSettings,
+        geofencing: { enforcementMode },
       });
 
       setLogoUrl(newLogoUrl);
@@ -161,6 +174,9 @@ export function useSettingsPage() {
     setAlerts,
     appSettings,
     setAppSettings,
+    enforcementMode,
+    setEnforcementMode,
+    isPro,
     isSaving,
     error,
     success,

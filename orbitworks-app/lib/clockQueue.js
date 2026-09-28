@@ -60,7 +60,16 @@ async function persistPhoto(photoUri, employeeId) {
   return dest;
 }
 
-export async function queueClockEvent({ employee, photoUri, source, createdByUid, siteId, siteName, location }) {
+export async function queueClockEvent({
+  employee,
+  photoUri,
+  source,
+  createdByUid,
+  siteId,
+  siteName,
+  location,
+  reason,
+}) {
   const currentStatus = await getCurrentLocalStatus(employee.id);
   const nextType = currentStatus === "out" ? "in" : "out";
 
@@ -69,7 +78,12 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
   // back in. If they were somehow already out (a stale/incorrect cache
   // read), don't let this fall through to a new clock-in.
   if (nextType === "in" && employee.active === false) {
-    throw new Error("This employee has been deactivated and can no longer clock in.");
+    // Tagged so ClockCameraScreen can route this to ClockDeclinedScreen
+    // (a real decline, not a technical failure) rather than silently
+    // resetting the button - see the Geofencing (Pro) declined-screen plan.
+    const err = new Error("This employee has been deactivated and can no longer clock in.");
+    err.code = "employeeDeactivated";
+    throw err;
   }
 
   const persistedUri = await persistPhoto(photoUri, employee.id);
@@ -106,6 +120,11 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
     subcontractorId: employee.subcontractorId ?? null,
     subcontractorName: employee.subcontractorName ?? null,
     location,
+    // Geofencing (Pro) Part 3 - only ever set on a clock-IN (nextType can
+    // be "out" here too; a reason collected before this call was always
+    // for the pending clock-in, never a clock-out, per spec). Harmless to
+    // pass through on "out" too since callers never do.
+    reason: nextType === "in" ? reason : undefined,
     clientTimestamp: now,
     createdAt: now,
   });

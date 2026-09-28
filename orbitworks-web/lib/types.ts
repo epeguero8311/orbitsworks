@@ -14,9 +14,17 @@ export interface JobSite {
   lng?: number;
   geocodedAddress?: string;
   // How close a clock event's coordinates must be to count as "on site"
-  // (see classifySiteProximity in lib/geo.ts). No editing UI exists for
-  // this yet - unset sites just use DEFAULT_SITE_RADIUS_METERS.
+  // (see classifySiteProximity in lib/geo.ts). Editable via the Sites
+  // geofence toggle (Pro only - see requireGeofence below); sites without
+  // it set just use DEFAULT_SITE_RADIUS_METERS.
   radiusMeters?: number;
+  // Admin-facing unit radiusMeters was entered/is displayed in - purely
+  // for redisplay in the edit form, never used for distance math.
+  radiusUnit?: "ft" | "mi";
+  // Pro only. When true, address/lat/lng/radiusMeters must be set (see
+  // lib/validators/site.ts) - this is Part 1 (site setup) only, no
+  // clock-in enforcement reads this field yet.
+  requireGeofence?: boolean;
 }
 
 export interface RateHistoryEntry {
@@ -149,6 +157,25 @@ export interface ClockEvent {
   locationAccuracyM?: number | null;
   locationAddress?: string;
   distanceFromSiteM?: number | null;
+  // Geofencing (Pro) Part 3 - set once, server-side, by onClockEventCreated
+  // (functions/src/clockEvents.ts), same "client never computes this"
+  // pattern as distanceFromSiteM. Absent whenever the event's site wasn't
+  // geofenced (or predates this feature) - Part 4's UI treats that as
+  // "show nothing extra", never as a third status to render.
+  geofenceStatus?: "inside" | "outside";
+  // Geofencing (Pro) auto site detection - set once, server-side, by
+  // onClockEventCreated whenever it overwrote this event's siteId/siteName
+  // with what it actually detected (siteCorrected), or when the detected
+  // site differs from the employee's own assignedSiteIds (siteMismatch,
+  // clock-ins only - info-only, never blocks). Both absent for any event
+  // that predates this feature, or whose company has no fenced sites.
+  siteCorrected?: boolean;
+  siteMismatch?: boolean;
+  // True whenever auto-detection resolved this event's site at all
+  // (matched or not) rather than a client-side site picker - drives the
+  // "Auto-detected" tag in Time Tracking. Flips to false once an admin
+  // manually assigns a site via assignSessionSite.
+  siteAutoDetected?: boolean;
   authorizedById?: string;
   authorizedByName?: string;
   createdByUid?: string;
@@ -166,7 +193,7 @@ export interface ClockEvent {
 export interface AlertActionRecord {
   id: string;
   alertKey: string;
-  alertType: "maxHours" | "missedClockOut" | "overtime" | "breakTooLong";
+  alertType: "maxHours" | "missedClockOut" | "overtime" | "breakTooLong" | "clockedInOutsideGeofence";
   employeeId: string;
   status: "ignored" | "resolved";
   actionTaken?: "clockOut" | "editTime" | "endBreak";
@@ -287,6 +314,12 @@ export interface SessionRecord {
   clockOutPhotoUrl?: string;
   subcontractorId?: string | null;
   subcontractorName?: string | null;
+  // Geofencing (Pro) Part 4 - carried over from the session's clock-in
+  // event (see computePayrollAndSessions) for the Detail sheet's Geofence/
+  // Reason columns. Absent under the same conditions as on ClockEvent.
+  geofenceStatus?: "inside" | "outside";
+  geofenceDistanceM?: number | null;
+  geofenceReason?: string;
 }
 
 export interface EmployeeExportRecord {

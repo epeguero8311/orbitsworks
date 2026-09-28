@@ -80,6 +80,7 @@ export default function DashboardOverviewPage() {
         loading={status.loading}
         currentlyActive={status.currentlyActive}
         currentlyOnBreak={status.currentlyOnBreak}
+        recentEvents={status.events}
         weeklyHoursByEmployee={status.weeklyHoursByEmployee}
         workedMsByEmployee={status.workedMsByEmployee}
       />

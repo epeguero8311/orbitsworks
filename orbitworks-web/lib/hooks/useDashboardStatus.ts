@@ -430,6 +430,11 @@ export function useDashboardStatus() {
   return {
     loading,
     loadingChart,
+    // Geofencing (Pro) Part 4 - AlertsPanel needs the raw recent events
+    // (not just the currentlyActive/currentlyOnBreak slices below) since
+    // the geofence alert is about a past clock-in moment, not current
+    // status - see buildAlertItems.
+    events,
     weeklyAttendance,
     weeklyHoursByEmployee,
     currentlyActive,

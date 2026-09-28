@@ -94,6 +94,22 @@ export function AlertsCard({
             onChange={(v) => setAlerts((prev) => ({ ...prev, maxBreakMinutes: v }))}
           />
         </div>
+
+        <div className="py-1">
+          <Toggle
+            label="Clocked in outside geofence"
+            checked={alerts.clockedInOutsideGeofence}
+            onChange={(v) => setAlerts((prev) => ({ ...prev, clockedInOutsideGeofence: v }))}
+          />
+        </div>
+
+        <div className="py-1">
+          <Toggle
+            label="Clocked in at unassigned site"
+            checked={alerts.siteMismatchWarning}
+            onChange={(v) => setAlerts((prev) => ({ ...prev, siteMismatchWarning: v }))}
+          />
+        </div>
       </div>
     </div>
   );

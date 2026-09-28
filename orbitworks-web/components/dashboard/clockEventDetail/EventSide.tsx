@@ -3,6 +3,7 @@
 import { ClockEvent } from "@/lib/types";
 import { effectiveDate, sourceLabel } from "@/lib/clockEventDetailUtils";
 import { EventLocation } from "@/components/time/EventLocation";
+import { GeofenceDetail } from "@/components/time/GeofenceDetail";
 
 export function EventSide({
   label,
@@ -99,6 +100,7 @@ export function EventSide({
       </span>
 
       <EventLocation event={event} />
+      <GeofenceDetail event={event} />
 
       {event.note && (
         <p className="mt-2 text-xs text-gray-600">Note: {event.note}</p>

@@ -1,13 +1,19 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import { useSites } from "@/lib/hooks/useSites";
+import { useSites, AddressNotFoundError } from "@/lib/hooks/useSites";
+import { Toggle } from "@/components/dashboard/settings/Toggle";
+import { EditSiteModal } from "@/components/dashboard/sites/EditSiteModal";
+import { ProBadgeLink, RadiusFields } from "@/components/dashboard/sites/GeofenceFields";
+import { jobSiteSchema } from "@/lib/validators/site";
+import { formatGeofenceRadius, DEFAULT_GEOFENCE_RADIUS_FT } from "@/lib/geo";
 import type { JobSite } from "@/lib/types";
 
 export default function SitesSection() {
   const {
     sites,
     loading: sitesLoading,
+    isPro,
     addSite,
     updateSite,
     toggleSiteActive,
@@ -20,71 +26,53 @@ export default function SitesSection() {
 
   const [siteName, setSiteName] = useState("");
   const [siteAddress, setSiteAddress] = useState("");
+  const [requireGeofence, setRequireGeofence] = useState(false);
+  const [radiusValue, setRadiusValue] = useState(String(DEFAULT_GEOFENCE_RADIUS_FT));
+  const [radiusUnit, setRadiusUnit] = useState<"ft" | "mi">("ft");
   const [isSubmittingSite, setIsSubmittingSite] = useState(false);
   const [siteError, setSiteError] = useState("");
 
-  const [editingSiteId, setEditingSiteId] = useState<string | null>(null);
-  const [editSiteName, setEditSiteName] = useState("");
-  const [editSiteAddress, setEditSiteAddress] = useState("");
-  const [editSiteError, setEditSiteError] = useState("");
-  const [confirmingDeleteSite, setConfirmingDeleteSite] = useState(false);
+  const [editingSiteRef, setEditingSiteRef] = useState<JobSite | null>(null);
+  // Re-resolved against the live list on every render so the modal stays
+  // in sync if the doc changes underneath it (e.g. Deactivate clicked in
+  // the row while the modal happens to be open); falls back to the
+  // captured reference for the brief window right after a delete, before
+  // onClose has cleared editingSiteRef.
+  const siteForModal = editingSiteRef
+    ? sites.find((s) => s.id === editingSiteRef.id) ?? editingSiteRef
+    : null;
 
   async function handleAddSite(e: FormEvent) {
     e.preventDefault();
     setSiteError("");
-    setIsSubmittingSite(true);
 
-    try {
-      await addSite(siteName, siteAddress);
-      setSiteName("");
-      setSiteAddress("");
-    } catch (err) {
-      console.error("Add site error:", err);
-      setSiteError("Couldn't add the site. Try again.");
-    } finally {
-      setIsSubmittingSite(false);
-    }
-  }
-
-  function startEditSite(site: JobSite) {
-    setEditingSiteId(site.id);
-    setEditSiteName(site.name);
-    setEditSiteAddress(site.address ?? "");
-    setEditSiteError("");
-    setConfirmingDeleteSite(false);
-  }
-
-  function cancelEditSite() {
-    setEditingSiteId(null);
-    setEditSiteError("");
-    setConfirmingDeleteSite(false);
-  }
-
-  async function saveEditSite(site: JobSite) {
-    if (!editSiteName.trim()) {
-      setEditSiteError("Site name can't be empty.");
+    const parsed = jobSiteSchema.safeParse({
+      name: siteName,
+      address: siteAddress,
+      requireGeofence,
+      radiusValue: Number(radiusValue),
+      radiusUnit,
+    });
+    if (!parsed.success) {
+      setSiteError(parsed.error.issues[0]?.message ?? "Invalid input.");
       return;
     }
 
+    setIsSubmittingSite(true);
     try {
-      await updateSite(site.id, editSiteName, editSiteAddress);
-      setEditingSiteId(null);
-      setEditSiteError("");
+      await addSite(parsed.data);
+      setSiteName("");
+      setSiteAddress("");
+      setRequireGeofence(false);
+      setRadiusValue(String(DEFAULT_GEOFENCE_RADIUS_FT));
+      setRadiusUnit("ft");
     } catch (err) {
-      console.error("Edit site error:", err);
-      setEditSiteError("Couldn't save changes. Try again.");
-    }
-  }
-
-  async function handleDeleteSite(site: JobSite) {
-    try {
-      await deleteSite(site.id);
-      setEditingSiteId(null);
-      setConfirmingDeleteSite(false);
-    } catch (err) {
-      console.error("Delete site error:", err);
-      setEditSiteError("Couldn't delete the site. Try again.");
-      setConfirmingDeleteSite(false);
+      console.error("Add site error:", err);
+      setSiteError(
+        err instanceof AddressNotFoundError ? err.message : "Couldn't add the site. Try again."
+      );
+    } finally {
+      setIsSubmittingSite(false);
     }
   }
 
@@ -97,42 +85,67 @@ export default function SitesSection() {
 
       <form
         onSubmit={handleAddSite}
-        className="mt-4 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 sm:flex-row sm:items-end"
+        className="mt-4 flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-4"
       >
-        <div className="flex-1">
-          <label htmlFor="siteName" className="mb-1.5 block text-sm font-medium text-gray-950">
-            Site name
-          </label>
-          <input
-            id="siteName"
-            type="text"
-            required
-            value={siteName}
-            onChange={(e) => setSiteName(e.target.value)}
-            className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            placeholder="Downtown Warehouse"
-          />
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex-1">
+            <label htmlFor="siteName" className="mb-1.5 block text-sm font-medium text-gray-950">
+              Site name
+            </label>
+            <input
+              id="siteName"
+              type="text"
+              required
+              value={siteName}
+              onChange={(e) => setSiteName(e.target.value)}
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              placeholder="Downtown Warehouse"
+            />
+          </div>
+          <div className="flex-1">
+            <label htmlFor="siteAddress" className="mb-1.5 block text-sm font-medium text-gray-950">
+              Address{!requireGeofence && " (optional)"}
+            </label>
+            <input
+              id="siteAddress"
+              type="text"
+              required={requireGeofence}
+              value={siteAddress}
+              onChange={(e) => setSiteAddress(e.target.value)}
+              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              placeholder="123 Main St"
+            />
+          </div>
         </div>
-        <div className="flex-1">
-          <label htmlFor="siteAddress" className="mb-1.5 block text-sm font-medium text-gray-950">
-            Address (optional)
-          </label>
-          <input
-            id="siteAddress"
-            type="text"
-            value={siteAddress}
-            onChange={(e) => setSiteAddress(e.target.value)}
-            className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            placeholder="123 Main St"
+
+        <div className="border-t border-gray-200 pt-1">
+          <Toggle
+            label="Require geofence"
+            description="Employees must be within the radius below to clock in at this site."
+            checked={requireGeofence}
+            onChange={isPro ? setRequireGeofence : () => {}}
+            disabled={!isPro}
+            badge={!isPro && <ProBadgeLink />}
           />
+          {requireGeofence && (
+            <RadiusFields
+              radiusValue={radiusValue}
+              radiusUnit={radiusUnit}
+              onRadiusValueChange={setRadiusValue}
+              onRadiusUnitChange={setRadiusUnit}
+            />
+          )}
         </div>
-        <button
-          type="submit"
-          disabled={isSubmittingSite}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
-        >
-          {isSubmittingSite ? "Adding..." : "Add site"}
-        </button>
+
+        <div>
+          <button
+            type="submit"
+            disabled={isSubmittingSite}
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
+          >
+            {isSubmittingSite ? "Adding..." : "Add site"}
+          </button>
+        </div>
       </form>
       {siteError && <p className="mt-2 text-sm text-red-600">{siteError}</p>}
 
@@ -150,119 +163,63 @@ export default function SitesSection() {
                 <th className="px-4 py-2 font-medium">Name</th>
                 <th className="px-4 py-2 font-medium">Address</th>
                 <th className="px-4 py-2 font-medium">Status</th>
+                <th className="px-4 py-2 font-medium">Geofence</th>
                 <th className="px-4 py-2 font-medium"></th>
               </tr>
             </thead>
             <tbody>
-              {sortedSites.map((site) => {
-                const isEditing = editingSiteId === site.id;
-                return (
-                  <tr key={site.id} className="border-b border-gray-200 last:border-0">
-                    {isEditing ? (
-                      <>
-                        <td className="px-4 py-2.5">
-                          <input
-                            type="text"
-                            value={editSiteName}
-                            onChange={(e) => setEditSiteName(e.target.value)}
-                            className="w-full rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-                          />
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <input
-                            type="text"
-                            value={editSiteAddress}
-                            onChange={(e) => setEditSiteAddress(e.target.value)}
-                            placeholder="Address (optional)"
-                            className="w-full rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-                          />
-                        </td>
-                        <td className="px-4 py-2.5" colSpan={2}>
-                          {confirmingDeleteSite ? (
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-xs text-red-700">
-                                Delete this site? This can&apos;t be undone.
-                              </span>
-                              <button
-                                onClick={() => handleDeleteSite(site)}
-                                className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
-                              >
-                                Delete
-                              </button>
-                              <button
-                                onClick={() => setConfirmingDeleteSite(false)}
-                                className="rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-950 hover:border-gray-300"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-wrap items-center gap-2">
-                              {editSiteError && (
-                                <span className="text-xs text-red-600">{editSiteError}</span>
-                              )}
-                              <button
-                                onClick={() => saveEditSite(site)}
-                                className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={cancelEditSite}
-                                className="rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-950 hover:border-gray-300"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                onClick={() => setConfirmingDeleteSite(true)}
-                                className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="px-4 py-2.5 text-gray-950">{site.name}</td>
-                        <td className="px-4 py-2.5 text-gray-600">{site.address || "-"}</td>
-                        <td className="px-4 py-2.5">
-                          <span
-                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                              site.active
-                                ? "bg-green-50 text-green-700"
-                                : "bg-gray-100 text-gray-600"
-                            }`}
-                          >
-                            {site.active ? "Active" : "Inactive"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-right">
-                          <div className="flex items-center justify-end gap-3">
-                            <button
-                              onClick={() => startEditSite(site)}
-                              className="text-sm font-medium text-accent hover:underline"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => toggleSiteActive(site)}
-                              className="text-sm font-medium text-accent hover:underline"
-                            >
-                              {site.active ? "Deactivate" : "Reactivate"}
-                            </button>
-                          </div>
-                        </td>
-                      </>
-                    )}
-                  </tr>
-                );
-              })}
+              {sortedSites.map((site) => (
+                <tr key={site.id} className="border-b border-gray-200 last:border-0">
+                  <td className="px-4 py-2.5 text-gray-950">{site.name}</td>
+                  <td className="px-4 py-2.5 text-gray-600">{site.address || "-"}</td>
+                  <td className="px-4 py-2.5">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        site.active
+                          ? "bg-green-50 text-green-700"
+                          : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {site.active ? "Active" : "Inactive"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-600">
+                    {site.requireGeofence
+                      ? `On - ${formatGeofenceRadius(site.radiusMeters ?? 0, site.radiusUnit)}`
+                      : "Off"}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    <div className="flex items-center justify-end gap-3">
+                      <button
+                        onClick={() => setEditingSiteRef(site)}
+                        className="text-sm font-medium text-accent hover:underline"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => toggleSiteActive(site)}
+                        className="text-sm font-medium text-accent hover:underline"
+                      >
+                        {site.active ? "Deactivate" : "Reactivate"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
       </div>
+
+      {siteForModal && (
+        <EditSiteModal
+          site={siteForModal}
+          isPro={isPro}
+          updateSite={updateSite}
+          deleteSite={deleteSite}
+          onClose={() => setEditingSiteRef(null)}
+        />
+      )}
     </section>
   );
 }

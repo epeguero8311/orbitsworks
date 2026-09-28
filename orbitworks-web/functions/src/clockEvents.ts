@@ -10,6 +10,7 @@ import {
   OVERRIDE_REASON_MAX_LENGTH,
 } from "./shared";
 import { MAPBOX_TOKEN, haversineMeters, reverseGeocode } from "./geocoding";
+import { classifyGeofence, detectSite, DetectableSite, GeofenceStatus } from "./geofencing";
 
 // Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
 // why this can't just be imported.
@@ -29,21 +30,167 @@ export const onClockEventCreated = onDocumentCreated(
 
     const companyId = event.params.companyId;
     const employeeId = data.employeeId as string;
+    const employeesRef = db.collection("companies").doc(companyId).collection("employees");
+    const jobSitesRef = db.collection("companies").doc(companyId).collection("jobSites");
 
-    await db
-      .collection("companies")
-      .doc(companyId)
-      .collection("employees")
+    // Geolocation (Pro): data.location is only ever a raw {lat,lng}/null at
+    // write time (mobile app / temp link) - the client never resolves an
+    // address, a distance, a geofence classification, or (new, auto site
+    // detection) the site itself - that would let a tampered client just
+    // claim "inside" or pick whichever site it likes. Only Pro companies'
+    // clients are ever wired up to attempt a location fix at all, so
+    // `location` is omitted entirely (not even null) for a Core company's
+    // event - checking that key, rather than the company's plan, is what
+    // lets this skip a company-doc read for the common Core case instead of
+    // spending one on every single clock event.
+    //
+    // Admin manual entries (source: "adminManual") are exempt from
+    // geofencing entirely, not just enforcement - there's no real GPS fix
+    // to compare for one, so labeling it "outside" would be misleading.
+    const locationAttempted = data.source !== "adminManual" && data.location !== undefined;
+    let companyIsPro = false;
+    if (locationAttempted) {
+      const companySnap = await db.collection("companies").doc(companyId).get();
+      companyIsPro = isProPlan(companySnap.data()?.planTier as string | undefined);
+    }
+
+    // Auto site detection (Pro) - only the mobile app's own clock-in/out
+    // (source "pin") ever has an ambiguous site to resolve; a temp link's
+    // site is fixed at link-generation time (tempClockLinks.ts) and is
+    // never auto-detected, and a supervisor override's site is whatever the
+    // supervisor picked. resolvedSiteId stays undefined ("leave the
+    // client's siteId alone") whenever detection doesn't apply at all - a
+    // Core company, a Pro company with zero fenced sites (both must "keep
+    // today's flow exactly"), or a non-pin/non-in/out event.
+    const isPinInOrOut =
+      companyIsPro && data.source === "pin" && (data.type === "in" || data.type === "out");
+
+    let resolvedSiteId: string | null | undefined;
+    let resolvedSiteName: string | null | undefined;
+    let siteCorrected = false;
+    let siteMismatch = false;
+    let resolvedGeofenceApplicable = false;
+    let resolvedGeofenceStatus: GeofenceStatus | null = null;
+    let resolvedDistanceM: number | null = null;
+
+    let employeeData:
+      | { assignedSiteIds?: string[]; lastEventSiteId?: string | null; lastEventSiteName?: string }
+      | undefined;
+
+    if (isPinInOrOut) {
+      const employeeSnap = await employeesRef.doc(employeeId).get();
+      employeeData = employeeSnap.data() as typeof employeeData;
+
+      const rawLocation = data.location as { lat: number; lng: number } | null;
+      const accuracyM = (data.locationAccuracyM as number | null | undefined) ?? null;
+      const clientSiteId = (data.siteId as string | null | undefined) ?? null;
+
+      if (data.type === "in") {
+        const sitesSnap = await jobSitesRef
+          .where("requireGeofence", "==", true)
+          .where("active", "==", true)
+          .get();
+        const candidates: DetectableSite[] = sitesSnap.docs.map((d) => {
+          const s = d.data() as { name?: string; lat?: number; lng?: number; radiusMeters?: number };
+          return {
+            id: d.id,
+            name: s.name ?? "",
+            lat: s.lat,
+            lng: s.lng,
+            radiusMeters: s.radiusMeters,
+            requireGeofence: true,
+            active: true,
+          };
+        });
+
+        const detection = detectSite(rawLocation, accuracyM, candidates);
+        if (detection.hasFencedSites) {
+          resolvedSiteId = detection.siteId;
+          resolvedSiteName = detection.siteName;
+          resolvedGeofenceApplicable = true;
+          resolvedGeofenceStatus = detection.status;
+          resolvedDistanceM = detection.distanceM;
+          siteCorrected = resolvedSiteId !== clientSiteId;
+
+          // Site mismatch (info-only, never blocks) - only meaningful when
+          // the employee actually has assigned sites and a real site (not
+          // "no match") was detected; "no site detected" gets its own
+          // separate Approvals treatment instead of being a mismatch.
+          const assignedSiteIds = employeeData?.assignedSiteIds ?? [];
+          if (resolvedSiteId && assignedSiteIds.length > 0 && !assignedSiteIds.includes(resolvedSiteId)) {
+            siteMismatch = true;
+          }
+        }
+      } else {
+        // type === "out": never re-detect - a clock-out always keeps the
+        // clock-in's site (per spec), verified with a direct
+        // classifyGeofence check against that one known site rather than a
+        // fresh search. Searching again could otherwise land the clock-out
+        // on a *different* fenced site than the one actually worked, if the
+        // worker's last GPS fix happens to be closer to another fence on
+        // their way out.
+        const fencedSitesExist = await jobSitesRef
+          .where("requireGeofence", "==", true)
+          .where("active", "==", true)
+          .limit(1)
+          .get();
+        if (!fencedSitesExist.empty) {
+          resolvedSiteId = employeeData?.lastEventSiteId ?? null;
+          resolvedSiteName = employeeData?.lastEventSiteName ?? null;
+          siteCorrected = resolvedSiteId !== clientSiteId;
+
+          if (resolvedSiteId) {
+            const siteSnap = await jobSitesRef.doc(resolvedSiteId).get();
+            const site = siteSnap.data() as
+              | { lat?: number; lng?: number; radiusMeters?: number }
+              | undefined;
+            const classification = classifyGeofence(rawLocation, accuracyM, {
+              ...site,
+              requireGeofence: true,
+            });
+            resolvedGeofenceApplicable = classification.applicable;
+            resolvedGeofenceStatus = classification.status;
+            resolvedDistanceM = classification.distanceM;
+          }
+        }
+      }
+    }
+
+    const siteWasResolved = resolvedSiteId !== undefined;
+    const finalSiteId = siteWasResolved ? resolvedSiteId : ((data.siteId as string | null | undefined) ?? null);
+    const finalSiteName = siteWasResolved ? (resolvedSiteName ?? "") : ((data.siteName as string | undefined) ?? "");
+
+    await employeesRef
       .doc(employeeId)
       .update({
         lastEventType: data.type,
         lastEventTimestamp: data.timestamp ?? admin.firestore.FieldValue.serverTimestamp(),
+        lastEventSiteId: finalSiteId,
+        lastEventSiteName: finalSiteName,
       })
       .catch(() => {
         // Employee doc may not exist in edge cases (e.g. deleted between
         // event write and this trigger firing) - safe to ignore, this
         // field is a denormalized convenience, not the source of truth.
       });
+
+    if (siteWasResolved || resolvedGeofenceApplicable) {
+      const eventUpdates: Record<string, unknown> = {};
+      if (siteWasResolved) {
+        eventUpdates.siteId = resolvedSiteId;
+        eventUpdates.siteName = resolvedSiteName ?? "";
+        eventUpdates.siteAutoDetected = true;
+        if (siteCorrected) eventUpdates.siteCorrected = true;
+        if (siteMismatch) eventUpdates.siteMismatch = true;
+      }
+      if (resolvedGeofenceApplicable) {
+        eventUpdates.geofenceStatus = resolvedGeofenceStatus;
+        eventUpdates.distanceFromSiteM = resolvedDistanceM;
+      }
+      await event.data!.ref.update(eventUpdates).catch((err) => {
+        console.error("Failed to apply site resolution to clock event", event.params.eventId, err);
+      });
+    }
 
     // Every new clock-in starts a session that needs admin review before
     // it can appear in an approved Excel export. Only fires for
@@ -72,8 +219,8 @@ export const onClockEventCreated = onDocumentCreated(
           employeeId,
           employeeName: data.employeeName ?? "",
           date: dateKey,
-          siteId: data.siteId ?? null,
-          siteName: data.siteName ?? "",
+          siteId: finalSiteId,
+          siteName: finalSiteName,
           status: "pending",
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           ...(isReasonedOverride
@@ -178,47 +325,56 @@ export const onClockEventCreated = onDocumentCreated(
       }
     }
 
-    // Geolocation (Pro): data.location is only ever a raw {lat,lng} at
-    // write time (mobile app / temp link) - the client never resolves an
-    // address or a distance itself. Only Pro companies' clients are ever
-    // wired up to capture location at all, but the plan is re-checked here
-    // too so this can never spend a Mapbox call on a Core company's data
-    // even if a stray/old client sent coordinates. Runs after everything
-    // else above so a slow/failed geocode never delays the
+    // Reverse geocode the raw fix into a human-readable "near" address, and
+    // (for anything the auto-detection resolution above didn't already
+    // handle - temp link, supervisor override, or any other non-pin/
+    // non-in-out source) fall back to the original single-site distance/
+    // geofenceStatus lookup by whatever siteId the client wrote. Runs after
+    // everything else above so a slow/failed geocode never delays the
     // timesheetApproval/overrideEvent writes those features depend on.
-    const rawLocation = data.location as { lat: number; lng: number } | null | undefined;
-    if (rawLocation && typeof rawLocation.lat === "number" && typeof rawLocation.lng === "number") {
-      const companySnap = await db.collection("companies").doc(companyId).get();
-      const planTier = companySnap.data()?.planTier as string | undefined;
+    if (locationAttempted && companyIsPro) {
+      const rawLocation = data.location as { lat: number; lng: number } | null;
+      const hasFix =
+        !!rawLocation && typeof rawLocation.lat === "number" && typeof rawLocation.lng === "number";
 
-      if (isProPlan(planTier)) {
-        const { lat, lng } = rawLocation;
-        let distanceFromSiteM: number | null = null;
+      const updates: Record<string, unknown> = {};
 
+      if (hasFix) {
+        const { lat, lng } = rawLocation as { lat: number; lng: number };
+        const locationAddress = await reverseGeocode(lat, lng);
+        if (locationAddress) updates.locationAddress = locationAddress;
+      }
+
+      if (!isPinInOrOut) {
         const siteId = data.siteId as string | null | undefined;
-        if (siteId) {
-          const siteSnap = await db
-            .collection("companies")
-            .doc(companyId)
-            .collection("jobSites")
-            .doc(siteId)
-            .get();
-          const site = siteSnap.data() as { lat?: number; lng?: number } | undefined;
+        const siteSnap = siteId ? await jobSitesRef.doc(siteId).get() : null;
+        const site = siteSnap?.data() as
+          | { lat?: number; lng?: number; radiusMeters?: number; requireGeofence?: boolean }
+          | undefined;
+
+        if (hasFix) {
+          const { lat, lng } = rawLocation as { lat: number; lng: number };
+          let distanceFromSiteM: number | null = null;
           if (site && typeof site.lat === "number" && typeof site.lng === "number") {
             distanceFromSiteM = Math.round(haversineMeters(lat, lng, site.lat, site.lng));
           }
+          updates.distanceFromSiteM = distanceFromSiteM;
         }
 
-        const locationAddress = await reverseGeocode(lat, lng);
+        const geofence = classifyGeofence(
+          hasFix ? (rawLocation as { lat: number; lng: number }) : null,
+          (data.locationAccuracyM as number | null | undefined) ?? null,
+          site
+        );
+        if (geofence.applicable) {
+          updates.geofenceStatus = geofence.status;
+        }
+      }
 
-        await event.data!.ref
-          .update({
-            distanceFromSiteM,
-            ...(locationAddress ? { locationAddress } : {}),
-          })
-          .catch((err) => {
-            console.error("Failed to enrich clock event location", event.params.eventId, err);
-          });
+      if (Object.keys(updates).length > 0) {
+        await event.data!.ref.update(updates).catch((err) => {
+          console.error("Failed to enrich clock event location", event.params.eventId, err);
+        });
       }
     }
   }
@@ -489,6 +645,102 @@ export const reassignClockEvent = onCall(async (request) => {
     adjustmentHistory: admin.firestore.FieldValue.arrayUnion(adjustment),
   });
 
+  return { success: true };
+});
+
+// Admin/owner-only. Fixes a session whose clock-in resolved to "no job
+// site detected" (auto-detection found no fenced site to match its
+// location - see useTimesheetApprovals.ts's hasNoSiteDetectedWarning).
+// Applies the chosen site to every event in the session (in/out/breaks
+// alike, so they all agree) and recomputes each one's own
+// geofenceStatus/distanceFromSiteM against its already-captured location,
+// the same way onClockEventCreated would have. siteAutoDetected flips to
+// false on every event - once an admin picks it, it isn't auto-detected
+// anymore.
+export const assignSessionSite = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const approvalId = (request.data?.approvalId ? String(request.data.approvalId) : "").trim();
+  const eventIds = Array.isArray(request.data?.eventIds)
+    ? (request.data.eventIds as unknown[]).map((id) => String(id)).filter(Boolean)
+    : [];
+  const siteId = (request.data?.siteId ? String(request.data.siteId) : "").trim();
+  if (!approvalId) {
+    throw new HttpsError("invalid-argument", "approvalId is required.");
+  }
+  if (eventIds.length === 0) {
+    throw new HttpsError("invalid-argument", "eventIds is required.");
+  }
+  if (!siteId) {
+    throw new HttpsError("invalid-argument", "siteId is required.");
+  }
+
+  const jobSitesRef = db.collection("companies").doc(callerCompanyId).collection("jobSites");
+  const eventsRef = db.collection("companies").doc(callerCompanyId).collection("clockEvents");
+  const approvalRef = db
+    .collection("companies")
+    .doc(callerCompanyId)
+    .collection("timesheetApprovals")
+    .doc(approvalId);
+
+  const [siteSnap, approvalSnap] = await Promise.all([jobSitesRef.doc(siteId).get(), approvalRef.get()]);
+  if (!siteSnap.exists) {
+    throw new HttpsError("not-found", "Job site not found.");
+  }
+  if (!approvalSnap.exists) {
+    throw new HttpsError("not-found", "Timesheet approval not found.");
+  }
+  const site = siteSnap.data() as {
+    name?: string;
+    lat?: number;
+    lng?: number;
+    radiusMeters?: number;
+    requireGeofence?: boolean;
+  };
+  const siteName = site.name ?? "";
+
+  const batch = db.batch();
+
+  for (const eventId of eventIds) {
+    const eventSnap = await eventsRef.doc(eventId).get();
+    if (!eventSnap.exists) continue;
+    const eventData = eventSnap.data() as {
+      location?: { lat: number; lng: number } | null;
+      locationAccuracyM?: number | null;
+    };
+
+    const updates: Record<string, unknown> = {
+      siteId,
+      siteName,
+      siteAutoDetected: false,
+    };
+
+    const rawLocation = eventData.location ?? null;
+    const hasFix =
+      !!rawLocation && typeof rawLocation.lat === "number" && typeof rawLocation.lng === "number";
+    const classification = classifyGeofence(
+      hasFix ? (rawLocation as { lat: number; lng: number }) : null,
+      eventData.locationAccuracyM ?? null,
+      site
+    );
+    if (classification.applicable) {
+      updates.geofenceStatus = classification.status;
+      updates.distanceFromSiteM = classification.distanceM;
+    }
+
+    batch.update(eventsRef.doc(eventId), updates);
+  }
+
+  batch.update(approvalRef, { siteId, siteName });
+
+  await batch.commit();
   return { success: true };
 });
 

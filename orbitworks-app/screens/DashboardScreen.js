@@ -12,8 +12,10 @@ import { useTodayShift } from "../lib/hooks/useTodayShift";
 import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
 import { useLocalEmployee } from "../lib/hooks/useLocalEmployee";
+import { useDeclinedCount } from "../lib/hooks/useDeclinedCount";
 import { syncPinTable } from "../lib/pinSync";
 import { drainQueue } from "../lib/queueSync";
+import { isAutoDetectionActive } from "../lib/geofenceCheck";
 import OfflineBanner from "../components/OfflineBanner";
 import Avatar from "../components/Avatar";
 
@@ -25,8 +27,9 @@ export default function DashboardScreen({ navigation }) {
   const { selectedSite } = useSiteSession();
   const { employees: liveEmployees, loading } = useTodayShift(userData?.companyId);
   const employees = useLocalStatusOverlay(liveEmployees);
-  const { settings } = useCompanySettings(userData?.companyId);
+  const { settings, isPro } = useCompanySettings(userData?.companyId);
   const localSupervisor = useLocalEmployee(linkedEmployeeId);
+  const declinedCount = useDeclinedCount();
   const [askSite, setAskSite] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -67,7 +70,16 @@ export default function DashboardScreen({ navigation }) {
 
   const hoursLabel = `${formatHour(settings.businessHours.open)} - ${formatHour(settings.businessHours.close)}`;
 
-  const handleClockPress = () => {
+  const handleClockPress = async () => {
+    // Geofencing (Pro) auto site detection - once the company has any
+    // fenced site at all, the site is detected from location, not picked -
+    // the "ask each time" preference no longer applies to clocking in
+    // (it's still honored for the site FILTER pill above, a separate
+    // concept - see SiteSessionContext.js).
+    if (await isAutoDetectionActive()) {
+      navigation.navigate("PinEntry");
+      return;
+    }
     if (askSite) {
       navigation.navigate("SiteSelect", { afterSelect: "PinEntry" });
     } else {
@@ -106,6 +118,20 @@ export default function DashboardScreen({ navigation }) {
             <Text style={[styles.greeting, { color: colors.subtext }]}>Welcome</Text>
             <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
           </View>
+          {isPro && (
+            <TouchableOpacity
+              style={styles.bellButton}
+              onPress={() => navigation.navigate("DeclinedAlerts")}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Feather name="bell" size={22} color={colors.accent} />
+              {declinedCount > 0 && (
+                <View style={[styles.badge, { backgroundColor: colors.red }]}>
+                  <Text style={styles.badgeText}>{declinedCount > 9 ? "9+" : declinedCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={() => navigation.navigate("Settings")}>
             <Feather name="settings" size={22} color={colors.accent} />
           </TouchableOpacity>
@@ -183,6 +209,12 @@ const styles = StyleSheet.create({
   container: { flexGrow: 1, paddingHorizontal: 20 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: { flexDirection: "row", alignItems: "center", paddingTop: 60, marginBottom: 20 },
+  bellButton: { marginRight: 18 },
+  badge: {
+    position: "absolute", top: -4, right: -6, minWidth: 16, height: 16, borderRadius: 8,
+    alignItems: "center", justifyContent: "center", paddingHorizontal: 3,
+  },
+  badgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
   greeting: { fontSize: 12 },
   name: { fontSize: 16, fontWeight: "700", marginTop: 1 },
   blueCard: { borderRadius: 24, padding: 22, marginBottom: 24 },

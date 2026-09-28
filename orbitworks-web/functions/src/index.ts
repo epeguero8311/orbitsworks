@@ -25,6 +25,7 @@ export {
   autoClockOutStaleSessions,
   correctClockEvent,
   reassignClockEvent,
+  assignSessionSite,
   addManualTimestamp,
 } from "./clockEvents";
 

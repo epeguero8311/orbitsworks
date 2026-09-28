@@ -16,7 +16,9 @@ import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { isProPlan } from "@/lib/stripe/tiers";
+import { feetToMeters, milesToMeters } from "@/lib/geo";
 import type { JobSite } from "@/lib/types";
+import type { JobSiteInput } from "@/lib/validators/site";
 
 interface GeocodeResult {
   found: boolean;
@@ -25,24 +27,56 @@ interface GeocodeResult {
   formattedAddress?: string;
 }
 
+// Thrown by addSite/updateSite when requireGeofence is on and the address
+// couldn't be geocoded - callers (SitesSection.tsx) show err.message
+// directly, same pattern as ClockValidationError in useClockEvents.ts.
+export class AddressNotFoundError extends Error {}
+
+async function callGeocode(address: string): Promise<GeocodeResult | null> {
+  try {
+    const geocodeFn = httpsCallable(functions, "geocodeJobSiteAddress");
+    const result = await geocodeFn({ address });
+    return result.data as GeocodeResult;
+  } catch (err) {
+    console.error("Job site geocoding failed:", err);
+    return null;
+  }
+}
+
 // Best-effort, Pro only - the callable itself re-checks Pro server-side
 // (see geocodeJobSiteAddress), this is just to skip the call entirely for
 // Core companies. A failed/not-found lookup is swallowed: the site is
 // still saved with its typed address, just without lat/lng, same as any
 // site created before this feature existed - distance simply doesn't
 // show for it yet (see JobSite in lib/types.ts).
-async function geocodeAddress(address: string): Promise<Partial<JobSite>> {
+interface GeocodedLocation {
+  lat?: number;
+  lng?: number;
+  geocodedAddress?: string;
+}
+
+async function geocodeAddress(address: string): Promise<GeocodedLocation> {
   if (!address) return {};
-  try {
-    const geocodeFn = httpsCallable(functions, "geocodeJobSiteAddress");
-    const result = await geocodeFn({ address });
-    const data = result.data as GeocodeResult;
-    if (!data.found || data.lat == null || data.lng == null) return {};
-    return { lat: data.lat, lng: data.lng, geocodedAddress: data.formattedAddress };
-  } catch (err) {
-    console.error("Job site geocoding failed:", err);
-    return {};
+  const data = await callGeocode(address);
+  if (!data?.found || data.lat == null || data.lng == null) return {};
+  return { lat: data.lat, lng: data.lng, geocodedAddress: data.formattedAddress };
+}
+
+// Geofencing requires a resolved location - unlike geocodeAddress above,
+// a not-found/failed lookup here blocks the save (see AddressNotFoundError)
+// instead of silently saving without coordinates.
+async function geocodeAddressForGeofence(address: string): Promise<GeocodedLocation> {
+  const data = await callGeocode(address);
+  if (!data?.found || data.lat == null || data.lng == null) {
+    throw new AddressNotFoundError("Couldn't find that address");
   }
+  return { lat: data.lat, lng: data.lng, geocodedAddress: data.formattedAddress };
+}
+
+function radiusMetersFrom(input: JobSiteInput): number {
+  return input.radiusUnit === "mi"
+    ? milesToMeters(input.radiusValue)
+    : feetToMeters(input.radiusValue);
 }
 
 export function useSites() {
@@ -91,10 +125,47 @@ export function useSites() {
     return unsubscribe;
   }, [userData?.companyId]);
 
-  async function addSite(name: string, address: string) {
-    if (!userData?.companyId) return;
-    const trimmedAddress = address.trim();
+  type GeofenceFields =
+    | {
+        requireGeofence: true;
+        radiusMeters: number;
+        radiusUnit: "ft" | "mi";
+        lat?: number;
+        lng?: number;
+        geocodedAddress?: string;
+      }
+    | { requireGeofence: false; lat?: number; lng?: number; geocodedAddress?: string };
+
+  // Core companies can never actually submit requireGeofence: true (the
+  // toggle is disabled in SitesSection.tsx), but the hook re-checks Pro
+  // itself rather than trusting the caller, same spirit as the callable
+  // re-checking Pro server-side in geocodeJobSiteAddress. Deliberately
+  // omits radiusMeters/radiusUnit from the off-branch (rather than
+  // setting them to a default) - see updateSite for why.
+  async function resolveGeofenceFields(
+    input: JobSiteInput,
+    trimmedAddress: string
+  ): Promise<GeofenceFields> {
+    const requireGeofence = input.requireGeofence && isProPlan(planTier);
+
+    if (requireGeofence) {
+      const geocoded = await geocodeAddressForGeofence(trimmedAddress);
+      return {
+        requireGeofence: true,
+        radiusMeters: radiusMetersFrom(input),
+        radiusUnit: input.radiusUnit,
+        ...geocoded,
+      };
+    }
+
     const geocoded = isProPlan(planTier) ? await geocodeAddress(trimmedAddress) : {};
+    return { requireGeofence: false, ...geocoded };
+  }
+
+  async function addSite(input: JobSiteInput) {
+    if (!userData?.companyId) return;
+    const trimmedAddress = (input.address ?? "").trim();
+    const geofenceFields = await resolveGeofenceFields(input, trimmedAddress);
 
     const sitesRef = collection(
       db,
@@ -103,28 +174,39 @@ export function useSites() {
       "jobSites"
     );
     await addDoc(sitesRef, {
-      name: name.trim(),
+      name: input.name.trim(),
       address: trimmedAddress,
       active: true,
       createdAt: serverTimestamp(),
-      ...geocoded,
+      ...geofenceFields,
     });
   }
 
-  async function updateSite(siteId: string, name: string, address: string) {
+  async function updateSite(siteId: string, input: JobSiteInput) {
     if (!userData?.companyId) return;
-    const trimmedAddress = address.trim();
-    const geocoded = isProPlan(planTier) ? await geocodeAddress(trimmedAddress) : {};
+    const trimmedAddress = (input.address ?? "").trim();
+    const geofenceFields = await resolveGeofenceFields(input, trimmedAddress);
 
     const siteRef = doc(db, "companies", userData.companyId, "jobSites", siteId);
     await updateDoc(siteRef, {
-      name: name.trim(),
+      name: input.name.trim(),
       address: trimmedAddress,
       // A cleared address means no coordinates either - don't leave a
       // stale lat/lng pointing at whatever the address used to be.
-      lat: geocoded.lat ?? null,
-      lng: geocoded.lng ?? null,
-      geocodedAddress: geocoded.geocodedAddress ?? null,
+      lat: geofenceFields.lat ?? null,
+      lng: geofenceFields.lng ?? null,
+      geocodedAddress: geofenceFields.geocodedAddress ?? null,
+      requireGeofence: geofenceFields.requireGeofence,
+      // Only written when geofencing is on. Omitting the keys entirely
+      // when it's off - rather than nulling them - is what makes turning
+      // it off keep the saved radius (Firestore's updateDoc leaves out
+      // fields untouched), and what stops a site that's simply never had
+      // geofencing on from picking up a radius it doesn't use (that
+      // radius silently affects this site's proximity labels in Time
+      // Tracking even with geofencing off - see EventLocation.tsx).
+      ...(geofenceFields.requireGeofence
+        ? { radiusMeters: geofenceFields.radiusMeters, radiusUnit: geofenceFields.radiusUnit }
+        : {}),
     });
   }
 
@@ -140,5 +222,13 @@ export function useSites() {
     await deleteDoc(siteRef);
   }
 
-  return { sites, loading, addSite, updateSite, toggleSiteActive, deleteSite };
+  return {
+    sites,
+    loading,
+    isPro: isProPlan(planTier),
+    addSite,
+    updateSite,
+    toggleSiteActive,
+    deleteSite,
+  };
 }

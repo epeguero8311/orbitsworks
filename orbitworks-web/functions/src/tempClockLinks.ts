@@ -1,7 +1,14 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { randomBytes, randomUUID } from "crypto";
-import { db } from "./shared";
+import { db, OVERRIDE_REASON_MIN_LENGTH, OVERRIDE_REASON_MAX_LENGTH } from "./shared";
+import { classifyGeofence, evaluateEnforcement, type EnforcementMode } from "./geofencing";
+
+// Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
+// why this can't just be imported.
+function isProPlan(planTier: string | undefined | null): boolean {
+  return !!planTier && planTier.startsWith("pro_");
+}
 
 const ALLOWED_DURATIONS_MINUTES = new Set([10, 30, 60]);
 const TOKEN_BYTES = 24;
@@ -298,6 +305,7 @@ export const redeemTempClockLink = onCall(async (request) => {
   const photoBase64 = request.data?.photo ? String(request.data.photo) : "";
   const location = parseLocation(request.data);
   const locationAccuracyM = location ? parseAccuracy(request.data?.accuracy) : null;
+  const reason = (request.data?.reason ? String(request.data.reason) : "").trim();
 
   if (!token) {
     throw new HttpsError("invalid-argument", "Missing link token.");
@@ -389,6 +397,61 @@ export const redeemTempClockLink = onCall(async (request) => {
   const currentStatus = deriveStatus(employee.lastEventType);
   const nextType: "in" | "out" = currentStatus === "out" ? "in" : "out";
 
+  // Geofencing (Pro) Part 3 - authoritative, synchronous enforcement.
+  // Unlike the mobile app's offline queue, this callable always runs
+  // online with a real server round trip available, so Block mode can be
+  // genuinely denied here (not just labeled after the fact) - see the
+  // Part 3 plan for why that guarantee doesn't extend to mobile's offline
+  // path. Clock-outs are never gated, per spec - only "in" is checked.
+  // The classification computed here is discarded rather than saved
+  // directly; onClockEventCreated recomputes and saves it uniformly for
+  // every entry point (mobile included), so there's exactly one writer
+  // of geofenceStatus.
+  if (nextType === "in" && link.siteId) {
+    const [siteSnap, companySnap] = await Promise.all([
+      db.collection("companies").doc(link.companyId).collection("jobSites").doc(link.siteId).get(),
+      db.collection("companies").doc(link.companyId).get(),
+    ]);
+    const planTier = companySnap.data()?.planTier as string | undefined;
+
+    if (isProPlan(planTier)) {
+      const site = siteSnap.data() as
+        | { lat?: number; lng?: number; radiusMeters?: number; requireGeofence?: boolean }
+        | undefined;
+      const classification = classifyGeofence(location, locationAccuracyM, site);
+
+      if (classification.applicable && classification.status === "outside") {
+        const mode =
+          (companySnap.data()?.geofencing?.enforcementMode as EnforcementMode | undefined) ?? "flag";
+        const hasReason = reason.length >= OVERRIDE_REASON_MIN_LENGTH && reason.length <= OVERRIDE_REASON_MAX_LENGTH;
+        const result = evaluateEnforcement({
+          distanceM: classification.distanceM,
+          mode,
+          siteName: link.siteName,
+          hasReason,
+        });
+
+        if (!result.allowed) {
+          if (mode === "block") {
+            // employeeName in details - the page's declined step shows who
+            // was denied, same as the mobile app's ClockDeclinedScreen.
+            throw new HttpsError(
+              "permission-denied",
+              `${result.denialMessage} Ask your supervisor to clock you in.`,
+              { employeeName: employee.name ?? "" }
+            );
+          }
+          // requireReason, no valid reason yet - the page turns this into
+          // a reason-entry step and resubmits with the reason included.
+          throw new HttpsError(
+            "failed-precondition",
+            result.denialMessage ?? "A reason is required to clock in from this location."
+          );
+        }
+      }
+    }
+  }
+
   const photoUrl = await uploadTempLinkPhoto(link.companyId, employeeDoc.id, photoBase64);
 
   const eventsRef = db.collection("companies").doc(link.companyId).collection("clockEvents");
@@ -407,6 +470,7 @@ export const redeemTempClockLink = onCall(async (request) => {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     location,
     locationAccuracyM,
+    reason: reason || null,
   };
 
   const batch = db.batch();

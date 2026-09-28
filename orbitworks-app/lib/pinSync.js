@@ -12,6 +12,10 @@ export async function syncPinTable() {
   const getPinSyncTable = httpsCallable(functions, "getPinSyncTable");
   const result = await getPinSyncTable();
   const employees = result.data.employees || [];
+  const sites = result.data.sites || [];
+  const isPro = !!result.data.isPro;
+  const enforcementMode = result.data.enforcementMode || "flag";
+  const hasFencedSites = !!result.data.hasFencedSites;
 
   const db = await getDb();
   const now = Date.now();
@@ -22,8 +26,8 @@ export async function syncPinTable() {
       const hashedPin = await hashPin(emp.pin);
       await db.runAsync(
         `INSERT INTO pin_cache
-          (employeeId, hashedPin, name, jobTitle, photoUrl, assignedSiteIds, isSupervisor, active, lastEventType, subcontractorId, subcontractorName, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (employeeId, hashedPin, name, jobTitle, photoUrl, assignedSiteIds, isSupervisor, active, lastEventType, lastEventSiteId, lastEventSiteName, subcontractorId, subcontractorName, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           emp.id,
           hashedPin,
@@ -34,8 +38,32 @@ export async function syncPinTable() {
           emp.isSupervisor ? 1 : 0,
           emp.active ? 1 : 0,
           emp.lastEventType ?? null,
+          emp.lastEventSiteId ?? null,
+          emp.lastEventSiteName ?? null,
           emp.subcontractorId ?? null,
           emp.subcontractorName ?? null,
+          now,
+        ]
+      );
+    }
+
+    // Geofencing (Pro) Part 3 - see lib/geofenceCheck.js for how this
+    // cache is read. Advisory only: never trusted as the authoritative
+    // classification, only to drive the on-device UX with no signal.
+    await db.runAsync("DELETE FROM sites_cache");
+    for (const site of sites) {
+      await db.runAsync(
+        `INSERT INTO sites_cache
+          (siteId, name, active, requireGeofence, lat, lng, radiusMeters, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          site.id,
+          site.name,
+          site.active ? 1 : 0,
+          site.requireGeofence ? 1 : 0,
+          site.lat ?? null,
+          site.lng ?? null,
+          site.radiusMeters ?? null,
           now,
         ]
       );
@@ -45,6 +73,21 @@ export async function syncPinTable() {
   await db.runAsync(
     "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('pinTableLastSync', ?)",
     [String(now)]
+  );
+  await db.runAsync(
+    "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('isPro', ?)",
+    [isPro ? "1" : "0"]
+  );
+  await db.runAsync(
+    "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('geofenceEnforcementMode', ?)",
+    [enforcementMode]
+  );
+  // Geofencing (Pro) auto site detection - whether this company has any
+  // fenced+active site at all. false means "keep today's flow exactly" -
+  // the app must not skip its site picker or run its own advisory check.
+  await db.runAsync(
+    "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('hasFencedSites', ?)",
+    [hasFencedSites ? "1" : "0"]
   );
 
   // Notify anything reading from the local cache (e.g. the supervisor's

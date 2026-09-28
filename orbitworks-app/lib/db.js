@@ -19,6 +19,8 @@ export async function getDb() {
       isSupervisor INTEGER DEFAULT 0,
       active INTEGER DEFAULT 1,
       lastEventType TEXT,
+      lastEventSiteId TEXT,
+      lastEventSiteName TEXT,
       subcontractorId TEXT,
       subcontractorName TEXT,
       updatedAt INTEGER
@@ -56,6 +58,35 @@ export async function getDb() {
       key TEXT PRIMARY KEY,
       value TEXT
     );
+
+    -- Geofencing (Pro) Part 3: site geofence config, synced alongside
+    -- pin_cache (see pinSync.js) so a clock-in has something to check
+    -- against even on a fully offline cold start. requireGeofence/lat/lng/
+    -- radiusMeters mirror JobSite in lib/types.ts on the web side.
+    CREATE TABLE IF NOT EXISTS sites_cache (
+      siteId TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      active INTEGER DEFAULT 1,
+      requireGeofence INTEGER DEFAULT 0,
+      lat REAL,
+      lng REAL,
+      radiusMeters REAL,
+      updatedAt INTEGER
+    );
+
+    -- Geofencing (Pro) auto site detection - every declined/failed clock-in
+    -- (a Block-mode geofence denial, a deactivated employee, etc.), local
+    -- only since a blocked attempt is never queued/synced to the server at
+    -- all - this is the only record it leaves. Read by the alert bell (see
+    -- lib/declinedClockIns.js); "read" tracks the bell's unread badge.
+    CREATE TABLE IF NOT EXISTS declined_clock_ins (
+      id TEXT PRIMARY KEY,
+      employeeId TEXT,
+      employeeName TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      read INTEGER NOT NULL DEFAULT 0
+    );
   `);
 
   // Migrations for installs created before these columns existed - ALTER
@@ -73,6 +104,8 @@ export async function getDb() {
     "ALTER TABLE event_queue ADD COLUMN lng REAL",
     "ALTER TABLE event_queue ADD COLUMN locationAccuracyM REAL",
     "ALTER TABLE event_queue ADD COLUMN locationAttempted INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE pin_cache ADD COLUMN lastEventSiteId TEXT",
+    "ALTER TABLE pin_cache ADD COLUMN lastEventSiteName TEXT",
   ];
   for (const migration of migrations) {
     try {

@@ -224,11 +224,34 @@ service cloud.firestore {
              isActiveEmployee(companyId))
           ) &&
           request.resource.data.createdByUid == request.auth.uid &&
-          isValidOverride(companyId, request.resource.data);
+          isValidOverride(companyId, request.resource.data) &&
+          // No client ever sends these (onClockEventCreated fills them in
+          // after the fact - see the update rule below) - denying them at
+          // create time too closes even the brief window before that
+          // trigger runs, not just a later replay. siteId/siteName aren't
+          // here - a client does legitimately send an initial guess for
+          // those (auto-detection only ever corrects them after the fact,
+          // via the update rule below).
+          !request.resource.data.keys().hasAny([
+            'geofenceStatus', 'distanceFromSiteM', 'locationAddress',
+            'siteCorrected', 'siteMismatch', 'siteAutoDetected'
+          ]);
         allow update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['type', 'timestamp', 'adjustedTimestamp', 'adjustmentHistory', 'employeeId', 'employeeName', 'subcontractorId', 'subcontractorName', 'reason']) &&
+            .hasAny([
+              'type', 'timestamp', 'adjustedTimestamp', 'adjustmentHistory', 'employeeId',
+              'employeeName', 'subcontractorId', 'subcontractorName', 'reason',
+              // Only ever written by onClockEventCreated (Admin SDK, bypasses
+              // rules entirely) - never trust a client-supplied classification
+              // or distance, same reasoning as reason/etc above (Geofencing
+              // Part 3 - see functions/src/clockEvents.ts). siteId/siteName/
+              // siteCorrected/siteMismatch are the auto-detection additions -
+              // once a client creates the event with its initial guess, only
+              // that same trigger is ever allowed to correct it.
+              'geofenceStatus', 'distanceFromSiteM', 'locationAddress',
+              'siteId', 'siteName', 'siteCorrected', 'siteMismatch', 'siteAutoDetected'
+            ]) &&
           (
             isAdminOrOwner() ||
             isIdempotentReplay(companyId)

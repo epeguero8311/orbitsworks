@@ -258,6 +258,9 @@ export function computePayrollAndSessions(
             clockInPhotoUrl: pendingIn.photoUrl,
             subcontractorId: currentCompany.id,
             subcontractorName: currentCompany.name,
+            geofenceStatus: pendingIn.geofenceStatus,
+            geofenceDistanceM: pendingIn.distanceFromSiteM,
+            geofenceReason: pendingIn.reason,
           });
         }
         pendingIn = event;
@@ -294,6 +297,9 @@ export function computePayrollAndSessions(
             clockOutPhotoUrl: event.photoUrl,
             subcontractorId: currentCompany.id,
             subcontractorName: currentCompany.name,
+            geofenceStatus: pendingIn.geofenceStatus,
+            geofenceDistanceM: pendingIn.distanceFromSiteM,
+            geofenceReason: pendingIn.reason,
           });
 
           const dayKey = dateKey(pendingIn.timestamp.toDate());
@@ -339,6 +345,9 @@ export function computePayrollAndSessions(
         clockInPhotoUrl: pendingIn.photoUrl,
         subcontractorId: currentCompany.id,
         subcontractorName: currentCompany.name,
+        geofenceStatus: pendingIn.geofenceStatus,
+        geofenceDistanceM: pendingIn.distanceFromSiteM,
+        geofenceReason: pendingIn.reason,
       });
     }
 

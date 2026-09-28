@@ -20,6 +20,9 @@ import NotesScreen from "./screens/NotesScreen";
 import PinEntryScreen from "./screens/PinEntryScreen";
 import ClockCameraScreen from "./screens/ClockCameraScreen";
 import ClockConfirmScreen from "./screens/ClockConfirmScreen";
+import GeofenceReasonScreen from "./screens/GeofenceReasonScreen";
+import ClockDeclinedScreen from "./screens/ClockDeclinedScreen";
+import DeclinedAlertsScreen from "./screens/DeclinedAlertsScreen";
 import BreaksPinEntryScreen from "./screens/BreaksPinEntryScreen";
 import BreaksEmployeeListScreen from "./screens/BreaksEmployeeListScreen";
 import OverridePinEntryScreen from "./screens/OverridePinEntryScreen";
@@ -72,6 +75,9 @@ function RootNavigator() {
             <Stack.Screen name="PinEntry" component={PinEntryScreen} />
             <Stack.Screen name="ClockCamera" component={ClockCameraScreen} />
             <Stack.Screen name="ClockConfirm" component={ClockConfirmScreen} />
+            <Stack.Screen name="GeofenceReason" component={GeofenceReasonScreen} />
+            <Stack.Screen name="ClockDeclined" component={ClockDeclinedScreen} />
+            <Stack.Screen name="DeclinedAlerts" component={DeclinedAlertsScreen} />
             <Stack.Screen name="BreaksPinEntry" component={BreaksPinEntryScreen} />
             <Stack.Screen name="BreaksEmployeeList" component={BreaksEmployeeListScreen} />
             <Stack.Screen name="OverridePinEntry" component={OverridePinEntryScreen} />

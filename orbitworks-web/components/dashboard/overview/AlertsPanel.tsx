@@ -17,16 +17,18 @@ export default function AlertsPanel({
   loading,
   currentlyActive,
   currentlyOnBreak,
+  recentEvents,
   weeklyHoursByEmployee,
   workedMsByEmployee,
 }: {
   loading: boolean;
   currentlyActive: ClockEvent[];
   currentlyOnBreak: ClockEvent[];
+  recentEvents: ClockEvent[];
   weeklyHoursByEmployee: Map<string, number>;
   workedMsByEmployee: Map<string, number>;
 }) {
-  const { settings } = useCompanySettings();
+  const { settings, isPro } = useCompanySettings();
   const { employees } = useEmployees();
   const {
     resolvedKeys,
@@ -34,6 +36,7 @@ export default function AlertsPanel({
     clockOutFromAlert,
     endBreakFromAlert,
     submitEditTimeFromAlert,
+    editClockInTimeFromAlert,
   } = useAlertActions();
 
   const [editingAlertKey, setEditingAlertKey] = useState<string | null>(null);
@@ -43,8 +46,10 @@ export default function AlertsPanel({
 
   const alertItems = buildAlertItems({
     settings,
+    isPro,
     currentlyActive,
     currentlyOnBreak,
+    recentEvents,
     weeklyHoursByEmployee,
     workedMsByEmployee,
     employees,
@@ -109,7 +114,11 @@ export default function AlertsPanel({
     setAlertActionError(null);
     try {
       const chosenMs = new Date(editTimeValue).getTime();
-      await submitEditTimeFromAlert(alert, chosenMs);
+      if (alert.alertType === "clockedInOutsideGeofence") {
+        await editClockInTimeFromAlert(alert, chosenMs);
+      } else {
+        await submitEditTimeFromAlert(alert, chosenMs);
+      }
       setEditingAlertKey(null);
       setEditTimeValue("");
     } catch (err) {
@@ -153,7 +162,9 @@ export default function AlertsPanel({
                     {isEditing ? (
                       <div className="mt-3 space-y-2 rounded-md border border-amber-200 bg-white p-3">
                         <label className="block text-xs font-medium text-gray-600">
-                          Clock-out time
+                          {alert.alertType === "clockedInOutsideGeofence"
+                            ? "Clock-in time"
+                            : "Clock-out time"}
                         </label>
                         <input
                           type="datetime-local"
@@ -201,25 +212,38 @@ export default function AlertsPanel({
                             </button>
                           </>
                         )}
-                        {alert.alertType !== "overtime" && alert.alertType !== "breakTooLong" && (
-                          <>
-                            <button
-                              type="button"
-                              disabled={isSubmitting}
-                              onClick={() => handleClockOutFromAlert(alert)}
-                              className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              Clock Out
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isSubmitting}
-                              onClick={() => handleStartEditTime(alert)}
-                              className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              Edit Time
-                            </button>
-                          </>
+                        {alert.alertType !== "overtime" &&
+                          alert.alertType !== "breakTooLong" &&
+                          alert.alertType !== "clockedInOutsideGeofence" &&
+                          alert.alertType !== "siteMismatch" && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={isSubmitting}
+                                onClick={() => handleClockOutFromAlert(alert)}
+                                className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Clock Out
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSubmitting}
+                                onClick={() => handleStartEditTime(alert)}
+                                className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Edit Time
+                              </button>
+                            </>
+                          )}
+                        {alert.alertType === "clockedInOutsideGeofence" && (
+                          <button
+                            type="button"
+                            disabled={isSubmitting}
+                            onClick={() => handleStartEditTime(alert)}
+                            className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Edit Time
+                          </button>
                         )}
                         <button
                           type="button"

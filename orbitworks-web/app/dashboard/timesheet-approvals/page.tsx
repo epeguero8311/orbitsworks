@@ -41,6 +41,7 @@ export default function TimesheetApprovalsPage() {
     setApprovalStatus,
     setApprovalStatusBulk,
     deleteTimesheetSession,
+    assignSessionSite,
   } = useTimesheetApprovals(rangeStart, rangeEnd);
   const [addingOpen, setAddingOpen] = useState(false);
 
@@ -78,6 +79,7 @@ export default function TimesheetApprovalsPage() {
         onSetStatus={setApprovalStatus}
         onSetStatusBulk={setApprovalStatusBulk}
         onDeleteSession={deleteTimesheetSession}
+        onAssignSite={assignSessionSite}
         onAddTimestamp={() => setAddingOpen(true)}
       />
 

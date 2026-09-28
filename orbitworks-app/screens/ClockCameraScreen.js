@@ -8,6 +8,8 @@ import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import { queueClockEvent } from "../lib/clockQueue";
 import { drainQueue } from "../lib/queueSync";
 import { getBestEffortLocationIfPro } from "../lib/location";
+import { getCurrentLocalStatus, getCurrentLocalSite } from "../lib/clockStatusLocal";
+import { checkGeofenceForClockIn, isAutoDetectionActive } from "../lib/geofenceCheck";
 
 export default function ClockCameraScreen({ route, navigation }) {
   const { employee } = route.params;
@@ -43,9 +45,6 @@ export default function ClockCameraScreen({ route, navigation }) {
   const handleCapture = async () => {
     if (!cameraRef.current || submitting) return;
     setSubmitting(true);
-    const isNone = selectedSite?.id === "none";
-    const siteId = !selectedSite || isNone ? null : selectedSite.id;
-    const siteName = !selectedSite ? "Not specified" : isNone ? "Not specified" : selectedSite.name;
     try {
       // Runs concurrently with the photo capture (not before/after it) so
       // a slow GPS fix never adds to the time this button already takes -
@@ -55,6 +54,80 @@ export default function ClockCameraScreen({ route, navigation }) {
         cameraRef.current.takePictureAsync({ quality: 0.5 }),
         getBestEffortLocationIfPro(isPro),
       ]);
+
+      const currentStatus = await getCurrentLocalStatus(employee.id);
+      const nextType = currentStatus === "out" ? "in" : "out";
+
+      // Geofencing (Pro) auto site detection - once a Pro company has any
+      // fenced site at all, there's no site picker: the app finds the site
+      // itself instead of trusting SiteSessionContext's selectedSite. A
+      // company with no fenced sites (or Core) keeps today's exact flow.
+      const autoDetect = isPro && (await isAutoDetectionActive());
+
+      let siteId;
+      let siteName;
+      if (autoDetect) {
+        if (nextType === "out") {
+          // A clock-out always keeps the clock-in's site, never re-detects
+          // (see lib/clockStatusLocal.js's getCurrentLocalSite).
+          const lastSite = await getCurrentLocalSite(employee.id);
+          siteId = lastSite.siteId;
+          siteName = lastSite.siteName || "Not specified";
+        } else {
+          // No local guess yet for a clock-in - checkGeofenceForClockIn
+          // below fills one in when it actually runs (Block/Require-reason
+          // modes); Flag mode does no check at all, so this stays
+          // unresolved and the server's own detection is the final say.
+          siteId = null;
+          siteName = "Not specified";
+        }
+      } else {
+        const isNone = selectedSite?.id === "none";
+        siteId = !selectedSite || isNone ? null : selectedSite.id;
+        siteName = !selectedSite ? "Not specified" : isNone ? "Not specified" : selectedSite.name;
+      }
+
+      // Geofencing (Pro) - best-effort, on-device only (see
+      // lib/geofenceCheck.js for why this is never the authoritative
+      // check). Only ever relevant for a clock-IN - clock-outs are never
+      // gated, so this is skipped entirely for one. Flag mode and "inside"
+      // both resolve to applicable: false / action: "proceed", so this
+      // only ever branches for require-reason/block outside cases.
+      if (nextType === "in") {
+        const geofence = await checkGeofenceForClockIn({
+          location: location?.lat != null && location?.lng != null ? location : null,
+          locationAccuracyM: location?.accuracyM ?? null,
+        });
+
+        if (autoDetect && geofence.applicable) {
+          siteId = geofence.siteId;
+          siteName = geofence.siteName || "Not specified";
+        }
+
+        // .replace (not .navigate) so ClockCameraScreen isn't left mounted
+        // underneath with submitting stuck true - same reasoning as the
+        // success path's .replace("ClockConfirm", ...) below.
+        if (geofence.action === "requireReason") {
+          if (!isMounted.current) return;
+          navigation.replace("GeofenceReason", {
+            employee,
+            photoUri: photo.uri,
+            siteId,
+            siteName,
+            location,
+            message: geofence.siteName
+              ? `You're outside ${geofence.siteName}'s geofence.`
+              : "We couldn't confirm your location near a job site.",
+          });
+          return;
+        }
+        if (geofence.action === "block") {
+          if (!isMounted.current) return;
+          navigation.replace("ClockDeclined", { employee, message: geofence.message });
+          return;
+        }
+      }
+
       // Local-first: this only touches the filesystem and SQLite, no
       // network, so it resolves near-instantly whether online or not.
       const resultType = await queueClockEvent({
@@ -81,7 +154,16 @@ export default function ClockCameraScreen({ route, navigation }) {
       navigation.replace("ClockConfirm", { employeeName: employee.name, resultType });
     } catch (error) {
       console.log("Clock event failed:", error);
-      if (isMounted.current) setSubmitting(false);
+      if (!isMounted.current) return;
+      // A deactivated employee trying to clock in is a genuine decline, not
+      // a technical failure - route it through the same declined screen
+      // (and local decline log) as a geofence block, instead of silently
+      // resetting the button with no feedback at all.
+      if (error?.code === "employeeDeactivated") {
+        navigation.replace("ClockDeclined", { employee, message: error.message });
+        return;
+      }
+      setSubmitting(false);
     }
   };
 

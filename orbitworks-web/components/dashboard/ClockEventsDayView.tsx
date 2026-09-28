@@ -3,10 +3,13 @@
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import { useClockEventsByDay } from "@/lib/hooks/useClockEventsByDay";
+import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { ClockEvent } from "@/lib/types";
 import { typeLabel, sourceLabel } from "@/lib/clockStatus";
 import { dateKey } from "@/lib/reportUtils";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
+import { GeofenceBadge } from "@/components/time/GeofenceBadge";
+import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
 
 function latestAdjustment(event: ClockEvent) {
   if (!event.adjustmentHistory || event.adjustmentHistory.length === 0) {
@@ -23,10 +26,14 @@ export default function ClockEventsDayView({
   const todayKey = dateKey(new Date());
   const [currentDate, setCurrentDate] = useState(todayKey);
   const [selectedEvent, setSelectedEvent] = useState<ClockEvent | null>(null);
-  const { events, loading, error } = useClockEventsByDay(
+  const [outsideGeofenceOnly, setOutsideGeofenceOnly] = useState(false);
+  const { events: allEvents, loading, error } = useClockEventsByDay(
     companyId,
     currentDate
   );
+  const { isPro } = useCompanySettings();
+  const events =
+    outsideGeofenceOnly ? allEvents.filter((e) => e.geofenceStatus === "outside") : allEvents;
 
   const isToday = currentDate === todayKey;
   const isPairable = (t: ClockEvent["type"]) => t === "in" || t === "out";
@@ -97,13 +104,29 @@ export default function ClockEventsDayView({
         </div>
       </div>
 
+      {isPro && (
+        <div className="border-b border-gray-200 px-4 py-2">
+          <label className="flex items-center gap-2 text-xs font-medium text-gray-600">
+            <input
+              type="checkbox"
+              checked={outsideGeofenceOnly}
+              onChange={(e) => setOutsideGeofenceOnly(e.target.checked)}
+              className="rounded border-gray-300 text-accent focus:ring-accent"
+            />
+            Outside geofence only
+          </label>
+        </div>
+      )}
+
       {error ? (
         <p className="p-4 text-sm text-red-600">{error}</p>
       ) : loading ? (
         <p className="p-4 text-sm text-gray-600">Loading...</p>
       ) : events.length === 0 ? (
         <p className="p-4 text-sm text-gray-600">
-          No clock events on {dateLabel}.
+          {outsideGeofenceOnly
+            ? `No events outside a geofence on ${dateLabel}.`
+            : `No clock events on ${dateLabel}.`}
         </p>
       ) : (
         <table className="w-full text-left text-sm">
@@ -117,6 +140,7 @@ export default function ClockEventsDayView({
               <th className="px-4 py-2 font-medium">Authorized by</th>
               <th className="px-4 py-2 font-medium">Photo</th>
               <th className="px-4 py-2 font-medium">Note</th>
+              <th className="px-4 py-2 font-medium">Geofence</th>
             </tr>
           </thead>
           <tbody>
@@ -140,6 +164,7 @@ export default function ClockEventsDayView({
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">
                     {event.siteName}
+                    <AutoDetectedTag event={event} />
                   </td>
                   <td className="px-4 py-2.5">
                     <span className={`font-medium ${typeBadge.className}`}>
@@ -172,6 +197,9 @@ export default function ClockEventsDayView({
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">
                     {event.note || "-"}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <GeofenceBadge event={event} />
                   </td>
                 </tr>
               );

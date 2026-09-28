@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { Pencil, Trash2, Plus, ShieldAlert } from "lucide-react";
 import type { ApprovalRow } from "@/lib/hooks/useTimesheetApprovals";
 import type { ClockEvent } from "@/lib/types";
+import { useSites } from "@/lib/hooks/useSites";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import ConfirmDeleteSessionModal from "@/components/dashboard/timesheetApprovals/ConfirmDeleteSessionModal";
-import OverrideDetailsModal from "@/components/dashboard/timesheetApprovals/OverrideDetailsModal";
+import SessionWarningsModal from "@/components/dashboard/timesheetApprovals/SessionWarningsModal";
 
 function formatHours(hours: number | null) {
   if (hours == null) return "-";
@@ -123,6 +124,7 @@ export function ApprovalsTable({
   onSetStatus,
   onSetStatusBulk,
   onDeleteSession,
+  onAssignSite,
   onAddTimestamp,
 }: {
   rows: ApprovalRow[];
@@ -132,11 +134,13 @@ export function ApprovalsTable({
   onSetStatus: (eventId: string, status: "pending" | "approved") => Promise<void>;
   onSetStatusBulk: (eventIds: string[], status: "pending" | "approved") => Promise<void>;
   onDeleteSession: (approvalId: string, eventIds: string[]) => Promise<void>;
+  onAssignSite: (approvalId: string, eventIds: string[], siteId: string) => Promise<void>;
   onAddTimestamp: () => void;
 }) {
+  const { sites } = useSites();
   const [editingRow, setEditingRow] = useState<ApprovalRow | null>(null);
   const [deletingRow, setDeletingRow] = useState<ApprovalRow | null>(null);
-  const [viewingOverrideEventId, setViewingOverrideEventId] = useState<string | null>(null);
+  const [viewingWarningsRow, setViewingWarningsRow] = useState<ApprovalRow | null>(null);
   // setApprovalStatus is a Cloud Function - the first call after it's been
   // idle pays a cold-start delay (several seconds, sometimes more), which
   // otherwise leaves the dropdown looking stuck since it only reflects
@@ -255,13 +259,15 @@ export function ApprovalsTable({
 
   function renderRow(row: ApprovalRow) {
     const overrideFlag = row.flags.find((f) => f.type === "SUPERVISOR_OVERRIDE");
+    const hasWarning =
+      !!overrideFlag || row.hasGeofenceWarning || row.hasSiteMismatchWarning || row.hasNoSiteDetectedWarning;
     const displayStatus = optimisticStatus.get(row.key) ?? row.status;
-    const highlightOverride = !!overrideFlag && displayStatus === "pending";
+    const highlightWarning = hasWarning && displayStatus === "pending";
     return (
       <tr
         key={row.key}
         className={`border-b border-gray-200 last:border-0 ${
-          highlightOverride ? "bg-amber-50" : "bg-white"
+          highlightWarning ? "bg-amber-50" : "bg-white"
         }`}
       >
         <td className="px-6 py-5">
@@ -284,15 +290,15 @@ export function ApprovalsTable({
                 Clocked In
               </span>
             )}
-            {overrideFlag && (
+            {hasWarning && (
               <button
                 type="button"
-                onClick={() => setViewingOverrideEventId(overrideFlag.overrideEventId)}
+                onClick={() => setViewingWarningsRow(row)}
                 className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-200"
-                title="View supervisor override details"
+                title="View warnings for this session"
               >
                 <ShieldAlert className="h-3 w-3" />
-                Override
+                Warning
               </button>
             )}
           </span>
@@ -467,10 +473,20 @@ export function ApprovalsTable({
         />
       )}
 
-      {viewingOverrideEventId && (
-        <OverrideDetailsModal
-          overrideEventId={viewingOverrideEventId}
-          onClose={() => setViewingOverrideEventId(null)}
+      {viewingWarningsRow && (
+        <SessionWarningsModal
+          employeeName={viewingWarningsRow.employeeName}
+          siteName={viewingWarningsRow.siteName}
+          clockInEvent={viewingWarningsRow.clockInEvent}
+          clockOutEvent={viewingWarningsRow.clockOutEvent}
+          overrideEventId={
+            viewingWarningsRow.flags.find((f) => f.type === "SUPERVISOR_OVERRIDE")?.overrideEventId
+          }
+          sites={sites}
+          onAssignSite={(siteId) =>
+            onAssignSite(viewingWarningsRow.key, viewingWarningsRow.sessionEventIds, siteId)
+          }
+          onClose={() => setViewingWarningsRow(null)}
         />
       )}
 

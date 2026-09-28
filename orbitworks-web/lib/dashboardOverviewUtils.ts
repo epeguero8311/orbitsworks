@@ -1,5 +1,12 @@
 import type { CompanySettings } from "@/lib/hooks/useCompanySettings";
 import type { ClockEvent, Employee } from "@/lib/types";
+import { formatGeofenceDistance } from "@/lib/geo";
+
+// How far back an ignored/resolved alertAction stays remembered (see
+// useAlertActions.ts's resolvedAt query) - shared here so buildAlertItems
+// can bound its own event-scoped alerts (geofence) to the same window and
+// never resurrect one whose action fell outside that lookback.
+export const ALERT_ACTION_LOOKBACK_DAYS = 30;
 
 export type DayAttendance = {
   label: string;
@@ -8,7 +15,13 @@ export type DayAttendance = {
 
 export type AlertItem = {
   key: string;
-  alertType: "maxHours" | "missedClockOut" | "overtime" | "breakTooLong";
+  alertType:
+    | "maxHours"
+    | "missedClockOut"
+    | "overtime"
+    | "breakTooLong"
+    | "clockedInOutsideGeofence"
+    | "siteMismatch";
   label: string;
   detail: string;
   employeeId: string;
@@ -80,15 +93,22 @@ export function toDatetimeLocalValue(date: Date) {
 
 export function buildAlertItems({
   settings,
+  isPro,
   currentlyActive,
   currentlyOnBreak,
+  recentEvents,
   weeklyHoursByEmployee,
   workedMsByEmployee,
   employees,
 }: {
   settings: CompanySettings;
+  isPro: boolean;
   currentlyActive: ClockEvent[];
   currentlyOnBreak: ClockEvent[];
+  // Only used for the geofence alert below - the other alert types are all
+  // current-state-driven (currentlyActive/currentlyOnBreak) and don't need
+  // this. Optional so every other caller of this function stays untouched.
+  recentEvents?: ClockEvent[];
   weeklyHoursByEmployee: Map<string, number>;
   workedMsByEmployee: Map<string, number>;
   employees: Employee[];
@@ -170,6 +190,64 @@ export function buildAlertItems({
         });
       }
     });
+  }
+
+  // Geofencing (Pro) Part 4. Unlike every alert above, this one is about a
+  // specific past moment (the clock-in), not current state - so it's keyed
+  // by event id (not day/week) and bounded to the same lookback window
+  // useAlertActions.ts remembers resolutions for, so an ignored/resolved
+  // alert can never resurrect itself once its action ages out of that
+  // window. Fires for every mode (flag/requireReason/block) and for
+  // overrides alike - only geofenceStatus and type matter here, not
+  // source or enforcement mode. Clock-outs are excluded (type === "in"
+  // only) - they're never more than the badge in the log, per spec.
+  if (isPro && settings.alerts.clockedInOutsideGeofence && recentEvents) {
+    const cutoffMs = now.getTime() - ALERT_ACTION_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
+    recentEvents
+      .filter((event) => event.type === "in" && event.geofenceStatus === "outside")
+      .forEach((event) => {
+        const d = effectiveDate(event);
+        if (!d || d.getTime() < cutoffMs) return;
+
+        const distancePhrase =
+          event.distanceFromSiteM != null ? formatGeofenceDistance(event.distanceFromSiteM) : null;
+        const detail = distancePhrase
+          ? `Clocked in ${distancePhrase} from ${event.siteName}${event.reason ? ` - Reason: ${event.reason}` : ""}`
+          : `Clocked in outside the geofence at ${event.siteName}${event.reason ? ` - Reason: ${event.reason}` : ""}`;
+
+        alertItems.push({
+          key: `geofence-${event.id}`,
+          alertType: "clockedInOutsideGeofence",
+          label: event.employeeName,
+          detail,
+          employeeId: event.employeeId,
+          event,
+        });
+      });
+  }
+
+  // Auto site detection - siteMismatch is only ever set on a clock-in
+  // (functions/src/clockEvents.ts), and only when the employee has their
+  // own assignedSiteIds and the detected site isn't one of them. Same
+  // event-scoped/lookback shape as the geofence alert above - info-only,
+  // never blocks, so this is purely a "someone should take a look" flag.
+  if (isPro && settings.alerts.siteMismatchWarning && recentEvents) {
+    const cutoffMs = now.getTime() - ALERT_ACTION_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
+    recentEvents
+      .filter((event) => event.type === "in" && event.siteMismatch === true)
+      .forEach((event) => {
+        const d = effectiveDate(event);
+        if (!d || d.getTime() < cutoffMs) return;
+
+        alertItems.push({
+          key: `mismatch-${event.id}`,
+          alertType: "siteMismatch",
+          label: event.employeeName,
+          detail: `Clocked in at ${event.siteName || "an unassigned site"} - not one of their assigned sites.`,
+          employeeId: event.employeeId,
+          event,
+        });
+      });
   }
 
   return alertItems;

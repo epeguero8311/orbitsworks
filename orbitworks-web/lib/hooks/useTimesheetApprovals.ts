@@ -34,6 +34,23 @@ export type ApprovalRow = {
   sessionEventIds: string[];
   isClockedInNow: boolean;
   flags: Flag[];
+  // Geofencing (Pro) Part 4 addition - client-computed, same as the
+  // Overview alert (Part 4), not a server-written flag like
+  // SUPERVISOR_OVERRIDE. Gated on the "Clocked in outside geofence" alert
+  // toggle and Pro plan; true if either end of the session was outside a
+  // geofenced site.
+  hasGeofenceWarning: boolean;
+  // Auto site detection - same client-computed shape as hasGeofenceWarning
+  // above, gated on the "Clocked in at unassigned site" alert toggle.
+  // Clock-in only - siteMismatch is never set on a clock-out.
+  hasSiteMismatchWarning: boolean;
+  // Auto site detection - true when the clock-in's siteId is null AND it
+  // was flagged outside a geofence. That specific combination can only
+  // happen when auto-detection ran and matched no fenced site at all (see
+  // functions/src/clockEvents.ts's detectSite) - never gated on a settings
+  // toggle since there's no "off" for a session with literally no site on
+  // it. Not Pro-gated either for the same reason: it can't occur otherwise.
+  hasNoSiteDetectedWarning: boolean;
 };
 
 type EventWithId = Omit<ClockEvent, "id"> & { id: string };
@@ -55,7 +72,7 @@ export type ManualTimestampParams = {
 export function useTimesheetApprovals(startDate: string, endDate: string = startDate) {
   const { userData } = useAuth();
   const { employees } = useEmployees();
-  const { settings } = useCompanySettings();
+  const { settings, isPro } = useCompanySettings();
   const [events, setEvents] = useState<EventWithId[]>([]);
   const [approvals, setApprovals] = useState<Map<string, TimesheetApproval>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -218,6 +235,16 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
               sessionEventIds: sessionIds,
               isClockedInNow,
               flags: approval?.flags ?? [],
+              hasGeofenceWarning:
+                isPro &&
+                !!settings.alerts.clockedInOutsideGeofence &&
+                (pendingIn.geofenceStatus === "outside" || ev.geofenceStatus === "outside"),
+              hasSiteMismatchWarning:
+                isPro &&
+                !!settings.alerts.siteMismatchWarning &&
+                pendingIn.siteMismatch === true,
+              hasNoSiteDetectedWarning:
+                pendingIn.siteId == null && pendingIn.geofenceStatus === "outside",
             });
           }
           pendingIn = null;
@@ -240,7 +267,17 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
       a.date === b.date ? a.employeeName.localeCompare(b.employeeName) : a.date.localeCompare(b.date)
     );
     return visibleRows;
-  }, [employees, events, approvals, startDate, endDate, settings?.name]);
+  }, [
+    employees,
+    events,
+    approvals,
+    startDate,
+    endDate,
+    settings?.name,
+    settings.alerts.clockedInOutsideGeofence,
+    settings.alerts.siteMismatchWarning,
+    isPro,
+  ]);
 
   const pendingCount = useMemo(
     () => rows.filter((r) => r.status === "pending").length,
@@ -267,6 +304,11 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     await fn({ approvalId, eventIds });
   };
 
+  const assignSessionSite = async (approvalId: string, eventIds: string[], siteId: string) => {
+    const fn = httpsCallable(functions, "assignSessionSite");
+    await fn({ approvalId, eventIds, siteId });
+  };
+
   return {
     rows,
     pendingCount,
@@ -276,5 +318,6 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     setApprovalStatus,
     setApprovalStatusBulk,
     deleteTimesheetSession,
+    assignSessionSite,
   };
 }

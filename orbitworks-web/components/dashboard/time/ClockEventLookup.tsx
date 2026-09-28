@@ -14,12 +14,14 @@ import { typeLabel, sourceLabel } from "@/lib/clockStatus";
 import { ClockEvent } from "@/lib/types";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import ClockEventsDayView from "@/components/dashboard/ClockEventsDayView";
+import { GeofenceBadge } from "@/components/time/GeofenceBadge";
+import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
 
 export default function ClockEventLookup() {
   const { userData } = useAuth();
   const { employees: allEmployees } = useEmployees();
   const { sites: allSites } = useSites();
-  const { settings: timesheetSettings } = useCompanySettings();
+  const { settings: timesheetSettings, isPro } = useCompanySettings();
   const { runTimesheet } = useEmployeeTimesheet();
   const { searchClockEvents } = useClockEvents();
 
@@ -37,6 +39,11 @@ export default function ClockEventLookup() {
   const [lookupResults, setLookupResults] = useState<ClockEvent[] | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState("");
+  const [outsideGeofenceOnly, setOutsideGeofenceOnly] = useState(false);
+
+  const displayedResults: ClockEvent[] = outsideGeofenceOnly
+    ? (lookupResults ?? []).filter((e) => e.geofenceStatus === "outside")
+    : lookupResults ?? [];
 
   const [exportingTimesheet, setExportingTimesheet] = useState(false);
   const [exportError, setExportError] = useState("");
@@ -80,6 +87,7 @@ export default function ClockEventLookup() {
     setLookupToDate("");
     setLookupResults(null);
     setLookupError("");
+    setOutsideGeofenceOnly(false);
   }
 
   const isPairable = (t: ClockEvent["type"]) => t === "in" || t === "out";
@@ -257,14 +265,29 @@ export default function ClockEventLookup() {
               </button>
             )}
           </div>
+          {isPro && (
+            <div className="border-b border-gray-200 px-4 py-2">
+              <label className="flex items-center gap-2 text-xs font-medium text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={outsideGeofenceOnly}
+                  onChange={(e) => setOutsideGeofenceOnly(e.target.checked)}
+                  className="rounded border-gray-300 text-accent focus:ring-accent"
+                />
+                Outside geofence only
+              </label>
+            </div>
+          )}
           {exportError && (
             <p className="border-b border-gray-200 bg-red-50 px-4 py-2 text-xs text-red-600">
               {exportError}
             </p>
           )}
-          {lookupResults.length === 0 ? (
+          {displayedResults.length === 0 ? (
             <p className="p-4 text-sm text-gray-600">
-              No clock events match that search.
+              {outsideGeofenceOnly
+                ? "No results outside a geofence."
+                : "No clock events match that search."}
             </p>
           ) : (
             <table className="w-full text-left text-sm">
@@ -278,10 +301,11 @@ export default function ClockEventLookup() {
                   <th className="px-4 py-2 font-medium">Authorized by</th>
                   <th className="px-4 py-2 font-medium">Photo</th>
                   <th className="px-4 py-2 font-medium">Note</th>
+                  <th className="px-4 py-2 font-medium">Geofence</th>
                 </tr>
               </thead>
               <tbody>
-                {lookupResults.map((event) => {
+                {displayedResults.map((event) => {
                   const badge = sourceLabel(event.source);
                   const typeBadge = typeLabel(event.type);
                   const pairable = isPairable(event.type);
@@ -303,6 +327,7 @@ export default function ClockEventLookup() {
                       </td>
                       <td className="px-4 py-2.5 text-gray-600">
                         {event.siteName}
+                        <AutoDetectedTag event={event} />
                       </td>
                       <td className="px-4 py-2.5">
                         <span className={`font-medium ${typeBadge.className}`}>
@@ -337,6 +362,9 @@ export default function ClockEventLookup() {
                       </td>
                       <td className="px-4 py-2.5 text-gray-600">
                         {event.note || "-"}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <GeofenceBadge event={event} />
                       </td>
                     </tr>
                   );
