@@ -15,6 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://orbitsworks.com"),
+  manifest: "/manifest.webmanifest",
   title: {
     default: "Orbitsworks - Job Site Workforce Tracking",
     template: "%s | Orbitsworks",
@@ -39,7 +40,7 @@ export const metadata: Metadata = {
     type: "website",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "Orbitsworks - Job Site Workforce Tracking",
     description:
       "PIN clock-in time tracking for job-site crews. Clock employees in and out with photo proof, manage job sites, approve hours, and get payroll-ready reports.",
