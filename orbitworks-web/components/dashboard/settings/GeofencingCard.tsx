@@ -74,6 +74,11 @@ export function GeofencingCard({
           <p className="mt-4 text-xs text-gray-500">
             Clock-outs are never blocked, only flagged, so no one gets stuck on the clock.
           </p>
+          <p className="mt-2 text-xs text-gray-500">
+            Enforcement happens inside the OrbitsWorks app itself, so it can&apos;t stop a
+            clock-in made outside of it (for example, through a modified app or a direct API
+            call) - those still come through, just flagged for review afterward like Flag mode.
+          </p>
 
           {!hasGeofencedSite && (
             <p className="mt-2 text-xs text-gray-500">
