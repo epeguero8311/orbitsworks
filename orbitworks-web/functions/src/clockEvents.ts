@@ -1,7 +1,9 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, type FirestoreEvent } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { defineBoolean } from "firebase-functions/params";
 import * as admin from "firebase-admin";
+import { Timestamp } from "firebase-admin/firestore";
 import {
   db,
   localDateKey,
@@ -16,6 +18,80 @@ import { classifyGeofence, detectSite, DetectableSite, GeofenceStatus } from "./
 // why this can't just be imported.
 function isProPlan(planTier: string | undefined | null): boolean {
   return !!planTier && planTier.startsWith("pro_");
+}
+
+// Device Recognition Pro - dark-launched, default OFF. While false, every
+// clock event is processed exactly as it is today; handleDeviceTracking
+// below returns immediately, before reading or writing anything. Flip
+// only after both the rules and this function are deployed.
+export const DEVICE_TRACKING_ENABLED = defineBoolean("DEVICE_TRACKING_ENABLED", { default: false });
+
+const DEVICE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Device Recognition Pro. Stamps lastSeenAt/lastUserUid onto an EXISTING,
+// already-named device doc (mobile Settings / web Devices name it first -
+// see firestore.rules' devices/{deviceId} create rule) so the UI can show
+// "last used by". Never creates a device doc for an unnamed device, and
+// never touches the clock event itself - this is purely a side write for
+// the device's own doc, kept fully isolated from the geofencing/approvals
+// logic above. Every input here is untrusted (old app versions, other
+// event sources, and non-Pro companies never send a usable deviceId), so
+// every check below is a silent skip, not a throw - and the one try/catch
+// wrapping all of it means a malformed field, a missing company doc, or a
+// transaction conflict can never make the clock event itself fail to
+// process, flag on or off.
+async function handleDeviceTracking(
+  event: FirestoreEvent<admin.firestore.QueryDocumentSnapshot | undefined, { companyId: string; eventId: string }>
+): Promise<void> {
+  const companyId = event.params?.companyId;
+  const eventId = event.params?.eventId;
+  try {
+    if (!DEVICE_TRACKING_ENABLED.value()) return;
+
+    const data = event.data?.data();
+    if (!data || !companyId) return;
+
+    const deviceId = data.deviceId;
+    if (typeof deviceId !== "string" || !DEVICE_ID_REGEX.test(deviceId)) return;
+
+    // "pin" is the real app's normal PIN+photo clock-in source; faceMatch
+    // is kept for forward compatibility even though nothing sends it today.
+    const source = data.source;
+    if (source !== "faceMatch" && source !== "supervisorOverride" && source !== "pin") return;
+
+    const eventTimestamp = data.timestamp;
+    // Modular Timestamp import, not admin.firestore.Timestamp - the
+    // namespaced static comes back undefined inside the Functions
+    // Emulator (firebase-admin/firebase-tools compat-layer bug local to
+    // emulation; unaffected in deployed Cloud Functions).
+    if (!(eventTimestamp instanceof Timestamp)) return;
+
+    const companySnap = await db.collection("companies").doc(companyId).get();
+    if (!isProPlan(companySnap.data()?.planTier as string | undefined)) return;
+
+    const deviceRef = db
+      .collection("companies")
+      .doc(companyId)
+      .collection("devices")
+      .doc(deviceId);
+
+    await db.runTransaction(async (tx) => {
+      const deviceSnap = await tx.get(deviceRef);
+      if (!deviceSnap.exists) return;
+
+      const existing = deviceSnap.data() as { lastSeenAt?: admin.firestore.Timestamp } | undefined;
+      if (existing?.lastSeenAt && existing.lastSeenAt.toMillis() >= eventTimestamp.toMillis()) {
+        return;
+      }
+
+      tx.update(deviceRef, {
+        lastSeenAt: eventTimestamp,
+        lastUserUid: (data.createdByUid as string | undefined) ?? null,
+      });
+    });
+  } catch (err) {
+    console.warn("Device tracking failed for clock event", eventId, companyId, err);
+  }
 }
 
 // Keeps employees/{employeeId}.lastEventType in sync with the most
@@ -377,6 +453,13 @@ export const onClockEventCreated = onDocumentCreated(
         });
       }
     }
+
+    // Device Recognition Pro - runs last, fully isolated from everything
+    // above. handleDeviceTracking never throws (its own try/catch
+    // swallows everything), so this can never fail the trigger; the
+    // extra .catch here is belt-and-suspenders against a future edit to
+    // that function accidentally removing its internal guard.
+    await handleDeviceTracking(event).catch(() => {});
   }
 );
 

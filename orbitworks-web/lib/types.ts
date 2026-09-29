@@ -192,6 +192,39 @@ export interface ClockEvent {
   subcontractorName?: string | null;
   reason?: string;
   overrideEventId?: string;
+  // Device Recognition Pro (dark-launched behind DEVICE_TRACKING_ENABLED -
+  // see functions/src/clockEvents.ts). Stamped by the mobile app on every
+  // faceMatch/supervisorOverride event regardless of plan (never on
+  // adminManual); both are optional forever since old app versions and
+  // other sources never send them. deviceNameSnapshot is the device's name
+  // *at capture time* (null if the device was never named) - Time Tracking
+  // shows "(was: X)" when it no longer matches the device's current name,
+  // so renaming a device later never rewrites history.
+  deviceId?: string;
+  deviceNameSnapshot?: string | null;
+}
+
+// Device Recognition Pro. Doc only exists once a supervisor/admin names the
+// device - an unnamed device (deviceId seen on clock events but no doc
+// here) is never created automatically (see functions/src/clockEvents.ts).
+// lastSeenAt/lastUserUid are written ONLY by onClockEventCreated via the
+// Admin SDK - firestore.rules denies them to every client.
+export interface Device {
+  id: string;
+  name: string;
+  platform: "ios" | "android";
+  model: string;
+  createdByUid: string;
+  createdAt: Timestamp;
+  updatedByUid?: string;
+  updatedAt?: Timestamp;
+  lastSeenAt?: Timestamp;
+  lastUserUid?: string;
+  // Freezes name for everyone, including admins, until an admin unlocks it.
+  // Never blocks clock-ins - lock is a naming-integrity control only.
+  locked: boolean;
+  lockedByUid?: string;
+  lockedAt?: Timestamp;
 }
 
 // ---- Alerts ----

@@ -23,6 +23,11 @@
       ]
     }
   ],
+  "emulators": {
+    "firestore": { "port": 8090 },
+    "functions": { "port": 5091 },
+    "ui": { "enabled": false }
+  },
   "apphosting": {
     "backendId": "orbitsworks-backend",
     "rootDir": "/",

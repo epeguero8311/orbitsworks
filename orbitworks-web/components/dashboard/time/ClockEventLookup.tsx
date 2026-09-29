@@ -355,7 +355,10 @@ export default function ClockEventLookup() {
                       <td className="px-4 py-2.5 text-gray-600">
                         {isAdjusted
                           ? adj?.changedByName ?? "Admin"
-                          : event.authorizedByName || "-"}
+                          : event.authorizedByName ||
+                            (event.deviceNameSnapshot
+                              ? `${event.deviceNameSnapshot} (device)`
+                              : "-")}
                       </td>
                       <td className="px-4 py-2.5 text-gray-600">
                         {event.photoUrl ? "View" : "-"}

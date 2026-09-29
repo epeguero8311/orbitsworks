@@ -7,6 +7,7 @@ import { AttendanceRulesCard } from "@/components/dashboard/settings/AttendanceR
 import { GeofencingCard } from "@/components/dashboard/settings/GeofencingCard";
 import { AlertsCard } from "@/components/dashboard/settings/AlertsCard";
 import { AppSettingsCard } from "@/components/dashboard/settings/AppSettingsCard";
+import { DevicesCard } from "@/components/dashboard/settings/DevicesCard";
 
 export default function SettingsPage() {
   const s = useSettingsPage();
@@ -47,6 +48,8 @@ export default function SettingsPage() {
             enforcementMode={s.enforcementMode}
             onEnforcementModeChange={s.setEnforcementMode}
           />
+
+          <DevicesCard isPro={s.isPro} />
 
           <AlertsCard
             alerts={s.alerts}

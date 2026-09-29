@@ -111,7 +111,46 @@ service cloud.firestore {
         request.resource.data.localId == resource.data.localId &&
         request.resource.data.employeeId == resource.data.employeeId &&
         request.resource.data.type == resource.data.type &&
-        request.resource.data.clientTimestamp == resource.data.clientTimestamp;
+        request.resource.data.clientTimestamp == resource.data.clientTimestamp &&
+        // Device Recognition Pro - pinned the same way as the other
+        // identity fields above. .get(field, null) (not direct access) is
+        // required on both sides: an old app version's original event, or
+        // its own replay, never had these keys at all, and direct access
+        // to a missing map key throws in rules rather than returning
+        // undefined.
+        request.resource.data.get('deviceId', null) == resource.data.get('deviceId', null) &&
+        request.resource.data.get('deviceNameSnapshot', null) == resource.data.get('deviceNameSnapshot', null);
+    }
+
+    // Device Recognition Pro. Lock freezes a device's name for EVERYONE,
+    // including admins - to rename a locked device, an admin must unlock
+    // it first (flip 'locked' to false), then rename in a separate write.
+    // lastSeenAt/lastUserUid are excluded from every affectedKeys() list
+    // on purpose: only onClockEventCreated (Admin SDK, bypasses rules)
+    // ever writes them, via a transaction against an already-existing doc
+    // (see functions/src/clockEvents.ts) - no client path here ever needs
+    // to touch them.
+    function isValidDeviceRename(companyId) {
+      let diff = request.resource.data.diff(resource.data).affectedKeys();
+      return !diff.hasAny(['lastSeenAt', 'lastUserUid']) &&
+        (!diff.hasAny(['name']) ||
+          (request.resource.data.name is string &&
+           request.resource.data.name.size() >= 1 &&
+           request.resource.data.name.size() <= 24)) &&
+        (!diff.hasAny(['updatedByUid']) || request.resource.data.updatedByUid == request.auth.uid) &&
+        (!diff.hasAny(['lockedByUid']) || request.resource.data.lockedByUid == request.auth.uid) &&
+        (
+          (resource.data.get('locked', false) == false &&
+            (
+              (isAdminOrOwner() &&
+               diff.hasOnly(['name', 'updatedAt', 'updatedByUid', 'locked', 'lockedByUid', 'lockedAt'])) ||
+              ((request.auth.token.role == 'supervisor' && isActiveEmployee(companyId)) &&
+               diff.hasOnly(['name', 'updatedAt', 'updatedByUid']))
+            )) ||
+          (resource.data.get('locked', false) == true &&
+            isAdminOrOwner() &&
+            diff.hasOnly(['locked', 'lockedByUid', 'lockedAt']))
+        );
     }
 
     match /users/{userId} {
@@ -250,7 +289,15 @@ service cloud.firestore {
               // once a client creates the event with its initial guess, only
               // that same trigger is ever allowed to correct it.
               'geofenceStatus', 'distanceFromSiteM', 'locationAddress',
-              'siteId', 'siteName', 'siteCorrected', 'siteMismatch', 'siteAutoDetected'
+              'siteId', 'siteName', 'siteCorrected', 'siteMismatch', 'siteAutoDetected',
+              // Device Recognition Pro - same "write-once at creation,
+              // never editable after" treatment as employeeId/siteId
+              // above. onClockEventCreated never writes back to these on
+              // the event itself (Device logic never modifies the clock
+              // event - see functions/src/clockEvents.ts), so nothing,
+              // not even an admin correction, should silently rewrite
+              // which device a past event is attributed to.
+              'deviceId', 'deviceNameSnapshot'
             ]) &&
           (
             isAdminOrOwner() ||
@@ -259,6 +306,47 @@ service cloud.firestore {
         allow delete: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId;
+      }
+
+      match /devices/{deviceId} {
+        // Read: supervisor or admin/owner only - not every employee, per
+        // spec. isActiveEmployee gates the supervisor branch so a
+        // deactivated supervisor's still-valid login can't keep browsing
+        // device names, same active-employee gate the clockEvents create
+        // rule already applies to supervisors above.
+        allow read: if request.auth != null &&
+          request.auth.token.companyId == companyId &&
+          (isAdminOrOwner() ||
+           (request.auth.token.role == 'supervisor' && isActiveEmployee(companyId)));
+
+        // A device doc is only ever created the first time someone names
+        // an unnamed device (mobile Settings / web Devices section) -
+        // never auto-created by onClockEventCreated, which only ever
+        // updates an EXISTING doc (see functions/src/clockEvents.ts).
+        // locked/lockedByUid/lockedAt/lastSeenAt/lastUserUid are absent
+        // from the allowed key set on purpose - a brand new device can't
+        // be created already locked or with a fabricated seen history.
+        allow create: if request.auth != null &&
+          request.auth.token.companyId == companyId &&
+          (isAdminOrOwner() ||
+           (request.auth.token.role == 'supervisor' && isActiveEmployee(companyId))) &&
+          request.resource.data.keys().hasOnly(['name', 'platform', 'model', 'createdByUid', 'createdAt']) &&
+          request.resource.data.createdByUid == request.auth.uid &&
+          request.resource.data.name is string &&
+          request.resource.data.name.size() >= 1 &&
+          request.resource.data.name.size() <= 24 &&
+          request.resource.data.platform in ['ios', 'android', ''];
+
+        allow update: if request.auth != null &&
+          request.auth.token.companyId == companyId &&
+          isValidDeviceRename(companyId);
+
+        // No client, including admins, may delete a device doc directly -
+        // a deleted device would orphan every past clockEvents.deviceId
+        // it's named for, and there's no callable that needs this today.
+        // Same "no client delete" convention as employees/{employeeId}
+        // above.
+        allow delete: if false;
       }
 
       match /alertActions/{actionId} {

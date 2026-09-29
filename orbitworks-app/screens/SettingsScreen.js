@@ -6,13 +6,16 @@ import { signOut } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
+import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import ScreenHeader from "../components/ScreenHeader";
+import DeviceNameRow from "../components/DeviceNameRow";
 
 const ASK_SITE_KEY = "orbitworks_ask_site_each_time";
 
 export default function SettingsScreen({ navigation }) {
-  const { currentUser } = useAuth();
+  const { currentUser, userData } = useAuth();
   const { colors, isDark, toggleTheme } = useTheme();
+  const { isPro } = useCompanySettings(userData?.companyId);
   const [askSite, setAskSite] = useState(true);
 
   useEffect(() => {
@@ -33,6 +36,8 @@ export default function SettingsScreen({ navigation }) {
       <View style={styles.content}>
         <Text style={[styles.sectionLabel, { color: colors.subtext }]}>Logged in as</Text>
         <Text style={[styles.email, { color: colors.text }]}>{currentUser?.email}</Text>
+
+        <DeviceNameRow companyId={userData?.companyId} isPro={isPro} />
 
         <View style={[styles.row, { borderColor: colors.border }]}>
           <View style={styles.rowLeft}>

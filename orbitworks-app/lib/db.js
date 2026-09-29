@@ -51,6 +51,8 @@ export async function getDb() {
       lng REAL,
       locationAccuracyM REAL,
       locationAttempted INTEGER NOT NULL DEFAULT 0,
+      deviceId TEXT,
+      deviceNameSnapshot TEXT,
       createdAt INTEGER NOT NULL
     );
 
@@ -106,6 +108,8 @@ export async function getDb() {
     "ALTER TABLE event_queue ADD COLUMN locationAttempted INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE pin_cache ADD COLUMN lastEventSiteId TEXT",
     "ALTER TABLE pin_cache ADD COLUMN lastEventSiteName TEXT",
+    "ALTER TABLE event_queue ADD COLUMN deviceId TEXT",
+    "ALTER TABLE event_queue ADD COLUMN deviceNameSnapshot TEXT",
   ];
   for (const migration of migrations) {
     try {

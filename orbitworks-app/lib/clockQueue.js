@@ -2,6 +2,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { getDb } from "./db";
 import { getCurrentLocalStatus } from "./clockStatusLocal";
 import { notifyQueueChange } from "./queueEvents";
+import { getOrCreateDeviceId, getCachedDeviceName } from "./deviceId";
 
 export function makeLocalId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -17,10 +18,17 @@ async function insertQueueItem(item) {
   // that lets queueSync.js reproduce the right one server-side: the
   // former should show "Location not shared", the latter nothing.
   const locationAttempted = item.location !== undefined ? 1 : 0;
+  // Device Recognition Pro - both reads are local-only (AsyncStorage), so
+  // this never adds a network round trip to the clock-in path. deviceId is
+  // get-or-create (always resolves once storage works at all); the name
+  // is whatever useDeviceDoc.js last cached, null if never named or never
+  // observed on this install.
+  const deviceId = await getOrCreateDeviceId();
+  const deviceNameSnapshot = deviceId ? await getCachedDeviceName() : null;
   await db.runAsync(
     `INSERT INTO event_queue
-      (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, subcontractorId, subcontractorName, reason, overrideEventId, lat, lng, locationAccuracyM, locationAttempted, syncStatus, attempts, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
+      (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, subcontractorId, subcontractorName, reason, overrideEventId, lat, lng, locationAccuracyM, locationAttempted, deviceId, deviceNameSnapshot, syncStatus, attempts, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
     [
       item.localId,
       item.employeeId,
@@ -43,6 +51,8 @@ async function insertQueueItem(item) {
       item.location?.lng ?? null,
       item.location?.accuracyM ?? null,
       locationAttempted,
+      deviceId,
+      deviceNameSnapshot,
       item.createdAt,
     ]
   );
