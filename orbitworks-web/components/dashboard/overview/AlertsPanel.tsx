@@ -1,17 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle } from "lucide-react";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useAlertActions } from "@/lib/hooks/useAlertActions";
 import type { ClockEvent } from "@/lib/types";
 import {
+  ALERT_SEVERITY,
   AlertItem,
+  AlertSeverity,
+  alertTitle,
   buildAlertItems,
   effectiveDate,
   toDatetimeLocalValue,
 } from "@/lib/dashboardOverviewUtils";
+
+const SEVERITY_DOT_CLASSES: Record<AlertSeverity, string> = {
+  urgent: "bg-red-500",
+  warning: "bg-amber-500",
+  info: "bg-blue-500",
+};
 
 export default function AlertsPanel({
   loading,
@@ -152,10 +160,13 @@ export default function AlertsPanel({
             return (
               <div key={alert.key} className="rounded-lg bg-amber-50 p-3.5">
                 <div className="flex items-start gap-3">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+                  <span
+                    className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${SEVERITY_DOT_CLASSES[ALERT_SEVERITY[alert.alertType]]}`}
+                    aria-hidden="true"
+                  />
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-950">
-                      {alert.label}
+                      {alertTitle(alert)}
                     </p>
                     <p className="text-xs text-gray-600">{alert.detail}</p>
 

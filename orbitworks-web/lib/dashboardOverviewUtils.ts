@@ -22,11 +22,46 @@ export type AlertItem = {
     | "breakTooLong"
     | "clockedInOutsideGeofence"
     | "siteMismatch";
+  // Who/what this alert is about - an employee name for every alert type
+  // today. A future site-level alert (no single employee involved) should
+  // put the site name (or "All Sites") here instead - alertTitle() below
+  // just formats whatever ends up in this field, no special-casing needed.
   label: string;
   detail: string;
   employeeId: string;
   event?: ClockEvent;
 };
+
+// Short tag shown after the "-" in an alert's title, e.g. "Ryan Mitchell -
+// Overtime". Keep these short - they render inline next to a name/site.
+export const ALERT_SHORT_TAGS: Record<AlertItem["alertType"], string> = {
+  maxHours: "Max Hours",
+  missedClockOut: "Missed Clock Out",
+  overtime: "Overtime",
+  breakTooLong: "Long Break",
+  clockedInOutsideGeofence: "Outside Geofence",
+  siteMismatch: "Wrong Site",
+};
+
+// Drives the severity dot in AlertsPanel - urgent (red) for alerts that need
+// attention right away, warning (amber) for threshold breaches that should
+// be reviewed, and info (blue) for alerts that never block anything and are
+// purely a "someone should take a look" flag (see siteMismatch's comment
+// below).
+export type AlertSeverity = "urgent" | "warning" | "info";
+
+export const ALERT_SEVERITY: Record<AlertItem["alertType"], AlertSeverity> = {
+  maxHours: "urgent",
+  missedClockOut: "urgent",
+  overtime: "warning",
+  breakTooLong: "warning",
+  clockedInOutsideGeofence: "warning",
+  siteMismatch: "info",
+};
+
+export function alertTitle(alert: AlertItem) {
+  return `${alert.label} - ${ALERT_SHORT_TAGS[alert.alertType]}`;
+}
 
 // A correction (correctClockEvent) intentionally never touches the raw
 // `timestamp` field - only `adjustedTimestamp`. Anything on this page that
