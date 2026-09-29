@@ -326,6 +326,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Places autocomplete/details rate-limit counters - server-only,
+    // written by the Admin SDK from lib/places/rateLimit.ts. Same pattern
+    // as /helpChatLimits above: no client, including admins, ever needs to
+    // read or write it.
+    match /placesApiLimits/{docId} {
+      allow read, write: if false;
+    }
+
     match /invites/{inviteId} {
       // emailStatus/emailSentAt/emailError/lastEmailAttemptAt are written
       // only by sendInviteEmail (Cloud Functions) - the Admin SDK bypasses

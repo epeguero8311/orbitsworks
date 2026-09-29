@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import { useSites, AddressNotFoundError } from "@/lib/hooks/useSites";
+import { useSites, AddressNotVerifiedError, type PickedLocation } from "@/lib/hooks/useSites";
 import { Toggle } from "@/components/dashboard/settings/Toggle";
 import { EditSiteModal } from "@/components/dashboard/sites/EditSiteModal";
 import { ProBadgeLink, RadiusFields } from "@/components/dashboard/sites/GeofenceFields";
+import { AddressAutocomplete, type PickedAddress } from "@/components/dashboard/sites/AddressAutocomplete";
 import { jobSiteSchema } from "@/lib/validators/site";
 import { formatGeofenceRadius, DEFAULT_GEOFENCE_RADIUS_FT } from "@/lib/geo";
 import type { JobSite } from "@/lib/types";
@@ -26,6 +27,8 @@ export default function SitesSection() {
 
   const [siteName, setSiteName] = useState("");
   const [siteAddress, setSiteAddress] = useState("");
+  const [addressVerified, setAddressVerified] = useState(false);
+  const [pickedLocation, setPickedLocation] = useState<PickedLocation | null>(null);
   const [requireGeofence, setRequireGeofence] = useState(false);
   const [radiusValue, setRadiusValue] = useState(String(DEFAULT_GEOFENCE_RADIUS_FT));
   const [radiusUnit, setRadiusUnit] = useState<"ft" | "mi">("ft");
@@ -42,9 +45,26 @@ export default function SitesSection() {
     ? sites.find((s) => s.id === editingSiteRef.id) ?? editingSiteRef
     : null;
 
+  function handleAddressTextChange(text: string) {
+    setSiteAddress(text);
+    setAddressVerified(false);
+    setPickedLocation(null);
+  }
+
+  function handleAddressSelect(picked: PickedAddress) {
+    setSiteAddress(picked.address);
+    setAddressVerified(true);
+    setPickedLocation({ placeId: picked.placeId, lat: picked.lat, lng: picked.lng, geocodedAddress: picked.address });
+  }
+
   async function handleAddSite(e: FormEvent) {
     e.preventDefault();
     setSiteError("");
+
+    if (isPro && siteAddress.trim() && !addressVerified) {
+      setSiteError("Pick an address from the suggestions.");
+      return;
+    }
 
     const parsed = jobSiteSchema.safeParse({
       name: siteName,
@@ -60,16 +80,18 @@ export default function SitesSection() {
 
     setIsSubmittingSite(true);
     try {
-      await addSite(parsed.data);
+      await addSite(parsed.data, pickedLocation);
       setSiteName("");
       setSiteAddress("");
+      setAddressVerified(false);
+      setPickedLocation(null);
       setRequireGeofence(false);
       setRadiusValue(String(DEFAULT_GEOFENCE_RADIUS_FT));
       setRadiusUnit("ft");
     } catch (err) {
       console.error("Add site error:", err);
       setSiteError(
-        err instanceof AddressNotFoundError ? err.message : "Couldn't add the site. Try again."
+        err instanceof AddressNotVerifiedError ? err.message : "Couldn't add the site. Try again."
       );
     } finally {
       setIsSubmittingSite(false);
@@ -106,15 +128,27 @@ export default function SitesSection() {
             <label htmlFor="siteAddress" className="mb-1.5 block text-sm font-medium text-gray-950">
               Address{!requireGeofence && " (optional)"}
             </label>
-            <input
-              id="siteAddress"
-              type="text"
-              required={requireGeofence}
-              value={siteAddress}
-              onChange={(e) => setSiteAddress(e.target.value)}
-              className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-              placeholder="123 Main St"
-            />
+            {isPro ? (
+              <AddressAutocomplete
+                id="siteAddress"
+                value={siteAddress}
+                verified={addressVerified}
+                required={requireGeofence}
+                placeholder="123 Main St"
+                onTextChange={handleAddressTextChange}
+                onSelect={handleAddressSelect}
+              />
+            ) : (
+              <input
+                id="siteAddress"
+                type="text"
+                required={requireGeofence}
+                value={siteAddress}
+                onChange={(e) => setSiteAddress(e.target.value)}
+                className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                placeholder="123 Main St"
+              />
+            )}
           </div>
         </div>
 

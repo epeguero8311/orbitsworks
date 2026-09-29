@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { jobSiteSchema, type JobSiteInput } from "@/lib/validators/site";
-import { AddressNotFoundError } from "@/lib/hooks/useSites";
+import { AddressNotVerifiedError, type PickedLocation } from "@/lib/hooks/useSites";
 import { radiusInputFromSite, DEFAULT_GEOFENCE_RADIUS_FT } from "@/lib/geo";
 import type { JobSite } from "@/lib/types";
+import type { PickedAddress } from "@/components/dashboard/sites/AddressAutocomplete";
 
 interface EditSiteFormState {
   name: string;
@@ -34,7 +35,7 @@ export function useEditSiteModal({
 }: {
   site: JobSite;
   isPro: boolean;
-  updateSite: (siteId: string, input: JobSiteInput) => Promise<void>;
+  updateSite: (siteId: string, input: JobSiteInput, location: PickedLocation | null) => Promise<void>;
   deleteSite: (siteId: string) => Promise<void>;
   onClose: () => void;
 }) {
@@ -46,6 +47,11 @@ export function useEditSiteModal({
 
   const [name, setName] = useState(initial.name);
   const [address, setAddress] = useState(initial.address);
+  // A pre-existing saved address is grandfathered as already acceptable
+  // (see AddressNotVerifiedError below) - the moment the admin edits that
+  // text, this flips false and they have to re-pick from suggestions.
+  const [addressVerified, setAddressVerified] = useState(!!initial.address);
+  const [pickedLocation, setPickedLocation] = useState<PickedLocation | null>(null);
   const [requireGeofence, setRequireGeofenceState] = useState(initial.requireGeofence);
   const [radiusValue, setRadiusValue] = useState(initial.radiusValue);
   const [radiusUnit, setRadiusUnit] = useState<"ft" | "mi">(initial.radiusUnit);
@@ -63,6 +69,18 @@ export function useEditSiteModal({
     if (value && !radiusValue) {
       setRadiusValue(String(DEFAULT_GEOFENCE_RADIUS_FT));
     }
+  }
+
+  function handleAddressTextChange(text: string) {
+    setAddress(text);
+    setAddressVerified(false);
+    setPickedLocation(null);
+  }
+
+  function handleAddressSelect(picked: PickedAddress) {
+    setAddress(picked.address);
+    setAddressVerified(true);
+    setPickedLocation({ placeId: picked.placeId, lat: picked.lat, lng: picked.lng, geocodedAddress: picked.address });
   }
 
   const isDirty =
@@ -121,15 +139,19 @@ export function useEditSiteModal({
 
   async function handleSave() {
     if (!parsed.success) return;
+    if (isPro && address.trim() && !addressVerified) {
+      setSaveError("Pick an address from the suggestions.");
+      return;
+    }
     setIsSaving(true);
     setSaveError("");
     try {
-      await updateSite(site.id, parsed.data);
+      await updateSite(site.id, parsed.data, pickedLocation);
       onClose();
     } catch (err) {
       console.error("Edit site error:", err);
       setSaveError(
-        err instanceof AddressNotFoundError ? err.message : "Couldn't save changes. Try again."
+        err instanceof AddressNotVerifiedError ? err.message : "Couldn't save changes. Try again."
       );
     } finally {
       setIsSaving(false);
@@ -154,7 +176,9 @@ export function useEditSiteModal({
     name,
     setName,
     address,
-    setAddress,
+    addressVerified,
+    handleAddressTextChange,
+    handleAddressSelect,
     requireGeofence,
     setRequireGeofence,
     radiusValue,

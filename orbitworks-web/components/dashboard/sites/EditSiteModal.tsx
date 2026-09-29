@@ -3,10 +3,12 @@
 import { useEditSiteModal } from "@/lib/hooks/useEditSiteModal";
 import { Toggle } from "@/components/dashboard/settings/Toggle";
 import { ProBadgeLink, RadiusFields } from "@/components/dashboard/sites/GeofenceFields";
+import { AddressAutocomplete } from "@/components/dashboard/sites/AddressAutocomplete";
 import ConfirmModal from "@/components/dashboard/billing/ConfirmModal";
 import { buildGoogleMapsUrl, buildGoogleMapsSearchUrl } from "@/lib/geo";
 import type { JobSite } from "@/lib/types";
 import type { JobSiteInput } from "@/lib/validators/site";
+import type { PickedLocation } from "@/lib/hooks/useSites";
 
 export function EditSiteModal({
   site,
@@ -17,7 +19,7 @@ export function EditSiteModal({
 }: {
   site: JobSite;
   isPro: boolean;
-  updateSite: (siteId: string, input: JobSiteInput) => Promise<void>;
+  updateSite: (siteId: string, input: JobSiteInput, location: PickedLocation | null) => Promise<void>;
   deleteSite: (siteId: string) => Promise<void>;
   onClose: () => void;
 }) {
@@ -79,13 +81,24 @@ export function EditSiteModal({
               >
                 Address{!m.requireGeofence && " (optional)"}
               </label>
-              <input
-                id="editSiteAddress"
-                type="text"
-                value={m.address}
-                onChange={(e) => m.setAddress(e.target.value)}
-                className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-              />
+              {isPro ? (
+                <AddressAutocomplete
+                  id="editSiteAddress"
+                  value={m.address}
+                  verified={m.addressVerified}
+                  required={m.requireGeofence}
+                  onTextChange={m.handleAddressTextChange}
+                  onSelect={m.handleAddressSelect}
+                />
+              ) : (
+                <input
+                  id="editSiteAddress"
+                  type="text"
+                  value={m.address}
+                  onChange={(e) => m.handleAddressTextChange(e.target.value)}
+                  className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                />
+              )}
               {m.fieldErrors.address?.[0] && (
                 <p className="mt-1 text-xs text-red-600">{m.fieldErrors.address[0]}</p>
               )}

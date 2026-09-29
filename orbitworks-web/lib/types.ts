@@ -5,14 +5,20 @@ export interface JobSite {
   name: string;
   address?: string;
   active: boolean;
-  // Forward-geocoded from `address` (Pro only - see geocodeJobSiteAddress
-  // in functions/src/geocoding.ts) so onClockEventCreated can compute
-  // distanceFromSiteM on each clock event. Sites created before this
-  // feature, or whose address didn't geocode, simply have neither field -
-  // distance just doesn't show for them (see ClockEvent below).
+  // Set from a picked Google Places autocomplete suggestion (Pro only -
+  // see AddressAutocomplete.tsx and app/api/places/details/route.ts) so
+  // onClockEventCreated can compute distanceFromSiteM on each clock event.
+  // Sites created before this feature, or whose address was never
+  // re-picked, simply have neither field - distance just doesn't show for
+  // them (see ClockEvent below).
   lat?: number;
   lng?: number;
   geocodedAddress?: string;
+  // The Google Places place ID the address was picked from. Only present
+  // for addresses picked via autocomplete - a legacy typed address (or one
+  // that's never been re-picked) has no placeId even if it does have
+  // lat/lng from the old Mapbox-based geocoding.
+  placeId?: string;
   // How close a clock event's coordinates must be to count as "on site"
   // (see classifySiteProximity in lib/geo.ts). Editable via the Sites
   // geofence toggle (Pro only - see requireGeofence below); sites without

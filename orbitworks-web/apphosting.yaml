@@ -96,3 +96,5 @@ env:
     secret: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   - variable: ANTHROPIC_API_KEY
     secret: ANTHROPIC_API_KEY
+  - variable: GOOGLE_PLACES_API_KEY
+    secret: GOOGLE_PLACES_API_KEY
