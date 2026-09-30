@@ -33,6 +33,10 @@ export type Alerts = {
 
 export type AppSettings = {
   allowSupervisorOverride: boolean;
+  // Gates the mobile app's Create Employee flow (see createEmployee in
+  // functions/src/createEmployee.ts, which also enforces this server-side) -
+  // when off, the button doesn't even show on mobile.
+  allowAppEmployeeCreate: boolean;
 };
 
 // Geofencing (Pro) Part 2 - company-wide enforcement mode. Clock-outs are
@@ -103,6 +107,7 @@ export const DEFAULT_ALERTS: Alerts = {
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   allowSupervisorOverride: true,
+  allowAppEmployeeCreate: true,
 };
 
 // Existing companies with no saved geofencing value behave as "Flag only"

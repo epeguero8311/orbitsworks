@@ -13,6 +13,8 @@ export {
   deleteEmployee,
 } from "./employees";
 
+export { createEmployee } from "./createEmployee";
+
 export {
   setEmployeePin,
   backfillEmployeePins,

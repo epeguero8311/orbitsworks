@@ -100,6 +100,12 @@ export interface Employee {
   // is readable without a live clockEvents query - same field the mobile
   // app uses for offline status.
   lastEventType?: "in" | "out" | "breakStart" | "breakEnd";
+  // Set by createEmployee (functions/src/createEmployee.ts) when an employee
+  // is created from the mobile app's Create Employee flow - unset for every
+  // employee created any other way. The future AWS Rekognition enrollment
+  // step looks for "not_enrolled" and flips it to "enrolled" once the
+  // reference photo is registered; no client can set this field directly.
+  faceStatus?: "not_enrolled" | "enrolled";
   // Only meaningful when jobId is unset (custom rate) - see Job.rateHistory
   // for the job-linked equivalent. Same seed-on-first-edit behavior.
   rateHistory?: RateHistoryEntry[];

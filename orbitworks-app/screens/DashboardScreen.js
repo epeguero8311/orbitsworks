@@ -13,8 +13,10 @@ import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
 import { useLocalEmployee } from "../lib/hooks/useLocalEmployee";
 import { useDeclinedCount } from "../lib/hooks/useDeclinedCount";
+import { useEmployeeSyncAlertCount } from "../lib/hooks/useEmployeeSyncAlertCount";
 import { syncPinTable } from "../lib/pinSync";
 import { drainQueue } from "../lib/queueSync";
+import { drainEmployeeQueue } from "../lib/employeeQueueSync";
 import { isAutoDetectionActive } from "../lib/geofenceCheck";
 import OfflineBanner from "../components/OfflineBanner";
 import Avatar from "../components/Avatar";
@@ -30,8 +32,17 @@ export default function DashboardScreen({ navigation }) {
   const { settings, isPro } = useCompanySettings(userData?.companyId);
   const localSupervisor = useLocalEmployee(linkedEmployeeId);
   const declinedCount = useDeclinedCount();
+  const employeeSyncAlertCount = useEmployeeSyncAlertCount();
   const [askSite, setAskSite] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Create Employee (mobile) - supervisors and admins only, and only while
+  // the company's toggle is on (Settings > App Settings on the web
+  // dashboard). Owner carries the same access as admin everywhere else in
+  // this app's role checks.
+  const canCreateEmployee =
+    (userData?.role === "supervisor" || userData?.role === "admin" || userData?.role === "owner") &&
+    settings.appSettings.allowAppEmployeeCreate;
 
   useFocusEffect(
     useCallback(() => {
@@ -98,6 +109,7 @@ export default function DashboardScreen({ navigation }) {
       await Promise.all([
         syncPinTable().catch(() => {}),
         drainQueue(userData?.companyId),
+        drainEmployeeQueue(userData?.companyId),
       ]);
     } finally {
       setRefreshing(false);
@@ -130,6 +142,18 @@ export default function DashboardScreen({ navigation }) {
                   <Text style={styles.badgeText}>{declinedCount > 9 ? "9+" : declinedCount}</Text>
                 </View>
               )}
+            </TouchableOpacity>
+          )}
+          {employeeSyncAlertCount > 0 && (
+            <TouchableOpacity
+              style={styles.bellButton}
+              onPress={() => navigation.navigate("EmployeeSyncAlerts")}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Feather name="alert-triangle" size={22} color={colors.red} />
+              <View style={[styles.badge, { backgroundColor: colors.red }]}>
+                <Text style={styles.badgeText}>{employeeSyncAlertCount > 9 ? "9+" : employeeSyncAlertCount}</Text>
+              </View>
             </TouchableOpacity>
           )}
           <TouchableOpacity onPress={() => navigation.navigate("Settings")}>
@@ -192,6 +216,20 @@ export default function DashboardScreen({ navigation }) {
           <Feather name="chevron-right" size={22} color="#fff" />
         </TouchableOpacity>
 
+        {canCreateEmployee && (
+          <TouchableOpacity
+            style={[styles.createEmployeeCard, { borderColor: colors.border, backgroundColor: colors.card }]}
+            onPress={() => navigation.navigate("CreateEmployee")}
+            activeOpacity={0.85}
+          >
+            <View style={styles.breaksLeft}>
+              <Feather name="user-plus" size={22} color={colors.accent} />
+              <Text style={[styles.createEmployeeText, { color: colors.text }]}>Create Employee</Text>
+            </View>
+            <Feather name="chevron-right" size={22} color={colors.subtext} />
+          </TouchableOpacity>
+        )}
+
         <View style={[styles.hoursRow, { borderColor: colors.border }]}>
           <Feather name="clock" size={14} color={colors.subtext} />
           <Text style={[styles.hoursText, { color: colors.subtext }]}>
@@ -236,6 +274,11 @@ const styles = StyleSheet.create({
   breaksLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   statLabel: { color: "#fff", fontSize: 15, fontWeight: "700" },
   breaksSubtext: { color: "#fff", fontSize: 12, opacity: 0.9, marginTop: 2 },
+  createEmployeeCard: {
+    borderRadius: 18, borderWidth: 1, paddingVertical: 16, paddingHorizontal: 20,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 12,
+  },
+  createEmployeeText: { fontSize: 15, fontWeight: "700" },
   hoursRow: {
     flexDirection: "row", alignItems: "center", gap: 6,
     marginTop: 16, marginBottom: 20, justifyContent: "center",

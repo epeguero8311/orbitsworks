@@ -40,6 +40,14 @@ export function AppSettingsCard({
             setAttendanceRules((prev) => ({ ...prev, requireOverrideReason: v }))
           }
         />
+        <Toggle
+          label="Allow creating employees from the app"
+          description="Supervisors and admins can add a new employee from the mobile app, with a photo and PIN."
+          checked={appSettings.allowAppEmployeeCreate}
+          onChange={(v) =>
+            setAppSettings((prev) => ({ ...prev, allowAppEmployeeCreate: v }))
+          }
+        />
       </div>
     </div>
   );

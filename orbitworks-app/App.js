@@ -8,6 +8,7 @@ import { ThemeProvider, useTheme } from "./lib/ThemeContext";
 import { SiteSessionProvider } from "./lib/SiteSessionContext";
 import { usePinTableSync } from "./lib/hooks/usePinTableSync";
 import { useQueueSync } from "./lib/hooks/useQueueSync";
+import { useEmployeeQueueSync } from "./lib/hooks/useEmployeeQueueSync";
 import LoginScreen from "./screens/LoginScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import AccountDisabledScreen from "./screens/AccountDisabledScreen";
@@ -28,6 +29,8 @@ import BreaksEmployeeListScreen from "./screens/BreaksEmployeeListScreen";
 import OverridePinEntryScreen from "./screens/OverridePinEntryScreen";
 import OverrideEmployeeListScreen from "./screens/OverrideEmployeeListScreen";
 import OverrideReasonScreen from "./screens/OverrideReasonScreen";
+import CreateEmployeeScreen from "./screens/CreateEmployeeScreen";
+import EmployeeSyncAlertsScreen from "./screens/EmployeeSyncAlertsScreen";
 
 // Keep the native splash up until we explicitly hide it below - without
 // this, Expo auto-hides it the instant JS mounts, which is why it was
@@ -43,6 +46,7 @@ function RootNavigator() {
   const [splashAnimationDone, setSplashAnimationDone] = useState(false);
   usePinTableSync();
   useQueueSync();
+  useEmployeeQueueSync();
 
   const onNativeSplashHandoff = useCallback(() => {
     // Native splash and our JS splash are the same solid blue, so
@@ -83,6 +87,8 @@ function RootNavigator() {
             <Stack.Screen name="OverridePinEntry" component={OverridePinEntryScreen} />
             <Stack.Screen name="OverrideEmployeeList" component={OverrideEmployeeListScreen} />
             <Stack.Screen name="OverrideReason" component={OverrideReasonScreen} />
+            <Stack.Screen name="CreateEmployee" component={CreateEmployeeScreen} />
+            <Stack.Screen name="EmployeeSyncAlerts" component={EmployeeSyncAlertsScreen} />
           </>
         ) : (
           <>

@@ -6,6 +6,7 @@ const DEFAULTS = {
   businessHours: { open: "08:00", close: "17:00" },
   appSettings: {
     allowSupervisorOverride: true,
+    allowAppEmployeeCreate: true,
   },
   attendanceRules: {
     requireOverrideReason: true,

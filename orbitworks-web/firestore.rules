@@ -218,12 +218,16 @@ service cloud.firestore {
         // deleteEmployee (all Admin SDK, bypass rules) may change them,
         // so they're kept in sync
         // with users/{uid}.role and the custom claim. Same lockdown
-        // pattern as 'pin' below.
+        // pattern as 'pin' below. faceStatus is the same treatment -
+        // only createEmployee (Admin SDK) sets it at creation, and only
+        // the future AWS Rekognition enrollment step (also Admin SDK)
+        // may ever flip it to "enrolled" - no client, including an
+        // admin, edits it directly.
         allow update: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId']) &&
+            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus']) &&
           (
             request.resource.data.active != true ||
             resource.data.active == true ||
