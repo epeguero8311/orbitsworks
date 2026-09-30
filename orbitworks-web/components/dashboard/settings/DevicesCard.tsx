@@ -14,7 +14,6 @@ import type { Device } from "@/lib/types";
 interface DeviceRow {
   id: string;
   name: string | null;
-  model: string;
   lastSeen: Timestamp | null;
   lastUsedByUid: string | null;
   locked: boolean;
@@ -26,7 +25,6 @@ function buildRows(devices: Device[], unnamed: UnnamedDevice[]): DeviceRow[] {
   const named: DeviceRow[] = devices.map((d) => ({
     id: d.id,
     name: d.name,
-    model: d.model || "-",
     lastSeen: d.lastSeenAt ?? null,
     lastUsedByUid: d.lastUserUid ?? null,
     locked: d.locked,
@@ -38,7 +36,6 @@ function buildRows(devices: Device[], unnamed: UnnamedDevice[]): DeviceRow[] {
   const unnamedRows: DeviceRow[] = unnamed.map((u) => ({
     id: u.deviceId,
     name: null,
-    model: "-",
     lastSeen: u.lastSeen,
     lastUsedByUid: null,
     locked: false,
@@ -89,7 +86,16 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
     );
   }
 
+  // Employees cover "Last used by" (always the app's clocked-in
+  // employee). Locking/renaming happens only from this web page, which is
+  // admin/owner-only - the actor is never in the employees list, so the
+  // current web user's own name is added here too. A different admin's
+  // uid still falls back to "Unknown" - resolving arbitrary admin/owner
+  // names would need a company-wide users lookup this page doesn't have.
   const nameByUid = new Map(employees.map((e) => [e.id, e.name]));
+  if (currentUser?.uid) {
+    nameByUid.set(currentUser.uid, userData?.name || currentUser.email || "You");
+  }
   const rows = buildRows(devices, unnamedDevices);
   const isEmpty = error || rows.length === 0;
 
@@ -202,16 +208,14 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
         <div className="mt-4 w-full overflow-x-auto">
           <table className="w-full table-fixed text-left text-sm">
             <colgroup>
-              <col style={{ width: "34%" }} />
+              <col style={{ width: "40%" }} />
+              <col style={{ width: "22%" }} />
+              <col style={{ width: "22%" }} />
               <col style={{ width: "16%" }} />
-              <col style={{ width: "18%" }} />
-              <col style={{ width: "18%" }} />
-              <col style={{ width: "14%" }} />
             </colgroup>
             <thead className="border-b border-gray-200 text-gray-600">
               <tr>
                 <th className="px-4 py-2.5 font-medium">Device name</th>
-                <th className="px-4 py-2.5 font-medium">Model</th>
                 <th className="px-4 py-2.5 font-medium">Last seen</th>
                 <th className="px-4 py-2.5 font-medium">Last used by</th>
                 <th className="px-4 py-2.5 font-medium">Lock</th>
@@ -299,7 +303,6 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
                         </p>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{row.model}</td>
                     <td className="px-4 py-3 text-gray-600">{formatLastSeen(row.lastSeen)}</td>
                     <td className="px-4 py-3 text-gray-600">{lastUsedByName}</td>
                     <td className="px-4 py-3">
