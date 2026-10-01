@@ -1,7 +1,6 @@
 ﻿import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "../lib/ThemeContext";
-import Logo from "./Logo";
 
 export default function ScreenHeader({ title, onBack, right }) {
   const { colors } = useTheme();
@@ -27,7 +26,7 @@ export default function ScreenHeader({ title, onBack, right }) {
       <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
         {title}
       </Text>
-      <View style={styles.side}>{right ?? <Logo size={20} />}</View>
+      <View style={styles.sideRight}>{right}</View>
     </View>
   );
 }
@@ -42,5 +41,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   side: { width: 40, alignItems: "center", justifyContent: "center" },
+  // Unlike the fixed-width left slot (which only ever holds a back arrow),
+  // the right slot can hold a wider element like a real button - minWidth
+  // keeps the title centered on screens that pass no `right` at all.
+  sideRight: { minWidth: 40, alignItems: "flex-end", justifyContent: "center" },
   title: { flex: 1, fontSize: 17, fontWeight: "700", textAlign: "center" },
 });

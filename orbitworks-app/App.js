@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { Feather } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
@@ -8,11 +10,17 @@ import { ThemeProvider, useTheme } from "./lib/ThemeContext";
 import { SiteSessionProvider } from "./lib/SiteSessionContext";
 import { usePinTableSync } from "./lib/hooks/usePinTableSync";
 import { useQueueSync } from "./lib/hooks/useQueueSync";
+import { useQueuePendingCount } from "./lib/hooks/useQueuePendingCount";
+import { usePushRegistration } from "./lib/hooks/usePushRegistration";
+import { useAlertsFeed } from "./lib/hooks/useAlertsFeed";
+import { navigationRef } from "./lib/navigationRef";
 import LoginScreen from "./screens/LoginScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import AccountDisabledScreen from "./screens/AccountDisabledScreen";
 import LoadingScreen from "./screens/LoadingScreen";
 import DashboardScreen from "./screens/DashboardScreen";
+import AlertsScreen from "./screens/AlertsScreen";
+import SyncQueueScreen from "./screens/SyncQueueScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import EmployeeListScreen from "./screens/EmployeeListScreen";
 import SiteSelectScreen from "./screens/SiteSelectScreen";
@@ -48,6 +56,47 @@ Sentry.init({
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const Stack = createNativeStackNavigator();
+const Tab = createBottomTabNavigator();
+
+const TAB_ICONS = {
+  Home: "home",
+  Alerts: "bell",
+  SyncQueue: "refresh-cw",
+  Settings: "settings",
+};
+
+function MainTabs() {
+  const { colors } = useTheme();
+  const pendingCount = useQueuePendingCount();
+  const { unreadCount } = useAlertsFeed();
+
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.subtext,
+        tabBarStyle: { backgroundColor: colors.background, borderTopColor: colors.border },
+        tabBarIcon: ({ color, size }) => (
+          <Feather name={TAB_ICONS[route.name]} size={size} color={color} />
+        ),
+      })}
+    >
+      <Tab.Screen name="Home" component={DashboardScreen} />
+      <Tab.Screen
+        name="Alerts"
+        component={AlertsScreen}
+        options={{ tabBarBadge: unreadCount > 0 ? unreadCount : undefined }}
+      />
+      <Tab.Screen
+        name="SyncQueue"
+        component={SyncQueueScreen}
+        options={{ tabBarLabel: "Sync Queue", tabBarBadge: pendingCount > 0 ? pendingCount : undefined }}
+      />
+      <Tab.Screen name="Settings" component={SettingsScreen} />
+    </Tab.Navigator>
+  );
+}
 
 function RootNavigator() {
   const { currentUser, loading, accountDisabled } = useAuth();
@@ -55,6 +104,7 @@ function RootNavigator() {
   const [splashAnimationDone, setSplashAnimationDone] = useState(false);
   usePinTableSync();
   useQueueSync();
+  usePushRegistration();
 
   const onNativeSplashHandoff = useCallback(() => {
     // Native splash and our JS splash are the same solid blue, so
@@ -72,15 +122,14 @@ function RootNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <StatusBar style={isDark ? "light" : "dark"} />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {currentUser && accountDisabled ? (
           <Stack.Screen name="AccountDisabled" component={AccountDisabledScreen} />
         ) : currentUser ? (
           <>
-            <Stack.Screen name="Dashboard" component={DashboardScreen} options={{ freezeOnBlur: false }} />
-            <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="MainTabs" component={MainTabs} options={{ freezeOnBlur: false }} />
             <Stack.Screen name="EmployeeList" component={EmployeeListScreen} />
             <Stack.Screen name="SiteSelect" component={SiteSelectScreen} />
             <Stack.Screen name="Notes" component={NotesScreen} />

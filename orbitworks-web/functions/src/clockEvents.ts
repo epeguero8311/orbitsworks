@@ -9,6 +9,7 @@ import {
   OVERRIDE_REASON_MIN_LENGTH,
   OVERRIDE_REASON_MAX_LENGTH,
 } from "./shared";
+import { checkLateClockIn, checkEarlyClockOut } from "./alerts";
 
 // Keeps employees/{employeeId}.lastEventType in sync with the most
 // recent clock event, so getPinSyncTable can hand the mobile app a
@@ -169,6 +170,22 @@ export const onClockEventCreated = onDocumentCreated(
             });
         }
       }
+    }
+
+    // Alert generation - fully isolated from everything above: runs AFTER
+    // the real clock-event logic, each check in its own try/catch, and
+    // never declines/flags/modifies the clock event itself. A failure
+    // here is swallowed, not rethrown - a bad alert must never break
+    // clock-in/out.
+    try {
+      await checkLateClockIn(companyId, event.params.eventId, data);
+    } catch (err) {
+      console.warn("Alert generation failed", { eventId: event.params.eventId, companyId, error: String(err) });
+    }
+    try {
+      await checkEarlyClockOut(companyId, event.params.eventId, data);
+    } catch (err) {
+      console.warn("Alert generation failed", { eventId: event.params.eventId, companyId, error: String(err) });
     }
   }
 );

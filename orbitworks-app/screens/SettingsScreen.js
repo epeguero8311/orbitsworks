@@ -1,19 +1,32 @@
-﻿import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { View, Text, Switch, TouchableOpacity, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants from "expo-constants";
 import { signOut } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
+import { getLastSyncTime } from "../lib/queueSync";
+import { subscribeQueueChange } from "../lib/queueEvents";
+import { getNotificationState, setNotificationsEnabled, registerForPushNotificationsAsync } from "../lib/pushNotifications";
 import ScreenHeader from "../components/ScreenHeader";
 
 const ASK_SITE_KEY = "orbitworks_ask_site_each_time";
+const APP_VERSION = Constants.expoConfig?.version ?? "-";
 
-export default function SettingsScreen({ navigation }) {
-  const { currentUser } = useAuth();
+function formatLastSync(ms) {
+  if (!ms) return "Never";
+  return new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+export default function SettingsScreen() {
+  const { currentUser, userData } = useAuth();
   const { colors, isDark, toggleTheme } = useTheme();
   const [askSite, setAskSite] = useState(true);
+  const [notifEnabled, setNotifEnabled] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
+  const companyId = userData?.companyId;
 
   useEffect(() => {
     AsyncStorage.getItem(ASK_SITE_KEY).then((val) => {
@@ -21,14 +34,48 @@ export default function SettingsScreen({ navigation }) {
     });
   }, []);
 
+  useEffect(() => {
+    if (!companyId) return;
+    getNotificationState(companyId).then((state) => setNotifEnabled(state?.notificationsEnabled ?? false));
+  }, [companyId]);
+
+  const refreshLastSync = useCallback(() => {
+    getLastSyncTime().then(setLastSync);
+  }, []);
+
+  useEffect(() => {
+    refreshLastSync();
+    return subscribeQueueChange(refreshLastSync);
+  }, [refreshLastSync]);
+
   const handleToggleAskSite = (value) => {
     setAskSite(value);
     AsyncStorage.setItem(ASK_SITE_KEY, String(value));
   };
 
+  const handleToggleNotifications = async (value) => {
+    setNotifEnabled(value);
+    if (!companyId) return;
+
+    if (value) {
+      const state = await getNotificationState(companyId);
+      if (!state) {
+        // Never registered on this device yet - this runs permission
+        // request + token registration (a no-op if already denied).
+        await registerForPushNotificationsAsync(companyId);
+        const after = await getNotificationState(companyId);
+        setNotifEnabled(after?.notificationsEnabled ?? false);
+        return;
+      }
+    }
+
+    const ok = await setNotificationsEnabled(companyId, value);
+    if (!ok) setNotifEnabled(!value);
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Settings" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Settings" />
 
       <View style={styles.content}>
         <Text style={[styles.sectionLabel, { color: colors.subtext }]}>Logged in as</Text>
@@ -48,6 +95,24 @@ export default function SettingsScreen({ navigation }) {
             <Text style={[styles.rowLabel, { color: colors.text }]}>Ask for job site each time</Text>
           </View>
           <Switch value={askSite} onValueChange={handleToggleAskSite} trackColor={{ true: colors.accent }} />
+        </View>
+
+        <View style={[styles.row, { borderColor: colors.border }]}>
+          <View style={styles.rowLeft}>
+            <Feather name="bell" size={18} color={colors.text} />
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Notifications</Text>
+          </View>
+          <Switch value={notifEnabled} onValueChange={handleToggleNotifications} trackColor={{ true: colors.accent }} />
+        </View>
+
+        <View style={[styles.infoRow, { borderColor: colors.border }]}>
+          <Text style={[styles.infoLabel, { color: colors.subtext }]}>Last synced</Text>
+          <Text style={[styles.infoValue, { color: colors.text }]}>{formatLastSync(lastSync)}</Text>
+        </View>
+
+        <View style={[styles.infoRow, { borderColor: colors.border }]}>
+          <Text style={[styles.infoLabel, { color: colors.subtext }]}>App version</Text>
+          <Text style={[styles.infoValue, { color: colors.text }]}>{APP_VERSION}</Text>
         </View>
 
         <TouchableOpacity style={styles.logoutButton} onPress={() => signOut(auth)}>
@@ -70,6 +135,12 @@ const styles = StyleSheet.create({
   },
   rowLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
   rowLabel: { fontSize: 15, fontWeight: "500" },
+  infoRow: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingVertical: 14, borderTopWidth: 1,
+  },
+  infoLabel: { fontSize: 14 },
+  infoValue: { fontSize: 14, fontWeight: "500" },
   logoutButton: {
     marginTop: 32, flexDirection: "row", alignItems: "center", justifyContent: "center",
     gap: 8, padding: 14,

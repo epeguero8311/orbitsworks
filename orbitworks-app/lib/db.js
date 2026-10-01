@@ -45,7 +45,8 @@ export async function getDb() {
       subcontractorName TEXT,
       reason TEXT,
       overrideEventId TEXT,
-      createdAt INTEGER NOT NULL
+      createdAt INTEGER NOT NULL,
+      syncedAt INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS sync_meta (
@@ -65,6 +66,7 @@ export async function getDb() {
     "ALTER TABLE event_queue ADD COLUMN subcontractorName TEXT",
     "ALTER TABLE event_queue ADD COLUMN reason TEXT",
     "ALTER TABLE event_queue ADD COLUMN overrideEventId TEXT",
+    "ALTER TABLE event_queue ADD COLUMN syncedAt INTEGER",
   ];
   for (const migration of migrations) {
     try {

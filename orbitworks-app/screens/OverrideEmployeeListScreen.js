@@ -98,7 +98,7 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
       });
       drainQueue(userData.companyId);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      navigation.navigate("Dashboard");
+      navigation.navigate("MainTabs");
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.log("[OverrideEmployeeList] override action failed:", err.message);
@@ -128,7 +128,7 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Supervisor Override" onBack={() => navigation.navigate("Dashboard")} />
+      <ScreenHeader title="Supervisor Override" onBack={() => navigation.navigate("MainTabs")} />
 
       <View style={styles.topRow}>
         <View style={styles.headerRow}>

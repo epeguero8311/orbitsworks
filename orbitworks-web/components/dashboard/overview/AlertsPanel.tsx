@@ -2,32 +2,19 @@
 
 import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
-import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
-import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useAlertActions } from "@/lib/hooks/useAlertActions";
+import { useServerAlerts } from "@/lib/hooks/useServerAlerts";
 import type { ClockEvent } from "@/lib/types";
-import {
-  AlertItem,
-  buildAlertItems,
-  effectiveDate,
-  toDatetimeLocalValue,
-} from "@/lib/dashboardOverviewUtils";
+import { AlertItem, effectiveDate, toDatetimeLocalValue } from "@/lib/dashboardOverviewUtils";
 
 export default function AlertsPanel({
   loading,
   currentlyActive,
-  currentlyOnBreak,
-  weeklyHoursByEmployee,
-  workedMsByEmployee,
 }: {
   loading: boolean;
   currentlyActive: ClockEvent[];
-  currentlyOnBreak: ClockEvent[];
-  weeklyHoursByEmployee: Map<string, number>;
-  workedMsByEmployee: Map<string, number>;
 }) {
-  const { settings } = useCompanySettings();
-  const { employees } = useEmployees();
+  const { alerts: serverAlerts, loading: alertsLoading } = useServerAlerts();
   const {
     resolvedKeys,
     ignoreAlert,
@@ -41,15 +28,19 @@ export default function AlertsPanel({
   const [alertActionSubmitting, setAlertActionSubmitting] = useState<string | null>(null);
   const [alertActionError, setAlertActionError] = useState<string | null>(null);
 
-  const alertItems = buildAlertItems({
-    settings,
-    currentlyActive,
-    currentlyOnBreak,
-    weeklyHoursByEmployee,
-    workedMsByEmployee,
-    employees,
-  });
+  // currentlyActive already carries each employee's latest event (whether
+  // that's an "in" or a still-open "breakStart") - see useDashboardStatus's
+  // derivation - so a single map covers both the maxHours/missedClockOut
+  // and breakTooLong action buttons below.
+  const eventByEmployee = new Map<string, ClockEvent>();
+  currentlyActive.forEach((e) => eventByEmployee.set(e.employeeId, e));
+
+  const alertItems: AlertItem[] = serverAlerts.map((a) => ({
+    ...a,
+    event: eventByEmployee.get(a.employeeId),
+  }));
   const visibleAlertItems = alertItems.filter((a) => !resolvedKeys.has(a.key));
+  const isLoading = loading || alertsLoading;
 
   async function handleIgnoreAlert(alert: AlertItem) {
     setAlertActionSubmitting(alert.key);
@@ -132,7 +123,7 @@ export default function AlertsPanel({
         <p className="mt-3 text-xs text-red-600">{alertActionError}</p>
       )}
       <div className="mt-5 space-y-3">
-        {loading ? (
+        {isLoading ? (
           <p className="text-sm text-gray-600">Loading...</p>
         ) : visibleAlertItems.length === 0 ? (
           <p className="text-sm text-gray-600">No alerts right now.</p>
@@ -201,7 +192,7 @@ export default function AlertsPanel({
                             </button>
                           </>
                         )}
-                        {alert.alertType !== "overtime" && alert.alertType !== "breakTooLong" && (
+                        {(alert.alertType === "maxHours" || alert.alertType === "missedClockOut") && (
                           <>
                             <button
                               type="button"

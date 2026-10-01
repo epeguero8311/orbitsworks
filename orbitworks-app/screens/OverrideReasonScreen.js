@@ -42,7 +42,7 @@ export default function OverrideReasonScreen({ navigation, route }) {
       });
       drainQueue(userData.companyId);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      navigation.navigate("Dashboard");
+      navigation.navigate("MainTabs");
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.log("[OverrideReason] override action failed:", err.message);
