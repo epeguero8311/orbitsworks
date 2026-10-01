@@ -47,3 +47,5 @@ export {
 } from "./tempClockLinks";
 
 export { geocodeJobSiteAddress } from "./geocoding";
+
+export { checkPeriodicAlerts } from "./alerts";

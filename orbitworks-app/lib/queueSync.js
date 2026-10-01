@@ -2,10 +2,18 @@
 import * as FileSystem from "expo-file-system/legacy";
 import { doc, setDoc, Timestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import * as Sentry from "@sentry/react-native";
 import { db as firestoreDb, storage } from "./firebase";
 import { getDb } from "./db";
+import { notifyQueueChange } from "./queueEvents";
 
 let syncing = false;
+
+// Lets the Sync Queue tab show a live "syncing" state without polling -
+// it just reads this alongside its own notifyQueueChange-driven refresh.
+export function isQueueSyncing() {
+  return syncing;
+}
 
 // How long a synced row stays in event_queue before cleanup deletes it.
 // Must stay well above any realistic onSnapshot round-trip delay so the
@@ -31,9 +39,29 @@ async function uploadPhoto(companyId, employeeId, localUri) {
 async function syncOne(sqlite, item, companyId) {
   const eventRef = doc(firestoreDb, "companies", companyId, "clockEvents", item.localId);
 
+  Sentry.addBreadcrumb({
+    category: "queueSync",
+    message: "syncOne:start",
+    level: "info",
+    data: {
+      localId: item.localId,
+      employeeId: item.employeeId,
+      type: item.type,
+      source: item.source,
+      hasPhoto: !!item.photoLocalUri,
+      attempts: item.attempts,
+    },
+  });
+
   let photoUrl = null;
   if (item.photoLocalUri) {
     photoUrl = await uploadPhoto(companyId, item.employeeId, item.photoLocalUri);
+    Sentry.addBreadcrumb({
+      category: "queueSync",
+      message: "syncOne:photoUploaded",
+      level: "info",
+      data: { localId: item.localId },
+    });
   }
 
   await setDoc(eventRef, {
@@ -73,6 +101,13 @@ async function syncOne(sqlite, item, companyId) {
     createdAt: Timestamp.fromMillis(item.createdAt),
   });
 
+  Sentry.addBreadcrumb({
+    category: "queueSync",
+    message: "syncOne:firestoreWritten",
+    level: "info",
+    data: { localId: item.localId },
+  });
+
   if (item.photoLocalUri) {
     await FileSystem.deleteAsync(item.photoLocalUri, { idempotent: true });
   }
@@ -88,9 +123,10 @@ async function syncOne(sqlite, item, companyId) {
   // which only refreshes on pull-to-refresh/login and was the direct
   // cause of the wrong Clock In/Out confirmation message.
   await sqlite.runAsync(
-    "UPDATE event_queue SET syncStatus = 'synced' WHERE localId = ?",
-    [item.localId]
+    "UPDATE event_queue SET syncStatus = 'synced', syncedAt = ? WHERE localId = ?",
+    [Date.now(), item.localId]
   );
+  notifyQueueChange();
 }
 
 // Purges old synced rows so event_queue doesn't grow unbounded. Safe to
@@ -102,14 +138,23 @@ export async function cleanupSyncedQueueItems() {
     "DELETE FROM event_queue WHERE syncStatus = 'synced' AND clientTimestamp < ?",
     [Date.now() - SYNCED_RETENTION_MS]
   );
+  notifyQueueChange();
 }
 
 export async function drainQueue(companyId) {
   if (syncing || !companyId) return;
   const net = await NetInfo.fetch();
-  if (!net.isConnected) return;
+  if (!net.isConnected) {
+    Sentry.addBreadcrumb({
+      category: "queueSync",
+      message: "drainQueue:skipped-offline",
+      level: "info",
+    });
+    return;
+  }
 
   syncing = true;
+  notifyQueueChange();
   try {
     await cleanupSyncedQueueItems().catch(() => {});
 
@@ -118,26 +163,85 @@ export async function drainQueue(companyId) {
       "SELECT * FROM event_queue WHERE syncStatus IN ('pending','failed') ORDER BY clientTimestamp ASC"
     );
 
+    Sentry.addBreadcrumb({
+      category: "queueSync",
+      message: "drainQueue:start",
+      level: "info",
+      data: { companyId, pendingCount: pending.length },
+    });
+
+    let syncedCount = 0;
+    let failedCount = 0;
+
     for (const item of pending) {
       await sqlite.runAsync("UPDATE event_queue SET syncStatus = 'syncing' WHERE localId = ?", [item.localId]);
+      notifyQueueChange();
       try {
         await syncOne(sqlite, item, companyId);
+        syncedCount++;
       } catch (err) {
         console.log("Sync failed for", item.localId, err.message);
+        failedCount++;
+        // A persistent failure (attempts keeps climbing) means this item
+        // will never sync on its own - e.g. a Firestore rules rejection
+        // or a malformed field - as opposed to a one-off network blip.
+        // Report every failure so Sentry's grouping/count shows which
+        // this is; tag by attempts bucket so a chronically-stuck item
+        // stands out from a first-try retry in the issue list.
+        Sentry.captureException(err, {
+          tags: {
+            area: "queueSync",
+            eventType: item.type,
+            source: item.source ?? "unknown",
+            persistent: item.attempts >= 2 ? "true" : "false",
+          },
+          contexts: {
+            clockQueueItem: {
+              localId: item.localId,
+              companyId,
+              employeeId: item.employeeId,
+              type: item.type,
+              source: item.source,
+              attempts: item.attempts,
+              hasPhoto: !!item.photoLocalUri,
+              errorMessage: err.message,
+              errorCode: err.code,
+            },
+          },
+        });
         await sqlite.runAsync(
           "UPDATE event_queue SET syncStatus = 'failed', attempts = attempts + 1, lastError = ? WHERE localId = ?",
           [err.message || "Unknown error", item.localId]
         );
+        notifyQueueChange();
       }
     }
+
+    Sentry.addBreadcrumb({
+      category: "queueSync",
+      message: "drainQueue:finished",
+      level: "info",
+      data: { companyId, syncedCount, failedCount },
+    });
+
+    // Records that a drain pass ran to completion (online, reached
+    // Firestore) - independent of whether every individual item
+    // succeeded; per-item failures stay visible in the Sync Queue tab
+    // itself. Drives Settings' "last successful sync" display.
+    await sqlite
+      .runAsync("INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('queueLastSync', ?)", [String(Date.now())])
+      .catch(() => {});
+    notifyQueueChange();
   } finally {
     syncing = false;
+    notifyQueueChange();
   }
 }
 
 export async function resetStuckSyncs() {
   const sqlite = await getDb();
   await sqlite.runAsync("UPDATE event_queue SET syncStatus = 'pending' WHERE syncStatus = 'syncing'");
+  notifyQueueChange();
 }
 
 export async function getPendingCount() {
@@ -146,4 +250,10 @@ export async function getPendingCount() {
     "SELECT COUNT(*) as c FROM event_queue WHERE syncStatus IN ('pending','syncing','failed')"
   );
   return row ? row.c : 0;
+}
+
+export async function getLastSyncTime() {
+  const sqlite = await getDb();
+  const row = await sqlite.getFirstAsync("SELECT value FROM sync_meta WHERE key = 'queueLastSync'");
+  return row ? Number(row.value) : null;
 }

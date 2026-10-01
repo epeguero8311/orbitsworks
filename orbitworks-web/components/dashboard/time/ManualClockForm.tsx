@@ -12,7 +12,8 @@ import {
 export default function ManualClockForm() {
   const { employees: allEmployees } = useEmployees();
   const { sites: allSites } = useSites();
-  const { statusOf, isEligibleFor, recordManualClockEvent } = useClockEvents();
+  const { statusOf, isEligibleFor, isStaleOpenSession, recordManualClockEvent } =
+    useClockEvents();
 
   // Active employees are always eligible; an inactive one only shows up
   // here if they still have an open session (deactivation should have
@@ -95,10 +96,12 @@ export default function ManualClockForm() {
     }
   }
 
-  function successMessageFor(direction: ClockDirection, name: string) {
+  function successMessageFor(direction: ClockDirection, name: string, wasStale: boolean) {
     switch (direction) {
       case "in":
-        return `Clocked in: ${name}`;
+        return wasStale
+          ? `Closed ${name}'s old open session and clocked them in fresh.`
+          : `Clocked in: ${name}`;
       case "out":
         return `Clocked out: ${name}`;
       case "breakStart":
@@ -129,9 +132,10 @@ export default function ManualClockForm() {
         return;
       }
 
+      const wasStale = type === "in" && isStaleOpenSession(employee.id);
       await recordManualClockEvent(employee, site, type, note);
 
-      setSuccess(successMessageFor(type, employee.name));
+      setSuccess(successMessageFor(type, employee.name, wasStale));
       setEmployeeId("");
       setSiteId("");
       setSearchQuery("");
@@ -287,9 +291,19 @@ export default function ManualClockForm() {
             <option key={emp.id} value={emp.id}>
               {emp.name}
               {!emp.active ? " (Inactive - clock out only)" : ""}
+              {type === "in" && isStaleOpenSession(emp.id)
+                ? " (Stuck clocked in from a previous day - will auto-close before clocking in)"
+                : ""}
             </option>
           ))}
         </select>
+        {employeeId && type === "in" && isStaleOpenSession(employeeId) && (
+          <p className="mt-1.5 text-xs text-amber-700">
+            This employee still shows clocked in from a previous day. Recording
+            this will first close that old session at that day&apos;s business
+            close time, then clock them in now.
+          </p>
+        )}
       </div>
 
       <div className="mt-4">

@@ -13,6 +13,7 @@ import {
 } from "./shared";
 import { MAPBOX_TOKEN, haversineMeters, reverseGeocode } from "./geocoding";
 import { classifyGeofence, detectSite, DetectableSite, GeofenceStatus } from "./geofencing";
+import { checkLateClockIn, checkEarlyClockOut } from "./alerts";
 
 // Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
 // why this can't just be imported.
@@ -460,6 +461,22 @@ export const onClockEventCreated = onDocumentCreated(
     // extra .catch here is belt-and-suspenders against a future edit to
     // that function accidentally removing its internal guard.
     await handleDeviceTracking(event).catch(() => {});
+
+    // Alert generation - fully isolated from everything above: runs AFTER
+    // the real clock-event logic, each check in its own try/catch, and
+    // never declines/flags/modifies the clock event itself. A failure
+    // here is swallowed, not rethrown - a bad alert must never break
+    // clock-in/out.
+    try {
+      await checkLateClockIn(companyId, event.params.eventId, data);
+    } catch (err) {
+      console.warn("Alert generation failed", { eventId: event.params.eventId, companyId, error: String(err) });
+    }
+    try {
+      await checkEarlyClockOut(companyId, event.params.eventId, data);
+    } catch (err) {
+      console.warn("Alert generation failed", { eventId: event.params.eventId, companyId, error: String(err) });
+    }
   }
 );
 

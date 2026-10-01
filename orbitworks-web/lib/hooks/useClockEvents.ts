@@ -18,6 +18,7 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { deriveStatus, ClockStatus } from "@/lib/clockStatus";
+import { dateKey, isSameDay } from "@/lib/dashboardOverviewUtils";
 import type { ClockEvent, Employee, JobSite } from "@/lib/types";
 
 export type ClockDirection = "in" | "out" | "breakStart" | "breakEnd";
@@ -73,7 +74,7 @@ export function useClockEvents() {
   // the docs in (raw timestamp order). A back-dated correction on an old
   // event must not keep outranking a genuinely newer event just because its
   // raw timestamp field never moved.
-  const employeeStatusMap = useMemo(() => {
+  const latestEventByEmployee = useMemo(() => {
     const latestByEmployee = new Map<string, ClockEvent>();
     for (const ev of recentEvents) {
       const ts = ev.adjustedTimestamp ?? ev.timestamp;
@@ -87,20 +88,45 @@ export function useClockEvents() {
         latestByEmployee.set(ev.employeeId, ev);
       }
     }
+    return latestByEmployee;
+  }, [recentEvents]);
+
+  const employeeStatusMap = useMemo(() => {
     const map: Record<string, ClockStatus> = {};
-    for (const [employeeId, ev] of latestByEmployee) {
+    for (const [employeeId, ev] of latestEventByEmployee) {
       map[employeeId] = deriveStatus(ev.type);
     }
     return map;
-  }, [recentEvents]);
+  }, [latestEventByEmployee]);
 
   function statusOf(id: string): ClockStatus {
     return employeeStatusMap[id] ?? "out";
   }
 
+  function latestEventFor(id: string): ClockEvent | undefined {
+    return latestEventByEmployee.get(id);
+  }
+
+  // True when an employee's current status is "in"/"break" only because
+  // their session was never closed on a PRIOR day - not a real ongoing
+  // shift. This happens when the source that would normally clock them out
+  // (the mobile app, or the nightly autoClockOutStaleSessions job when a
+  // company has that setting off) never wrote the closing event. Without
+  // this, such an employee is permanently stuck: isEligibleFor("in") stays
+  // false forever, so they can never be selected to clock in again without
+  // first being manually clocked out as a separate step.
+  function isStaleOpenSession(id: string): boolean {
+    const status = statusOf(id);
+    if (status === "out") return false;
+    const ev = latestEventByEmployee.get(id);
+    const ts = ev ? ev.adjustedTimestamp ?? ev.timestamp : undefined;
+    if (!ts) return false;
+    return !isSameDay(ts.toDate(), new Date());
+  }
+
   function isEligibleFor(id: string, direction: ClockDirection) {
     const status = statusOf(id);
-    if (direction === "in") return status === "out";
+    if (direction === "in") return status === "out" || isStaleOpenSession(id);
     if (direction === "out") return status === "in" || status === "break";
     if (direction === "breakStart") return status === "in";
     return status === "break"; // breakEnd
@@ -151,6 +177,45 @@ export function useClockEvents() {
       userData.companyId,
       "clockEvents"
     );
+
+    // Close out a stale open session from a prior day before starting
+    // today's, backdated to that day's business close (or end of day, if
+    // they clocked in after close) - otherwise the "in" written below
+    // would just extend a session that's actually days old instead of
+    // starting a fresh one.
+    if (direction === "in" && isStaleOpenSession(employee.id)) {
+      const staleEvent = latestEventFor(employee.id);
+      const staleTs = staleEvent
+        ? staleEvent.adjustedTimestamp ?? staleEvent.timestamp
+        : undefined;
+
+      if (staleEvent && staleTs) {
+        const staleDate = staleTs.toDate();
+        const [closeH, closeM] = settings.businessHours.close
+          .split(":")
+          .map(Number);
+        const closeTime = new Date(staleDate);
+        closeTime.setHours(closeH, closeM, 0, 0);
+        if (closeTime.getTime() <= staleDate.getTime()) {
+          closeTime.setHours(23, 59, 0, 0);
+        }
+
+        await addDoc(eventsRef, {
+          employeeId: employee.id,
+          employeeName: employee.name,
+          siteId: staleEvent.siteId ?? null,
+          siteName: staleEvent.siteName ?? "Not specified",
+          subcontractorId: employee.subcontractorId ?? null,
+          subcontractorName: employee.subcontractorName ?? null,
+          type: "out",
+          source: "adminManual",
+          note: `Auto-closed stale session from ${dateKey(staleDate)} before clocking in today`,
+          createdByUid: currentUser.uid,
+          timestamp: Timestamp.fromDate(closeTime),
+          createdAt: serverTimestamp(),
+        });
+      }
+    }
 
     if (direction === "out" && statusOf(employee.id) === "break") {
       await addDoc(eventsRef, {
@@ -237,6 +302,8 @@ export function useClockEvents() {
     loading,
     statusOf,
     isEligibleFor,
+    isStaleOpenSession,
+    latestEventFor,
     recordManualClockEvent,
     searchClockEvents,
   };

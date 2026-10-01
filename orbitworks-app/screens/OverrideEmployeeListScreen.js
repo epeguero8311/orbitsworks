@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as Sentry from "@sentry/react-native";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
@@ -103,10 +104,21 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
       });
       drainQueue(userData.companyId);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      navigation.navigate("Dashboard");
+      navigation.navigate("MainTabs");
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.log("[OverrideEmployeeList] override action failed:", err.message);
+      Sentry.captureException(err, {
+        tags: { area: "overrideEmployeeList" },
+        contexts: {
+          clockAttempt: {
+            companyId: userData?.companyId,
+            direction,
+            siteId,
+            employeeCount: selected?.length,
+          },
+        },
+      });
     } finally {
       setSubmitting(false);
     }
@@ -122,7 +134,7 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Supervisor Override" onBack={() => navigation.navigate("Dashboard")} />
+      <ScreenHeader title="Supervisor Override" onBack={() => navigation.navigate("MainTabs")} />
 
       <View style={styles.topRow}>
         <View style={styles.headerRow}>

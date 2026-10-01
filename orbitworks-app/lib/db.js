@@ -53,7 +53,8 @@ export async function getDb() {
       locationAttempted INTEGER NOT NULL DEFAULT 0,
       deviceId TEXT,
       deviceNameSnapshot TEXT,
-      createdAt INTEGER NOT NULL
+      createdAt INTEGER NOT NULL,
+      syncedAt INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS sync_meta (
@@ -144,7 +145,6 @@ export async function getDb() {
     "ALTER TABLE event_queue ADD COLUMN subcontractorId TEXT",
     "ALTER TABLE event_queue ADD COLUMN subcontractorName TEXT",
     "ALTER TABLE event_queue ADD COLUMN reason TEXT",
-    "ALTER TABLE event_queue ADD COLUMN overrideEventId TEXT",
     "ALTER TABLE event_queue ADD COLUMN lat REAL",
     "ALTER TABLE event_queue ADD COLUMN lng REAL",
     "ALTER TABLE event_queue ADD COLUMN locationAccuracyM REAL",
@@ -153,6 +153,7 @@ export async function getDb() {
     "ALTER TABLE pin_cache ADD COLUMN lastEventSiteName TEXT",
     "ALTER TABLE event_queue ADD COLUMN deviceId TEXT",
     "ALTER TABLE event_queue ADD COLUMN deviceNameSnapshot TEXT",
+    "ALTER TABLE event_queue ADD COLUMN syncedAt INTEGER",
   ];
   for (const migration of migrations) {
     try {

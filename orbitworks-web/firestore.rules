@@ -153,6 +153,22 @@ service cloud.firestore {
         );
     }
 
+    // A client may only ever append its own device id to an alert's
+    // readByDeviceIds - never touch any other field, never remove or
+    // reorder an existing entry (hasAll requires every prior id still be
+    // present), and never add more than one id per call. deviceId itself
+    // is self-asserted (same as everywhere else in this app - there's no
+    // separate per-device auth) - this bounds the blast radius of a bad
+    // actor to "mark alerts read for a device id of their choosing," never
+    // to editing an alert's actual content or another device's read state.
+    function isOwnReadStateUpdate() {
+      let before = resource.data.get('readByDeviceIds', []);
+      let after = request.resource.data.readByDeviceIds;
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readByDeviceIds']) &&
+        after.size() == before.size() + 1 &&
+        after.hasAll(before);
+    }
+
     match /users/{userId} {
       allow read: if request.auth != null && (
         request.auth.uid == userId ||
@@ -365,6 +381,55 @@ service cloud.firestore {
           ) &&
           request.resource.data.resolvedByUid == request.auth.uid;
         allow update, delete: if false;
+      }
+
+      // Server-written only, by the alert-generation Cloud Function
+      // (Admin SDK, bypasses rules) - see functions/src/alerts.ts. A
+      // client may read its own company's alerts (the mobile Alerts tab
+      // filters by assignedSiteIds client-side, same as clockEvents/
+      // employees already do for supervisors) and may update only its
+      // own device's read state - see isOwnReadStateUpdate() above.
+      match /alerts/{alertId} {
+        allow read: if request.auth != null &&
+          request.auth.token.companyId == companyId;
+        allow create, delete: if false;
+        allow update: if request.auth != null &&
+          request.auth.token.companyId == companyId &&
+          isOwnReadStateUpdate();
+      }
+
+      // A device reads its own token doc before writing (to preserve its
+      // existing notificationsEnabled preference and createdAt across
+      // re-registration) - rules can't verify "this is literally the same
+      // device" for a plain read (no device identity in the auth token,
+      // same limitation as isOwnReadStateUpdate() above), so this allows
+      // same-company read, matching the pattern already used for alerts/
+      // clockEvents/employees. A device may create/update only its own
+      // token doc (doc id must equal the deviceId field inside it) for
+      // its own company, and only with a well-formed Expo token (matches
+      // functions/src/pushTokens.ts's EXPO_PUSH_TOKEN_PATTERN); never
+      // delete - disabling notifications flips notificationsEnabled
+      // instead, so a stale-token cleanup always has a doc to find and
+      // remove server-side.
+      match /pushTokens/{deviceId} {
+        // get only, never list: the client only ever reads its own doc by
+        // its own known deviceId (lib/pushNotifications.js never queries
+        // this collection). Allowing list would let any same-company user
+        // enumerate every deviceId, defeating the "unguessable UUID"
+        // assumption the create/update check below relies on, and from
+        // there overwrite another device's token to redirect its alert
+        // pushes - a real confidentiality issue, not just a theoretical
+        // one, since alert content includes employee/site names.
+        allow get: if request.auth != null &&
+          request.auth.token.companyId == companyId;
+        allow list: if false;
+        allow delete: if false;
+        allow create, update: if request.auth != null &&
+          request.auth.token.companyId == companyId &&
+          request.resource.data.deviceId == deviceId &&
+          request.resource.data.token is string &&
+          request.resource.data.token.matches('^Expo(nent)?PushToken\\[[A-Za-z0-9_-]+\\]$') &&
+          request.resource.data.platform in ['ios', 'android'];
       }
 
       match /shiftNotes/{noteId} {

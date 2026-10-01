@@ -29,6 +29,11 @@ export type Alerts = {
   // of the employee's own assignedSiteIds. Info-only, never blocks (see
   // dashboardOverviewUtils.ts's siteMismatch alert).
   siteMismatchWarning: boolean;
+  // Mobile launch alerts (see functions/src/alerts.ts). Both are anchored
+  // to businessHours.open/close + attendanceRules.gracePeriodMinutes - no
+  // separate threshold needed for either.
+  lateClockInAlert: boolean;
+  earlyClockOutAlert: boolean;
 };
 
 export type AppSettings = {
@@ -103,6 +108,8 @@ export const DEFAULT_ALERTS: Alerts = {
   maxBreakMinutes: 15,
   clockedInOutsideGeofence: true,
   siteMismatchWarning: true,
+  lateClockInAlert: true,
+  earlyClockOutAlert: true,
 };
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {

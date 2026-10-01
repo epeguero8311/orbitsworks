@@ -117,7 +117,7 @@ export default function CreateEmployeeScreen({ navigation }) {
 
   function handleModalClose() {
     setResult(null);
-    navigation.navigate("Dashboard");
+    navigation.navigate("MainTabs");
   }
 
   if (!permission) {

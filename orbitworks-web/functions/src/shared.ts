@@ -38,6 +38,22 @@ export function localDateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+// Same timezone reasoning as localDateKey, for time-of-day instead of
+// calendar-day comparisons (e.g. "is this clock-in after business hours
+// open?") - raw Date.getHours() reads the function runtime's clock
+// (UTC), not the company's local time.
+export function localMinutesOfDay(d: Date): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: COMPANY_TIMEZONE,
+    hour: "numeric",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(d);
+  const h = Number(parts.find((p) => p.type === "hour")!.value);
+  const m = Number(parts.find((p) => p.type === "minute")!.value);
+  return h * 60 + m;
+}
+
 export async function deactivateEmployeeAuth(linkedUserId: string) {
   await admin.auth().updateUser(linkedUserId, { disabled: true });
   await admin.auth().revokeRefreshTokens(linkedUserId);

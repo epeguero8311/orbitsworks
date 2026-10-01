@@ -2,15 +2,15 @@
 
 import { useState } from "react";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
-import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useAlertActions } from "@/lib/hooks/useAlertActions";
+import { useServerAlerts } from "@/lib/hooks/useServerAlerts";
 import type { ClockEvent } from "@/lib/types";
 import {
   ALERT_SEVERITY,
   AlertItem,
   AlertSeverity,
   alertTitle,
-  buildAlertItems,
+  buildGeofenceAlertItems,
   effectiveDate,
   toDatetimeLocalValue,
 } from "@/lib/dashboardOverviewUtils";
@@ -24,20 +24,17 @@ const SEVERITY_DOT_CLASSES: Record<AlertSeverity, string> = {
 export default function AlertsPanel({
   loading,
   currentlyActive,
-  currentlyOnBreak,
   recentEvents,
-  weeklyHoursByEmployee,
-  workedMsByEmployee,
 }: {
   loading: boolean;
   currentlyActive: ClockEvent[];
-  currentlyOnBreak: ClockEvent[];
+  // Geofencing (Pro) Part 4 only - buildGeofenceAlertItems needs the raw
+  // recent events (not just currentlyActive) since its alerts are about a
+  // past clock-in moment, not current status.
   recentEvents: ClockEvent[];
-  weeklyHoursByEmployee: Map<string, number>;
-  workedMsByEmployee: Map<string, number>;
 }) {
   const { settings, isPro } = useCompanySettings();
-  const { employees } = useEmployees();
+  const { alerts: serverAlerts, loading: alertsLoading } = useServerAlerts();
   const {
     resolvedKeys,
     ignoreAlert,
@@ -52,17 +49,30 @@ export default function AlertsPanel({
   const [alertActionSubmitting, setAlertActionSubmitting] = useState<string | null>(null);
   const [alertActionError, setAlertActionError] = useState<string | null>(null);
 
-  const alertItems = buildAlertItems({
+  // currentlyActive already carries each employee's latest event (whether
+  // that's an "in" or a still-open "breakStart") - see useDashboardStatus's
+  // derivation - so a single map covers both the maxHours/missedClockOut
+  // and breakTooLong action buttons below.
+  const eventByEmployee = new Map<string, ClockEvent>();
+  currentlyActive.forEach((e) => eventByEmployee.set(e.employeeId, e));
+
+  const serverAlertItems: AlertItem[] = serverAlerts.map((a) => ({
+    ...a,
+    event: eventByEmployee.get(a.employeeId),
+  }));
+
+  // Geofencing (Pro) Part 4 - not yet migrated server-side (see
+  // buildGeofenceAlertItems's comment), so these are still computed here
+  // and merged in alongside the server-generated alerts above.
+  const geofenceAlertItems = buildGeofenceAlertItems({
     settings,
     isPro,
-    currentlyActive,
-    currentlyOnBreak,
     recentEvents,
-    weeklyHoursByEmployee,
-    workedMsByEmployee,
-    employees,
   });
+
+  const alertItems: AlertItem[] = [...serverAlertItems, ...geofenceAlertItems];
   const visibleAlertItems = alertItems.filter((a) => !resolvedKeys.has(a.key));
+  const isLoading = loading || alertsLoading;
 
   async function handleIgnoreAlert(alert: AlertItem) {
     setAlertActionSubmitting(alert.key);
@@ -149,7 +159,7 @@ export default function AlertsPanel({
         <p className="mt-3 text-xs text-red-600">{alertActionError}</p>
       )}
       <div className="mt-5 space-y-3">
-        {loading ? (
+        {isLoading ? (
           <p className="text-sm text-gray-600">Loading...</p>
         ) : visibleAlertItems.length === 0 ? (
           <p className="text-sm text-gray-600">No alerts right now.</p>
@@ -223,29 +233,26 @@ export default function AlertsPanel({
                             </button>
                           </>
                         )}
-                        {alert.alertType !== "overtime" &&
-                          alert.alertType !== "breakTooLong" &&
-                          alert.alertType !== "clockedInOutsideGeofence" &&
-                          alert.alertType !== "siteMismatch" && (
-                            <>
-                              <button
-                                type="button"
-                                disabled={isSubmitting}
-                                onClick={() => handleClockOutFromAlert(alert)}
-                                className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Clock Out
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isSubmitting}
-                                onClick={() => handleStartEditTime(alert)}
-                                className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                Edit Time
-                              </button>
-                            </>
-                          )}
+                        {(alert.alertType === "maxHours" || alert.alertType === "missedClockOut") && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isSubmitting}
+                              onClick={() => handleClockOutFromAlert(alert)}
+                              className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Clock Out
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSubmitting}
+                              onClick={() => handleStartEditTime(alert)}
+                              className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Edit Time
+                            </button>
+                          </>
+                        )}
                         {alert.alertType === "clockedInOutsideGeofence" && (
                           <button
                             type="button"

@@ -3,6 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from "react-native";
 import * as Haptics from "expo-haptics";
+import * as Sentry from "@sentry/react-native";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { submitOverrideBatch } from "../lib/clockQueue";
@@ -42,10 +43,21 @@ export default function OverrideReasonScreen({ navigation, route }) {
       });
       drainQueue(userData.companyId);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      navigation.navigate("Dashboard");
+      navigation.navigate("MainTabs");
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       console.log("[OverrideReason] override action failed:", err.message);
+      Sentry.captureException(err, {
+        tags: { area: "overrideReason" },
+        contexts: {
+          clockAttempt: {
+            companyId: userData?.companyId,
+            direction,
+            siteId,
+            employeeCount: selected?.length,
+          },
+        },
+      });
     } finally {
       setSubmitting(false);
     }

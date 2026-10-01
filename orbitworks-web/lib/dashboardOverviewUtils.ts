@@ -1,11 +1,12 @@
 import type { CompanySettings } from "@/lib/hooks/useCompanySettings";
-import type { ClockEvent, Employee } from "@/lib/types";
+import type { ClockEvent } from "@/lib/types";
 import { formatGeofenceDistance } from "@/lib/geo";
 
 // How far back an ignored/resolved alertAction stays remembered (see
-// useAlertActions.ts's resolvedAt query) - shared here so buildAlertItems
-// can bound its own event-scoped alerts (geofence) to the same window and
-// never resurrect one whose action fell outside that lookback.
+// useAlertActions.ts's resolvedAt query) - shared here so
+// buildGeofenceAlertItems can bound its own event-scoped alerts (geofence)
+// to the same window and never resurrect one whose action fell outside
+// that lookback.
 export const ALERT_ACTION_LOOKBACK_DAYS = 30;
 
 export type DayAttendance = {
@@ -13,13 +14,26 @@ export type DayAttendance = {
   count: number;
 };
 
+// Mirrors the alertType values functions/src/alerts.ts writes into
+// companies/{companyId}/alerts (useServerAlerts.ts maps those docs into
+// this shape) - kept here rather than moved wholesale to lib/types.ts
+// since useAlertActions.ts/AlertsPanel.tsx already import it from this
+// file and alertActions' resolved/ignored records key off AlertItem.key.
 export type AlertItem = {
   key: string;
+  // lateClockIn/earlyClockOut/breakTooLong/maxHours/overtime/missedClockOut
+  // are server-generated (functions/src/alerts.ts, via useServerAlerts.ts).
+  // clockedInOutsideGeofence/siteMismatch are still computed client-side by
+  // buildGeofenceAlertItems below - alerts.ts's ALERT_TYPES comment notes
+  // geofence data "doesn't exist on main yet" and to extend the server set
+  // once it lands; until that migration happens, these two stay separate.
   alertType:
-    | "maxHours"
-    | "missedClockOut"
-    | "overtime"
+    | "lateClockIn"
+    | "earlyClockOut"
     | "breakTooLong"
+    | "maxHours"
+    | "overtime"
+    | "missedClockOut"
     | "clockedInOutsideGeofence"
     | "siteMismatch";
   // Who/what this alert is about - an employee name for every alert type
@@ -39,6 +53,8 @@ export const ALERT_SHORT_TAGS: Record<AlertItem["alertType"], string> = {
   missedClockOut: "Missed Clock Out",
   overtime: "Overtime",
   breakTooLong: "Long Break",
+  lateClockIn: "Late Clock In",
+  earlyClockOut: "Early Clock Out",
   clockedInOutsideGeofence: "Outside Geofence",
   siteMismatch: "Wrong Site",
 };
@@ -55,6 +71,8 @@ export const ALERT_SEVERITY: Record<AlertItem["alertType"], AlertSeverity> = {
   missedClockOut: "urgent",
   overtime: "warning",
   breakTooLong: "warning",
+  lateClockIn: "warning",
+  earlyClockOut: "warning",
   clockedInOutsideGeofence: "warning",
   siteMismatch: "info",
 };
@@ -126,106 +144,24 @@ export function toDatetimeLocalValue(date: Date) {
   )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function buildAlertItems({
+// Client-computed companion to useServerAlerts.ts - only the two
+// geofencing-specific alert types, which functions/src/alerts.ts's
+// ALERT_TYPES comment explicitly defers ("geofence data doesn't exist on
+// main yet... extend this list when geofence data lands"). Every other
+// alert type (maxHours/missedClockOut/overtime/breakTooLong/lateClockIn/
+// earlyClockOut) is now server-generated; AlertsPanel.tsx merges this
+// function's output with useServerAlerts()'s.
+export function buildGeofenceAlertItems({
   settings,
   isPro,
-  currentlyActive,
-  currentlyOnBreak,
   recentEvents,
-  weeklyHoursByEmployee,
-  workedMsByEmployee,
-  employees,
 }: {
   settings: CompanySettings;
   isPro: boolean;
-  currentlyActive: ClockEvent[];
-  currentlyOnBreak: ClockEvent[];
-  // Only used for the geofence alert below - the other alert types are all
-  // current-state-driven (currentlyActive/currentlyOnBreak) and don't need
-  // this. Optional so every other caller of this function stays untouched.
   recentEvents?: ClockEvent[];
-  weeklyHoursByEmployee: Map<string, number>;
-  workedMsByEmployee: Map<string, number>;
-  employees: Employee[];
 }): AlertItem[] {
   const alertItems: AlertItem[] = [];
   const now = new Date();
-
-  if (settings.alerts.maxHoursWarning) {
-    currentlyActive
-      .filter((event) => {
-        const d = effectiveDate(event);
-        return d && isSameDay(d, now);
-      })
-      .forEach((event) => {
-        const d = effectiveDate(event)!;
-        const workedMs = workedMsByEmployee.get(event.employeeId) ?? 0;
-        const workedHours = workedMs / (1000 * 60 * 60);
-        if (workedHours >= settings.alerts.maxHoursThreshold) {
-          alertItems.push({
-            key: `max-${event.employeeId}-${dateKey(d)}`,
-            alertType: "maxHours",
-            label: event.employeeName,
-            detail: `Worked ${workedHours.toFixed(1)}h today (breaks excluded) - check in?`,
-            employeeId: event.employeeId,
-            event,
-          });
-        }
-      });
-  }
-
-  if (settings.alerts.missedClockOutAlert && !settings.attendanceRules.autoClockOut) {
-    currentlyActive
-      .filter((event) => {
-        const d = effectiveDate(event);
-        return d && !isSameDay(d, now);
-      })
-      .forEach((event) => {
-        const d = effectiveDate(event)!;
-        alertItems.push({
-          key: `missed-${event.employeeId}-${dateKey(d)}`,
-          alertType: "missedClockOut",
-          label: event.employeeName,
-          detail: `Still clocked in from ${d.toLocaleDateString()} - missed clock-out.`,
-          employeeId: event.employeeId,
-          event,
-        });
-      });
-  }
-
-  if (settings.alerts.overtimeWarning) {
-    const weekStartStr = dateKey(getWeekStart(now));
-    for (const [employeeId, hours] of weeklyHoursByEmployee) {
-      if (hours > settings.weeklyOvertimeThreshold) {
-        const employee = employees.find((e) => e.id === employeeId);
-        alertItems.push({
-          key: `ot-${employeeId}-${weekStartStr}`,
-          alertType: "overtime",
-          label: employee?.name ?? "Unknown employee",
-          detail: `${hours.toFixed(1)}h this week - over the ${settings.weeklyOvertimeThreshold}h threshold.`,
-          employeeId,
-        });
-      }
-    }
-  }
-
-  if (settings.alerts.maxBreakWarning) {
-    currentlyOnBreak.forEach((event) => {
-      const d = effectiveDate(event);
-      if (!d) return;
-      const elapsedMinutes = (Date.now() - d.getTime()) / (1000 * 60);
-      if (elapsedMinutes >= settings.alerts.maxBreakMinutes) {
-        alertItems.push({
-          key: `break-${event.employeeId}-${dateKey(d)}`,
-          alertType: "breakTooLong",
-          label: event.employeeName,
-          detail: `On break for ${elapsedMinutes.toFixed(0)}m - over the ${settings.alerts.maxBreakMinutes}m limit.`,
-          employeeId: event.employeeId,
-          event,
-        });
-      }
-    });
-  }
 
   // Geofencing (Pro) Part 4. Unlike every alert above, this one is about a
   // specific past moment (the clock-in), not current state - so it's keyed

@@ -26,8 +26,9 @@ Sidebar > Employees > "Supervisors" section (below the employees table).
 6. Once accepted, they show up in the employees list too, with a Supervisor badge.
 
 ## What you'll see
-- You can't send a second pending invite to the same email - it's blocked with "There's already a pending invite for that email."
+- You can't send a second pending invite to the same email - it's blocked with "There's already a pending invite for that email," and this check also blocks against a pending Admin invite for the same address.
+- A pending invite's email delivery status shows as Sending, Sent, or Failed - if it's stuck or failed, use the Resend link next to it (limited to once a minute) rather than creating a duplicate invite.
 - Pending invites can be canceled with a confirmation step before the supervisor accepts.
 
 ## Turning an existing employee into a supervisor
-There's no direct "convert" button. If someone already has a regular employee record, invite them the same way as a new supervisor - use their email in the Supervisors section above. Accepting the invite creates their own login and a separate supervisor record; it does not modify their old employee record. Once they've accepted, go deactivate their original employee record so they're not listed twice.
+There's no separate invite for this - open the employee's own record from the Employees table instead and turn on Supervisor access there. You can send them a real email invite (creates a login, and their existing PIN, clock history, and site assignments carry over), or leave the email blank to grant it immediately with just their PIN, no login involved. This updates their existing employee record directly rather than creating a new one. See "Granting or Removing Supervisor and Admin Access for an Employee" for details.
