@@ -138,6 +138,59 @@ export interface AlertActionRecord {
   reason?: string;
 }
 
+// ---- Mobile Alerts (server-generated) ----
+//
+// Distinct from AlertItem (lib/dashboardOverviewUtils.ts), which is
+// computed client-side on every dashboard load and never persisted. One
+// of these is written once per underlying condition by the alert
+// generation Cloud Function (functions/src/alerts.ts, Phase 4) - a
+// deterministic id so retries/replays can't duplicate it - and read live
+// by the mobile Alerts tab (and, eventually, the web dashboard). Read
+// state is per-device, not per-user, so a shared login on multiple
+// phones tracks "seen" independently per device: readByDeviceIds is the
+// only field a client may ever update (firestore.rules), and only by
+// appending its own device id.
+export type MobileAlertType =
+  | "lateClockIn"
+  | "earlyClockOut"
+  | "breakTooLong"
+  | "maxHours"
+  | "overtime"
+  | "missedClockOut";
+
+export interface MobileAlert {
+  id: string;
+  companyId: string;
+  alertType: MobileAlertType;
+  employeeId: string | null;
+  employeeName: string | null;
+  siteId: string | null;
+  siteName: string | null;
+  message: string;
+  severity: "urgent" | "warning" | "info";
+  eventId: string | null;
+  dateKey: string;
+  createdAt: Timestamp;
+  occurredAt: Timestamp;
+  readByDeviceIds: string[];
+}
+
+// ---- Push Notifications ----
+//
+// One doc per mobile install (companies/{companyId}/pushTokens/{deviceId}),
+// server-read only (the push-sending function). deviceId is a fresh
+// per-install identifier the app generates for itself in Phase 6
+// (expo-secure-store) - not the pro-plan Device Recognition feature,
+// which doesn't exist on main.
+export interface PushToken {
+  deviceId: string;
+  token: string;
+  platform: "ios" | "android";
+  notificationsEnabled: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 // ---- Timesheet Approvals ----
 //
 // One TimesheetApproval doc per work session, keyed by the clock-in

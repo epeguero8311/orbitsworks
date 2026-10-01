@@ -59,7 +59,9 @@
           "project": "orbitworks-app",
           "organization": "orbitsworks"
         }
-      ]
+      ],
+      "expo-secure-store",
+      "expo-notifications"
     ],
     "extra": {
       "eas": {

@@ -79,9 +79,6 @@ export default function DashboardOverviewPage() {
       <AlertsPanel
         loading={status.loading}
         currentlyActive={status.currentlyActive}
-        currentlyOnBreak={status.currentlyOnBreak}
-        weeklyHoursByEmployee={status.weeklyHoursByEmployee}
-        workedMsByEmployee={status.workedMsByEmployee}
       />
 
       <EmployeesClockedInTable

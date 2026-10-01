@@ -21,6 +21,11 @@ export type Alerts = {
   missedClockOutMinutes: number;
   maxBreakWarning: boolean;
   maxBreakMinutes: number;
+  // Mobile launch alerts (see functions/src/alerts.ts). Both are anchored
+  // to businessHours.open/close + attendanceRules.gracePeriodMinutes - no
+  // separate threshold needed for either.
+  lateClockInAlert: boolean;
+  earlyClockOutAlert: boolean;
 };
 
 export type AppSettings = {
@@ -53,6 +58,8 @@ export const DEFAULT_ALERTS: Alerts = {
   missedClockOutMinutes: 30,
   maxBreakWarning: true,
   maxBreakMinutes: 15,
+  lateClockInAlert: true,
+  earlyClockOutAlert: true,
 };
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {

@@ -25,6 +25,22 @@ export function AlertsCard({
       <div className="mt-2 divide-y divide-gray-100">
         <div className="py-1">
           <Toggle
+            label="Late clock-in alert"
+            checked={alerts.lateClockInAlert}
+            onChange={(v) => setAlerts((prev) => ({ ...prev, lateClockInAlert: v }))}
+          />
+        </div>
+
+        <div className="py-1">
+          <Toggle
+            label="Early clock-out alert"
+            checked={alerts.earlyClockOutAlert}
+            onChange={(v) => setAlerts((prev) => ({ ...prev, earlyClockOutAlert: v }))}
+          />
+        </div>
+
+        <div className="py-1">
+          <Toggle
             label="Max hours warning"
             checked={alerts.maxHoursWarning}
             onChange={(v) => setAlerts((prev) => ({ ...prev, maxHoursWarning: v }))}

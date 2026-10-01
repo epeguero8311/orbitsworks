@@ -18,12 +18,11 @@ import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { ClockEvent } from "@/lib/types";
-import { deriveStatus, accumulateWorkedMs, getAccumulatedWorkedMs } from "@/lib/clockStatus";
+import { deriveStatus, getAccumulatedWorkedMs } from "@/lib/clockStatus";
 import {
   DayAttendance,
   effectiveDate,
   isSameDay,
-  getWeekStart,
 } from "@/lib/dashboardOverviewUtils";
 
 const DISPLAY_LIMIT = 8;
@@ -43,7 +42,6 @@ export function useDashboardStatus() {
   const [loading, setLoading] = useState(true);
   const [weeklyAttendance, setWeeklyAttendance] = useState<DayAttendance[]>([]);
   const [loadingChart, setLoadingChart] = useState(true);
-  const [weeklyHoursByEmployee, setWeeklyHoursByEmployee] = useState<Map<string, number>>(new Map());
   const [deactivatedBackfills, setDeactivatedBackfills] = useState<DeactivatedBackfill[]>([]);
 
   const autoClosedRef = useRef<Set<string>>(new Set());
@@ -144,66 +142,6 @@ export function useDashboardStatus() {
 
     loadWeeklyAttendance();
   }, [userData?.companyId]);
-
-  useEffect(() => {
-    if (!userData?.companyId) return;
-
-    async function loadWeeklyHours() {
-      try {
-        const startOfWeek = getWeekStart(new Date());
-
-        const eventsRef = collection(
-          db,
-          "companies",
-          userData!.companyId,
-          "clockEvents"
-        );
-        // Query bound stays on raw timestamp intentionally (same reasoning
-        // as useReports.ts - a correction shouldn't move an event in/out of
-        // the week window). Pairing/duration math below uses effective time.
-        const q = query(
-          eventsRef,
-          where("timestamp", ">=", Timestamp.fromDate(startOfWeek)),
-          orderBy("timestamp", "asc")
-        );
-        const snapshot = await getDocs(q);
-        const weekEvents = snapshot.docs.map(
-          (d) => ({ id: d.id, ...(d.data() as Omit<ClockEvent, "id">) }) as ClockEvent
-        );
-
-        // Re-sort by effective time so a corrected event pairs up in the
-        // right chronological order even if its raw timestamp is out of line.
-        weekEvents.sort((a, b) => {
-          const aMs = effectiveDate(a)?.getTime() ?? 0;
-          const bMs = effectiveDate(b)?.getTime() ?? 0;
-          return aMs - bMs;
-        });
-
-        const byEmployee = new Map<string, ClockEvent[]>();
-        for (const event of weekEvents) {
-          const list = byEmployee.get(event.employeeId) ?? [];
-          list.push(event);
-          byEmployee.set(event.employeeId, list);
-        }
-
-        // accumulateWorkedMs excludes breakStart-to-breakEnd spans instead
-        // of counting the whole in-to-out span as worked, and carries the
-        // total across multiple breaks within the week without resetting it.
-        const hoursMap = new Map<string, number>();
-        const nowMs = Date.now();
-        for (const [employeeId, empEvents] of byEmployee) {
-          const totalMs = accumulateWorkedMs(empEvents, nowMs);
-          hoursMap.set(employeeId, totalMs / (1000 * 60 * 60));
-        }
-
-        setWeeklyHoursByEmployee(hoursMap);
-      } catch (err) {
-        console.error("Weekly hours error:", err);
-      }
-    }
-
-    loadWeeklyHours();
-  }, [userData?.companyId, events]);
 
   // Determine each employee's latest event by EFFECTIVE time, not by the
   // order Firestore returned (which is raw-timestamp order). A back-dated
@@ -431,7 +369,6 @@ export function useDashboardStatus() {
     loading,
     loadingChart,
     weeklyAttendance,
-    weeklyHoursByEmployee,
     currentlyActive,
     currentlyOnBreak,
     activeDisplay,

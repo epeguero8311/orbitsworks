@@ -1,14 +1,18 @@
-import type { CompanySettings } from "@/lib/hooks/useCompanySettings";
-import type { ClockEvent, Employee } from "@/lib/types";
+import type { ClockEvent } from "@/lib/types";
 
 export type DayAttendance = {
   label: string;
   count: number;
 };
 
+// Mirrors the alertType values functions/src/alerts.ts writes into
+// companies/{companyId}/alerts (useServerAlerts.ts maps those docs into
+// this shape) - kept here rather than moved wholesale to lib/types.ts
+// since useAlertActions.ts/AlertsPanel.tsx already import it from this
+// file and alertActions' resolved/ignored records key off AlertItem.key.
 export type AlertItem = {
   key: string;
-  alertType: "maxHours" | "missedClockOut" | "overtime" | "breakTooLong";
+  alertType: "lateClockIn" | "earlyClockOut" | "breakTooLong" | "maxHours" | "overtime" | "missedClockOut";
   label: string;
   detail: string;
   employeeId: string;
@@ -78,99 +82,7 @@ export function toDatetimeLocalValue(date: Date) {
   )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function buildAlertItems({
-  settings,
-  currentlyActive,
-  currentlyOnBreak,
-  weeklyHoursByEmployee,
-  workedMsByEmployee,
-  employees,
-}: {
-  settings: CompanySettings;
-  currentlyActive: ClockEvent[];
-  currentlyOnBreak: ClockEvent[];
-  weeklyHoursByEmployee: Map<string, number>;
-  workedMsByEmployee: Map<string, number>;
-  employees: Employee[];
-}): AlertItem[] {
-  const alertItems: AlertItem[] = [];
-  const now = new Date();
-
-  if (settings.alerts.maxHoursWarning) {
-    currentlyActive
-      .filter((event) => {
-        const d = effectiveDate(event);
-        return d && isSameDay(d, now);
-      })
-      .forEach((event) => {
-        const d = effectiveDate(event)!;
-        const workedMs = workedMsByEmployee.get(event.employeeId) ?? 0;
-        const workedHours = workedMs / (1000 * 60 * 60);
-        if (workedHours >= settings.alerts.maxHoursThreshold) {
-          alertItems.push({
-            key: `max-${event.employeeId}-${dateKey(d)}`,
-            alertType: "maxHours",
-            label: event.employeeName,
-            detail: `Worked ${workedHours.toFixed(1)}h today (breaks excluded) - check in?`,
-            employeeId: event.employeeId,
-            event,
-          });
-        }
-      });
-  }
-
-  if (settings.alerts.missedClockOutAlert && !settings.attendanceRules.autoClockOut) {
-    currentlyActive
-      .filter((event) => {
-        const d = effectiveDate(event);
-        return d && !isSameDay(d, now);
-      })
-      .forEach((event) => {
-        const d = effectiveDate(event)!;
-        alertItems.push({
-          key: `missed-${event.employeeId}-${dateKey(d)}`,
-          alertType: "missedClockOut",
-          label: event.employeeName,
-          detail: `Still clocked in from ${d.toLocaleDateString()} - missed clock-out.`,
-          employeeId: event.employeeId,
-          event,
-        });
-      });
-  }
-
-  if (settings.alerts.overtimeWarning) {
-    const weekStartStr = dateKey(getWeekStart(now));
-    for (const [employeeId, hours] of weeklyHoursByEmployee) {
-      if (hours > settings.weeklyOvertimeThreshold) {
-        const employee = employees.find((e) => e.id === employeeId);
-        alertItems.push({
-          key: `ot-${employeeId}-${weekStartStr}`,
-          alertType: "overtime",
-          label: employee?.name ?? "Unknown employee",
-          detail: `${hours.toFixed(1)}h this week - over the ${settings.weeklyOvertimeThreshold}h threshold.`,
-          employeeId,
-        });
-      }
-    }
-  }
-
-  if (settings.alerts.maxBreakWarning) {
-    currentlyOnBreak.forEach((event) => {
-      const d = effectiveDate(event);
-      if (!d) return;
-      const elapsedMinutes = (Date.now() - d.getTime()) / (1000 * 60);
-      if (elapsedMinutes >= settings.alerts.maxBreakMinutes) {
-        alertItems.push({
-          key: `break-${event.employeeId}-${dateKey(d)}`,
-          alertType: "breakTooLong",
-          label: event.employeeName,
-          detail: `On break for ${elapsedMinutes.toFixed(0)}m - over the ${settings.alerts.maxBreakMinutes}m limit.`,
-          employeeId: event.employeeId,
-          event,
-        });
-      }
-    });
-  }
-
-  return alertItems;
-}
+// buildAlertItems (client-side computation of maxHours/missedClockOut/
+// overtime/breakTooLong) was removed here - useServerAlerts.ts now reads
+// the same server-generated alerts the mobile Alerts tab uses
+// (functions/src/alerts.ts) instead of recomputing them in the browser.

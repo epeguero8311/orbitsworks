@@ -94,7 +94,7 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Breaks" onBack={() => navigation.navigate("Dashboard")} />
+      <ScreenHeader title="Breaks" onBack={() => navigation.navigate("MainTabs")} />
 
       <View style={styles.topRow}>
         <TouchableOpacity

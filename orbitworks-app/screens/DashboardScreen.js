@@ -106,9 +106,6 @@ export default function DashboardScreen({ navigation }) {
             <Text style={[styles.greeting, { color: colors.subtext }]}>Welcome</Text>
             <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
           </View>
-          <TouchableOpacity onPress={() => navigation.navigate("Settings")}>
-            <Feather name="settings" size={22} color={colors.accent} />
-          </TouchableOpacity>
         </View>
 
         <View style={[styles.blueCard, { backgroundColor: colors.accent }]}>
