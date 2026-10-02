@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "rea
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
 import * as Sentry from "@sentry/react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../lib/AuthContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
 import { useCompanySettings } from "../lib/hooks/useCompanySettings";
@@ -10,7 +11,9 @@ import { queueClockEvent } from "../lib/clockQueue";
 import { drainQueue } from "../lib/queueSync";
 import { getBestEffortLocationIfPro } from "../lib/location";
 import { getCurrentLocalStatus, getCurrentLocalSite } from "../lib/clockStatusLocal";
-import { checkGeofenceForClockIn, isAutoDetectionActive } from "../lib/geofenceCheck";
+import { checkGeofenceForClockIn, isAutoDetectionActive, detectAssignedSite, detectLocalSite } from "../lib/geofenceCheck";
+
+const ASK_SITE_KEY = "orbitworks_ask_site_each_time";
 
 export default function ClockCameraScreen({ route, navigation }) {
   const { employee } = route.params;
@@ -60,9 +63,10 @@ export default function ClockCameraScreen({ route, navigation }) {
       const nextType = currentStatus === "out" ? "in" : "out";
 
       // Geofencing (Pro) auto site detection - once a Pro company has any
-      // fenced site at all, there's no site picker: the app finds the site
-      // itself instead of trusting SiteSessionContext's selectedSite. A
-      // company with no fenced sites (or Core) keeps today's exact flow.
+      // active, located site at all (fenced or not - Geofencing Part 5),
+      // there's no site picker: the app finds the site itself instead of
+      // trusting SiteSessionContext's selectedSite. A company with no
+      // located sites (or Core) keeps today's exact flow.
       const autoDetect = isPro && (await isAutoDetectionActive());
 
       let siteId;
@@ -75,12 +79,32 @@ export default function ClockCameraScreen({ route, navigation }) {
           siteId = lastSite.siteId;
           siteName = lastSite.siteName || "Not specified";
         } else {
-          // No local guess yet for a clock-in - checkGeofenceForClockIn
-          // below fills one in when it actually runs (Block/Require-reason
-          // modes); Flag mode does no check at all, so this stays
-          // unresolved and the server's own detection is the final say.
-          siteId = null;
-          siteName = "Not specified";
+          // Optimistic guess across every located site (not just fenced
+          // ones) - checkGeofenceForClockIn below may still override this
+          // with its own (fenced-only) match when it actually runs
+          // (Block/Require-reason modes). Either way the server's own
+          // detectSite is the final say once this syncs.
+          const detected = await detectLocalSite(
+            location?.lat != null && location?.lng != null ? location : null,
+            location?.accuracyM ?? null
+          );
+          siteId = detected.siteId;
+          siteName = detected.siteName;
+        }
+      } else if ((await AsyncStorage.getItem(ASK_SITE_KEY)) !== "false") {
+        // "Ask for job site each time" (Settings), default on - rather than
+        // making the user pick from a list, auto-detect the clocking
+        // employee's own assigned site (see lib/geofenceCheck.js). Same
+        // clock-out convention as the geofence branch above: keep the
+        // clock-in's site, never re-detect mid-session.
+        if (nextType === "out") {
+          const lastSite = await getCurrentLocalSite(employee.id);
+          siteId = lastSite.siteId;
+          siteName = lastSite.siteName || "Not specified";
+        } else {
+          const detected = await detectAssignedSite(employee);
+          siteId = detected.siteId;
+          siteName = detected.siteName;
         }
       } else {
         const isNone = selectedSite?.id === "none";

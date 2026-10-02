@@ -19,6 +19,7 @@ export async function getDb() {
       isSupervisor INTEGER DEFAULT 0,
       active INTEGER DEFAULT 1,
       lastEventType TEXT,
+      lastEventTimestamp INTEGER,
       lastEventSiteId TEXT,
       lastEventSiteName TEXT,
       subcontractorId TEXT,
@@ -154,6 +155,7 @@ export async function getDb() {
     "ALTER TABLE event_queue ADD COLUMN deviceId TEXT",
     "ALTER TABLE event_queue ADD COLUMN deviceNameSnapshot TEXT",
     "ALTER TABLE event_queue ADD COLUMN syncedAt INTEGER",
+    "ALTER TABLE pin_cache ADD COLUMN lastEventTimestamp INTEGER",
   ];
   for (const migration of migrations) {
     try {

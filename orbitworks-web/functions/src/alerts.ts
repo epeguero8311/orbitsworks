@@ -5,6 +5,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { db, localDateKey, localMinutesOfDay } from "./shared";
 import { ALERTS_FEED_ENABLED, isCompanyInTestScope } from "./flags";
 import { sendPushForAlert } from "./pushSend";
+import { formatGeofenceDistance, type GeofenceStatus } from "./geofencing";
 import {
   deriveStatus,
   accumulateWorkedMs,
@@ -13,11 +14,11 @@ import {
   type MinimalClockEvent,
 } from "./clockStatus";
 
-// Launch set only - outside-geofence and site-mismatch need geofence data
-// that doesn't exist on main yet, so they're deferred. lowStaffing was
-// removed (not a concept this product tracks). Extend this list (and
-// ALERT_SEVERITY below) when geofence data lands, same as the "extend
-// later: FACE_MISMATCH, OUTSIDE_GEOFENCE" note on Flag in lib/types.ts.
+// lowStaffing was removed (not a concept this product tracks).
+// clockedInOutsideGeofence/siteMismatch both landed here under the exact
+// names lib/types.ts's MobileAlertType and dashboardOverviewUtils.ts's
+// AlertItem already used for them client-side, rather than inventing new
+// ones - no changes needed on either of those union types.
 export const ALERT_TYPES = [
   "lateClockIn",
   "earlyClockOut",
@@ -25,6 +26,8 @@ export const ALERT_TYPES = [
   "maxHours",
   "overtime",
   "missedClockOut",
+  "clockedInOutsideGeofence",
+  "siteMismatch",
 ] as const;
 
 export type AlertType = (typeof ALERT_TYPES)[number];
@@ -36,6 +39,11 @@ export const ALERT_SEVERITY: Record<AlertType, "urgent" | "warning" | "info"> = 
   breakTooLong: "warning",
   lateClockIn: "warning",
   earlyClockOut: "warning",
+  clockedInOutsideGeofence: "warning",
+  // Info-only, same as clockedInOutsideGeofence's own severity choice but
+  // one notch down - a mismatch never blocks or implies anything was
+  // done wrong, just "someone should take a look."
+  siteMismatch: "info",
 };
 
 // The untrusted-input boundary for alert generation: validates every id
@@ -91,6 +99,8 @@ export const ALERT_SETTINGS_DEFAULTS = {
   maxBreakMinutes: 15,
   lateClockInAlert: true,
   earlyClockOutAlert: true,
+  clockedInOutsideGeofence: true,
+  siteMismatchWarning: true,
 } as const;
 
 type AlertSettings = typeof ALERT_SETTINGS_DEFAULTS;
@@ -130,6 +140,8 @@ const ALERT_ID_PREFIX: Record<AlertType, string> = {
   maxHours: "max",
   overtime: "ot",
   missedClockOut: "missed",
+  clockedInOutsideGeofence: "geo",
+  siteMismatch: "mismatch",
 };
 
 function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string): string {
@@ -152,7 +164,16 @@ async function createAlertIfNew(input: AlertInput, occurredAt: Timestamp): Promi
     return null;
   }
   const data = parsed.data;
-  const subjectId = data.employeeId ?? data.siteId ?? "company";
+  // clockedInOutsideGeofence/siteMismatch are both keyed per clock-in
+  // EVENT, not per employee/day like every other type - an employee can
+  // clock in outside the geofence, or at the wrong site, more than once
+  // in the same day, and each one is its own underlying condition
+  // (mirrors the old client-computed buildGeofenceAlertItems, which
+  // keyed its items by event id too).
+  const subjectId =
+    data.alertType === "clockedInOutsideGeofence" || data.alertType === "siteMismatch"
+      ? data.eventId ?? data.employeeId ?? "company"
+      : data.employeeId ?? data.siteId ?? "company";
   const alertId = buildAlertId(data.alertType, subjectId, data.dateKey);
   const ref = db.collection("companies").doc(data.companyId).collection("alerts").doc(alertId);
 
@@ -270,6 +291,104 @@ export async function checkEarlyClockOut(
       siteId: typeof data.siteId === "string" ? data.siteId : null,
       siteName: typeof data.siteName === "string" ? data.siteName : null,
       message: "Clocked out early",
+      eventId,
+      dateKey: localDateKey(ts),
+    },
+    data.timestamp ?? admin.firestore.Timestamp.now()
+  );
+}
+
+// Geofencing (Pro) Part 4 - the server-generated replacement for what
+// dashboardOverviewUtils.ts's buildGeofenceAlertItems used to compute
+// client-side on every dashboard load. Fires for every enforcement mode
+// (flag/requireReason) and for overrides alike - only geofenceStatus and
+// type matter, not source or mode (a "block" clock-in never reaches here
+// at all, since it's never written as an event). Clock-outs are excluded
+// (type === "in" only), same as the old client version - they're never
+// more than the badge in the log, per spec. geofence/site are passed in
+// by the caller rather than read off `data`, since the geofence
+// resolution that produces them happens earlier in onClockEventCreated
+// and is only ever written back to Firestore, never mutated onto the
+// local `data` object this function receives.
+export async function checkOutsideGeofence(
+  companyId: string,
+  eventId: string,
+  data: FirebaseFirestore.DocumentData,
+  geofence: { applicable: boolean; status: GeofenceStatus | null; distanceM: number | null },
+  site: { siteId: string | null; siteName: string | null }
+): Promise<void> {
+  if (!ALERTS_FEED_ENABLED.value()) return;
+  if (data?.type !== "in") return;
+  if (!geofence.applicable || geofence.status !== "outside") return;
+  if (typeof companyId !== "string" || !companyId) return;
+  if (!isCompanyInTestScope(companyId)) return;
+  if (typeof data.employeeId !== "string" || !data.employeeId) return;
+
+  const ctx = await getCompanyAlertContext(companyId);
+  if (!ctx || !ctx.alerts.clockedInOutsideGeofence) return;
+
+  const ts: Date = data.timestamp ? data.timestamp.toDate() : new Date();
+  const employeeName = typeof data.employeeName === "string" && data.employeeName ? data.employeeName : "An employee";
+  const reason = typeof data.reason === "string" && data.reason ? data.reason : null;
+  const siteName = site.siteName || "the job site";
+  const distancePhrase = geofence.distanceM != null ? formatGeofenceDistance(geofence.distanceM) : null;
+  const message = distancePhrase
+    ? `Clocked in ${distancePhrase} from ${siteName}${reason ? ` - Reason: ${reason}` : ""}`
+    : `Clocked in outside the geofence at ${siteName}${reason ? ` - Reason: ${reason}` : ""}`;
+
+  await maybeCreateAndPush(
+    {
+      companyId,
+      alertType: "clockedInOutsideGeofence",
+      employeeId: data.employeeId,
+      employeeName,
+      siteId: site.siteId,
+      siteName: site.siteName,
+      message,
+      eventId,
+      dateKey: localDateKey(ts),
+    },
+    data.timestamp ?? admin.firestore.Timestamp.now()
+  );
+}
+
+// Auto site detection - the server-generated replacement for what
+// dashboardOverviewUtils.ts's buildGeofenceAlertItems used to compute
+// client-side on every dashboard load (same migration as
+// checkOutsideGeofence above). siteMismatch is only ever set on a
+// clock-in (clockEvents.ts), and only when the employee has their own
+// assignedSiteIds and the detected site isn't one of them - info-only,
+// never blocks, so this is purely a "someone should take a look" flag.
+export async function checkSiteMismatch(
+  companyId: string,
+  eventId: string,
+  data: FirebaseFirestore.DocumentData,
+  siteMismatch: boolean,
+  site: { siteId: string | null; siteName: string | null }
+): Promise<void> {
+  if (!ALERTS_FEED_ENABLED.value()) return;
+  if (data?.type !== "in") return;
+  if (!siteMismatch) return;
+  if (typeof companyId !== "string" || !companyId) return;
+  if (!isCompanyInTestScope(companyId)) return;
+  if (typeof data.employeeId !== "string" || !data.employeeId) return;
+
+  const ctx = await getCompanyAlertContext(companyId);
+  if (!ctx || !ctx.alerts.siteMismatchWarning) return;
+
+  const ts: Date = data.timestamp ? data.timestamp.toDate() : new Date();
+  const employeeName = typeof data.employeeName === "string" && data.employeeName ? data.employeeName : "An employee";
+  const siteName = site.siteName || "an unassigned site";
+
+  await maybeCreateAndPush(
+    {
+      companyId,
+      alertType: "siteMismatch",
+      employeeId: data.employeeId,
+      employeeName,
+      siteId: site.siteId,
+      siteName: site.siteName,
+      message: `Clocked in at ${siteName} - not one of their assigned job sites.`,
       eventId,
       dateKey: localDateKey(ts),
     },

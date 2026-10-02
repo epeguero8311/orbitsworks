@@ -320,6 +320,15 @@ export const getPinSyncTable = onCall(async (request) => {
         isSupervisor: data.isSupervisor ?? false,
         active: data.active === true,
         lastEventType: data.lastEventType ?? null,
+        // When this last-known event actually happened server-side - lets
+        // the device compare its OWN latest local action for this
+        // employee against this one and keep whichever is actually newer
+        // (see clockStatusLocal.js's getCurrentLocalStatus), instead of
+        // always trusting its own queue just because it exists.
+        lastEventTimestamp:
+          data.lastEventTimestamp && typeof data.lastEventTimestamp.toMillis === "function"
+            ? data.lastEventTimestamp.toMillis()
+            : null,
         // Geofencing (Pro) auto-detection: the site the employee's last
         // clock event resolved to, so the app can hand a clock-out the
         // same site its matching clock-in landed on even after that
@@ -349,11 +358,15 @@ export const getPinSyncTable = onCall(async (request) => {
     };
   });
 
-  // Auto site detection is only active for a Pro company with at least one
-  // fenced, active site - the app uses this to decide whether to skip its
-  // site picker before a clock-in at all (matches detectSite's own
-  // hasFencedSites signal in functions/src/geofencing.ts).
+  // hasFencedSites gates on-device geofence ENFORCEMENT (block/require-
+  // reason) only - stays narrow, fenced-sites-only (see
+  // lib/geofenceCheck.js's checkGeofenceForClockIn). hasLocatedSites gates
+  // whether the app skips its manual site picker at all and attempts
+  // on-device ATTRIBUTION instead - broader, matches detectSite's own
+  // candidate pool in functions/src/geofencing.ts (any active site with
+  // saved coordinates, geofenced or not - Geofencing Part 5).
   const hasFencedSites = isPro && sites.some((s) => s.active && s.requireGeofence);
+  const hasLocatedSites = isPro && sites.some((s) => s.active && s.lat != null && s.lng != null);
 
-  return { employees, sites, isPro, enforcementMode, hasFencedSites };
+  return { employees, sites, isPro, enforcementMode, hasFencedSites, hasLocatedSites };
 });

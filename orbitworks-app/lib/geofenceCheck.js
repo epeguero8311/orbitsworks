@@ -23,6 +23,12 @@ import { getDb } from "./db";
 
 const METERS_PER_FOOT = 0.3048;
 
+// Mirrors functions/src/geofencing.ts's own copy (same cross-package
+// duplication convention as isProPlan elsewhere) - the fallback "on site"
+// radius for a located site that was never asked to save its own radius,
+// because geofencing was never turned on for it.
+const DEFAULT_SITE_RADIUS_METERS = 150;
+
 function formatDistance(meters) {
   const feet = meters / METERS_PER_FOOT;
   if (feet < 1000) {
@@ -43,19 +49,22 @@ function haversineMeters(lat1, lng1, lat2, lng2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-// location null (denied/unavailable) is treated as outside every fenced
-// site, same as the server-side version - "no signal" must not become a
-// way around the geofence. Mirrors detectSite's own overlapping-fence
-// rule: the closest INSIDE match wins, not just the closest site overall.
+// location null (denied/unavailable) is treated as outside every
+// candidate site, same as the server-side version - "no signal" must not
+// become a way around the geofence. Mirrors detectSite's own
+// overlapping-radius rule: the closest INSIDE match wins, not just the
+// closest site overall. radiusMeters falls back to
+// DEFAULT_SITE_RADIUS_METERS for a site that was never asked to save one.
 function detectSiteLocal(location, accuracyM, sites) {
   if (!location) {
     return { status: "outside", distanceM: null, siteId: null, siteName: null };
   }
 
   const scored = sites.map((site) => {
+    const radiusMeters = site.radiusMeters != null ? site.radiusMeters : DEFAULT_SITE_RADIUS_METERS;
     const distanceM = haversineMeters(location.lat, location.lng, site.lat, site.lng);
     const effectiveDistanceM = accuracyM != null ? Math.max(0, distanceM - accuracyM) : distanceM;
-    return { site, distanceM, inside: effectiveDistanceM <= site.radiusMeters };
+    return { site, distanceM, inside: effectiveDistanceM <= radiusMeters };
   });
 
   const insideMatches = scored.filter((m) => m.inside).sort((a, b) => a.distanceM - b.distanceM);
@@ -81,13 +90,14 @@ function detectSiteLocal(location, accuracyM, sites) {
 async function getCachedSettings() {
   const db = await getDb();
   const rows = await db.getAllAsync(
-    "SELECT key, value FROM sync_meta WHERE key IN ('isPro', 'geofenceEnforcementMode', 'hasFencedSites')"
+    "SELECT key, value FROM sync_meta WHERE key IN ('isPro', 'geofenceEnforcementMode', 'hasFencedSites', 'hasLocatedSites')"
   );
   const byKey = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   return {
     isPro: byKey.isPro === "1",
     enforcementMode: byKey.geofenceEnforcementMode || "flag",
     hasFencedSites: byKey.hasFencedSites === "1",
+    hasLocatedSites: byKey.hasLocatedSites === "1",
   };
 }
 
@@ -99,13 +109,54 @@ async function getCachedFencedSites() {
   );
 }
 
-// True only when this device should skip its site picker and auto-detect
-// the site instead - a Pro company with at least one fenced, active site.
-// ClockCameraScreen checks this before deciding whether to use
-// SiteSessionContext's selectedSite (today's flow) or detection.
+// Broader than getCachedFencedSites above - every active, located site,
+// geofenced or not (Geofencing Part 5: requireGeofence gates enforcement
+// only, not whether a site can be matched at all).
+async function getCachedLocatedSites() {
+  const db = await getDb();
+  return db.getAllAsync(
+    `SELECT * FROM sites_cache WHERE active = 1 AND lat IS NOT NULL AND lng IS NOT NULL`
+  );
+}
+
+// True only when this device should skip its site picker and attempt
+// attribution instead - a Pro company with at least one active, located
+// site (fenced or not). ClockCameraScreen checks this before deciding
+// whether to use SiteSessionContext's selectedSite (today's flow) or
+// detection. Enforcement (block/require-reason) is a separate, narrower
+// gate - see checkGeofenceForClockIn below.
 export async function isAutoDetectionActive() {
   const settings = await getCachedSettings();
-  return settings.isPro && settings.hasFencedSites;
+  return settings.isPro && settings.hasLocatedSites;
+}
+
+// This device's own best-effort guess at which site a clock-in is at,
+// across every located site (not just geofenced ones) - purely to
+// populate the optimistic queued event before it syncs; the server's own
+// detectSite always has the final say (see this file's header comment).
+// Returns { siteId: null, siteName: "Not specified" } when nothing is
+// close enough to any candidate, or there's no location signal at all.
+export async function detectLocalSite(location, accuracyM) {
+  const sites = await getCachedLocatedSites();
+  if (sites.length === 0) return { siteId: null, siteName: "Not specified" };
+
+  const { siteId, siteName } = detectSiteLocal(location, accuracyM, sites);
+  return { siteId, siteName: siteName || "Not specified" };
+}
+
+// "Ask for job site each time" (Settings) - non-geofence auto detection.
+// Resolves the clocking employee's OWN assigned site instead of making
+// them pick from a list each time. Only auto-detects when they have
+// exactly one assigned site; zero or more than one is ambiguous, so it's
+// left "Not specified" rather than guessing wrong (same convention as the
+// geofencing branch in ClockCameraScreen).
+export async function detectAssignedSite(employee) {
+  const ids = employee?.assignedSiteIds || [];
+  if (ids.length !== 1) return { siteId: null, siteName: "Not specified" };
+
+  const db = await getDb();
+  const row = await db.getFirstAsync("SELECT name FROM sites_cache WHERE siteId = ?", [ids[0]]);
+  return { siteId: ids[0], siteName: row?.name || "Not specified" };
 }
 
 // Returns { applicable: false } for anything not subject to on-device

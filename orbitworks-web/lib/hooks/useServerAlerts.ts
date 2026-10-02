@@ -44,6 +44,7 @@ export function useServerAlerts() {
             label: data.employeeName ?? data.siteName ?? "All Sites",
             detail: data.message,
             employeeId: data.employeeId ?? "",
+            eventId: data.eventId,
           };
         });
         setAlerts(items);

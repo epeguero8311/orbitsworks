@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Sentry from "@sentry/react-native";
@@ -8,6 +9,7 @@ import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
 import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import { findEmployeeByPin } from "../lib/clockLogic";
+import { syncPinTable } from "../lib/pinSync";
 import ScreenHeader from "../components/ScreenHeader";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
@@ -20,6 +22,27 @@ export default function PinEntryScreen({ navigation }) {
   const [pin, setPin] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
+
+  // The in/out decision below (findEmployeeByPin -> getCurrentLocalStatus
+  // in ClockCameraScreen) reads purely local state, by design - clocking
+  // in/out must never block on a network round-trip. But that local cache
+  // (pin_cache.lastEventType) otherwise only refreshes on app foreground/
+  // login/reconnect/a 20-minute timer (usePinTableSync.js) - too slow for
+  // a supervisor who clocks several employees in a row with the app held
+  // open the whole time. A clock-out recorded elsewhere (the web admin
+  // dashboard, another device) in that window would be invisible here,
+  // so the next clock-IN attempt gets evaluated against stale "still in"
+  // state and submits another OUT instead - looking like it "did
+  // nothing." Each fresh visit to this screen (popToTop sends every
+  // clock-in/out back here) is the natural checkpoint to refresh before
+  // the next PIN is even typed - best-effort/fire-and-forget, same as
+  // every other syncPinTable call site, so a slow/offline network never
+  // blocks the keypad.
+  useFocusEffect(
+    useCallback(() => {
+      syncPinTable().catch(() => {});
+    }, [])
+  );
 
   const siteLabel = selectedSite
     ? selectedSite.id === "none"

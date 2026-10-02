@@ -1,9 +1,7 @@
-import { useState, useCallback } from "react";
-import { useFocusEffect } from "@react-navigation/native";
+import { useState } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, RefreshControl,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
@@ -17,11 +15,8 @@ import { useEmployeeSyncAlertCount } from "../lib/hooks/useEmployeeSyncAlertCoun
 import { syncPinTable } from "../lib/pinSync";
 import { drainQueue } from "../lib/queueSync";
 import { drainEmployeeQueue } from "../lib/employeeQueueSync";
-import { isAutoDetectionActive } from "../lib/geofenceCheck";
 import OfflineBanner from "../components/OfflineBanner";
 import Avatar from "../components/Avatar";
-
-const ASK_SITE_KEY = "orbitworks_ask_site_each_time";
 
 export default function DashboardScreen({ navigation }) {
   const { userData, currentUser, linkedEmployeeId } = useAuth();
@@ -33,7 +28,6 @@ export default function DashboardScreen({ navigation }) {
   const localSupervisor = useLocalEmployee(linkedEmployeeId);
   const declinedCount = useDeclinedCount();
   const employeeSyncAlertCount = useEmployeeSyncAlertCount();
-  const [askSite, setAskSite] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   // Create Employee (mobile) - supervisors and admins only, and only while
@@ -43,14 +37,6 @@ export default function DashboardScreen({ navigation }) {
   const canCreateEmployee =
     (userData?.role === "supervisor" || userData?.role === "admin" || userData?.role === "owner") &&
     settings.appSettings.allowAppEmployeeCreate;
-
-  useFocusEffect(
-    useCallback(() => {
-      AsyncStorage.getItem(ASK_SITE_KEY).then((val) => {
-        if (val !== null) setAskSite(val === "true");
-      });
-    }, [])
-  );
 
   const isNoneSite = selectedSite?.id === "none";
   const filteredEmployees =
@@ -81,21 +67,14 @@ export default function DashboardScreen({ navigation }) {
 
   const hoursLabel = `${formatHour(settings.businessHours.open)} - ${formatHour(settings.businessHours.close)}`;
 
-  const handleClockPress = async () => {
-    // Geofencing (Pro) auto site detection - once the company has any
-    // fenced site at all, the site is detected from location, not picked -
-    // the "ask each time" preference no longer applies to clocking in
-    // (it's still honored for the site FILTER pill above, a separate
-    // concept - see SiteSessionContext.js).
-    if (await isAutoDetectionActive()) {
-      navigation.navigate("PinEntry");
-      return;
-    }
-    if (askSite) {
-      navigation.navigate("SiteSelect", { afterSelect: "PinEntry" });
-    } else {
-      navigation.navigate("PinEntry");
-    }
+  // Clocking in never shows a site picker anymore: ClockCameraScreen
+  // resolves the site itself once the employee is known - geofencing
+  // (Pro) detects it from location, "Ask for job site each time"
+  // auto-detects it from the employee's own assignment, and otherwise it
+  // falls back to the site FILTER pill above (a separate concept - see
+  // SiteSessionContext.js).
+  const handleClockPress = () => {
+    navigation.navigate("PinEntry");
   };
 
   // Manual safety valve: re-pulls the employee/PIN table (picks up

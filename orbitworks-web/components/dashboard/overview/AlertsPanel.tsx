@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useAlertActions } from "@/lib/hooks/useAlertActions";
 import { useServerAlerts } from "@/lib/hooks/useServerAlerts";
 import type { ClockEvent } from "@/lib/types";
@@ -10,7 +9,6 @@ import {
   AlertItem,
   AlertSeverity,
   alertTitle,
-  buildGeofenceAlertItems,
   effectiveDate,
   toDatetimeLocalValue,
 } from "@/lib/dashboardOverviewUtils";
@@ -28,12 +26,12 @@ export default function AlertsPanel({
 }: {
   loading: boolean;
   currentlyActive: ClockEvent[];
-  // Geofencing (Pro) Part 4 only - buildGeofenceAlertItems needs the raw
-  // recent events (not just currentlyActive) since its alerts are about a
-  // past clock-in moment, not current status.
+  // clockedInOutsideGeofence/siteMismatch are both about a specific past
+  // clock-in moment, not current status - this is what lets their event
+  // be resolved precisely by eventId below, instead of just whichever
+  // event currentlyActive happens to have for that employee right now.
   recentEvents: ClockEvent[];
 }) {
-  const { settings, isPro } = useCompanySettings();
   const { alerts: serverAlerts, loading: alertsLoading } = useServerAlerts();
   const {
     resolvedKeys,
@@ -56,21 +54,25 @@ export default function AlertsPanel({
   const eventByEmployee = new Map<string, ClockEvent>();
   currentlyActive.forEach((e) => eventByEmployee.set(e.employeeId, e));
 
-  const serverAlertItems: AlertItem[] = serverAlerts.map((a) => ({
+  // clockedInOutsideGeofence/siteMismatch are both about a specific past
+  // clock-in, not an employee's current session - eventByEmployee would
+  // attach the wrong event (or none) once that employee has since
+  // clocked out or started a new session elsewhere, so these two resolve
+  // their event by the eventId the server alert carries instead, falling
+  // back to eventByEmployee only if that event has aged out of
+  // recentEvents.
+  const eventById = new Map<string, ClockEvent>();
+  recentEvents.forEach((e) => eventById.set(e.id, e));
+
+  const EVENT_SCOPED_ALERT_TYPES = new Set(["clockedInOutsideGeofence", "siteMismatch"]);
+
+  const alertItems: AlertItem[] = serverAlerts.map((a) => ({
     ...a,
-    event: eventByEmployee.get(a.employeeId),
+    event:
+      EVENT_SCOPED_ALERT_TYPES.has(a.alertType) && a.eventId
+        ? eventById.get(a.eventId) ?? eventByEmployee.get(a.employeeId)
+        : eventByEmployee.get(a.employeeId),
   }));
-
-  // Geofencing (Pro) Part 4 - not yet migrated server-side (see
-  // buildGeofenceAlertItems's comment), so these are still computed here
-  // and merged in alongside the server-generated alerts above.
-  const geofenceAlertItems = buildGeofenceAlertItems({
-    settings,
-    isPro,
-    recentEvents,
-  });
-
-  const alertItems: AlertItem[] = [...serverAlertItems, ...geofenceAlertItems];
   const visibleAlertItems = alertItems.filter((a) => !resolvedKeys.has(a.key));
   const isLoading = loading || alertsLoading;
 

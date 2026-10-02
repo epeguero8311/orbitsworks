@@ -1,5 +1,11 @@
 import { haversineMeters } from "./geocoding";
 
+// Mirrors orbitworks-web/lib/geo.ts's own copy exactly (same cross-package
+// duplication convention as isProPlan elsewhere) - the fallback "on site"
+// radius for a site that has coordinates but was never asked to save its
+// own radius, because geofencing was never turned on for it.
+const DEFAULT_SITE_RADIUS_METERS = 150;
+
 // Geofencing (Pro) Part 3 - shared between onClockEventCreated (async,
 // after-the-fact record labeling - see clockEvents.ts) and
 // redeemTempClockLink (synchronous, before-the-write enforcement - see
@@ -57,11 +63,16 @@ export function classifyGeofence(
   return { applicable: true, status, distanceM: Math.round(distanceM) };
 }
 
-// Auto-detection + hybrid checking - a site is now "detected" (not
-// picked by the client) whenever the company has at least one fenced,
-// active site. Only geofenced sites are ever candidates - a non-fenced
-// site is invisible to this function entirely (per spec, "only sites
-// with a fence can be auto-detected").
+// Auto-detection + hybrid checking - a site is now "detected" (not picked
+// by the client) whenever the company has at least one active site with
+// saved coordinates. Geofencing (requireGeofence) no longer gates whether
+// a site CAN be matched - only whether being outside it should ever
+// block/flag anything is still opt-in per site (see clockEvents.ts, which
+// runs this twice: once over every located site for attribution, and
+// separately over just the geofenced ones for the enforcement-flavored
+// geofenceStatus/alert). A site with no saved lat/lng at all (address
+// typed but never picked from the autocomplete suggestions) is the only
+// case still invisible here.
 export interface DetectableSite extends GeofenceSite {
   id: string;
   name: string;
@@ -69,26 +80,27 @@ export interface DetectableSite extends GeofenceSite {
 }
 
 export interface SiteDetectionResult {
-  // False when the company has no fenced+active sites at all - callers
-  // must leave whatever site the client already had completely alone in
-  // that case ("keep today's flow exactly as is" for those companies).
-  hasFencedSites: boolean;
-  // The detected site, or null when the location isn't inside any fence
-  // (including when there's no location at all - "no signal" resolves to
-  // outside, same as classifyGeofence above, never a way to dodge
-  // detection). Only meaningful when hasFencedSites is true.
+  // False when there were no candidate sites at all (no active site with
+  // coordinates in whatever list the caller passed in) - callers must
+  // leave whatever site the client already had completely alone in that
+  // case ("keep today's flow exactly as is").
+  hasCandidates: boolean;
+  // The detected site, or null when the location isn't within any
+  // candidate's radius (including when there's no location at all - "no
+  // signal" resolves to outside, same as classifyGeofence above, never a
+  // way to dodge detection). Only meaningful when hasCandidates is true.
   siteId: string | null;
   siteName: string | null;
   status: GeofenceStatus | null;
   // Distance to the matched site when inside one, or to the single
-  // closest fenced site when outside all of them (for messaging) - null
-  // only when hasFencedSites is false or there's no location to measure
+  // closest candidate when outside all of them (for messaging) - null
+  // only when hasCandidates is false or there's no location to measure
   // from.
   distanceM: number | null;
-  // The closest fenced site's name for messaging (e.g. "You're 2.3 mi
-  // from Riverside Build"), even when status is "outside" and siteId/
-  // siteName above are null because nothing was close enough to assign.
-  // Same as siteName when status is "inside".
+  // The closest candidate's name for messaging (e.g. "You're 2.3 mi from
+  // Riverside Build"), even when status is "outside" and siteId/siteName
+  // above are null because nothing was close enough to assign. Same as
+  // siteName when status is "inside".
   nearestSiteName: string | null;
 }
 
@@ -97,18 +109,13 @@ export function detectSite(
   accuracyM: number | null,
   candidateSites: DetectableSite[]
 ): SiteDetectionResult {
-  const fenced = candidateSites.filter(
-    (s) =>
-      s.active !== false &&
-      s.requireGeofence &&
-      typeof s.lat === "number" &&
-      typeof s.lng === "number" &&
-      typeof s.radiusMeters === "number"
+  const located = candidateSites.filter(
+    (s) => s.active !== false && typeof s.lat === "number" && typeof s.lng === "number"
   );
 
-  if (fenced.length === 0) {
+  if (located.length === 0) {
     return {
-      hasFencedSites: false,
+      hasCandidates: false,
       siteId: null,
       siteName: null,
       status: null,
@@ -119,7 +126,7 @@ export function detectSite(
 
   if (!location) {
     return {
-      hasFencedSites: true,
+      hasCandidates: true,
       siteId: null,
       siteName: null,
       status: "outside",
@@ -128,20 +135,22 @@ export function detectSite(
     };
   }
 
-  const scored = fenced.map((site) => {
+  const scored = located.map((site) => {
+    const radiusMeters =
+      typeof site.radiusMeters === "number" ? site.radiusMeters : DEFAULT_SITE_RADIUS_METERS;
     const distanceM = haversineMeters(location.lat, location.lng, site.lat!, site.lng!);
     const effectiveDistanceM = accuracyM != null ? Math.max(0, distanceM - accuracyM) : distanceM;
-    return { site, distanceM, inside: effectiveDistanceM <= site.radiusMeters! };
+    return { site, distanceM, inside: effectiveDistanceM <= radiusMeters };
   });
 
-  // Overlapping fences: the closest INSIDE match wins, not just the
+  // Overlapping radii: the closest INSIDE match wins, not just the
   // closest site overall (a small fence nested inside a much larger one
   // could otherwise have the large site win purely on distance).
   const insideMatches = scored.filter((m) => m.inside).sort((a, b) => a.distanceM - b.distanceM);
   if (insideMatches.length > 0) {
     const match = insideMatches[0];
     return {
-      hasFencedSites: true,
+      hasCandidates: true,
       siteId: match.site.id,
       siteName: match.site.name,
       status: "inside",
@@ -152,7 +161,7 @@ export function detectSite(
 
   const closest = scored.sort((a, b) => a.distanceM - b.distanceM)[0];
   return {
-    hasFencedSites: true,
+    hasCandidates: true,
     siteId: null,
     siteName: null,
     nearestSiteName: closest.site.name,

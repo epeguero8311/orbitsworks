@@ -16,6 +16,7 @@ export async function syncPinTable() {
   const isPro = !!result.data.isPro;
   const enforcementMode = result.data.enforcementMode || "flag";
   const hasFencedSites = !!result.data.hasFencedSites;
+  const hasLocatedSites = !!result.data.hasLocatedSites;
 
   const db = await getDb();
   const now = Date.now();
@@ -26,8 +27,8 @@ export async function syncPinTable() {
       const hashedPin = await hashPin(emp.pin);
       await db.runAsync(
         `INSERT INTO pin_cache
-          (employeeId, hashedPin, name, jobTitle, photoUrl, assignedSiteIds, isSupervisor, active, lastEventType, lastEventSiteId, lastEventSiteName, subcontractorId, subcontractorName, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (employeeId, hashedPin, name, jobTitle, photoUrl, assignedSiteIds, isSupervisor, active, lastEventType, lastEventTimestamp, lastEventSiteId, lastEventSiteName, subcontractorId, subcontractorName, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           emp.id,
           hashedPin,
@@ -38,6 +39,7 @@ export async function syncPinTable() {
           emp.isSupervisor ? 1 : 0,
           emp.active ? 1 : 0,
           emp.lastEventType ?? null,
+          emp.lastEventTimestamp ?? null,
           emp.lastEventSiteId ?? null,
           emp.lastEventSiteName ?? null,
           emp.subcontractorId ?? null,
@@ -83,11 +85,17 @@ export async function syncPinTable() {
     [enforcementMode]
   );
   // Geofencing (Pro) auto site detection - whether this company has any
-  // fenced+active site at all. false means "keep today's flow exactly" -
-  // the app must not skip its site picker or run its own advisory check.
+  // fenced+active site at all (enforcement gate - stays narrow) vs any
+  // active site with saved coordinates at all, fenced or not (attribution
+  // gate - decides whether to skip the manual picker). false on either
+  // means "keep today's flow exactly."
   await db.runAsync(
     "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('hasFencedSites', ?)",
     [hasFencedSites ? "1" : "0"]
+  );
+  await db.runAsync(
+    "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('hasLocatedSites', ?)",
+    [hasLocatedSites ? "1" : "0"]
   );
 
   // Notify anything reading from the local cache (e.g. the supervisor's

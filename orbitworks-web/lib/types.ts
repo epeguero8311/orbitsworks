@@ -266,7 +266,9 @@ export type MobileAlertType =
   | "breakTooLong"
   | "maxHours"
   | "overtime"
-  | "missedClockOut";
+  | "missedClockOut"
+  | "clockedInOutsideGeofence"
+  | "siteMismatch";
 
 export interface MobileAlert {
   id: string;

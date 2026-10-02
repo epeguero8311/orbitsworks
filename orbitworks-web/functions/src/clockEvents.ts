@@ -13,7 +13,7 @@ import {
 } from "./shared";
 import { MAPBOX_TOKEN, haversineMeters, reverseGeocode } from "./geocoding";
 import { classifyGeofence, detectSite, DetectableSite, GeofenceStatus } from "./geofencing";
-import { checkLateClockIn, checkEarlyClockOut } from "./alerts";
+import { checkLateClockIn, checkEarlyClockOut, checkOutsideGeofence, checkSiteMismatch } from "./alerts";
 
 // Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
 // why this can't just be imported.
@@ -163,30 +163,35 @@ export const onClockEventCreated = onDocumentCreated(
       const clientSiteId = (data.siteId as string | null | undefined) ?? null;
 
       if (data.type === "in") {
-        const sitesSnap = await jobSitesRef
-          .where("requireGeofence", "==", true)
-          .where("active", "==", true)
-          .get();
-        const candidates: DetectableSite[] = sitesSnap.docs.map((d) => {
-          const s = d.data() as { name?: string; lat?: number; lng?: number; radiusMeters?: number };
+        // Attribution - every active, located site is a candidate here,
+        // geofenced or not (Geofencing Part 5: "requireGeofence" controls
+        // enforcement, not whether a site can be matched at all). A site
+        // with no saved coordinates still can't be matched - see
+        // SitesSection.tsx's own nudge for that remaining gap.
+        const sitesSnap = await jobSitesRef.where("active", "==", true).get();
+        const allCandidates: DetectableSite[] = sitesSnap.docs.map((d) => {
+          const s = d.data() as {
+            name?: string;
+            lat?: number;
+            lng?: number;
+            radiusMeters?: number;
+            requireGeofence?: boolean;
+          };
           return {
             id: d.id,
             name: s.name ?? "",
             lat: s.lat,
             lng: s.lng,
             radiusMeters: s.radiusMeters,
-            requireGeofence: true,
+            requireGeofence: s.requireGeofence === true,
             active: true,
           };
         });
 
-        const detection = detectSite(rawLocation, accuracyM, candidates);
-        if (detection.hasFencedSites) {
-          resolvedSiteId = detection.siteId;
-          resolvedSiteName = detection.siteName;
-          resolvedGeofenceApplicable = true;
-          resolvedGeofenceStatus = detection.status;
-          resolvedDistanceM = detection.distanceM;
+        const attribution = detectSite(rawLocation, accuracyM, allCandidates);
+        if (attribution.hasCandidates) {
+          resolvedSiteId = attribution.siteId;
+          resolvedSiteName = attribution.siteName;
           siteCorrected = resolvedSiteId !== clientSiteId;
 
           // Site mismatch (info-only, never blocks) - only meaningful when
@@ -197,21 +202,51 @@ export const onClockEventCreated = onDocumentCreated(
           if (resolvedSiteId && assignedSiteIds.length > 0 && !assignedSiteIds.includes(resolvedSiteId)) {
             siteMismatch = true;
           }
+
+          if (resolvedSiteId) {
+            // Matched a real site - the "outside geofence" badge/alert
+            // only ever applies when THAT site opted into geofencing.
+            // Matching a non-geofenced site (e.g. an office with no fence)
+            // must look identical to a Core company/no-fenced-sites event -
+            // no badge, no alert - never implied just because detection
+            // got smarter about which site this is.
+            const matched = allCandidates.find((c) => c.id === resolvedSiteId);
+            if (matched?.requireGeofence) {
+              resolvedGeofenceApplicable = true;
+              resolvedGeofenceStatus = "inside";
+              resolvedDistanceM = attribution.distanceM;
+            }
+          } else {
+            // Nothing matched broadly - fall back to a fenced-only check
+            // so the "outside geofence" badge/alert and the "no job site
+            // detected" Approvals prompt keep working exactly as before
+            // this change, for whoever is genuinely nowhere near any
+            // geofenced site.
+            const fencedCandidates = allCandidates.filter((c) => c.requireGeofence);
+            const fenceCheck = detectSite(rawLocation, accuracyM, fencedCandidates);
+            if (fenceCheck.hasCandidates) {
+              resolvedGeofenceApplicable = true;
+              resolvedGeofenceStatus = fenceCheck.status;
+              resolvedDistanceM = fenceCheck.distanceM;
+            }
+          }
         }
       } else {
         // type === "out": never re-detect - a clock-out always keeps the
         // clock-in's site (per spec), verified with a direct
         // classifyGeofence check against that one known site rather than a
         // fresh search. Searching again could otherwise land the clock-out
-        // on a *different* fenced site than the one actually worked, if the
-        // worker's last GPS fix happens to be closer to another fence on
-        // their way out.
-        const fencedSitesExist = await jobSitesRef
-          .where("requireGeofence", "==", true)
+        // on a *different* site than the one actually worked, if the
+        // worker's last GPS fix happens to be closer to another site on
+        // their way out. Gated on "any active, located site exists" (not
+        // "any geofenced site") to match the broader attribution above -
+        // classifyGeofence below still only ever applies/flags anything
+        // when the resolved site's own requireGeofence is true.
+        const locatedSitesExist = await jobSitesRef
           .where("active", "==", true)
           .limit(1)
           .get();
-        if (!fencedSitesExist.empty) {
+        if (!locatedSitesExist.empty) {
           resolvedSiteId = employeeData?.lastEventSiteId ?? null;
           resolvedSiteName = employeeData?.lastEventSiteName ?? null;
           siteCorrected = resolvedSiteId !== clientSiteId;
@@ -219,12 +254,9 @@ export const onClockEventCreated = onDocumentCreated(
           if (resolvedSiteId) {
             const siteSnap = await jobSitesRef.doc(resolvedSiteId).get();
             const site = siteSnap.data() as
-              | { lat?: number; lng?: number; radiusMeters?: number }
+              | { lat?: number; lng?: number; radiusMeters?: number; requireGeofence?: boolean }
               | undefined;
-            const classification = classifyGeofence(rawLocation, accuracyM, {
-              ...site,
-              requireGeofence: true,
-            });
+            const classification = classifyGeofence(rawLocation, accuracyM, site);
             resolvedGeofenceApplicable = classification.applicable;
             resolvedGeofenceStatus = classification.status;
             resolvedDistanceM = classification.distanceM;
@@ -446,6 +478,13 @@ export const onClockEventCreated = onDocumentCreated(
         if (geofence.applicable) {
           updates.geofenceStatus = geofence.status;
         }
+        // Feeds the alert-generation call at the bottom of this trigger -
+        // the pin in/out path above already set these from its own
+        // detection, this is the equivalent for temp link/supervisor
+        // override/any other non-pin source.
+        resolvedGeofenceApplicable = geofence.applicable;
+        resolvedGeofenceStatus = geofence.status;
+        resolvedDistanceM = geofence.distanceM;
       }
 
       if (Object.keys(updates).length > 0) {
@@ -474,6 +513,28 @@ export const onClockEventCreated = onDocumentCreated(
     }
     try {
       await checkEarlyClockOut(companyId, event.params.eventId, data);
+    } catch (err) {
+      console.warn("Alert generation failed", { eventId: event.params.eventId, companyId, error: String(err) });
+    }
+    try {
+      await checkOutsideGeofence(
+        companyId,
+        event.params.eventId,
+        data,
+        { applicable: resolvedGeofenceApplicable, status: resolvedGeofenceStatus, distanceM: resolvedDistanceM },
+        { siteId: finalSiteId ?? null, siteName: finalSiteName || null }
+      );
+    } catch (err) {
+      console.warn("Alert generation failed", { eventId: event.params.eventId, companyId, error: String(err) });
+    }
+    try {
+      await checkSiteMismatch(
+        companyId,
+        event.params.eventId,
+        data,
+        siteMismatch,
+        { siteId: finalSiteId ?? null, siteName: finalSiteName || null }
+      );
     } catch (err) {
       console.warn("Alert generation failed", { eventId: event.params.eventId, companyId, error: String(err) });
     }
@@ -912,6 +973,15 @@ export const addManualTimestamp = onCall(async (request) => {
     subcontractorName?: string | null;
   };
 
+  let authorizedByName = "Admin";
+  const callerSnap = await db.collection("users").doc(request.auth.uid).get();
+  if (callerSnap.exists) {
+    const callerData = callerSnap.data() as { name?: string };
+    if (callerData.name) {
+      authorizedByName = callerData.name;
+    }
+  }
+
   let sessionSubcontractorId = employee.subcontractorId ?? null;
   let sessionSubcontractorName = employee.subcontractorName ?? null;
   if (hasCompanyOverride) {
@@ -965,6 +1035,8 @@ export const addManualTimestamp = onCall(async (request) => {
     source: "adminManual" as const,
     note: reason,
     createdByUid: request.auth.uid,
+    authorizedById: request.auth.uid,
+    authorizedByName,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     subcontractorId: sessionSubcontractorId,
     subcontractorName: sessionSubcontractorName,

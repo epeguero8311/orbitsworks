@@ -104,6 +104,8 @@ export function useAlertActions() {
       source: "adminManual",
       note: "Clocked out from alert",
       createdByUid: currentUser?.uid,
+      authorizedById: currentUser?.uid,
+      authorizedByName: currentUser?.displayName || currentUser?.email || "Admin",
       timestamp: Timestamp.fromDate(new Date()),
       createdAt: serverTimestamp(),
     });
@@ -129,6 +131,8 @@ export function useAlertActions() {
       source: "adminManual",
       note: "Break ended from alert",
       createdByUid: currentUser?.uid,
+      authorizedById: currentUser?.uid,
+      authorizedByName: currentUser?.displayName || currentUser?.email || "Admin",
       timestamp: Timestamp.fromDate(new Date()),
       createdAt: serverTimestamp(),
     });
@@ -157,6 +161,8 @@ export function useAlertActions() {
       source: "adminManual",
       note: "Clock-out time set from alert",
       createdByUid: currentUser?.uid,
+      authorizedById: currentUser?.uid,
+      authorizedByName: currentUser?.displayName || currentUser?.email || "Admin",
       timestamp: Timestamp.fromDate(new Date(chosenMs)),
       createdAt: serverTimestamp(),
     });

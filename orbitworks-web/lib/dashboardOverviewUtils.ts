@@ -1,12 +1,7 @@
-import type { CompanySettings } from "@/lib/hooks/useCompanySettings";
 import type { ClockEvent } from "@/lib/types";
-import { formatGeofenceDistance } from "@/lib/geo";
 
-// How far back an ignored/resolved alertAction stays remembered (see
-// useAlertActions.ts's resolvedAt query) - shared here so
-// buildGeofenceAlertItems can bound its own event-scoped alerts (geofence)
-// to the same window and never resurrect one whose action fell outside
-// that lookback.
+// How far back an ignored/resolved alertAction stays remembered - see
+// useAlertActions.ts's resolvedAt query.
 export const ALERT_ACTION_LOOKBACK_DAYS = 30;
 
 export type DayAttendance = {
@@ -21,12 +16,8 @@ export type DayAttendance = {
 // file and alertActions' resolved/ignored records key off AlertItem.key.
 export type AlertItem = {
   key: string;
-  // lateClockIn/earlyClockOut/breakTooLong/maxHours/overtime/missedClockOut
-  // are server-generated (functions/src/alerts.ts, via useServerAlerts.ts).
-  // clockedInOutsideGeofence/siteMismatch are still computed client-side by
-  // buildGeofenceAlertItems below - alerts.ts's ALERT_TYPES comment notes
-  // geofence data "doesn't exist on main yet" and to extend the server set
-  // once it lands; until that migration happens, these two stay separate.
+  // Every alert type is server-generated now (functions/src/alerts.ts,
+  // via useServerAlerts.ts).
   alertType:
     | "lateClockIn"
     | "earlyClockOut"
@@ -44,6 +35,13 @@ export type AlertItem = {
   detail: string;
   employeeId: string;
   event?: ClockEvent;
+  // Set for server-generated alerts (useServerAlerts.ts). clockedInOutsideGeofence/
+  // siteMismatch are both about a specific past clock-in, not an
+  // employee's current session, so AlertsPanel.tsx resolves `event` by
+  // this id instead of by employeeId for those two - a since-clocked-out
+  // or re-clocked-in employee must not attach the wrong session to an
+  // "Edit Time" action.
+  eventId?: string | null;
 };
 
 // Short tag shown after the "-" in an alert's title, e.g. "Ryan Mitchell -
@@ -144,82 +142,3 @@ export function toDatetimeLocalValue(date: Date) {
   )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-// Client-computed companion to useServerAlerts.ts - only the two
-// geofencing-specific alert types, which functions/src/alerts.ts's
-// ALERT_TYPES comment explicitly defers ("geofence data doesn't exist on
-// main yet... extend this list when geofence data lands"). Every other
-// alert type (maxHours/missedClockOut/overtime/breakTooLong/lateClockIn/
-// earlyClockOut) is now server-generated; AlertsPanel.tsx merges this
-// function's output with useServerAlerts()'s.
-export function buildGeofenceAlertItems({
-  settings,
-  isPro,
-  recentEvents,
-}: {
-  settings: CompanySettings;
-  isPro: boolean;
-  recentEvents?: ClockEvent[];
-}): AlertItem[] {
-  const alertItems: AlertItem[] = [];
-  const now = new Date();
-
-  // Geofencing (Pro) Part 4. Unlike every alert above, this one is about a
-  // specific past moment (the clock-in), not current state - so it's keyed
-  // by event id (not day/week) and bounded to the same lookback window
-  // useAlertActions.ts remembers resolutions for, so an ignored/resolved
-  // alert can never resurrect itself once its action ages out of that
-  // window. Fires for every mode (flag/requireReason/block) and for
-  // overrides alike - only geofenceStatus and type matter here, not
-  // source or enforcement mode. Clock-outs are excluded (type === "in"
-  // only) - they're never more than the badge in the log, per spec.
-  if (isPro && settings.alerts.clockedInOutsideGeofence && recentEvents) {
-    const cutoffMs = now.getTime() - ALERT_ACTION_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
-    recentEvents
-      .filter((event) => event.type === "in" && event.geofenceStatus === "outside")
-      .forEach((event) => {
-        const d = effectiveDate(event);
-        if (!d || d.getTime() < cutoffMs) return;
-
-        const distancePhrase =
-          event.distanceFromSiteM != null ? formatGeofenceDistance(event.distanceFromSiteM) : null;
-        const detail = distancePhrase
-          ? `Clocked in ${distancePhrase} from ${event.siteName}${event.reason ? ` - Reason: ${event.reason}` : ""}`
-          : `Clocked in outside the geofence at ${event.siteName}${event.reason ? ` - Reason: ${event.reason}` : ""}`;
-
-        alertItems.push({
-          key: `geofence-${event.id}`,
-          alertType: "clockedInOutsideGeofence",
-          label: event.employeeName,
-          detail,
-          employeeId: event.employeeId,
-          event,
-        });
-      });
-  }
-
-  // Auto site detection - siteMismatch is only ever set on a clock-in
-  // (functions/src/clockEvents.ts), and only when the employee has their
-  // own assignedSiteIds and the detected site isn't one of them. Same
-  // event-scoped/lookback shape as the geofence alert above - info-only,
-  // never blocks, so this is purely a "someone should take a look" flag.
-  if (isPro && settings.alerts.siteMismatchWarning && recentEvents) {
-    const cutoffMs = now.getTime() - ALERT_ACTION_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
-    recentEvents
-      .filter((event) => event.type === "in" && event.siteMismatch === true)
-      .forEach((event) => {
-        const d = effectiveDate(event);
-        if (!d || d.getTime() < cutoffMs) return;
-
-        alertItems.push({
-          key: `mismatch-${event.id}`,
-          alertType: "siteMismatch",
-          label: event.employeeName,
-          detail: `Clocked in at ${event.siteName || "an unassigned site"} - not one of their assigned sites.`,
-          employeeId: event.employeeId,
-          event,
-        });
-      });
-  }
-
-  return alertItems;
-}

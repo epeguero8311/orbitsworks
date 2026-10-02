@@ -218,6 +218,138 @@ test("earlyClockOut does not fire for a clock-out at/after close", async () => {
   assert.equal(await countAlerts(companyId), 0);
 });
 
+test("clockedInOutsideGeofence fires once with distance in the message", async () => {
+  const companyId = "c3-geo";
+  await seedCompany(companyId);
+  setFlags({ alertsFeed: true, pushEnabled: false });
+
+  await alertsModule.checkOutsideGeofence(
+    companyId,
+    "evt1",
+    { type: "in", employeeId: "e1", employeeName: "Jordan", timestamp: admin.firestore.Timestamp.now() },
+    { applicable: true, status: "outside", distanceM: 150 },
+    { siteId: "site1", siteName: "Main St" }
+  );
+
+  const snap = await db.collection("companies").doc(companyId).collection("alerts").get();
+  assert.equal(snap.size, 1);
+  const alert = snap.docs[0].data();
+  assert.equal(alert.alertType, "clockedInOutsideGeofence");
+  assert.equal(alert.siteId, "site1");
+  assert.match(alert.message, /^Clocked in .* from Main St$/);
+});
+
+test("clockedInOutsideGeofence does not fire when geofencing isn't applicable", async () => {
+  const companyId = "c3-geo-na";
+  await seedCompany(companyId);
+  setFlags({ alertsFeed: true, pushEnabled: false });
+
+  await alertsModule.checkOutsideGeofence(
+    companyId,
+    "evt1",
+    { type: "in", employeeId: "e1", employeeName: "Jordan", timestamp: admin.firestore.Timestamp.now() },
+    { applicable: false, status: null, distanceM: null },
+    { siteId: null, siteName: null }
+  );
+
+  assert.equal(await countAlerts(companyId), 0);
+});
+
+test("clockedInOutsideGeofence respects its own alert toggle", async () => {
+  const companyId = "c3-geo-off";
+  await seedCompany(companyId, {
+    alerts: {
+      lateClockInAlert: true,
+      maxHoursWarning: true,
+      maxHoursThreshold: 8,
+      overtimeWarning: true,
+      missedClockOutAlert: true,
+      missedClockOutMinutes: 30,
+      maxBreakWarning: true,
+      maxBreakMinutes: 15,
+      earlyClockOutAlert: true,
+      clockedInOutsideGeofence: false,
+    },
+  });
+  setFlags({ alertsFeed: true, pushEnabled: false });
+
+  await alertsModule.checkOutsideGeofence(
+    companyId,
+    "evt1",
+    { type: "in", employeeId: "e1", employeeName: "Jordan", timestamp: admin.firestore.Timestamp.now() },
+    { applicable: true, status: "outside", distanceM: 150 },
+    { siteId: "site1", siteName: "Main St" }
+  );
+
+  assert.equal(await countAlerts(companyId), 0);
+});
+
+test("siteMismatch fires once with the right message", async () => {
+  const companyId = "c3-mismatch";
+  await seedCompany(companyId);
+  setFlags({ alertsFeed: true, pushEnabled: false });
+
+  await alertsModule.checkSiteMismatch(
+    companyId,
+    "evt1",
+    { type: "in", employeeId: "e1", employeeName: "Jordan", timestamp: admin.firestore.Timestamp.now() },
+    true,
+    { siteId: "site1", siteName: "Main St" }
+  );
+
+  const snap = await db.collection("companies").doc(companyId).collection("alerts").get();
+  assert.equal(snap.size, 1);
+  const alert = snap.docs[0].data();
+  assert.equal(alert.alertType, "siteMismatch");
+  assert.equal(alert.siteId, "site1");
+  assert.match(alert.message, /^Clocked in at Main St/);
+});
+
+test("siteMismatch does not fire when there's no mismatch", async () => {
+  const companyId = "c3-mismatch-none";
+  await seedCompany(companyId);
+  setFlags({ alertsFeed: true, pushEnabled: false });
+
+  await alertsModule.checkSiteMismatch(
+    companyId,
+    "evt1",
+    { type: "in", employeeId: "e1", employeeName: "Jordan", timestamp: admin.firestore.Timestamp.now() },
+    false,
+    { siteId: "site1", siteName: "Main St" }
+  );
+
+  assert.equal(await countAlerts(companyId), 0);
+});
+
+test("siteMismatch respects its own alert toggle", async () => {
+  const companyId = "c3-mismatch-off";
+  await seedCompany(companyId, {
+    alerts: {
+      lateClockInAlert: true,
+      maxHoursWarning: true,
+      maxHoursThreshold: 8,
+      overtimeWarning: true,
+      missedClockOutAlert: true,
+      missedClockOutMinutes: 30,
+      maxBreakWarning: true,
+      maxBreakMinutes: 15,
+      earlyClockOutAlert: true,
+      siteMismatchWarning: false,
+    },
+  });
+  setFlags({ alertsFeed: true, pushEnabled: false });
+
+  await alertsModule.checkSiteMismatch(
+    companyId,
+    "evt1",
+    { type: "in", employeeId: "e1", employeeName: "Jordan", timestamp: admin.firestore.Timestamp.now() },
+    true,
+    { siteId: "site1", siteName: "Main St" }
+  );
+
+  assert.equal(await countAlerts(companyId), 0);
+});
+
 test("retried/replayed event produces exactly one alert and one push", async () => {
   const companyId = "c4";
   await seedCompany(companyId);

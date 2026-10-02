@@ -25,6 +25,18 @@ export default function SitesSection() {
     (a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0)
   );
 
+  // Auto-detection (clockEvents.ts's detectSite) compares a clock-in's
+  // location against every active site that has saved coordinates,
+  // geofenced or not - geofencing only controls whether being outside a
+  // site's radius blocks/flags the clock-in, not whether the site can be
+  // matched at all. A site with no saved lat/lng (a typed address that was
+  // never picked from the autocomplete suggestions, or a pre-Places-era
+  // legacy address) is the one case that's still invisible to detection.
+  const sitesMissingCoordinates = sites.filter(
+    (s) => s.active && s.address && (s.lat == null || s.lng == null)
+  );
+  const hasMixedGeofencing = isPro && sitesMissingCoordinates.length > 0;
+
   const [siteName, setSiteName] = useState("");
   const [siteAddress, setSiteAddress] = useState("");
   const [addressVerified, setAddressVerified] = useState(false);
@@ -183,6 +195,19 @@ export default function SitesSection() {
       </form>
       {siteError && <p className="mt-2 text-sm text-red-600">{siteError}</p>}
 
+      {hasMixedGeofencing && (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3.5 text-sm text-amber-900">
+          <p className="font-medium">Some active sites are missing saved coordinates</p>
+          <p className="mt-1 text-amber-800">
+            Clock-ins are matched to a site automatically by location, which needs a verified
+            address - a typed address that was never picked from the suggestions can&apos;t be
+            matched this way. Re-save the address for{" "}
+            {sitesMissingCoordinates.map((s) => s.name).join(", ")} by picking it from the
+            suggestions to fix this.
+          </p>
+        </div>
+      )}
+
       <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 bg-white">
         {sitesLoading ? (
           <p className="p-4 text-sm text-gray-600">Loading...</p>
@@ -205,7 +230,18 @@ export default function SitesSection() {
               {sortedSites.map((site) => (
                 <tr key={site.id} className="border-b border-gray-200 last:border-0">
                   <td className="px-4 py-2.5 text-gray-950">{site.name}</td>
-                  <td className="px-4 py-2.5 text-gray-600">{site.address || "-"}</td>
+                  <td
+                    className={
+                      site.active && site.address && (site.lat == null || site.lng == null)
+                        ? "px-4 py-2.5 font-medium text-amber-700"
+                        : "px-4 py-2.5 text-gray-600"
+                    }
+                  >
+                    {site.address || "-"}
+                    {site.active && site.address && (site.lat == null || site.lng == null)
+                      ? " - no saved coordinates"
+                      : ""}
+                  </td>
                   <td className="px-4 py-2.5">
                     <span
                       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${

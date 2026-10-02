@@ -211,6 +211,8 @@ export function useClockEvents() {
           source: "adminManual",
           note: `Auto-closed stale session from ${dateKey(staleDate)} before clocking in today`,
           createdByUid: currentUser.uid,
+          authorizedById: currentUser.uid,
+          authorizedByName: userData.name ?? currentUser.email ?? "Admin",
           timestamp: Timestamp.fromDate(closeTime),
           createdAt: serverTimestamp(),
         });
@@ -228,6 +230,8 @@ export function useClockEvents() {
         type: "breakEnd",
         source: "autoBreakEnd",
         createdByUid: currentUser.uid,
+        authorizedById: currentUser.uid,
+        authorizedByName: userData.name ?? currentUser.email ?? "Admin",
         timestamp: serverTimestamp(),
         createdAt: serverTimestamp(),
       });
@@ -244,6 +248,8 @@ export function useClockEvents() {
       source: "adminManual",
       note: note.trim(),
       createdByUid: currentUser.uid,
+      authorizedById: currentUser.uid,
+      authorizedByName: userData.name ?? currentUser.email ?? "Admin",
       timestamp: serverTimestamp(),
       createdAt: serverTimestamp(),
     });

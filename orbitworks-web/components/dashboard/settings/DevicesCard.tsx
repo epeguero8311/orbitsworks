@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { doc, setDoc, updateDoc, serverTimestamp, Timestamp } from "firebase/firestore";
+import { collection, doc, getDocs, query, setDoc, updateDoc, serverTimestamp, Timestamp, where } from "firebase/firestore";
 import { Pencil, Lock, Unlock, Check, X } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
@@ -69,6 +69,36 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
   const [draftError, setDraftError] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
 
+  // Locking/renaming a device is a web-admin-only action (see isPro guard
+  // and the locked-device branch of isValidDeviceRename in firestore.rules),
+  // so whoever did it is a users/{uid} account, not necessarily an
+  // employees/{id} one - an admin/owner with no linked employee record
+  // would otherwise never resolve to a name here. Same company-scoped
+  // users query useReports.ts already uses for shift-note authors.
+  const [userNameByUid, setUserNameByUid] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (!userData?.companyId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const usersQuery = query(collection(db, "users"), where("companyId", "==", userData.companyId));
+        const snap = await getDocs(usersQuery);
+        if (cancelled) return;
+        const map = new Map<string, string>();
+        snap.docs.forEach((d) => {
+          const data = d.data() as { name?: string };
+          if (data.name) map.set(d.id, data.name);
+        });
+        setUserNameByUid(map);
+      } catch (err) {
+        console.error("Failed to load company users for device attribution:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userData?.companyId]);
+
   if (!isPro) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-6">
@@ -88,11 +118,12 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
 
   // Employees cover "Last used by" (always the app's clocked-in
   // employee). Locking/renaming happens only from this web page, which is
-  // admin/owner-only - the actor is never in the employees list, so the
-  // current web user's own name is added here too. A different admin's
-  // uid still falls back to "Unknown" - resolving arbitrary admin/owner
-  // names would need a company-wide users lookup this page doesn't have.
-  const nameByUid = new Map(employees.map((e) => [e.id, e.name]));
+  // admin/owner-only - the actor is a users/{uid} account, not necessarily
+  // an employees/{id} one, hence the merged-in userNameByUid query above.
+  // The current user's own name is layered on top as a fast path so it
+  // shows immediately, before that query has a chance to resolve.
+  const nameByUid = new Map<string, string>(employees.map((e) => [e.id, e.name]));
+  userNameByUid.forEach((name, uid) => nameByUid.set(uid, name));
   if (currentUser?.uid) {
     nameByUid.set(currentUser.uid, userData?.name || currentUser.email || "You");
   }
