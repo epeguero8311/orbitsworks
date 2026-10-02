@@ -10,7 +10,6 @@ import { useTodayShift } from "../lib/hooks/useTodayShift";
 import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
 import { useLocalEmployee } from "../lib/hooks/useLocalEmployee";
-import { useDeclinedCount } from "../lib/hooks/useDeclinedCount";
 import { useEmployeeSyncAlertCount } from "../lib/hooks/useEmployeeSyncAlertCount";
 import { syncPinTable } from "../lib/pinSync";
 import { drainQueue } from "../lib/queueSync";
@@ -24,9 +23,8 @@ export default function DashboardScreen({ navigation }) {
   const { selectedSite } = useSiteSession();
   const { employees: liveEmployees, loading } = useTodayShift(userData?.companyId);
   const employees = useLocalStatusOverlay(liveEmployees);
-  const { settings, isPro } = useCompanySettings(userData?.companyId);
+  const { settings } = useCompanySettings(userData?.companyId);
   const localSupervisor = useLocalEmployee(linkedEmployeeId);
-  const declinedCount = useDeclinedCount();
   const employeeSyncAlertCount = useEmployeeSyncAlertCount();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -109,20 +107,6 @@ export default function DashboardScreen({ navigation }) {
             <Text style={[styles.greeting, { color: colors.subtext }]}>Welcome</Text>
             <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
           </View>
-          {isPro && (
-            <TouchableOpacity
-              style={styles.bellButton}
-              onPress={() => navigation.navigate("DeclinedAlerts")}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Feather name="bell" size={22} color={colors.accent} />
-              {declinedCount > 0 && (
-                <View style={[styles.badge, { backgroundColor: colors.red }]}>
-                  <Text style={styles.badgeText}>{declinedCount > 9 ? "9+" : declinedCount}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          )}
           {employeeSyncAlertCount > 0 && (
             <TouchableOpacity
               style={styles.bellButton}
@@ -135,9 +119,6 @@ export default function DashboardScreen({ navigation }) {
               </View>
             </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={() => navigation.navigate("Settings")}>
-            <Feather name="settings" size={22} color={colors.accent} />
-          </TouchableOpacity>
         </View>
 
         <View style={[styles.blueCard, { backgroundColor: colors.accent }]}>
