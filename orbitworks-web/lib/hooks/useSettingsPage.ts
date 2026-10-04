@@ -12,7 +12,9 @@ import {
   DEFAULT_ATTENDANCE_RULES,
   DEFAULT_ALERTS,
   DEFAULT_APP_SETTINGS,
+  DEFAULT_EXPORT_SETTINGS,
 } from "@/lib/hooks/useCompanySettings";
+import type { ExportSettings } from "@/lib/types";
 
 export type AuthMode = "individual" | "shared";
 
@@ -34,6 +36,9 @@ export function useSettingsPage() {
   const [alerts, setAlerts] = useState<Alerts>(DEFAULT_ALERTS);
   const [appSettings, setAppSettings] = useState<AppSettings>(
     DEFAULT_APP_SETTINGS
+  );
+  const [exportSettings, setExportSettings] = useState<ExportSettings>(
+    DEFAULT_EXPORT_SETTINGS
   );
 
   const [isSaving, setIsSaving] = useState(false);
@@ -70,6 +75,10 @@ export function useSettingsPage() {
           setAppSettings({
             ...DEFAULT_APP_SETTINGS,
             ...(data.appSettings ?? {}),
+          });
+          setExportSettings({
+            ...DEFAULT_EXPORT_SETTINGS,
+            ...(data.exportSettings ?? {}),
           });
         }
       } catch (err) {
@@ -121,6 +130,7 @@ export function useSettingsPage() {
         attendanceRules,
         alerts,
         appSettings,
+        exportSettings,
       });
 
       setLogoUrl(newLogoUrl);
@@ -154,6 +164,8 @@ export function useSettingsPage() {
     setAlerts,
     appSettings,
     setAppSettings,
+    exportSettings,
+    setExportSettings,
     isSaving,
     error,
     success,

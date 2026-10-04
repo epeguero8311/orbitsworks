@@ -84,6 +84,14 @@ export function useAlertActions() {
     await recordAlertAction(alert, "ignored");
   }
 
+  // Dismisses every alert currently visible in one go. Reuses the same
+  // per-alert persistence ignoreAlert already writes (one alertActions doc
+  // per key) rather than a separate dismissal mechanism, so a newly
+  // generated alert (a key not in this list) still shows up normally.
+  async function ignoreAll(alerts: AlertItem[]) {
+    await Promise.all(alerts.map((alert) => recordAlertAction(alert, "ignored")));
+  }
+
   async function clockOutFromAlert(alert: AlertItem) {
     if (!alert.event || !userData?.companyId) return;
     const eventsRef = collection(
@@ -166,6 +174,7 @@ export function useAlertActions() {
     resolvedKeys,
     loading,
     ignoreAlert,
+    ignoreAll,
     clockOutFromAlert,
     endBreakFromAlert,
     submitEditTimeFromAlert,

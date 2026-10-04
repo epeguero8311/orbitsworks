@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import type { ExportSettings } from "@/lib/types";
 
 export type AttendanceRules = {
   allowEarlyClockIn: boolean;
@@ -40,6 +41,7 @@ export type CompanySettings = {
   attendanceRules: AttendanceRules;
   alerts: Alerts;
   appSettings: AppSettings;
+  exportSettings: ExportSettings;
 };
 
 export const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
@@ -66,6 +68,11 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   allowSupervisorOverride: true,
 };
 
+export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
+  roundDailyMinutes: 0,
+  roundTotalMinutes: 0,
+};
+
 const DEFAULT_SETTINGS: CompanySettings = {
   name: null,
   logoUrl: null,
@@ -74,6 +81,7 @@ const DEFAULT_SETTINGS: CompanySettings = {
   attendanceRules: DEFAULT_ATTENDANCE_RULES,
   alerts: DEFAULT_ALERTS,
   appSettings: DEFAULT_APP_SETTINGS,
+  exportSettings: DEFAULT_EXPORT_SETTINGS,
 };
 
 export function useCompanySettings() {
@@ -105,6 +113,10 @@ export function useCompanySettings() {
         appSettings: {
           ...DEFAULT_APP_SETTINGS,
           ...(data.appSettings ?? {}),
+        },
+        exportSettings: {
+          ...DEFAULT_EXPORT_SETTINGS,
+          ...(data.exportSettings ?? {}),
         },
       });
       setLoading(false);

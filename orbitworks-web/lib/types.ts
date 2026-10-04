@@ -334,3 +334,13 @@ export interface ShiftNote {
   createdByName: string;
   timestamp?: Timestamp;
 }
+
+// ---- Export settings (payroll rounding) ----
+
+// 0 = off (no rounding).
+export type RoundingIncrement = 0 | 5 | 15 | 30;
+
+export interface ExportSettings {
+  roundDailyMinutes: RoundingIncrement;
+  roundTotalMinutes: RoundingIncrement;
+}

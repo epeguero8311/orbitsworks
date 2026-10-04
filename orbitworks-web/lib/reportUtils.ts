@@ -4,6 +4,8 @@ import type {
   EmployeeExportRecord,
   AttendanceRecord,
 } from "@/lib/types";
+import type { DailyBreakdownRow, EmployeeRoundedTotal } from "@/lib/reportDailyBreakdown";
+import { minutesToHoursDecimal } from "@/lib/utils/rounding";
 
 export const APPROVALS_CUTOVER_DATE = "2026-09-06";
 
@@ -96,10 +98,16 @@ export function downloadCsv(csv: string, filename: string) {
 }
 
 // ---- Payroll Hours ----
+// dailyRows/roundedTotalsByEmployee come from the same
+// lib/reportDailyBreakdown.ts builder that feeds the on-screen Daily
+// Breakdown, so the summary pay here and the daily block below both match
+// what's shown on the Reports page - there's no second calculation path.
 export function toPayrollCsv(
   summaries: EmployeeSummary[],
   startDate: string,
-  endDate: string
+  endDate: string,
+  dailyRows: DailyBreakdownRow[],
+  roundedTotalsByEmployee: Map<string, EmployeeRoundedTotal>
 ) {
   const header = [
     "Employee",
@@ -111,20 +119,41 @@ export function toPayrollCsv(
     "Hourly Rate",
     "Estimated Pay (Excluding Break)",
   ];
-  const rows = summaries.map((s) => [
-    s.employeeName,
-    s.totalHours.toFixed(2),
-    formatHours(s.totalHours),
-    s.totalBreakHours.toFixed(2),
-    String(s.sessionCount),
-    String(s.openSessions),
-    s.hourlyRate != null ? s.hourlyRate.toFixed(2) : "",
-    s.estimatedPay != null ? s.estimatedPay.toFixed(2) : "",
+  const rows = summaries.map((s) => {
+    const roundedTotal = roundedTotalsByEmployee.get(s.employeeId);
+    const estimatedPay = roundedTotal?.totalPay ?? s.estimatedPay;
+    return [
+      s.employeeName,
+      s.totalHours.toFixed(2),
+      formatHours(s.totalHours),
+      s.totalBreakHours.toFixed(2),
+      String(s.sessionCount),
+      String(s.openSessions),
+      s.hourlyRate != null ? s.hourlyRate.toFixed(2) : "",
+      estimatedPay != null ? estimatedPay.toFixed(2) : "",
+    ];
+  });
+
+  const dailyHeader = ["Employee", "Date", "Job", "Hourly Rate", "Hours", "Break", "Worked Hours", "Estimated Pay"];
+  const dailyRowsOut = dailyRows.map((d) => [
+    d.employeeName,
+    d.date,
+    d.jobLabel,
+    d.rate != null ? d.rate.toFixed(2) : "",
+    minutesToHoursDecimal(d.clockedMinutes),
+    minutesToHoursDecimal(d.breakMinutes),
+    minutesToHoursDecimal(d.workedMinutes),
+    d.pay != null ? d.pay.toFixed(2) : "",
   ]);
+
   return [
     `Report period: ${startDate} to ${endDate}`,
     header.join(","),
     csvRows(rows),
+    "",
+    "Daily Breakdown",
+    dailyHeader.join(","),
+    csvRows(dailyRowsOut),
   ].join("\n");
 }
 

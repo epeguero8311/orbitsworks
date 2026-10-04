@@ -1,4 +1,4 @@
-import type { EmployeeSummary, Job } from "@/lib/types";
+import type { EmployeeSummary, Job, RoundingIncrement } from "@/lib/types";
 import {
   parseDateKey,
   formatDatePart,
@@ -9,6 +9,7 @@ import {
   styleHeaderRow,
   styleDataRows,
 } from "@/lib/excelHelpers";
+import { ceilTo, computeDailyPaidMinutes, hoursToMinutes } from "@/lib/utils/rounding";
 
 // ---- Payroll: hidden Jobs lookup sheet + day-row flattening ----
 
@@ -41,6 +42,7 @@ export type PayrollDayRow = {
   dateLabel: string;
   hours: number;
   breakHours: number;
+  workedHours: number;
   defaultRate: number | null;
   defaultJobName: string | null;
   subcontractorName: string | null;
@@ -51,7 +53,8 @@ export function buildDayRows(
   hoursByEmployeeDay: Map<string, number>,
   breakHoursByEmployeeDay: Map<string, number>,
   employeeJobIdById: Map<string, string | null>,
-  jobs: Job[]
+  jobs: Job[],
+  roundDailyMinutes: RoundingIncrement
 ): PayrollDayRow[] {
   const nameById = new Map(summaries.map((s) => [s.employeeId, s.employeeName]));
   const rateById = new Map(summaries.map((s) => [s.employeeId, s.hourlyRate]));
@@ -74,12 +77,20 @@ export function buildDayRows(
     const jobId = employeeJobIdById.get(employeeId) ?? null;
     const defaultJobName = jobId ? jobNameById.get(jobId) ?? null : null;
 
+    const breakHours = breakHoursByEmployeeDay.get(key) ?? 0;
+    const workedMinutes = computeDailyPaidMinutes(
+      hoursToMinutes(hours),
+      hoursToMinutes(breakHours),
+      roundDailyMinutes
+    );
+
     rows.push({
       employeeName,
       dateKey: dateStr,
       dateLabel,
       hours,
-      breakHours: breakHoursByEmployeeDay.get(key) ?? 0,
+      breakHours,
+      workedHours: workedMinutes / 60,
       defaultRate: rateById.get(employeeId) ?? null,
       defaultJobName,
       subcontractorName: companyById.get(employeeId) ?? null,
@@ -103,26 +114,30 @@ export function buildDayRows(
 // A Employee            | A Employee
 // B Total Hours         | B Date
 // C Total Break Hrs     | C Job
-// D Sessions            | D Hourly Rate
-// E Open Sessions       | E Hours
-// F Hourly Rate         | F Break
-// G Estimated Pay       | G Estimated Pay
-// H Company             | H Company
-// I (hidden) Default Rate - daily block only
+// D Total Hours Worked  | D Hourly Rate
+// E Sessions            | E Hours
+// F Open Sessions       | F Break
+// G Hourly Rate         | G Worked Hours
+// H Estimated Pay       | H Estimated Pay
+// I Company             | I Company
+//                       | J (hidden) Default Rate - daily block only
 //
-// Total Break Hrs (C) and Estimated Pay (G) in the summary block are both
-// SUMIF formulas pulling from the daily rows below, keyed on employee name.
-// This is what makes them update live if someone edits Break or the Job
-// dropdown directly in Excel - Total Hours (B) stays a plain number since
-// gross clocked hours aren't meant to be hand-edited the way Break is.
-// Column H was previously an unused narrow spacer; it's now the Company
-// column in both blocks, so none of the existing formulas (which only
-// reference A, C, D, F, G, I) needed renumbering.
+// Total Break Hrs (C), Total Hours Worked (D), and Estimated Pay (H) in the
+// summary block are all formulas pulling from the daily rows below, keyed
+// on employee name - this is what makes them update live if someone edits
+// Break or the Job dropdown directly in Excel. Total Hours (B) stays a
+// plain number since gross clocked hours aren't meant to be hand-edited the
+// way Break is. Worked Hours (daily G) and Total Hours Worked (summary D)
+// are where the Settings > Export Settings rounding gets applied - both are
+// baked in as plain numbers at export time (same as Hours/Break already
+// were), since the rounding increment itself isn't something Excel
+// recalculates live.
 export function addPayrollSheet(
   workbook: any,
   summaries: EmployeeSummary[],
   jobs: Job[],
   dayRows: PayrollDayRow[],
+  roundTotalMinutes: RoundingIncrement,
   companyName: string,
   startDate: string,
   endDate: string
@@ -132,17 +147,18 @@ export function addPayrollSheet(
 
   sheet.columns = [
     { width: 24 },
-    { width: 26 },
     { width: 18 },
+    { width: 18 },
+    { width: 20 },
     { width: 14 },
     { width: 14 },
     { width: 14 },
-    { width: 24 },
+    { width: 22 },
     { width: 22 },
     { width: 12 },
   ];
 
-  addTitleRow(sheet, `Payroll Hours: ${rangeLabel}`, 8);
+  addTitleRow(sheet, `Payroll Hours: ${rangeLabel}`, 9);
 
   const jobsInfo = addJobsLookupSheet(workbook, jobs);
   const hasJobs = jobsInfo != null;
@@ -158,8 +174,9 @@ export function addPayrollSheet(
   const summaryHeader = sheet.getRow(summaryHeaderRowNum);
   [
     "Employee",
-    "Total Hours (Including Break)",
+    "Total Hours",
     "Total Break Hrs",
+    "Total Hours Worked",
     "Sessions",
     "Open Sessions",
     "Hourly Rate",
@@ -177,18 +194,19 @@ export function addPayrollSheet(
     row.getCell(2).value = Number(s.totalHours.toFixed(2));
     row.getCell(2).numFmt = "0.00";
     row.getCell(3).numFmt = "0.00";
-    row.getCell(4).value = s.sessionCount;
-    row.getCell(5).value = s.openSessions;
-    row.getCell(6).value = s.hourlyRate;
-    row.getCell(6).numFmt = '"$"#,##0.00';
+    row.getCell(4).numFmt = "0.00";
+    row.getCell(5).value = s.sessionCount;
+    row.getCell(6).value = s.openSessions;
+    row.getCell(7).value = s.hourlyRate;
     row.getCell(7).numFmt = '"$"#,##0.00';
-    row.getCell(8).value = companyLabelFor(s.subcontractorName, companyName);
+    row.getCell(8).numFmt = '"$"#,##0.00';
+    row.getCell(9).value = companyLabelFor(s.subcontractorName, companyName);
   });
 
   const summaryLastRow = summaryFirstDataRow + sortedSummaries.length - 1;
 
   const dailyTitleRow = summaryLastRow + 3;
-  sheet.mergeCells(dailyTitleRow, 1, dailyTitleRow, 8);
+  sheet.mergeCells(dailyTitleRow, 1, dailyTitleRow, 9);
   const titleCell = sheet.getCell(dailyTitleRow, 1);
   titleCell.value = hasJobs
     ? "Daily Breakdown - pick a Job on any row to update that day's pay and the totals above"
@@ -198,12 +216,20 @@ export function addPayrollSheet(
 
   const dailyHeaderRow = dailyTitleRow + 1;
   const dailyHeader = sheet.getRow(dailyHeaderRow);
-  ["Employee", "Date", "Job", "Hourly Rate", "Hours", "Break", "Estimated Pay (Excluding Break)", "Company"].forEach(
-    (h, i) => (dailyHeader.getCell(i + 1).value = h)
-  );
-  dailyHeader.getCell(9).value = "Default Rate";
+  [
+    "Employee",
+    "Date",
+    "Job",
+    "Hourly Rate",
+    "Hours",
+    "Break",
+    "Worked Hours",
+    "Estimated Pay (Excluding Break)",
+    "Company",
+  ].forEach((h, i) => (dailyHeader.getCell(i + 1).value = h));
+  dailyHeader.getCell(10).value = "Default Rate";
   styleHeaderRow(dailyHeader);
-  sheet.getColumn(9).hidden = true;
+  sheet.getColumn(10).hidden = true;
 
   const sortedDayRows = sortByCompanyThen(
     dayRows,
@@ -232,11 +258,11 @@ export function addPayrollSheet(
     row.getCell(1).value = d.employeeName;
     row.getCell(2).value = d.dateLabel;
     row.getCell(3).value = hasJobs ? d.defaultJobName ?? "(Default)" : null;
-    row.getCell(9).value = d.defaultRate;
+    row.getCell(10).value = d.defaultRate;
 
     if (hasJobs) {
       row.getCell(4).value = {
-        formula: `IF(OR(C${r}="",C${r}="(Default)"),I${r},VLOOKUP(C${r},JobsTable,2,FALSE))`,
+        formula: `IF(OR(C${r}="",C${r}="(Default)"),J${r},VLOOKUP(C${r},JobsTable,2,FALSE))`,
       };
       row.getCell(3).dataValidation = {
         type: "list",
@@ -244,7 +270,7 @@ export function addPayrollSheet(
         formulae: ["JobsList"],
       };
     } else {
-      row.getCell(4).value = { formula: `I${r}` };
+      row.getCell(4).value = { formula: `J${r}` };
     }
     row.getCell(4).numFmt = '"$"#,##0.00';
 
@@ -254,11 +280,17 @@ export function addPayrollSheet(
     row.getCell(6).value = Number(d.breakHours.toFixed(2));
     row.getCell(6).numFmt = "0.00";
 
-    // Est. Pay = rate x (gross hours - unpaid break hours)
-    row.getCell(7).value = { formula: `D${r}*(E${r}-F${r})` };
-    row.getCell(7).numFmt = '"$"#,##0.00';
+    // Worked Hours = gross hours - unpaid break hours, rounded per the
+    // "Round daily worked hours" Export Setting (baked in at export time).
+    row.getCell(7).value = Number(d.workedHours.toFixed(2));
+    row.getCell(7).numFmt = "0.00";
 
-    row.getCell(8).value = companyLabelFor(d.subcontractorName, companyName);
+    // Est. Pay = rate x Worked Hours (not raw hours - break), so it already
+    // reflects daily rounding.
+    row.getCell(8).value = { formula: `D${r}*G${r}` };
+    row.getCell(8).numFmt = '"$"#,##0.00';
+
+    row.getCell(9).value = companyLabelFor(d.subcontractorName, companyName);
 
     r += 1;
   });
@@ -272,12 +304,25 @@ export function addPayrollSheet(
       sheet.getCell(row, 3).value = {
         formula: `SUMIF(A${dailyFirstDataRow}:A${dailyLastRow},A${row},F${dailyFirstDataRow}:F${dailyLastRow})`,
       };
-      sheet.getCell(row, 7).value = {
-        formula: `SUMIF(A${dailyFirstDataRow}:A${dailyLastRow},A${row},G${dailyFirstDataRow}:G${dailyLastRow})`,
+      sheet.getCell(row, 4).value =
+        roundTotalMinutes === 0
+          ? {
+              formula: `SUMIF(A${dailyFirstDataRow}:A${dailyLastRow},A${row},G${dailyFirstDataRow}:G${dailyLastRow})`,
+            }
+          : {
+              formula: `CEILING(SUMIF(A${dailyFirstDataRow}:A${dailyLastRow},A${row},G${dailyFirstDataRow}:G${dailyLastRow}),${roundTotalMinutes / 60})`,
+            };
+      sheet.getCell(row, 8).value = {
+        formula: `SUMIF(A${dailyFirstDataRow}:A${dailyLastRow},A${row},H${dailyFirstDataRow}:H${dailyLastRow})`,
       };
     } else {
+      const totalWorkedMinutes = ceilTo(
+        Math.max(0, hoursToMinutes(s.totalHours) - hoursToMinutes(s.totalBreakHours)),
+        roundTotalMinutes
+      );
       sheet.getCell(row, 3).value = s.totalBreakHours;
-      sheet.getCell(row, 7).value = s.estimatedPay;
+      sheet.getCell(row, 4).value = Number((totalWorkedMinutes / 60).toFixed(2));
+      sheet.getCell(row, 8).value = s.estimatedPay;
     }
   });
 

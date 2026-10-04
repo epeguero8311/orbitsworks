@@ -9,6 +9,7 @@ import type {
   AttendanceRecord,
   ShiftNote,
   Job,
+  RoundingIncrement,
 } from "@/lib/types";
 import {
   toPayrollCsv,
@@ -24,6 +25,10 @@ import {
   exportPayrollExcel,
   exportAttendanceExcel,
 } from "@/lib/reportExcelUtils";
+import {
+  buildDailyBreakdownRows,
+  computeEmployeeRoundedTotals,
+} from "@/lib/reportDailyBreakdown";
 
 export function ExportDropdown({
   label,
@@ -105,6 +110,9 @@ export default function ExportMenu({
   hoursByEmployeeDay,
   breakHoursByEmployeeDay,
   employeeJobIdById,
+  overrides,
+  roundDailyMinutes,
+  roundTotalMinutes,
   startDate,
   endDate,
   companyName,
@@ -118,10 +126,23 @@ export default function ExportMenu({
   hoursByEmployeeDay: Map<string, number>;
   breakHoursByEmployeeDay: Map<string, number>;
   employeeJobIdById: Map<string, string | null>;
+  overrides: Record<string, string>;
+  roundDailyMinutes: RoundingIncrement;
+  roundTotalMinutes: RoundingIncrement;
   startDate: string;
   endDate: string;
   companyName: string;
 }) {
+  const dailyRows = buildDailyBreakdownRows(
+    summaries,
+    hoursByEmployeeDay,
+    breakHoursByEmployeeDay,
+    jobs,
+    overrides,
+    roundDailyMinutes
+  );
+  const roundedTotalsByEmployee = computeEmployeeRoundedTotals(dailyRows, roundTotalMinutes);
+
   const reports = [
     {
       label: "Timesheets",
@@ -158,13 +179,15 @@ export default function ExportMenu({
           hoursByEmployeeDay,
           breakHoursByEmployeeDay,
           employeeJobIdById,
+          roundDailyMinutes,
+          roundTotalMinutes,
           companyName,
           startDate,
           endDate
         ),
       onCsv: () =>
         downloadCsv(
-          toPayrollCsv(summaries, startDate, endDate),
+          toPayrollCsv(summaries, startDate, endDate, dailyRows, roundedTotalsByEmployee),
           buildExportFilename(companyName, "Payroll", "csv", startDate, endDate)
         ),
     },

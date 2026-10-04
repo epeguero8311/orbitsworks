@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useReports } from "@/lib/hooks/useReports";
 import { dateKey, startOfWeek } from "@/lib/reportUtils";
 import { toTimesheetsCsv, downloadCsv } from "@/lib/reportUtils";
 import { buildExportFilename, exportAllReportsExcel } from "@/lib/reportExcelUtils";
+import { buildDailyBreakdownRows, computeEmployeeRoundedTotals } from "@/lib/reportDailyBreakdown";
 import AttendanceCards from "@/components/reports/AttendanceCards";
 import TimeTrendsCharts from "@/components/reports/TimeTrendsCharts";
 import PayrollTable from "@/components/reports/PayrollTable";
@@ -15,8 +18,17 @@ import PayrollDayView from "@/components/reports/PayrollDayView";
 import ShiftNotesTable from "@/components/reports/ShiftNotesTable";
 import ExportMenu, { ExportDropdown } from "@/components/reports/ExportMenu";
 
+const ROUNDING_LABELS: Record<number, string> = {
+  0: "Off",
+  5: "5 min",
+  15: "15 min",
+  30: "30 min",
+};
+
 export default function ReportsPage() {
   const { userData } = useAuth();
+  const { settings } = useCompanySettings();
+  const { roundDailyMinutes, roundTotalMinutes } = settings.exportSettings;
   const [companyName, setCompanyName] = useState("OrbitWorks");
 
   useEffect(() => {
@@ -81,30 +93,28 @@ export default function ReportsPage() {
     });
   }
 
-  const effectiveSummaries = useMemo(() => {
-    if (!summaries) return null;
-    return summaries.map((s) => {
-      let totalPay = 0;
-      let anyRate = false;
-
-      for (const [key, hrs] of hoursByEmployeeDay) {
-        if (!key.startsWith(`${s.employeeId}__`)) continue;
-        const overrideJobId = overrides[key];
-        const rate = overrideJobId
-          ? jobs.find((j) => j.id === overrideJobId)?.hourlyRate ?? null
-          : s.hourlyRate;
-        if (rate != null) {
-          totalPay += hrs * rate;
-          anyRate = true;
-        }
-      }
-
-      return {
-        ...s,
-        estimatedPay: anyRate ? totalPay : s.estimatedPay,
-      };
-    });
-  }, [summaries, hoursByEmployeeDay, overrides, jobs]);
+  // Single source for every rounded/break-aware number on this page - the
+  // Daily Breakdown table, the Payroll summary's Est. pay, and the Payroll
+  // CSV export all read from this same pair of values, so none of them can
+  // drift apart from each other.
+  const dailyRows = useMemo(
+    () =>
+      summaries
+        ? buildDailyBreakdownRows(
+            summaries,
+            hoursByEmployeeDay,
+            breakHoursByEmployeeDay,
+            jobs,
+            overrides,
+            roundDailyMinutes
+          )
+        : [],
+    [summaries, hoursByEmployeeDay, breakHoursByEmployeeDay, jobs, overrides, roundDailyMinutes]
+  );
+  const roundedTotalsByEmployee = useMemo(
+    () => computeEmployeeRoundedTotals(dailyRows, roundTotalMinutes),
+    [dailyRows, roundTotalMinutes]
+  );
 
   return (
     <div>
@@ -129,6 +139,8 @@ export default function ReportsPage() {
                 hoursByEmployeeDay,
                 breakHoursByEmployeeDay,
                 employeeJobIdById,
+                roundDailyMinutes,
+                roundTotalMinutes,
                 companyName,
                 startDate,
                 endDate
@@ -149,43 +161,59 @@ export default function ReportsPage() {
           Only approved hours will show on the export. Sessions still pending approval on
           Timesheet Approvals are left out of totals until they&apos;re approved.
         </p>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div>
-            <label htmlFor="startDate" className="mb-1.5 block text-sm font-medium text-gray-950">
-              Start date
-            </label>
-            <input
-              id="startDate"
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div>
+              <label htmlFor="startDate" className="mb-1.5 block text-sm font-medium text-gray-950">
+                Start date
+              </label>
+              <input
+                id="startDate"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              />
+            </div>
+            <div>
+              <label htmlFor="endDate" className="mb-1.5 block text-sm font-medium text-gray-950">
+                End date
+              </label>
+              <input
+                id="endDate"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+              />
+            </div>
           </div>
-          <div>
-            <label htmlFor="endDate" className="mb-1.5 block text-sm font-medium text-gray-950">
-              End date
-            </label>
-            <input
-              id="endDate"
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            />
+          <div className="flex items-center gap-2">
+            <Link
+              href="/dashboard/settings"
+              className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600 hover:bg-gray-200"
+            >
+              Daily rounding: {ROUNDING_LABELS[roundDailyMinutes]}
+            </Link>
+            <Link
+              href="/dashboard/settings"
+              className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600 hover:bg-gray-200"
+            >
+              Total rounding: {ROUNDING_LABELS[roundTotalMinutes]}
+            </Link>
+            <button
+              onClick={() => handleRunReport(startDate, endDate)}
+              disabled={loading}
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
+            >
+              {loading ? "Calculating..." : "Refresh"}
+            </button>
           </div>
-          <button
-            onClick={() => handleRunReport(startDate, endDate)}
-            disabled={loading}
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
-          >
-            {loading ? "Calculating..." : "Refresh"}
-          </button>
         </div>
       </div>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
-      {summaries && effectiveSummaries && (
+      {summaries && (
         <div className="mt-6 space-y-8">
           <ExportMenu
             summaries={summaries}
@@ -197,6 +225,9 @@ export default function ReportsPage() {
             hoursByEmployeeDay={hoursByEmployeeDay}
             breakHoursByEmployeeDay={breakHoursByEmployeeDay}
             employeeJobIdById={employeeJobIdById}
+            overrides={overrides}
+            roundDailyMinutes={roundDailyMinutes}
+            roundTotalMinutes={roundTotalMinutes}
             startDate={startDate}
             endDate={endDate}
             companyName={companyName}
@@ -207,13 +238,20 @@ export default function ReportsPage() {
             employeesPerDay={employeesPerDay}
             avgHoursPerEmployee={avgHoursPerEmployee}
           />
-          <PayrollTable summaries={effectiveSummaries} startDate={startDate} endDate={endDate} />
+          <PayrollTable
+            summaries={summaries}
+            startDate={startDate}
+            endDate={endDate}
+            roundedTotalsByEmployee={roundedTotalsByEmployee}
+          />
           <PayrollDayView
             startDate={startDate}
             endDate={endDate}
             summaries={summaries}
             jobs={jobs}
             hoursByEmployeeDay={hoursByEmployeeDay}
+            breakHoursByEmployeeDay={breakHoursByEmployeeDay}
+            roundDailyMinutes={roundDailyMinutes}
             overrides={overrides}
             onOverrideChange={handleOverrideChange}
           />

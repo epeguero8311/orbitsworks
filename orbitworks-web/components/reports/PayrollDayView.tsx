@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { EmployeeSummary, Job } from "@/lib/types";
+import type { EmployeeSummary, Job, RoundingIncrement } from "@/lib/types";
 import { dateKey } from "@/lib/reportUtils";
+import { minutesToHoursDecimal } from "@/lib/utils/rounding";
+import { buildDailyBreakdownRows } from "@/lib/reportDailyBreakdown";
 
 export default function PayrollDayView({
   startDate,
@@ -11,6 +13,8 @@ export default function PayrollDayView({
   summaries,
   jobs,
   hoursByEmployeeDay,
+  breakHoursByEmployeeDay,
+  roundDailyMinutes,
   overrides,
   onOverrideChange,
 }: {
@@ -19,6 +23,8 @@ export default function PayrollDayView({
   summaries: EmployeeSummary[];
   jobs: Job[];
   hoursByEmployeeDay: Map<string, number>;
+  breakHoursByEmployeeDay: Map<string, number>;
+  roundDailyMinutes: RoundingIncrement;
   overrides: Record<string, string>;
   onOverrideChange: (employeeId: string, date: string, jobId: string) => void;
 }) {
@@ -43,18 +49,15 @@ export default function PayrollDayView({
     year: "numeric",
   });
 
-  const rows = summaries
-    .map((s) => {
-      const key = `${s.employeeId}__${currentDate}`;
-      const hours = hoursByEmployeeDay.get(key) ?? 0;
-      if (hours <= 0) return null;
-      const overrideJobId = overrides[key] ?? "";
-      const overrideJob = overrideJobId ? jobs.find((j) => j.id === overrideJobId) : null;
-      const rate = overrideJob ? overrideJob.hourlyRate : s.hourlyRate;
-      const pay = rate != null ? hours * rate : null;
-      return { summary: s, key, hours, overrideJobId, rate, pay };
-    })
-    .filter((r): r is NonNullable<typeof r> => r != null);
+  const allRows = buildDailyBreakdownRows(
+    summaries,
+    hoursByEmployeeDay,
+    breakHoursByEmployeeDay,
+    jobs,
+    overrides,
+    roundDailyMinutes
+  );
+  const rows = allRows.filter((r) => r.date === currentDate);
 
   const canGoBack = currentDate > startDate;
   const canGoForward = currentDate < endDate;
@@ -100,23 +103,28 @@ export default function PayrollDayView({
                 <th className="px-4 py-2 font-medium">Employee</th>
                 <th className="px-4 py-2 font-medium">Job / hourly rate</th>
                 <th className="px-4 py-2 font-medium">Hours</th>
+                <th className="px-4 py-2 font-medium">Break</th>
+                <th className="px-4 py-2 font-medium">Worked Hours</th>
                 <th className="px-4 py-2 font-medium">Est. pay</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {rows.map((r) => {
+                const defaultRate = summaries.find((s) => s.employeeId === r.employeeId)
+                  ?.hourlyRate;
+                return (
                 <tr key={r.key} className="border-b border-gray-200 last:border-0">
-                  <td className="px-4 py-2.5 text-gray-950">{r.summary.employeeName}</td>
+                  <td className="px-4 py-2.5 text-gray-950">{r.employeeName}</td>
                   <td className="px-4 py-2.5">
                     <select
                       value={r.overrideJobId}
                       onChange={(e) =>
-                        onOverrideChange(r.summary.employeeId, currentDate, e.target.value)
+                        onOverrideChange(r.employeeId, currentDate, e.target.value)
                       }
                       className="rounded-md border border-gray-200 px-2 py-1.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
                     >
                       <option value="">
-                        Default{r.summary.hourlyRate != null ? ` - $${r.summary.hourlyRate.toFixed(2)}/hr` : ""}
+                        Default{defaultRate != null ? ` - $${defaultRate.toFixed(2)}/hr` : ""}
                       </option>
                       {jobs
                         .filter((j) => j.active)
@@ -128,13 +136,20 @@ export default function PayrollDayView({
                     </select>
                   </td>
                   <td className="px-4 py-2.5 font-mono text-gray-950">
-                    {r.hours.toFixed(2)}
+                    {minutesToHoursDecimal(r.clockedMinutes)}
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-gray-950">
+                    {minutesToHoursDecimal(r.breakMinutes)}
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-gray-950">
+                    {minutesToHoursDecimal(r.workedMinutes)}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-gray-950">
                     {r.pay != null ? `$${r.pay.toFixed(2)}` : "-"}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

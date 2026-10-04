@@ -4,6 +4,7 @@ import { useSettingsPage } from "@/lib/hooks/useSettingsPage";
 import { CompanyProfileCard } from "@/components/dashboard/settings/CompanyProfileCard";
 import { BusinessHoursCard } from "@/components/dashboard/settings/BusinessHoursCard";
 import { AttendanceRulesCard } from "@/components/dashboard/settings/AttendanceRulesCard";
+import { ExportSettingsCard } from "@/components/dashboard/settings/ExportSettingsCard";
 import { AlertsCard } from "@/components/dashboard/settings/AlertsCard";
 import { AppSettingsCard } from "@/components/dashboard/settings/AppSettingsCard";
 
@@ -39,6 +40,11 @@ export default function SettingsPage() {
           <AttendanceRulesCard
             attendanceRules={s.attendanceRules}
             setAttendanceRules={s.setAttendanceRules}
+          />
+
+          <ExportSettingsCard
+            exportSettings={s.exportSettings}
+            setExportSettings={s.setExportSettings}
           />
 
           <AlertsCard
