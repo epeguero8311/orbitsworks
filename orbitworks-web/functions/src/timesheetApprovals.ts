@@ -76,6 +76,30 @@ function statusUpdateFields(
   };
 }
 
+// The Job dropdown on the Approvals row only gets written to the approval
+// doc at the moment a row is approved - toggling back to pending never
+// touches it, so the picked job survives a pending<->approved toggle.
+// jobId undefined means the caller didn't send one (leave the field alone);
+// null or "" means "(Default)" was picked (clear it); a real id resolves
+// the job's current name so the stored pair stays accurate even if the Job
+// gets renamed later.
+async function resolveJobFields(
+  companyId: string,
+  status: "pending" | "approved",
+  jobId: string | null | undefined
+): Promise<Record<string, unknown>> {
+  if (status !== "approved" || jobId === undefined) return {};
+  if (!jobId) {
+    return { jobId: null, jobName: admin.firestore.FieldValue.delete() };
+  }
+  const jobSnap = await db.collection("companies").doc(companyId).collection("jobs").doc(jobId).get();
+  if (!jobSnap.exists) {
+    return { jobId: null, jobName: admin.firestore.FieldValue.delete() };
+  }
+  const jobData = jobSnap.data() as { name?: string };
+  return { jobId, jobName: jobData.name ?? null };
+}
+
 // Simple pending <-> approved toggle on a session's timesheetApproval doc,
 // keyed by that session's clock-in eventId. No reopen-with-reason gate -
 // the admin agreed a plain toggle is enough here.
@@ -91,6 +115,12 @@ export const setApprovalStatus = onCall(async (request) => {
 
   const eventId = (request.data && request.data.eventId ? String(request.data.eventId) : "").trim();
   const status = request.data && request.data.status;
+  const jobId: string | null | undefined =
+    request.data && "jobId" in request.data
+      ? request.data.jobId == null
+        ? null
+        : String(request.data.jobId)
+      : undefined;
   if (!eventId || (status !== "pending" && status !== "approved")) {
     throw new HttpsError("invalid-argument", "eventId and a valid status are required.");
   }
@@ -111,7 +141,11 @@ export const setApprovalStatus = onCall(async (request) => {
   }
 
   const approvedByName = status === "approved" ? await resolveApprovedByName(request.auth.uid) : "";
-  await approvalRef.update(statusUpdateFields(status, request.auth.uid, approvedByName));
+  const jobFields = await resolveJobFields(callerCompanyId, status, jobId);
+  await approvalRef.update({
+    ...statusUpdateFields(status, request.auth.uid, approvedByName),
+    ...jobFields,
+  });
 
   return { success: true };
 });
@@ -135,6 +169,10 @@ export const setApprovalStatusBulk = onCall(async (request) => {
     ? Array.from(new Set(request.data.eventIds.map((id: unknown) => String(id))))
     : [];
   const status = request.data && request.data.status;
+  const jobIdByEventIdRaw: Record<string, unknown> =
+    request.data && typeof request.data.jobIdByEventId === "object" && request.data.jobIdByEventId
+      ? request.data.jobIdByEventId
+      : {};
   if (eventIds.length === 0 || (status !== "pending" && status !== "approved")) {
     throw new HttpsError("invalid-argument", "eventIds and a valid status are required.");
   }
@@ -162,12 +200,27 @@ export const setApprovalStatusBulk = onCall(async (request) => {
   );
 
   const approvedByName = status === "approved" ? await resolveApprovedByName(request.auth.uid) : "";
-  const updateFields = statusUpdateFields(status, request.auth.uid, approvedByName);
+  const statusFields = statusUpdateFields(status, request.auth.uid, approvedByName);
+
+  // Each row can have picked a different Job, so job fields are resolved
+  // per event rather than once for the whole batch.
+  const jobFieldsByEventId = new Map<string, Record<string, unknown>>();
+  await Promise.all(
+    eventIds.map(async (eventId) => {
+      const jobId = eventId in jobIdByEventIdRaw
+        ? jobIdByEventIdRaw[eventId] == null
+          ? null
+          : String(jobIdByEventIdRaw[eventId])
+        : undefined;
+      jobFieldsByEventId.set(eventId, await resolveJobFields(callerCompanyId, status, jobId));
+    })
+  );
 
   const batch = db.batch();
   approvalRefs.forEach((ref, i) => {
     const eventId = eventIds[i];
     const healData = healDataByEventId.get(eventId);
+    const updateFields = { ...statusFields, ...jobFieldsByEventId.get(eventId) };
     if (healData) {
       batch.set(ref, { ...healData, ...updateFields });
     } else {

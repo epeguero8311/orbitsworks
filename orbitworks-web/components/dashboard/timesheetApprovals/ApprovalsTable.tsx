@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Pencil, Trash2, Plus, ShieldAlert } from "lucide-react";
 import type { ApprovalRow } from "@/lib/hooks/useTimesheetApprovals";
-import type { ClockEvent } from "@/lib/types";
+import type { ClockEvent, Job } from "@/lib/types";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import ConfirmDeleteSessionModal from "@/components/dashboard/timesheetApprovals/ConfirmDeleteSessionModal";
 import OverrideDetailsModal from "@/components/dashboard/timesheetApprovals/OverrideDetailsModal";
@@ -63,26 +63,33 @@ function scaledWidth(percent: number): string {
 // buttons below, that is enough for "Approved" plus the chevron and both
 // icon buttons on a normal desktop window without forcing the table wider
 // than its card.
+// Job sits right after Site (same "where/what" grouping) and before Time.
+// Its 12% comes out of Time (-6), Status (-3), Shift/Break/Worked (-1
+// each), so every other column just gets a little tighter rather than the
+// layout being redone - Status still fits "Approved" + the chevron + both
+// icon buttons on a normal desktop window.
 const DAY_PERCENTAGES = {
   name: 15,
   company: 11,
   site: 10,
-  time: 20,
-  shift: 8,
-  breakCol: 8,
-  worked: 8,
-  status: 20,
+  job: 12,
+  time: 14,
+  shift: 7,
+  breakCol: 7,
+  worked: 7,
+  status: 17,
 };
 const WEEK_PERCENTAGES = {
   date: 8,
   name: 12,
   company: 10,
   site: 10,
-  time: 16,
-  shift: 8,
-  breakCol: 8,
-  worked: 8,
-  status: 20,
+  job: 12,
+  time: 10,
+  shift: 7,
+  breakCol: 7,
+  worked: 7,
+  status: 17,
 };
 
 function buildColumnWidths(mode: "day" | "week"): string[] {
@@ -94,6 +101,7 @@ function buildColumnWidths(mode: "day" | "week"): string[] {
       scaledWidth(p.name),
       scaledWidth(p.company),
       scaledWidth(p.site),
+      scaledWidth(p.job),
       scaledWidth(p.time),
       scaledWidth(p.shift),
       scaledWidth(p.breakCol),
@@ -107,6 +115,7 @@ function buildColumnWidths(mode: "day" | "week"): string[] {
     scaledWidth(p.name),
     scaledWidth(p.company),
     scaledWidth(p.site),
+    scaledWidth(p.job),
     scaledWidth(p.time),
     scaledWidth(p.shift),
     scaledWidth(p.breakCol),
@@ -120,6 +129,7 @@ export function ApprovalsTable({
   loading,
   mode,
   weekDays,
+  jobs,
   onSetStatus,
   onSetStatusBulk,
   onDeleteSession,
@@ -129,8 +139,17 @@ export function ApprovalsTable({
   loading: boolean;
   mode: "day" | "week";
   weekDays?: string[];
-  onSetStatus: (eventId: string, status: "pending" | "approved") => Promise<void>;
-  onSetStatusBulk: (eventIds: string[], status: "pending" | "approved") => Promise<void>;
+  jobs: Job[];
+  onSetStatus: (
+    eventId: string,
+    status: "pending" | "approved",
+    jobId?: string | null
+  ) => Promise<void>;
+  onSetStatusBulk: (
+    eventIds: string[],
+    status: "pending" | "approved",
+    jobIdByEventId?: Record<string, string | null>
+  ) => Promise<void>;
   onDeleteSession: (approvalId: string, eventIds: string[]) => Promise<void>;
   onAddTimestamp: () => void;
 }) {
@@ -147,6 +166,11 @@ export function ApprovalsTable({
   const [optimisticStatus, setOptimisticStatus] = useState<
     Map<string, "pending" | "approved">
   >(new Map());
+  // Job picked in the dropdown but not yet saved - "" means "(Default)".
+  // Only written to the approval doc when the row's status becomes
+  // approved (see handleStatusChange/approveAllSelected), so picking a Job
+  // on a still-pending row never fires a network call by itself.
+  const [pendingJobId, setPendingJobId] = useState<Map<string, string>>(new Map());
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const headerCheckboxRef = useRef<HTMLInputElement>(null);
@@ -158,6 +182,18 @@ export function ApprovalsTable({
       const next = new Map(prev);
       for (const row of rows) {
         if (next.get(row.key) === row.status) {
+          next.delete(row.key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setPendingJobId((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Map(prev);
+      for (const row of rows) {
+        if (next.has(row.key) && next.get(row.key) === (row.jobId ?? "")) {
           next.delete(row.key);
           changed = true;
         }
@@ -205,6 +241,10 @@ export function ApprovalsTable({
     setSelectedKeys(new Set());
   }
 
+  function effectiveJobId(row: ApprovalRow): string {
+    return pendingJobId.get(row.key) ?? row.jobId ?? "";
+  }
+
   async function approveAllSelected() {
     const keys = Array.from(selectedKeys);
     if (keys.length === 0) return;
@@ -214,8 +254,16 @@ export function ApprovalsTable({
       keys.forEach((key) => next.set(key, "approved"));
       return next;
     });
+    // row.key is the clock-in event id (same value as row.eventId), so it
+    // can be used directly as the bulk call's eventIds list.
+    const jobIdByEventId: Record<string, string | null> = {};
+    rows
+      .filter((r) => selectedKeys.has(r.key))
+      .forEach((r) => {
+        jobIdByEventId[r.eventId] = effectiveJobId(r) || null;
+      });
     try {
-      await onSetStatusBulk(keys, "approved");
+      await onSetStatusBulk(keys, "approved", jobIdByEventId);
       setSelectedKeys(new Set());
     } catch (err) {
       console.error("Failed to approve selected rows:", err);
@@ -232,7 +280,7 @@ export function ApprovalsTable({
   async function handleStatusChange(row: ApprovalRow, status: "pending" | "approved") {
     setOptimisticStatus((prev) => new Map(prev).set(row.key, status));
     try {
-      await onSetStatus(row.eventId, status);
+      await onSetStatus(row.eventId, status, status === "approved" ? effectiveJobId(row) || null : undefined);
     } catch (err) {
       console.error("Failed to update approval status:", err);
       setOptimisticStatus((prev) => {
@@ -243,14 +291,29 @@ export function ApprovalsTable({
     }
   }
 
+  async function handleJobChange(row: ApprovalRow, jobId: string) {
+    setPendingJobId((prev) => new Map(prev).set(row.key, jobId));
+    // The row is already approved - there is no further "approve" action
+    // that would otherwise save this correction, so save it right away.
+    const displayStatus = optimisticStatus.get(row.key) ?? row.status;
+    if (displayStatus === "approved") {
+      try {
+        await onSetStatus(row.eventId, "approved", jobId || null);
+      } catch (err) {
+        console.error("Failed to save job for approved row:", err);
+      }
+    }
+  }
+
   const editEvents: ClockEvent[] = editingRow
     ? [editingRow.clockInEvent, editingRow.clockOutEvent]
     : [];
 
-  // checkbox + (Date in week mode) + Name/Company/Site/Time/Shift/Break/
+  // checkbox + (Date in week mode) + Name/Company/Site/Job/Time/Shift/Break/
   // Worked/Status - the pencil/trash actions live inside the Status cell,
   // not a column of their own, so there is no separate actions column here.
-  const columnCount = mode === "week" ? 10 : 9;
+  const columnCount = mode === "week" ? 11 : 10;
+  const activeJobs = jobs.filter((j) => j.active);
   const columnWidths = buildColumnWidths(mode);
 
   function renderRow(row: ApprovalRow) {
@@ -307,6 +370,20 @@ export function ApprovalsTable({
           )}
         </td>
         <td className="px-6 py-5 text-gray-600">{row.siteName}</td>
+        <td className="px-6 py-5">
+          <select
+            value={effectiveJobId(row)}
+            onChange={(e) => handleJobChange(row, e.target.value)}
+            className="w-full max-w-[160px] rounded-md border border-gray-200 px-2 py-1.5 text-xs text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+          >
+            <option value="">(Default)</option>
+            {activeJobs.map((j) => (
+              <option key={j.id} value={j.id}>
+                {j.name}
+              </option>
+            ))}
+          </select>
+        </td>
         <td className="px-6 py-5 font-mono text-xs text-gray-600">
           {formatTime(row.clockInEvent)} - {formatTime(row.clockOutEvent)}
         </td>
@@ -447,6 +524,7 @@ export function ApprovalsTable({
                 <th className="px-6 py-3.5 font-medium">Name</th>
                 <th className="px-6 py-3.5 font-medium">Company</th>
                 <th className="px-6 py-3.5 font-medium">Site</th>
+                <th className="px-6 py-3.5 font-medium">Job</th>
                 <th className="px-6 py-3.5 font-medium">Time</th>
                 <th className="px-6 py-3.5 font-medium">Shift</th>
                 <th className="px-6 py-3.5 font-medium">Break</th>

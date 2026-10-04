@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useTimesheetApprovals } from "@/lib/hooks/useTimesheetApprovals";
+import { useJobs } from "@/lib/hooks/useJobs";
 import { ApprovalsTable } from "@/components/dashboard/timesheetApprovals/ApprovalsTable";
 import { ApprovalsHeader } from "@/components/dashboard/timesheetApprovals/ApprovalsHeader";
 import AddTimestampModal from "@/components/dashboard/timesheetApprovals/AddTimestampModal";
@@ -42,6 +43,7 @@ export default function TimesheetApprovalsPage() {
     setApprovalStatusBulk,
     deleteTimesheetSession,
   } = useTimesheetApprovals(rangeStart, rangeEnd);
+  const { jobs } = useJobs();
   const [addingOpen, setAddingOpen] = useState(false);
 
   function applyDate(next: string) {
@@ -75,6 +77,7 @@ export default function TimesheetApprovalsPage() {
         loading={loading}
         mode={mode}
         weekDays={mode === "week" ? weekDays : undefined}
+        jobs={jobs}
         onSetStatus={setApprovalStatus}
         onSetStatusBulk={setApprovalStatusBulk}
         onDeleteSession={deleteTimesheetSession}

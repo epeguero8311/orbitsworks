@@ -224,6 +224,10 @@ export interface TimesheetApproval {
   approvedAt?: Timestamp;
   createdAt?: Timestamp;
   flags?: Flag[];
+  // Job picked on the Timesheet Approvals row for this day, saved the
+  // moment the row is approved (null = the employee's default job).
+  jobId?: string | null;
+  jobName?: string | null;
 }
 
 // ---- Supervisor Overrides ----

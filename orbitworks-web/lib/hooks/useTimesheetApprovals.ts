@@ -34,6 +34,7 @@ export type ApprovalRow = {
   sessionEventIds: string[];
   isClockedInNow: boolean;
   flags: Flag[];
+  jobId: string | null;
 };
 
 type EventWithId = Omit<ClockEvent, "id"> & { id: string };
@@ -218,6 +219,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
               sessionEventIds: sessionIds,
               isClockedInNow,
               flags: approval?.flags ?? [],
+              jobId: approval?.jobId ?? null,
             });
           }
           pendingIn = null;
@@ -252,14 +254,22 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     await fn(params);
   };
 
-  const setApprovalStatus = async (eventId: string, status: "pending" | "approved") => {
+  const setApprovalStatus = async (
+    eventId: string,
+    status: "pending" | "approved",
+    jobId?: string | null
+  ) => {
     const fn = httpsCallable(functions, "setApprovalStatus");
-    await fn({ eventId, status });
+    await fn({ eventId, status, jobId });
   };
 
-  const setApprovalStatusBulk = async (eventIds: string[], status: "pending" | "approved") => {
+  const setApprovalStatusBulk = async (
+    eventIds: string[],
+    status: "pending" | "approved",
+    jobIdByEventId?: Record<string, string | null>
+  ) => {
     const fn = httpsCallable(functions, "setApprovalStatusBulk");
-    await fn({ eventIds, status });
+    await fn({ eventIds, status, jobIdByEventId });
   };
 
   const deleteTimesheetSession = async (approvalId: string, eventIds: string[]) => {
