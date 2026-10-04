@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, FileSpreadsheet, FileText } from "lucide-react";
+import { ChevronDown, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import type {
   EmployeeSummary,
   SessionRecord,
@@ -31,20 +31,41 @@ export function ExportDropdown({
   onCsv,
 }: {
   label: string;
-  onExcel: () => void;
-  onCsv: () => void;
+  onExcel: () => void | Promise<void>;
+  onCsv: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  async function handleSelect(action: () => void | Promise<void>) {
+    setOpen(false);
+    setExporting(true);
+    try {
+      await action();
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div className="relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-2 text-sm font-medium text-gray-950 transition-colors hover:border-gray-300"
+        disabled={exporting}
+        className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-3 py-2 text-sm font-medium text-gray-950 transition-colors hover:border-gray-300 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {label}
-        <ChevronDown className="h-3.5 w-3.5 text-gray-600" />
+        {exporting ? (
+          <>
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-600" />
+            Exporting...
+          </>
+        ) : (
+          <>
+            {label}
+            <ChevronDown className="h-3.5 w-3.5 text-gray-600" />
+          </>
+        )}
       </button>
 
       {open && (
@@ -53,10 +74,7 @@ export function ExportDropdown({
           <div className="absolute left-0 top-full z-20 mt-1 w-48 overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg">
             <button
               type="button"
-              onClick={() => {
-                onExcel();
-                setOpen(false);
-              }}
+              onClick={() => handleSelect(onExcel)}
               className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-gray-950 hover:bg-gray-50"
             >
               <FileSpreadsheet className="h-4 w-4 text-green-600" />
@@ -64,10 +82,7 @@ export function ExportDropdown({
             </button>
             <button
               type="button"
-              onClick={() => {
-                onCsv();
-                setOpen(false);
-              }}
+              onClick={() => handleSelect(onCsv)}
               className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2.5 text-left text-sm text-gray-950 hover:bg-gray-50"
             >
               <FileText className="h-4 w-4 text-gray-600" />

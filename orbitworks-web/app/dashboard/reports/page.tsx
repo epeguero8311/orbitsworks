@@ -144,38 +144,44 @@ export default function ReportsPage() {
         )}
       </div>
 
-      <div className="mt-6 flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 sm:flex-row sm:items-end">
-        <div>
-          <label htmlFor="startDate" className="mb-1.5 block text-sm font-medium text-gray-950">
-            Start date
-          </label>
-          <input
-            id="startDate"
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          />
+      <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4">
+        <p className="mb-3 text-xs text-gray-500">
+          Only approved hours will show on the export. Sessions still pending approval on
+          Timesheet Approvals are left out of totals until they&apos;re approved.
+        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div>
+            <label htmlFor="startDate" className="mb-1.5 block text-sm font-medium text-gray-950">
+              Start date
+            </label>
+            <input
+              id="startDate"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            />
+          </div>
+          <div>
+            <label htmlFor="endDate" className="mb-1.5 block text-sm font-medium text-gray-950">
+              End date
+            </label>
+            <input
+              id="endDate"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            />
+          </div>
+          <button
+            onClick={() => handleRunReport(startDate, endDate)}
+            disabled={loading}
+            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
+          >
+            {loading ? "Calculating..." : "Refresh"}
+          </button>
         </div>
-        <div>
-          <label htmlFor="endDate" className="mb-1.5 block text-sm font-medium text-gray-950">
-            End date
-          </label>
-          <input
-            id="endDate"
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          />
-        </div>
-        <button
-          onClick={() => handleRunReport(startDate, endDate)}
-          disabled={loading}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
-        >
-          {loading ? "Calculating..." : "Refresh"}
-        </button>
       </div>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
