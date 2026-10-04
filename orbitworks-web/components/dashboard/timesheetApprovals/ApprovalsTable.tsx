@@ -245,6 +245,14 @@ export function ApprovalsTable({
     return pendingJobId.get(row.key) ?? row.jobId ?? "";
   }
 
+  // "(Default)" shows the employee's actually assigned job (by current
+  // name, even if that job was since deactivated) rather than a generic
+  // placeholder, or "Not specified" when the employee has no job assigned.
+  function defaultJobLabel(row: ApprovalRow): string {
+    if (!row.defaultJobId) return "Not specified";
+    return jobs.find((j) => j.id === row.defaultJobId)?.name ?? "Not specified";
+  }
+
   async function approveAllSelected() {
     const keys = Array.from(selectedKeys);
     if (keys.length === 0) return;
@@ -376,7 +384,7 @@ export function ApprovalsTable({
             onChange={(e) => handleJobChange(row, e.target.value)}
             className="w-full max-w-[160px] rounded-md border border-gray-200 px-2 py-1.5 text-xs text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
           >
-            <option value="">(Default)</option>
+            <option value="">{defaultJobLabel(row)}</option>
             {activeJobs.map((j) => (
               <option key={j.id} value={j.id}>
                 {j.name}

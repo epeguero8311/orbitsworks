@@ -35,6 +35,10 @@ export type ApprovalRow = {
   isClockedInNow: boolean;
   flags: Flag[];
   jobId: string | null;
+  // The employee's currently assigned job, used as the Job dropdown's
+  // "(Default)" label - not necessarily what jobId above was saved with,
+  // since the employee's assignment can change after a day was approved.
+  defaultJobId: string | null;
 };
 
 type EventWithId = Omit<ClockEvent, "id"> & { id: string };
@@ -220,6 +224,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
               isClockedInNow,
               flags: approval?.flags ?? [],
               jobId: approval?.jobId ?? null,
+              defaultJobId: employee.jobId ?? null,
             });
           }
           pendingIn = null;
