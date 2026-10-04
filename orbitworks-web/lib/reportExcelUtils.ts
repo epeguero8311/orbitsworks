@@ -132,6 +132,7 @@ export async function exportPayrollExcel(
   hoursByEmployeeDay: Map<string, number>,
   breakHoursByEmployeeDay: Map<string, number>,
   employeeJobIdById: Map<string, string | null>,
+  approvedJobIdByEmployeeDay: Map<string, string | null>,
   roundDailyMinutes: RoundingIncrement,
   roundTotalMinutes: RoundingIncrement,
   companyName: string,
@@ -147,7 +148,8 @@ export async function exportPayrollExcel(
     breakHoursByEmployeeDay,
     employeeJobIdById,
     jobs,
-    roundDailyMinutes
+    roundDailyMinutes,
+    approvedJobIdByEmployeeDay
   );
   addPayrollSheet(workbook, summaries, jobs, dayRows, roundTotalMinutes, companyName, startDate, endDate);
 
@@ -186,6 +188,7 @@ export async function exportAllReportsExcel(
   hoursByEmployeeDay: Map<string, number>,
   breakHoursByEmployeeDay: Map<string, number>,
   employeeJobIdById: Map<string, string | null>,
+  approvedJobIdByEmployeeDay: Map<string, string | null>,
   roundDailyMinutes: RoundingIncrement,
   roundTotalMinutes: RoundingIncrement,
   companyName: string,
@@ -207,7 +210,8 @@ export async function exportAllReportsExcel(
     breakHoursByEmployeeDay,
     employeeJobIdById,
     jobs,
-    roundDailyMinutes
+    roundDailyMinutes,
+    approvedJobIdByEmployeeDay
   );
   addPayrollSheet(workbook, summaries, jobs, dayRows, roundTotalMinutes, companyName, startDate, endDate);
 

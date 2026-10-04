@@ -54,7 +54,12 @@ export function buildDayRows(
   breakHoursByEmployeeDay: Map<string, number>,
   employeeJobIdById: Map<string, string | null>,
   jobs: Job[],
-  roundDailyMinutes: RoundingIncrement
+  roundDailyMinutes: RoundingIncrement,
+  // Job picked and saved on the matching Timesheet Approvals row for that
+  // employee+day, keyed the same way as hoursByEmployeeDay. Takes priority
+  // over the employee's generally-assigned job - this is how a job picked
+  // at approval time actually changes the rate shown in this sheet.
+  approvedJobIdByEmployeeDay: Map<string, string | null> = new Map()
 ): PayrollDayRow[] {
   const nameById = new Map(summaries.map((s) => [s.employeeId, s.employeeName]));
   const rateById = new Map(summaries.map((s) => [s.employeeId, s.hourlyRate]));
@@ -74,7 +79,7 @@ export function buildDayRows(
     const parsed = parseDateKey(dateStr);
     const dateLabel = parsed ? formatDatePart(parsed) : dateStr;
 
-    const jobId = employeeJobIdById.get(employeeId) ?? null;
+    const jobId = approvedJobIdByEmployeeDay.get(key) ?? employeeJobIdById.get(employeeId) ?? null;
     const defaultJobName = jobId ? jobNameById.get(jobId) ?? null : null;
 
     const breakHours = breakHoursByEmployeeDay.get(key) ?? 0;

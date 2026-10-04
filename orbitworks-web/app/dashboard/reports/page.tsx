@@ -68,6 +68,7 @@ export default function ReportsPage() {
     hoursByEmployeeDay,
     breakHoursByEmployeeDay,
     employeeJobIdById,
+    approvedJobIdByEmployeeDay,
     runReport,
   } = useReports();
 
@@ -139,6 +140,7 @@ export default function ReportsPage() {
                 hoursByEmployeeDay,
                 breakHoursByEmployeeDay,
                 employeeJobIdById,
+                approvedJobIdByEmployeeDay,
                 roundDailyMinutes,
                 roundTotalMinutes,
                 companyName,
@@ -225,6 +227,7 @@ export default function ReportsPage() {
             hoursByEmployeeDay={hoursByEmployeeDay}
             breakHoursByEmployeeDay={breakHoursByEmployeeDay}
             employeeJobIdById={employeeJobIdById}
+            approvedJobIdByEmployeeDay={approvedJobIdByEmployeeDay}
             overrides={overrides}
             roundDailyMinutes={roundDailyMinutes}
             roundTotalMinutes={roundTotalMinutes}

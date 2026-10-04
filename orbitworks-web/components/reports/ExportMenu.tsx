@@ -110,6 +110,7 @@ export default function ExportMenu({
   hoursByEmployeeDay,
   breakHoursByEmployeeDay,
   employeeJobIdById,
+  approvedJobIdByEmployeeDay,
   overrides,
   roundDailyMinutes,
   roundTotalMinutes,
@@ -126,6 +127,7 @@ export default function ExportMenu({
   hoursByEmployeeDay: Map<string, number>;
   breakHoursByEmployeeDay: Map<string, number>;
   employeeJobIdById: Map<string, string | null>;
+  approvedJobIdByEmployeeDay: Map<string, string | null>;
   overrides: Record<string, string>;
   roundDailyMinutes: RoundingIncrement;
   roundTotalMinutes: RoundingIncrement;
@@ -179,6 +181,7 @@ export default function ExportMenu({
           hoursByEmployeeDay,
           breakHoursByEmployeeDay,
           employeeJobIdById,
+          approvedJobIdByEmployeeDay,
           roundDailyMinutes,
           roundTotalMinutes,
           companyName,

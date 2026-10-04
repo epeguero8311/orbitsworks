@@ -62,6 +62,9 @@ export function useReports() {
   const [breakHoursByEmployeeDay, setBreakHoursByEmployeeDay] = useState<Map<string, number>>(
     new Map()
   );
+  const [approvedJobIdByEmployeeDay, setApprovedJobIdByEmployeeDay] = useState<
+    Map<string, string | null>
+  >(new Map());
 
   const runReport = useCallback(
     async (startDate: string, endDate: string) => {
@@ -101,10 +104,34 @@ export function useReports() {
         );
         const approvalsSnapshot = await getDocs(approvalsQuery);
         const approvalStatusByClockInId = new Map<string, "pending" | "approved">();
+        // Job picked and saved on a Timesheet Approvals row, rolled up to
+        // one vote per employee+day - keyed the same way as
+        // hoursByEmployeeDay ("employeeId__date") so buildDayRows can look
+        // it up directly. A day with more than one session can have more
+        // than one approval doc; if they picked different jobs, that's
+        // ambiguous at the day level so it falls back to the employee's
+        // assigned job rather than guessing which session's pick wins.
+        const approvedJobIdVotesByDay = new Map<string, Set<string>>();
         approvalsSnapshot.docs.forEach((d) => {
-          const data = d.data() as { status?: "pending" | "approved" };
+          const data = d.data() as {
+            status?: "pending" | "approved";
+            employeeId?: string;
+            date?: string;
+            jobId?: string | null;
+          };
           approvalStatusByClockInId.set(d.id, data.status ?? "pending");
+          if (data.jobId && data.employeeId && data.date) {
+            const key = `${data.employeeId}__${data.date}`;
+            const votes = approvedJobIdVotesByDay.get(key) ?? new Set<string>();
+            votes.add(data.jobId);
+            approvedJobIdVotesByDay.set(key, votes);
+          }
         });
+        const approvedJobIdByEmployeeDayOut = new Map<string, string | null>();
+        approvedJobIdVotesByDay.forEach((votes, key) => {
+          approvedJobIdByEmployeeDayOut.set(key, votes.size === 1 ? Array.from(votes)[0] : null);
+        });
+        setApprovedJobIdByEmployeeDay(approvedJobIdByEmployeeDayOut);
 
         const excludedEventIds = computeExcludedEventIds(events, approvalStatusByClockInId);
         const gatedEvents = events.filter((event) => !excludedEventIds.has(event.id));
@@ -217,6 +244,7 @@ export function useReports() {
     employeeJobIdById,
     hoursByEmployeeDay,
     breakHoursByEmployeeDay,
+    approvedJobIdByEmployeeDay,
     runReport,
   };
 }
