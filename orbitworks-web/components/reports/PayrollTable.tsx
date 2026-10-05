@@ -1,20 +1,32 @@
-﻿"use client";
+"use client";
 
 import type { EmployeeSummary } from "@/lib/types";
 import { formatHours } from "@/lib/reportUtils";
+import type { EmployeeRoundedTotal } from "@/lib/reportDailyBreakdown";
 
 export default function PayrollTable({
   summaries,
   startDate,
   endDate,
+  roundedTotalsByEmployee,
 }: {
   summaries: EmployeeSummary[];
   startDate: string;
   endDate: string;
+  roundedTotalsByEmployee: Map<string, EmployeeRoundedTotal>;
 }) {
+  // roundedTotalsByEmployee is built from the same daily rows as the Daily
+  // Breakdown, and is a mathematical no-op when both rounding settings are
+  // Off (net hours per day summed == totalHours - totalBreakHours), so this
+  // never changes the Est. pay figures shown today unless rounding is on.
+  function payFor(s: EmployeeSummary): number | null {
+    const total = roundedTotalsByEmployee.get(s.employeeId);
+    return total?.totalPay ?? s.estimatedPay;
+  }
+
   const totalHoursAll = summaries.reduce((sum, s) => sum + s.totalHours, 0);
   const totalOpenSessions = summaries.reduce((sum, s) => sum + s.openSessions, 0);
-  const totalEstimatedPay = summaries.reduce((sum, s) => sum + (s.estimatedPay ?? 0), 0);
+  const totalEstimatedPay = summaries.reduce((sum, s) => sum + (payFor(s) ?? 0), 0);
   const anyRatesMissing = summaries.some((s) => s.hourlyRate == null);
 
   return (
@@ -87,7 +99,7 @@ export default function PayrollTable({
                     )}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-gray-950">
-                    {s.estimatedPay != null ? `$${s.estimatedPay.toFixed(2)}` : "-"}
+                    {payFor(s) != null ? `$${payFor(s)!.toFixed(2)}` : "-"}
                   </td>
                 </tr>
               ))}

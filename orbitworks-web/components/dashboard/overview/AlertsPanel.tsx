@@ -36,6 +36,7 @@ export default function AlertsPanel({
   const {
     resolvedKeys,
     ignoreAlert,
+    ignoreAll,
     clockOutFromAlert,
     endBreakFromAlert,
     submitEditTimeFromAlert,
@@ -46,6 +47,7 @@ export default function AlertsPanel({
   const [editTimeValue, setEditTimeValue] = useState("");
   const [alertActionSubmitting, setAlertActionSubmitting] = useState<string | null>(null);
   const [alertActionError, setAlertActionError] = useState<string | null>(null);
+  const [ignoringAll, setIgnoringAll] = useState(false);
 
   // currentlyActive already carries each employee's latest event (whether
   // that's an "in" or a still-open "breakStart") - see useDashboardStatus's
@@ -75,6 +77,19 @@ export default function AlertsPanel({
   }));
   const visibleAlertItems = alertItems.filter((a) => !resolvedKeys.has(a.key));
   const isLoading = loading || alertsLoading;
+
+  async function handleIgnoreAll() {
+    setIgnoringAll(true);
+    setAlertActionError(null);
+    try {
+      await ignoreAll(visibleAlertItems);
+    } catch (err) {
+      console.error("Ignore all alerts error:", err);
+      setAlertActionError("Couldn't ignore all alerts. Try again.");
+    } finally {
+      setIgnoringAll(false);
+    }
+  }
 
   async function handleIgnoreAlert(alert: AlertItem) {
     setAlertActionSubmitting(alert.key);
@@ -153,7 +168,19 @@ export default function AlertsPanel({
 
   return (
     <div className="mt-6 rounded-xl border border-gray-200 bg-white p-6">
-      <h2 className="text-base font-semibold text-gray-950">Alerts</h2>
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-base font-semibold text-gray-950">Alerts</h2>
+        {visibleAlertItems.length > 0 && (
+          <button
+            type="button"
+            disabled={ignoringAll}
+            onClick={handleIgnoreAll}
+            className="text-sm font-medium text-[#3b6fe0] hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {ignoringAll ? "Ignoring..." : "Ignore all"}
+          </button>
+        )}
+      </div>
       <p className="mt-1 text-sm text-gray-600">
         Driven by your alert settings - turn these on or off in Settings.
       </p>

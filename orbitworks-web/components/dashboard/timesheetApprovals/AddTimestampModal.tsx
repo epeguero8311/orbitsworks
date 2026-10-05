@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useSites } from "@/lib/hooks/useSites";
@@ -33,9 +33,21 @@ export default function AddTimestampModal({ defaultDate, minDate, onClose, onSub
   const activeEmployees = useMemo(() => employees.filter((e) => e.active), [employees]);
 
   const [employeeQuery, setEmployeeQuery] = useState("");
-  const [employeeId, setEmployeeId] = useState<string | null>(null);
+  const [selectedEmployees, setSelectedEmployees] = useState<{ id: string; name: string }[]>([]);
   const [showEmployeeList, setShowEmployeeList] = useState(false);
   const employeeInputRef = useRef<HTMLInputElement>(null);
+  const employeeFieldRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showEmployeeList) return;
+    function handleOutsideClick(e: MouseEvent) {
+      if (!employeeFieldRef.current?.contains(e.target as Node)) {
+        setShowEmployeeList(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [showEmployeeList]);
 
   const [date, setDate] = useState(defaultDate);
   const [clockInTime, setClockInTime] = useState("");
@@ -50,19 +62,27 @@ export default function AddTimestampModal({ defaultDate, minDate, onClose, onSub
 
   const filteredEmployees = useMemo(() => {
     const q = employeeQuery.trim().toLowerCase();
-    if (!q) return activeEmployees;
-    return activeEmployees.filter((e) => e.name.toLowerCase().includes(q));
-  }, [activeEmployees, employeeQuery]);
+    const notSelected = activeEmployees.filter(
+      (e) => !selectedEmployees.some((s) => s.id === e.id)
+    );
+    if (!q) return notSelected;
+    return notSelected.filter((e) => e.name.toLowerCase().includes(q));
+  }, [activeEmployees, employeeQuery, selectedEmployees]);
 
   function pickEmployee(id: string, name: string) {
-    setEmployeeId(id);
-    setEmployeeQuery(name);
-    setShowEmployeeList(false);
+    setSelectedEmployees((prev) => [...prev, { id, name }]);
+    setEmployeeQuery("");
+    setShowEmployeeList(true);
+    employeeInputRef.current?.focus();
+  }
+
+  function removeEmployee(id: string) {
+    setSelectedEmployees((prev) => prev.filter((e) => e.id !== id));
   }
 
   async function handleSubmit() {
-    if (!employeeId || !clockInTime || !clockOutTime || !reason.trim()) {
-      setErrorMsg("Employee, clock in, clock out, and a reason are required.");
+    if (selectedEmployees.length === 0 || !clockInTime || !clockOutTime || !reason.trim()) {
+      setErrorMsg("At least one employee, clock in, clock out, and a reason are required.");
       return;
     }
     setSubmitting(true);
@@ -79,22 +99,32 @@ export default function AddTimestampModal({ defaultDate, minDate, onClose, onSub
         breakStartTime = clockInTime;
         breakEndTime = addMinutesToTime(clockInTime, minutes);
       }
-      const params: ManualTimestampParams = {
-        employeeId,
-        date,
-        clockInTime,
-        clockOutTime,
-        breakStartTime,
-        breakEndTime,
-        siteId: siteId || null,
-        reason: reason.trim(),
-      };
-      if (companyOverride === "__main__") {
-        params.subcontractorId = null;
-      } else if (companyOverride) {
-        params.subcontractorId = companyOverride;
+      // Each selected employee gets its own independent timestamp with the
+      // same date/time/site/reason, created one at a time so a failure
+      // partway through reports which employee it happened on.
+      for (const emp of selectedEmployees) {
+        const params: ManualTimestampParams = {
+          employeeId: emp.id,
+          date,
+          clockInTime,
+          clockOutTime,
+          breakStartTime,
+          breakEndTime,
+          siteId: siteId || null,
+          reason: reason.trim(),
+        };
+        if (companyOverride === "__main__") {
+          params.subcontractorId = null;
+        } else if (companyOverride) {
+          params.subcontractorId = companyOverride;
+        }
+        try {
+          await onSubmit(params);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Failed to add timestamp.";
+          throw new Error(`${emp.name}: ${message}`);
+        }
       }
-      await onSubmit(params);
       onClose();
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Failed to add timestamp.");
@@ -123,8 +153,29 @@ export default function AddTimestampModal({ defaultDate, minDate, onClose, onSub
         </div>
 
         <div className="mt-4 space-y-3">
-          <div className="relative">
-            <label className="block text-xs font-medium text-gray-600">Employee</label>
+          <div className="relative" ref={employeeFieldRef}>
+            <label className="block text-xs font-medium text-gray-600">Employee(s)</label>
+            {selectedEmployees.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {selectedEmployees.map((emp, i) => (
+                  <span
+                    key={emp.id}
+                    className="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-0.5 text-xs text-gray-950"
+                  >
+                    {emp.name}
+                    {i < selectedEmployees.length - 1 ? "," : ""}
+                    <button
+                      type="button"
+                      onClick={() => removeEmployee(emp.id)}
+                      className="text-gray-500 hover:text-gray-700"
+                      aria-label={`Remove ${emp.name}`}
+                    >
+                      &times;
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="relative mt-1">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
               <input
@@ -133,11 +184,12 @@ export default function AddTimestampModal({ defaultDate, minDate, onClose, onSub
                 value={employeeQuery}
                 onChange={(e) => {
                   setEmployeeQuery(e.target.value);
-                  setEmployeeId(null);
                   setShowEmployeeList(true);
                 }}
                 onFocus={() => setShowEmployeeList(true)}
-                placeholder="Search employees..."
+                placeholder={
+                  selectedEmployees.length > 0 ? "Add another employee..." : "Search employees..."
+                }
                 className="w-full rounded-md border border-gray-200 py-1.5 pl-8 pr-2 text-sm"
               />
             </div>
@@ -278,7 +330,11 @@ export default function AddTimestampModal({ defaultDate, minDate, onClose, onSub
               onClick={handleSubmit}
               className="rounded-md bg-accent px-4 py-1.5 text-xs font-semibold text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {submitting ? "Adding..." : "Add Timestamp"}
+              {submitting
+                ? "Adding..."
+                : selectedEmployees.length > 1
+                  ? `Add ${selectedEmployees.length} Timestamps`
+                  : "Add Timestamp"}
             </button>
             <button
               type="button"

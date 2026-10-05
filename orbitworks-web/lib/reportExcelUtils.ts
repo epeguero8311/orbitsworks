@@ -5,6 +5,7 @@ import type {
   AttendanceRecord,
   ShiftNote,
   Job,
+  RoundingIncrement,
 } from "@/lib/types";
 import { getExcelJS, downloadWorkbook } from "@/lib/excelHelpers";
 import {
@@ -131,6 +132,9 @@ export async function exportPayrollExcel(
   hoursByEmployeeDay: Map<string, number>,
   breakHoursByEmployeeDay: Map<string, number>,
   employeeJobIdById: Map<string, string | null>,
+  approvedJobIdByEmployeeDay: Map<string, string | null>,
+  roundDailyMinutes: RoundingIncrement,
+  roundTotalMinutes: RoundingIncrement,
   companyName: string,
   startDate: string,
   endDate: string
@@ -143,9 +147,11 @@ export async function exportPayrollExcel(
     hoursByEmployeeDay,
     breakHoursByEmployeeDay,
     employeeJobIdById,
-    jobs
+    jobs,
+    roundDailyMinutes,
+    approvedJobIdByEmployeeDay
   );
-  addPayrollSheet(workbook, summaries, jobs, dayRows, companyName, startDate, endDate);
+  addPayrollSheet(workbook, summaries, jobs, dayRows, roundTotalMinutes, companyName, startDate, endDate);
 
   await downloadWorkbook(
     workbook,
@@ -182,6 +188,9 @@ export async function exportAllReportsExcel(
   hoursByEmployeeDay: Map<string, number>,
   breakHoursByEmployeeDay: Map<string, number>,
   employeeJobIdById: Map<string, string | null>,
+  approvedJobIdByEmployeeDay: Map<string, string | null>,
+  roundDailyMinutes: RoundingIncrement,
+  roundTotalMinutes: RoundingIncrement,
   companyName: string,
   startDate: string,
   endDate: string
@@ -200,9 +209,11 @@ export async function exportAllReportsExcel(
     hoursByEmployeeDay,
     breakHoursByEmployeeDay,
     employeeJobIdById,
-    jobs
+    jobs,
+    roundDailyMinutes,
+    approvedJobIdByEmployeeDay
   );
-  addPayrollSheet(workbook, summaries, jobs, dayRows, companyName, startDate, endDate);
+  addPayrollSheet(workbook, summaries, jobs, dayRows, roundTotalMinutes, companyName, startDate, endDate);
 
   addAttendanceSheet(workbook, attendanceRecords, companyName, startDate, endDate);
 

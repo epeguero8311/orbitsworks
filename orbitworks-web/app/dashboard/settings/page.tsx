@@ -5,6 +5,7 @@ import { CompanyProfileCard } from "@/components/dashboard/settings/CompanyProfi
 import { BusinessHoursCard } from "@/components/dashboard/settings/BusinessHoursCard";
 import { AttendanceRulesCard } from "@/components/dashboard/settings/AttendanceRulesCard";
 import { GeofencingCard } from "@/components/dashboard/settings/GeofencingCard";
+import { ExportSettingsCard } from "@/components/dashboard/settings/ExportSettingsCard";
 import { AlertsCard } from "@/components/dashboard/settings/AlertsCard";
 import { AppSettingsCard } from "@/components/dashboard/settings/AppSettingsCard";
 import { DevicesCard } from "@/components/dashboard/settings/DevicesCard";
@@ -50,6 +51,12 @@ export default function SettingsPage() {
           />
 
           <DevicesCard isPro={s.isPro} />
+
+          <ExportSettingsCard
+            exportSettings={s.exportSettings}
+            setExportSettings={s.setExportSettings}
+          />
+
 
           <AlertsCard
             alerts={s.alerts}

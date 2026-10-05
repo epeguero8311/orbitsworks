@@ -51,6 +51,11 @@ export type ApprovalRow = {
   // toggle since there's no "off" for a session with literally no site on
   // it. Not Pro-gated either for the same reason: it can't occur otherwise.
   hasNoSiteDetectedWarning: boolean;
+  jobId: string | null;
+  // The employee's currently assigned job, used as the Job dropdown's
+  // "(Default)" label - not necessarily what jobId above was saved with,
+  // since the employee's assignment can change after a day was approved.
+  defaultJobId: string | null;
 };
 
 type EventWithId = Omit<ClockEvent, "id"> & { id: string };
@@ -245,6 +250,8 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
                 pendingIn.siteMismatch === true,
               hasNoSiteDetectedWarning:
                 pendingIn.siteId == null && pendingIn.geofenceStatus === "outside",
+              jobId: approval?.jobId ?? null,
+              defaultJobId: employee.jobId ?? null,
             });
           }
           pendingIn = null;
@@ -289,14 +296,22 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     await fn(params);
   };
 
-  const setApprovalStatus = async (eventId: string, status: "pending" | "approved") => {
+  const setApprovalStatus = async (
+    eventId: string,
+    status: "pending" | "approved",
+    jobId?: string | null
+  ) => {
     const fn = httpsCallable(functions, "setApprovalStatus");
-    await fn({ eventId, status });
+    await fn({ eventId, status, jobId });
   };
 
-  const setApprovalStatusBulk = async (eventIds: string[], status: "pending" | "approved") => {
+  const setApprovalStatusBulk = async (
+    eventIds: string[],
+    status: "pending" | "approved",
+    jobIdByEventId?: Record<string, string | null>
+  ) => {
     const fn = httpsCallable(functions, "setApprovalStatusBulk");
-    await fn({ eventIds, status });
+    await fn({ eventIds, status, jobIdByEventId });
   };
 
   const deleteTimesheetSession = async (approvalId: string, eventIds: string[]) => {

@@ -5,6 +5,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { isProPlan } from "@/lib/stripe/tiers";
+import type { ExportSettings } from "@/lib/types";
 
 export type AttendanceRules = {
   allowEarlyClockIn: boolean;
@@ -88,6 +89,7 @@ export type CompanySettings = {
   alerts: Alerts;
   appSettings: AppSettings;
   geofencing: GeofencingSettings;
+  exportSettings: ExportSettings;
 };
 
 export const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
@@ -123,6 +125,11 @@ export const DEFAULT_GEOFENCING_SETTINGS: GeofencingSettings = {
   enforcementMode: "flag",
 };
 
+export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
+  roundDailyMinutes: 0,
+  roundTotalMinutes: 0,
+};
+
 const DEFAULT_SETTINGS: CompanySettings = {
   name: null,
   logoUrl: null,
@@ -133,6 +140,7 @@ const DEFAULT_SETTINGS: CompanySettings = {
   alerts: DEFAULT_ALERTS,
   appSettings: DEFAULT_APP_SETTINGS,
   geofencing: DEFAULT_GEOFENCING_SETTINGS,
+  exportSettings: DEFAULT_EXPORT_SETTINGS,
 };
 
 export function useCompanySettings() {
@@ -171,6 +179,10 @@ export function useCompanySettings() {
         geofencing: {
           ...DEFAULT_GEOFENCING_SETTINGS,
           ...(data.geofencing ?? {}),
+        },
+        exportSettings: {
+          ...DEFAULT_EXPORT_SETTINGS,
+          ...(data.exportSettings ?? {}),
         },
       });
       setLoading(false);

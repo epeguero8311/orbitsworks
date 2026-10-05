@@ -336,6 +336,10 @@ export interface TimesheetApproval {
   approvedAt?: Timestamp;
   createdAt?: Timestamp;
   flags?: Flag[];
+  // Job picked on the Timesheet Approvals row for this day, saved the
+  // moment the row is approved (null = the employee's default job).
+  jobId?: string | null;
+  jobName?: string | null;
 }
 
 // ---- Supervisor Overrides ----
@@ -550,4 +554,14 @@ export type SiteProximityTier = "on" | "near" | "off" | "unknown";
 export interface SiteProximityInfo {
   tier: SiteProximityTier;
   label: string;
+}
+
+// ---- Export settings (payroll rounding) ----
+
+// 0 = off (no rounding).
+export type RoundingIncrement = 0 | 5 | 15 | 30;
+
+export interface ExportSettings {
+  roundDailyMinutes: RoundingIncrement;
+  roundTotalMinutes: RoundingIncrement;
 }

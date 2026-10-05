@@ -15,7 +15,9 @@ import {
   DEFAULT_ALERTS,
   DEFAULT_APP_SETTINGS,
   DEFAULT_GEOFENCING_SETTINGS,
+  DEFAULT_EXPORT_SETTINGS,
 } from "@/lib/hooks/useCompanySettings";
+import type { ExportSettings } from "@/lib/types";
 
 export type AuthMode = "individual" | "shared";
 
@@ -43,6 +45,9 @@ export function useSettingsPage() {
     DEFAULT_GEOFENCING_SETTINGS.enforcementMode
   );
   const [isPro, setIsPro] = useState(false);
+  const [exportSettings, setExportSettings] = useState<ExportSettings>(
+    DEFAULT_EXPORT_SETTINGS
+  );
 
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
@@ -87,6 +92,10 @@ export function useSettingsPage() {
               DEFAULT_GEOFENCING_SETTINGS.enforcementMode
           );
           setIsPro(isProPlan(data.planTier));
+          setExportSettings({
+            ...DEFAULT_EXPORT_SETTINGS,
+            ...(data.exportSettings ?? {}),
+          });
         }
       } catch (err) {
         console.error("Load company error:", err);
@@ -139,6 +148,7 @@ export function useSettingsPage() {
         alerts,
         appSettings,
         geofencing: { enforcementMode },
+        exportSettings,
       });
 
       setLogoUrl(newLogoUrl);
@@ -177,6 +187,8 @@ export function useSettingsPage() {
     enforcementMode,
     setEnforcementMode,
     isPro,
+    exportSettings,
+    setExportSettings,
     isSaving,
     error,
     success,
