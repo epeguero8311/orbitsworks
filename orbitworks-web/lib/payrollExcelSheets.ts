@@ -377,15 +377,15 @@ export function addEmployeeHistorySheet(
   const rangeLabel = formatDateRangeLabel(startDate, endDate);
 
   sheet.columns = [
-    { width: 14 }, // A Date
-    { width: 26 }, // B Job Site / Total Hours (Excluding Break)
-    { width: 16 }, // C Job
-    { width: 13 }, // D Hourly Rate
+    { width: 14 }, // A Date / Week Of
+    { width: 26 }, // B Job Site / Hours
+    { width: 16 }, // C Job / Worked Hours
+    { width: 13 }, // D Hourly Rate / Overtime Hours
     { width: 16 }, // E Clock In / Estimated Pay (Excluding Break)
     { width: 11 }, // F Clock Out
     { width: 9 },  // G Hours
     { width: 9 },  // H Break
-    { width: 12 }, // I Net Hours (hidden)
+    { width: 12 }, // I Worked Hours
     { width: 24 }, // J Estimated Pay (Excluding Break)
     { width: 30 }, // K Notes
     { width: 10 }, // L Adjusted
@@ -399,9 +399,13 @@ export function addEmployeeHistorySheet(
   const hasJobs = jobsInfo != null;
 
   // ---- Weekly summary block ----
+  // B (Hours) is the gross shift total for the week; C (Worked Hours) is
+  // B minus break, unclamped. Overtime Hours (D) and Estimated Pay (E) key
+  // off C, not B - overtime and its pay premium are measured against
+  // worked hours, never against hours that include break time.
   const summaryHeaderRowNum = 2;
   const summaryHeader = sheet.getRow(summaryHeaderRowNum);
-  ["Week Of", "Total Hours (Excluding Break)", "Regular Hours", "Overtime Hours", "Estimated Pay (Excluding Break)"].forEach(
+  ["Week Of", "Hours", "Worked Hours", "Overtime Hours", "Estimated Pay (Excluding Break)"].forEach(
     (h, i) => (summaryHeader.getCell(i + 1).value = h)
   );
   styleHeaderRow(summaryHeader);
@@ -418,6 +422,9 @@ export function addEmployeeHistorySheet(
     row.getCell(1).value = w.weekLabel;
     if (dayRows.length > 0) {
       row.getCell(2).value = {
+        formula: `SUMIF(N${dailyFirstDataRow}:N${dailyLastRow},A${rowNum},G${dailyFirstDataRow}:G${dailyLastRow})`,
+      };
+      row.getCell(3).value = {
         formula: `SUMIF(N${dailyFirstDataRow}:N${dailyLastRow},A${rowNum},I${dailyFirstDataRow}:I${dailyLastRow})`,
       };
       row.getCell(9).value = {
@@ -425,15 +432,15 @@ export function addEmployeeHistorySheet(
       };
     } else {
       row.getCell(2).value = w.hours;
+      row.getCell(3).value = w.hours;
       row.getCell(9).value = 0;
     }
     row.getCell(2).numFmt = "0.00";
-    row.getCell(3).value = { formula: `MIN(${overtimeThreshold},B${rowNum})` };
     row.getCell(3).numFmt = "0.00";
-    row.getCell(4).value = { formula: `MAX(0,B${rowNum}-${overtimeThreshold})` };
+    row.getCell(4).value = { formula: `MAX(0,C${rowNum}-${overtimeThreshold})` };
     row.getCell(4).numFmt = "0.00";
     row.getCell(5).value = {
-      formula: `I${rowNum}+IF(B${rowNum}=0,0,(I${rowNum}/B${rowNum})*D${rowNum}*0.5)`,
+      formula: `I${rowNum}+IF(C${rowNum}=0,0,(I${rowNum}/C${rowNum})*D${rowNum}*0.5)`,
     };
     row.getCell(5).numFmt = '"$"#,##0.00';
   });
@@ -473,13 +480,14 @@ export function addEmployeeHistorySheet(
     "Clock Out",
     "Hours",
     "Break",
-    "Net Hours",
+    "Worked Hours",
     "Estimated Pay (Excluding Break)",
     "Notes",
     "Adjusted",
   ].forEach((h, i) => (dailyHeader.getCell(i + 1).value = h));
   styleHeaderRow(dailyHeader);
-  sheet.getColumn(9).hidden = true; // Net Hours (helper)
+  // Worked Hours (I) used to be a hidden helper - it's now the requested
+  // visible column between Break and Estimated Pay, so it stays shown.
   sheet.getColumn(13).hidden = true; // Default Rate (helper)
   sheet.getColumn(14).hidden = true; // Week Of (helper)
 
