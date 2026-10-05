@@ -148,7 +148,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               </span>
             )}
           </div>
-          <Orbit className={`hidden h-5 w-5 shrink-0 text-accent ${sidebarCollapsed ? "lg:block" : ""}`} />
           <button
             onClick={() => setSidebarOpen(false)}
             className="rounded-md p-1 text-gray-600 hover:bg-gray-50 lg:hidden"
