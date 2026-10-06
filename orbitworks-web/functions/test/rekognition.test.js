@@ -77,7 +77,6 @@ const CLOCK_PHOTO_URL =
 async function seedCompany(companyId, overrides = {}) {
   await db.collection("companies").doc(companyId).set({
     planTier: "pro_tier1",
-    faceVerification: { enabled: true },
     ...overrides,
   });
 }
@@ -268,9 +267,24 @@ test("employee has no pfp: no AWS call, nothing written", async () => {
   assert.equal(event.faceCheck, undefined);
 });
 
-test("feature toggle off: no AWS call, nothing written", async () => {
-  const companyId = "face-toggleoff";
-  await seedCompany(companyId, { faceVerification: { enabled: false } });
+test("Pro company with no faceVerification field at all: check still runs (Pro is the only gate)", async () => {
+  const companyId = "face-nofield";
+  await seedCompany(companyId); // no faceVerification key, just planTier
+  await seedEmployee(companyId, "emp1");
+  await seedClockEvent(companyId, "evt1");
+  sendImpl = async () => ({ FaceMatches: [{ Similarity: 96.43 }], UnmatchedFaces: [] });
+  sendCallCount = 0;
+
+  await rekognitionModule.checkFaceMatch(companyId, "evt1");
+
+  assert.equal(sendCallCount, 1);
+  const event = await getEvent(companyId, "evt1");
+  assert.equal(event.faceCheck.status, "match");
+});
+
+test("Core plan: still skipped regardless of any faceVerification field in the DB", async () => {
+  const companyId = "face-coreplan";
+  await seedCompany(companyId, { planTier: "tier1", faceVerification: { alertsEnabled: true } });
   await seedEmployee(companyId, "emp1");
   await seedClockEvent(companyId, "evt1");
   sendCallCount = 0;
@@ -282,18 +296,37 @@ test("feature toggle off: no AWS call, nothing written", async () => {
   assert.equal(event.faceCheck, undefined);
 });
 
-test("Core plan with the toggle forced on in the DB: still skipped (server re-checks Pro itself)", async () => {
-  const companyId = "face-coreplan";
-  await seedCompany(companyId, { planTier: "tier1", faceVerification: { enabled: true } });
+test("alertsEnabled false: faceCheck still saved on mismatch, but no faceMismatch alert", async () => {
+  const companyId = "face-alertsoff-mismatch";
+  await seedCompany(companyId, { faceVerification: { alertsEnabled: false } });
   await seedEmployee(companyId, "emp1");
   await seedClockEvent(companyId, "evt1");
+  sendImpl = async () => ({ FaceMatches: [{ Similarity: 38.12 }], UnmatchedFaces: [] });
   sendCallCount = 0;
 
   await rekognitionModule.checkFaceMatch(companyId, "evt1");
 
-  assert.equal(sendCallCount, 0);
   const event = await getEvent(companyId, "evt1");
-  assert.equal(event.faceCheck, undefined);
+  assert.equal(event.faceCheck.status, "mismatch");
+  assert.equal((await getAlertsByType(companyId, "faceMismatch")).length, 0);
+});
+
+test("alertsEnabled false: faceBadReference alert still fires (never gated by alertsEnabled)", async () => {
+  const companyId = "face-alertsoff-badref";
+  await seedCompany(companyId, { faceVerification: { alertsEnabled: false } });
+  await seedEmployee(companyId, "emp1");
+  await seedClockEvent(companyId, "evt1");
+  sendImpl = async () => {
+    throw Object.assign(new Error("no face in source image"), { name: "InvalidParameterException" });
+  };
+  sendCallCount = 0;
+
+  await rekognitionModule.checkFaceMatch(companyId, "evt1");
+
+  const employee = await getEmployee(companyId, "emp1");
+  assert.equal(employee.faceReference.status, "bad");
+  const badRefSnap = await db.collection("companies").doc(companyId).collection("alerts").doc("badref-emp1").get();
+  assert.ok(badRefSnap.exists);
 });
 
 test("clock photo has no photoUrl: no AWS call, nothing written", async () => {

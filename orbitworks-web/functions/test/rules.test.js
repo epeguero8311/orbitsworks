@@ -331,28 +331,22 @@ test("client cannot add faceReference to an existing employee via update", async
   );
 });
 
-// Face Verification (Pro) company-settings toggle - COMPANY_A has no
-// planTier set in beforeEach (defaults to Core), so it doubles as the
-// "not Pro" fixture here.
-test("Core company admin cannot enable faceVerification via direct write", async () => {
+// Face Verification (Pro) company-settings toggle - checks themselves
+// always run for Pro with no opt-out; alertsEnabled is the only remaining
+// knob and it's Pro-only, in both directions (no "always allowed to turn
+// off" exception anymore - see firestore.rules). COMPANY_A has no planTier
+// set in beforeEach (defaults to Core), so it doubles as the "not Pro"
+// fixture here.
+test("Core company admin cannot write faceVerification.alertsEnabled", async () => {
   const db = adminContext().firestore();
   await assertFails(
     updateDoc(doc(db, "companies", COMPANY_A), {
-      faceVerification: { enabled: true },
+      faceVerification: { alertsEnabled: false },
     })
   );
 });
 
-test("Core company admin CAN disable faceVerification (never blocked, any plan)", async () => {
-  const db = adminContext().firestore();
-  await assertSucceeds(
-    updateDoc(doc(db, "companies", COMPANY_A), {
-      faceVerification: { enabled: false },
-    })
-  );
-});
-
-test("Pro company admin can enable faceVerification via direct write", async () => {
+test("Pro company admin can write faceVerification.alertsEnabled", async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), "companies", COMPANY_A), {
       name: "Company A",
@@ -362,17 +356,17 @@ test("Pro company admin can enable faceVerification via direct write", async () 
   const db = adminContext().firestore();
   await assertSucceeds(
     updateDoc(doc(db, "companies", COMPANY_A), {
-      faceVerification: { enabled: true },
+      faceVerification: { alertsEnabled: false },
     })
   );
 });
 
-test("client still cannot change planTier itself even to enable faceVerification", async () => {
+test("client still cannot change planTier itself even to unlock faceVerification.alertsEnabled", async () => {
   const db = adminContext().firestore();
   await assertFails(
     updateDoc(doc(db, "companies", COMPANY_A), {
       planTier: "pro_tier1",
-      faceVerification: { enabled: true },
+      faceVerification: { alertsEnabled: false },
     })
   );
 });
