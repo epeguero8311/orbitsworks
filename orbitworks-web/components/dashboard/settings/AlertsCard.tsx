@@ -1,9 +1,10 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import type { Alerts } from "@/lib/hooks/useCompanySettings";
+import type { Alerts, FaceVerificationSettings } from "@/lib/hooks/useCompanySettings";
 import { Toggle } from "@/components/dashboard/settings/Toggle";
 import { ThresholdField } from "@/components/dashboard/settings/ThresholdField";
+import { ProBadgeLink } from "@/components/dashboard/sites/GeofenceFields";
 
 export function AlertsCard({
   alerts,
@@ -12,6 +13,9 @@ export function AlertsCard({
   setOtThreshold,
   otMultiplier,
   setOtMultiplier,
+  isPro,
+  faceVerification,
+  onFaceVerificationChange,
 }: {
   alerts: Alerts;
   setAlerts: Dispatch<SetStateAction<Alerts>>;
@@ -19,6 +23,9 @@ export function AlertsCard({
   setOtThreshold: (value: string) => void;
   otMultiplier: string;
   setOtMultiplier: (value: string) => void;
+  isPro: boolean;
+  faceVerification: FaceVerificationSettings;
+  onFaceVerificationChange: (value: FaceVerificationSettings) => void;
 }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6">
@@ -124,6 +131,17 @@ export function AlertsCard({
             label="Clocked in at unassigned site"
             checked={alerts.siteMismatchWarning}
             onChange={(v) => setAlerts((prev) => ({ ...prev, siteMismatchWarning: v }))}
+          />
+        </div>
+
+        <div className="py-1">
+          <Toggle
+            label="Face recognition alerts"
+            description="Checks always run on every clock-in for Pro - this only controls whether mismatch and no-face alerts fire. Badges in Time Tracking still show either way."
+            checked={faceVerification.alertsEnabled}
+            onChange={(v) => onFaceVerificationChange({ ...faceVerification, alertsEnabled: v })}
+            disabled={!isPro}
+            badge={!isPro && <ProBadgeLink />}
           />
         </div>
       </div>

@@ -13,6 +13,16 @@ means checks are paused for that employee. Everything below this notice
 describes the original v1 design; where it conflicts with this notice,
 this notice wins.
 
+## Update: toggle lives in Alerts, not its own card (post-v1)
+
+There is no separate "Face verification" settings card anymore. The
+`alertsEnabled` toggle moved into the existing Alerts card
+(`AlertsCard.tsx`), alongside the other alert toggles. For Core
+companies it's shown but locked - rendered checked/disabled with a PRO
+badge next to it (`Toggle`'s existing `disabled`/`badge` props,
+`ProBadgeLink`), not hidden behind an upgrade panel like Geofencing's
+card does. `FaceVerificationCard.tsx` was deleted.
+
 Read this whole file before touching code. Inspect the real files listed in "Inspect first"
 before editing anything - do not guess anchors, shapes, or helper names.
 
