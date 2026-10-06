@@ -5,6 +5,7 @@ import { CompanyProfileCard } from "@/components/dashboard/settings/CompanyProfi
 import { BusinessHoursCard } from "@/components/dashboard/settings/BusinessHoursCard";
 import { AttendanceRulesCard } from "@/components/dashboard/settings/AttendanceRulesCard";
 import { GeofencingCard } from "@/components/dashboard/settings/GeofencingCard";
+import { FaceVerificationCard } from "@/components/dashboard/settings/FaceVerificationCard";
 import { ExportSettingsCard } from "@/components/dashboard/settings/ExportSettingsCard";
 import { AlertsCard } from "@/components/dashboard/settings/AlertsCard";
 import { AppSettingsCard } from "@/components/dashboard/settings/AppSettingsCard";
@@ -51,6 +52,12 @@ export default function SettingsPage() {
           />
 
           <DevicesCard isPro={s.isPro} />
+
+          <FaceVerificationCard
+            isPro={s.isPro}
+            faceVerification={s.faceVerification}
+            onFaceVerificationChange={s.setFaceVerification}
+          />
 
           <ExportSettingsCard
             exportSettings={s.exportSettings}

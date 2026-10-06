@@ -15,6 +15,7 @@ import { ClockEvent } from "@/lib/types";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import ClockEventsDayView from "@/components/dashboard/ClockEventsDayView";
 import { GeofenceBadge } from "@/components/time/GeofenceBadge";
+import { FaceCheckBadge } from "@/components/time/FaceCheckBadge";
 import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
 
 export default function ClockEventLookup() {
@@ -302,6 +303,7 @@ export default function ClockEventLookup() {
                   <th className="px-4 py-2 font-medium">Photo</th>
                   <th className="px-4 py-2 font-medium">Note</th>
                   <th className="px-4 py-2 font-medium">Geofence</th>
+                  <th className="px-4 py-2 font-medium">Face check</th>
                 </tr>
               </thead>
               <tbody>
@@ -368,6 +370,9 @@ export default function ClockEventLookup() {
                       </td>
                       <td className="px-4 py-2.5">
                         <GeofenceBadge event={event} />
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <FaceCheckBadge event={event} />
                       </td>
                     </tr>
                   );

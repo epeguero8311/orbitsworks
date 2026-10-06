@@ -9,6 +9,7 @@ import { typeLabel, sourceLabel } from "@/lib/clockStatus";
 import { dateKey } from "@/lib/reportUtils";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import { GeofenceBadge } from "@/components/time/GeofenceBadge";
+import { FaceCheckBadge } from "@/components/time/FaceCheckBadge";
 import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
 
 function latestAdjustment(event: ClockEvent) {
@@ -141,6 +142,7 @@ export default function ClockEventsDayView({
               <th className="px-4 py-2 font-medium">Photo</th>
               <th className="px-4 py-2 font-medium">Note</th>
               <th className="px-4 py-2 font-medium">Geofence</th>
+              <th className="px-4 py-2 font-medium">Face check</th>
             </tr>
           </thead>
           <tbody>
@@ -203,6 +205,9 @@ export default function ClockEventsDayView({
                   </td>
                   <td className="px-4 py-2.5">
                     <GeofenceBadge event={event} />
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <FaceCheckBadge event={event} />
                   </td>
                 </tr>
               );
