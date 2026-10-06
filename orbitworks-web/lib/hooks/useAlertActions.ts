@@ -60,7 +60,7 @@ export function useAlertActions() {
   async function recordAlertAction(
     alert: AlertItem,
     status: "ignored" | "resolved",
-    actionTaken?: "clockOut" | "editTime" | "endBreak"
+    actionTaken?: "clockOut" | "editTime" | "endBreak" | "confirmedMatch"
   ) {
     if (!userData?.companyId || !currentUser) return;
     const actionsRef = collection(
@@ -83,6 +83,15 @@ export function useAlertActions() {
 
   async function ignoreAlert(alert: AlertItem) {
     await recordAlertAction(alert, "ignored");
+  }
+
+  // Face Verification (Pro) "Confirmed it's them" - a resolve with no
+  // underlying clock event write (unlike clockOut/editTime/endBreak,
+  // which all create or adjust one). Shared by faceMismatch and
+  // faceNoFace - both are "someone should confirm this was really them"
+  // flags, not a time-correction need.
+  async function confirmFaceMatchFromAlert(alert: AlertItem) {
+    await recordAlertAction(alert, "resolved", "confirmedMatch");
   }
 
   // Dismisses every alert currently visible in one go. Reuses the same
@@ -204,6 +213,7 @@ export function useAlertActions() {
     loading,
     ignoreAlert,
     ignoreAll,
+    confirmFaceMatchFromAlert,
     clockOutFromAlert,
     endBreakFromAlert,
     submitEditTimeFromAlert,

@@ -57,6 +57,35 @@ export function sourceLabel(source: ClockEvent["source"]): { text: string; class
   }
 }
 
+// Face Verification (Pro). Unlike sourceLabel/typeLabel above, "not
+// checked" (faceCheck absent entirely) is a real, explicit badge state
+// here, not a silent render-nothing - it covers every reason the check
+// never ran (no pfp, feature off, Core plan, predates this feature) and
+// deliberately looks the same in all of them, same as GeofenceBadge's
+// "no badge at all" convention does for its own inapplicable cases, just
+// shown instead of hidden per spec.
+export function faceCheckLabel(faceCheck: ClockEvent["faceCheck"]): { text: string; className: string } {
+  if (!faceCheck) {
+    return { text: "Not checked", className: "bg-gray-100 text-gray-500" };
+  }
+  switch (faceCheck.status) {
+    case "match":
+      return {
+        text: `Match${faceCheck.similarity != null ? ` ${faceCheck.similarity}%` : ""}`,
+        className: "bg-green-50 text-green-700",
+      };
+    case "mismatch":
+      return {
+        text: `Mismatch${faceCheck.similarity != null ? ` ${faceCheck.similarity}%` : ""}`,
+        className: "bg-red-50 text-red-700",
+      };
+    case "noFace":
+      return { text: "No face", className: "bg-orange-50 text-orange-700" };
+    default:
+      return { text: "Not checked", className: "bg-gray-100 text-gray-500" };
+  }
+}
+
 function effectiveMs(event: ClockEvent): number | null {
   const ts = event.adjustedTimestamp ?? event.timestamp;
   return ts ? ts.toDate().getTime() : null;

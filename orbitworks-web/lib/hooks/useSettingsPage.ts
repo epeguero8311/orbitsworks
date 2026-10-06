@@ -11,11 +11,13 @@ import {
   Alerts,
   AppSettings,
   EnforcementMode,
+  FaceVerificationSettings,
   DEFAULT_ATTENDANCE_RULES,
   DEFAULT_ALERTS,
   DEFAULT_APP_SETTINGS,
   DEFAULT_GEOFENCING_SETTINGS,
   DEFAULT_EXPORT_SETTINGS,
+  DEFAULT_FACE_VERIFICATION_SETTINGS,
 } from "@/lib/hooks/useCompanySettings";
 import type { ExportSettings } from "@/lib/types";
 
@@ -47,6 +49,9 @@ export function useSettingsPage() {
   const [isPro, setIsPro] = useState(false);
   const [exportSettings, setExportSettings] = useState<ExportSettings>(
     DEFAULT_EXPORT_SETTINGS
+  );
+  const [faceVerification, setFaceVerification] = useState<FaceVerificationSettings>(
+    DEFAULT_FACE_VERIFICATION_SETTINGS
   );
 
   const [isSaving, setIsSaving] = useState(false);
@@ -95,6 +100,10 @@ export function useSettingsPage() {
           setExportSettings({
             ...DEFAULT_EXPORT_SETTINGS,
             ...(data.exportSettings ?? {}),
+          });
+          setFaceVerification({
+            ...DEFAULT_FACE_VERIFICATION_SETTINGS,
+            ...(data.faceVerification ?? {}),
           });
         }
       } catch (err) {
@@ -149,6 +158,7 @@ export function useSettingsPage() {
         appSettings,
         geofencing: { enforcementMode },
         exportSettings,
+        faceVerification,
       });
 
       setLogoUrl(newLogoUrl);
@@ -189,6 +199,8 @@ export function useSettingsPage() {
     isPro,
     exportSettings,
     setExportSettings,
+    faceVerification,
+    setFaceVerification,
     isSaving,
     error,
     success,
