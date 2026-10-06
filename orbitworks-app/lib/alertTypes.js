@@ -11,6 +11,10 @@ export const ALERT_TYPES = [
   "missedClockOut",
   "clockedInOutsideGeofence",
   "siteMismatch",
+  // Face Verification (Pro) - see orbitworks-web/functions/src/rekognition.ts.
+  "faceMismatch",
+  "faceNoFace",
+  "faceBadReference",
 ];
 
 export const ALERT_TYPE_LABEL = {
@@ -22,6 +26,9 @@ export const ALERT_TYPE_LABEL = {
   missedClockOut: "Missed Clock-Out",
   clockedInOutsideGeofence: "Outside Geofence",
   siteMismatch: "Wrong Site",
+  faceMismatch: "Face Mismatch",
+  faceNoFace: "No Face Detected",
+  faceBadReference: "Bad Reference Photo",
 };
 
 export const ALERT_SEVERITY = {
@@ -33,4 +40,7 @@ export const ALERT_SEVERITY = {
   earlyClockOut: "warning",
   clockedInOutsideGeofence: "warning",
   siteMismatch: "info",
+  faceMismatch: "warning",
+  faceNoFace: "warning",
+  faceBadReference: "warning",
 };
