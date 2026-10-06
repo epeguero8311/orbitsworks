@@ -45,6 +45,10 @@ RekognitionClient.prototype.send = async function (command) {
 // this is what actually runs admin.initializeApp() (see shared.ts).
 const { db } = require("../lib/shared.js");
 const rekognitionModule = require("../lib/rekognition.js");
+// For onEmployeePhotoWrite - an actual Cloud Function trigger, invoked via
+// its exported .run(event), same convention alerts.test.js uses for
+// onClockEventCreated.
+const funcs = require("../lib/index.js");
 
 // Stub Storage downloads too - image content is irrelevant since the AWS
 // call itself is stubbed above and never inspects the bytes. admin.storage
@@ -120,6 +124,23 @@ async function getEmployee(companyId, employeeId) {
 async function getAlertsByType(companyId, alertType) {
   const snap = await db.collection("companies").doc(companyId).collection("alerts").get();
   return snap.docs.filter((d) => d.data().alertType === alertType);
+}
+
+// Duck-types the onDocumentWritten CloudEvent shape onEmployeePhotoWrite's
+// handler actually reads (event.params, event.data.before.data(),
+// event.data.after.data()/.exists/.ref) - same convention alerts.test.js's
+// fakeClockEventDoc uses for the onCreate trigger. after.ref is a REAL
+// DocumentReference (not duck-typed) so employeeRef.update() inside the
+// handler genuinely writes to the emulator.
+function fakeEmployeeWriteEvent({ companyId, employeeId, beforeData, afterData }) {
+  const ref = db.collection("companies").doc(companyId).collection("employees").doc(employeeId);
+  return {
+    params: { companyId, employeeId },
+    data: {
+      before: { exists: true, data: () => beforeData },
+      after: { exists: true, data: () => afterData, ref },
+    },
+  };
 }
 
 test.beforeEach(() => {
@@ -315,4 +336,89 @@ test("faceCheck already present: guard skips re-checking (idempotent)", async ()
   await rekognitionModule.checkFaceMatch(companyId, "evt1");
 
   assert.equal(sendCallCount, 0);
+});
+
+// onEmployeePhotoWrite - the reference-photo check trigger (fires on
+// every write to an employee doc, not just photoUrl changes).
+test("onEmployeePhotoWrite: a write it makes itself (photoUrl unchanged) never calls DetectFaces", async () => {
+  const companyId = "face-ref-loopguard";
+  const employeeId = "emp1";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, employeeId, {
+    faceReference: { status: "bad", photoUrl: REFERENCE_PHOTO_URL, reason: "noFace", flaggedAt: admin.firestore.Timestamp.now() },
+  });
+  sendImpl = async () => ({ FaceDetails: [{}] }); // would clear the flag if the guard failed to stop this
+  sendCallCount = 0;
+
+  // Simulates the SECOND invocation this function's own
+  // employeeRef.update({faceReference: ...}) write would trigger -
+  // photoUrl is identical before/after, only faceReference changed.
+  const fakeEvent = fakeEmployeeWriteEvent({
+    companyId,
+    employeeId,
+    beforeData: { name: "Jordan", photoUrl: REFERENCE_PHOTO_URL },
+    afterData: {
+      name: "Jordan",
+      photoUrl: REFERENCE_PHOTO_URL,
+      faceReference: { status: "bad", photoUrl: REFERENCE_PHOTO_URL, reason: "noFace" },
+    },
+  });
+
+  await funcs.onEmployeePhotoWrite.run(fakeEvent);
+
+  assert.equal(sendCallCount, 0);
+});
+
+test("onEmployeePhotoWrite: new pfp with exactly 1 face clears an existing bad flag", async () => {
+  const companyId = "face-ref-clear";
+  const employeeId = "emp1";
+  const oldPhotoUrl =
+    "https://firebasestorage.googleapis.com/v0/b/test.appspot.com/o/companies%2Ftest%2Femployees%2Femp1%2Fold.jpg?alt=media&token=old";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, employeeId, {
+    photoUrl: REFERENCE_PHOTO_URL,
+    faceReference: { status: "bad", photoUrl: oldPhotoUrl, reason: "noFace", flaggedAt: admin.firestore.Timestamp.now() },
+  });
+  sendImpl = async () => ({ FaceDetails: [{}] });
+  sendCallCount = 0;
+
+  const fakeEvent = fakeEmployeeWriteEvent({
+    companyId,
+    employeeId,
+    beforeData: { name: "Jordan", photoUrl: oldPhotoUrl, faceReference: { status: "bad", photoUrl: oldPhotoUrl, reason: "noFace" } },
+    afterData: { name: "Jordan", photoUrl: REFERENCE_PHOTO_URL, faceReference: { status: "bad", photoUrl: oldPhotoUrl, reason: "noFace" } },
+  });
+
+  await funcs.onEmployeePhotoWrite.run(fakeEvent);
+
+  assert.equal(sendCallCount, 1);
+  const employee = await getEmployee(companyId, employeeId);
+  assert.equal(employee.faceReference, undefined);
+});
+
+test("onEmployeePhotoWrite: new pfp with 0 faces sets faceReference bad + faceBadReference alert", async () => {
+  const companyId = "face-ref-setbad";
+  const employeeId = "emp1";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, employeeId, { photoUrl: REFERENCE_PHOTO_URL });
+  sendImpl = async () => ({ FaceDetails: [] });
+  sendCallCount = 0;
+
+  const fakeEvent = fakeEmployeeWriteEvent({
+    companyId,
+    employeeId,
+    beforeData: { name: "Jordan" },
+    afterData: { name: "Jordan", photoUrl: REFERENCE_PHOTO_URL },
+  });
+
+  await funcs.onEmployeePhotoWrite.run(fakeEvent);
+
+  assert.equal(sendCallCount, 1);
+  const employee = await getEmployee(companyId, employeeId);
+  assert.equal(employee.faceReference.status, "bad");
+  assert.equal(employee.faceReference.reason, "noFace");
+
+  const badRefSnap = await db.collection("companies").doc(companyId).collection("alerts").doc("badref-emp1").get();
+  assert.ok(badRefSnap.exists);
+  assert.equal(badRefSnap.data().alertType, "faceBadReference");
 });
