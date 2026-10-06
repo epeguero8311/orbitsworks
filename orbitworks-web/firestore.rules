@@ -194,18 +194,15 @@ service cloud.firestore {
           'stripeSubscriptionId',
           'trialEndsAt'
         ]) &&
-        // Face Verification (Pro) - a client can turn this OFF regardless
-        // of plan (e.g. right after a downgrade, so a stuck-on flag can
-        // still be cleared), but can only turn it ON while the company's
-        // current planTier (immutable in this same write - see the
-        // denylist above) is Pro. The checkFaceMatch Cloud Function also
-        // re-checks Pro + enabled itself before ever calling AWS - this is
-        // belt-and-suspenders so a Core company can't even get the flag
-        // into a true state via a direct write, not just have it ignored.
+        // Face Verification (Pro) - checks themselves always run for Pro,
+        // never for Core, with no company opt-out (functions/src/
+        // rekognition.ts). The only remaining knob is
+        // faceVerification.alertsEnabled, writable by owner/admin only
+        // while the company's current planTier (immutable in this same
+        // write - see the denylist above) is Pro.
         (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['faceVerification']) ||
-          resource.data.get('planTier', '').matches('^pro_.*') ||
-          request.resource.data.faceVerification.enabled != true
+          resource.data.get('planTier', '').matches('^pro_.*')
         );
       allow delete: if false;
 
