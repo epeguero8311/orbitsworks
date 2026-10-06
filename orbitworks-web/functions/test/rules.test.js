@@ -278,6 +278,24 @@ test("client can still update a clockEvent's ordinary fields normally", async ()
   );
 });
 
+// Guards the faceStatus/faceReference denylist added to the create rule -
+// in the real app every employee create actually goes through an Admin
+// SDK callable (addEmployee/createEmployee/acceptInvite), which bypasses
+// rules entirely, so this doesn't reflect any live client flow. It's here
+// to confirm the new denylist didn't also break a direct client create of
+// an ordinary employee doc, should one ever be added.
+test("client can still create an ordinary employee doc (no face fields)", async () => {
+  const db = adminContext().firestore();
+  await assertSucceeds(
+    setDoc(doc(db, "companies", COMPANY_A, "employees", "emp-ordinary"), {
+      name: "Ordinary",
+      active: false,
+      assignedSiteIds: [],
+      pin: "9999",
+    })
+  );
+});
+
 test("client cannot create an employee doc with faceReference set", async () => {
   const db = adminContext().firestore();
   await assertFails(
