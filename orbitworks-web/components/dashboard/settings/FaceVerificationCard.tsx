@@ -5,10 +5,10 @@ import type { FaceVerificationSettings } from "@/lib/hooks/useCompanySettings";
 import { Toggle } from "@/components/dashboard/settings/Toggle";
 import { ProBadgeLink } from "@/components/dashboard/sites/GeofenceFields";
 
-// Pro only, off by default even once on Pro (it costs money and scans
-// faces - see FACE_VERIFICATION_SPEC.md). firestore.rules is the real
-// gate - a Core company can't actually get this to true even via a
-// direct write - this toggle being disabled is just the honest UI
+// Pro only - checks always run for every Pro company, no opt-out (see
+// FACE_VERIFICATION_SPEC.md). firestore.rules is the real gate on the
+// remaining alertsEnabled knob - a Core company can't write it even via a
+// direct write - this card being disabled is just the honest UI
 // reflection of that, not the only thing stopping it.
 export function FaceVerificationCard({
   isPro,
@@ -26,8 +26,8 @@ export function FaceVerificationCard({
         {!isPro && <ProBadgeLink />}
       </div>
       <p className="mt-1 text-xs text-gray-600">
-        Compares clock-in photos to the employee&apos;s profile photo and flags
-        mismatches - never blocks a clock-in.
+        Compares every clock-in and clock-out photo to the employee&apos;s
+        profile photo - never blocks a clock-in.
       </p>
 
       {!isPro ? (
@@ -41,12 +41,16 @@ export function FaceVerificationCard({
           </Link>
         </div>
       ) : (
-        <div className="mt-2">
+        <div className="mt-4">
           <Toggle
-            label="Enable face verification"
-            checked={faceVerification.enabled}
-            onChange={(v) => onFaceVerificationChange({ ...faceVerification, enabled: v })}
+            label="Face recognition alerts"
+            checked={faceVerification.alertsEnabled}
+            onChange={(v) => onFaceVerificationChange({ ...faceVerification, alertsEnabled: v })}
           />
+          <p className="mt-2 text-xs text-gray-600">
+            Face checks always run on every clock-in. Turn off to stop mismatch
+            and no-face alerts. Badges in Time Tracking still show.
+          </p>
         </div>
       )}
     </div>

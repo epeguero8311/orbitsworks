@@ -131,17 +131,19 @@ export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
   roundTotalMinutes: 0,
 };
 
-// Face Verification (Pro) - off by default per company (it costs money and
-// scans faces, so it must be opt-in even for Pro companies). The Cloud
-// Function re-checks Pro + enabled itself before ever calling AWS - a
-// client can write this doc directly (firestore.rules only requires
-// admin/owner), so this flag alone is never trusted as the sole gate.
+// Face Verification (Pro) - checks always run for every Pro company, no
+// opt-out. alertsEnabled is the only remaining knob: true (default) means
+// faceMismatch/faceNoFace alerts fire as usual; false still runs the check
+// and still saves faceCheck on the clock event (badges keep working), it
+// just skips creating those two alert types and their push. The bad
+// reference-photo alert is unaffected either way - see
+// functions/src/alerts.ts.
 export type FaceVerificationSettings = {
-  enabled: boolean;
+  alertsEnabled: boolean;
 };
 
 export const DEFAULT_FACE_VERIFICATION_SETTINGS: FaceVerificationSettings = {
-  enabled: false,
+  alertsEnabled: true,
 };
 
 const DEFAULT_SETTINGS: CompanySettings = {
