@@ -28,6 +28,10 @@ export const ALERT_TYPES = [
   "missedClockOut",
   "clockedInOutsideGeofence",
   "siteMismatch",
+  // Face Verification (Pro) - see functions/src/rekognition.ts.
+  "faceMismatch",
+  "faceNoFace",
+  "faceBadReference",
 ] as const;
 
 export type AlertType = (typeof ALERT_TYPES)[number];
@@ -44,6 +48,11 @@ export const ALERT_SEVERITY: Record<AlertType, "urgent" | "warning" | "info"> = 
   // one notch down - a mismatch never blocks or implies anything was
   // done wrong, just "someone should take a look."
   siteMismatch: "info",
+  // Face Verification (Pro) - never block a clock event, same reasoning
+  // as clockedInOutsideGeofence.
+  faceMismatch: "warning",
+  faceNoFace: "warning",
+  faceBadReference: "warning",
 };
 
 // The untrusted-input boundary for alert generation: validates every id
@@ -101,6 +110,11 @@ export const ALERT_SETTINGS_DEFAULTS = {
   earlyClockOutAlert: true,
   clockedInOutsideGeofence: true,
   siteMismatchWarning: true,
+  // Face Verification (Pro) - default true per spec (they only fire at
+  // all once faceVerification.enabled is also true for the company).
+  faceMismatchAlert: true,
+  faceNoFaceAlert: true,
+  faceBadReferenceAlert: true,
 } as const;
 
 type AlertSettings = typeof ALERT_SETTINGS_DEFAULTS;
@@ -142,6 +156,11 @@ const ALERT_ID_PREFIX: Record<AlertType, string> = {
   missedClockOut: "missed",
   clockedInOutsideGeofence: "geo",
   siteMismatch: "mismatch",
+  faceMismatch: "facemismatch",
+  faceNoFace: "facenoface",
+  // Only used directly by buildFaceBadReferenceAlertId below, never by
+  // buildAlertId - this is the one type with no dateKey in its id.
+  faceBadReference: "badref",
 };
 
 function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string): string {
@@ -394,6 +413,175 @@ export async function checkSiteMismatch(
     },
     data.timestamp ?? admin.firestore.Timestamp.now()
   );
+}
+
+// Face Verification (Pro) - called from functions/src/rekognition.ts
+// AFTER it writes faceCheck onto the clock event, fully isolated (its own
+// try/catch there) from the check itself. Mirrors checkOutsideGeofence/
+// checkSiteMismatch above in every other way. Side-by-side clock/
+// reference photos aren't stored on the alert doc itself - the UI
+// resolves the full ClockEvent by eventId (AlertsPanel.tsx already does
+// this for clockedInOutsideGeofence/siteMismatch) and reads photoUrl/
+// faceCheck.referencePhotoUrl off that instead.
+export async function createFaceMismatchAlert(
+  companyId: string,
+  eventId: string,
+  employeeId: string,
+  employeeName: string,
+  similarity: number,
+  timestamp: admin.firestore.Timestamp | null
+): Promise<void> {
+  if (!ALERTS_FEED_ENABLED.value()) return;
+  if (!isCompanyInTestScope(companyId)) return;
+
+  const ctx = await getCompanyAlertContext(companyId);
+  if (!ctx || !ctx.alerts.faceMismatchAlert) return;
+
+  const ts = timestamp ? timestamp.toDate() : new Date();
+  await maybeCreateAndPush(
+    {
+      companyId,
+      alertType: "faceMismatch",
+      employeeId,
+      employeeName,
+      siteId: null,
+      siteName: null,
+      message: `Face didn't match the clock photo (${similarity}% similarity) - confirm it's really ${employeeName}.`,
+      eventId,
+      dateKey: localDateKey(ts),
+    },
+    timestamp ?? admin.firestore.Timestamp.now()
+  );
+}
+
+export async function createFaceNoFaceAlert(
+  companyId: string,
+  eventId: string,
+  employeeId: string,
+  employeeName: string,
+  timestamp: admin.firestore.Timestamp | null
+): Promise<void> {
+  if (!ALERTS_FEED_ENABLED.value()) return;
+  if (!isCompanyInTestScope(companyId)) return;
+
+  const ctx = await getCompanyAlertContext(companyId);
+  if (!ctx || !ctx.alerts.faceNoFaceAlert) return;
+
+  const ts = timestamp ? timestamp.toDate() : new Date();
+  await maybeCreateAndPush(
+    {
+      companyId,
+      alertType: "faceNoFace",
+      employeeId,
+      employeeName,
+      siteId: null,
+      siteName: null,
+      message: "No face was detected in the clock photo.",
+      eventId,
+      dateKey: localDateKey(ts),
+    },
+    timestamp ?? admin.firestore.Timestamp.now()
+  );
+}
+
+// faceBadReference is the one alert type that breaks the "one per
+// employee/day, kept forever, resolved via alertActions ignore/resolve"
+// convention every other type here follows: one per EMPLOYEE (no dateKey
+// in the id - a bad pfp isn't a per-day condition) and resolved by
+// deleting the doc outright once the pfp passes DetectFaces again or is
+// removed (there's no Ignore action for this one per spec). Bypasses
+// buildAlertId/createAlertIfNew's dateKey-based id scheme entirely for
+// that reason - everything else about the write (ref.create() for
+// idempotency, push only on a genuinely NEW flag, not a repeat) still
+// matches maybeCreateAndPush's shape, just inlined here since that
+// dateKey-less id doesn't fit alertInputSchema's id-building path.
+function buildFaceBadReferenceAlertId(employeeId: string): string {
+  return `${ALERT_ID_PREFIX.faceBadReference}-${employeeId}`;
+}
+
+export async function createOrKeepFaceBadReferenceAlert(
+  companyId: string,
+  employeeId: string,
+  employeeName: string
+): Promise<void> {
+  if (!ALERTS_FEED_ENABLED.value()) return;
+  if (!isCompanyInTestScope(companyId)) return;
+
+  const ctx = await getCompanyAlertContext(companyId);
+  if (!ctx || !ctx.alerts.faceBadReferenceAlert) return;
+
+  const alertId = buildFaceBadReferenceAlertId(employeeId);
+  const now = admin.firestore.Timestamp.now();
+  const input: AlertInput = {
+    companyId,
+    alertType: "faceBadReference",
+    employeeId,
+    employeeName,
+    siteId: null,
+    siteName: null,
+    message: `${employeeName}'s profile photo has no usable face. Face verification is paused for them until it's updated.`,
+    eventId: null,
+    // Not used for the id (see above) - just satisfies MobileAlert's
+    // required field.
+    dateKey: localDateKey(now.toDate()),
+  };
+  const parsed = alertInputSchema.safeParse(input);
+  if (!parsed.success) {
+    console.warn("Skipping malformed faceBadReference alert input", { input, issues: parsed.error.issues });
+    return;
+  }
+
+  const ref = db.collection("companies").doc(companyId).collection("alerts").doc(alertId);
+  const docData = {
+    ...parsed.data,
+    severity: ALERT_SEVERITY.faceBadReference,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    occurredAt: now,
+    readByDeviceIds: [] as string[],
+  };
+
+  let created: AlertDoc;
+  try {
+    await ref.create(docData);
+    created = {
+      id: alertId,
+      ...parsed.data,
+      severity: ALERT_SEVERITY.faceBadReference,
+      createdAt: now,
+      occurredAt: now,
+      readByDeviceIds: [],
+    };
+  } catch (err) {
+    const code = (err as { code?: number | string })?.code;
+    if (code !== 6 && code !== "already-exists") {
+      console.warn("faceBadReference alert write failed", { companyId, alertId, error: String(err) });
+    }
+    return; // already flagged for this employee - no new push
+  }
+
+  try {
+    await sendPushForAlert(created);
+  } catch (err) {
+    console.warn("Push send failed", { companyId, alertId, error: String(err) });
+  }
+}
+
+// Deletes the persistent flag outright - called once the reference-photo
+// check (functions/src/rekognition.ts) sees a good pfp again, or sees the
+// pfp removed entirely. delete() on an id that was never created (no
+// flag was ever raised) is a harmless no-op, so callers never need to
+// check existence first.
+export async function resolveFaceBadReferenceAlert(companyId: string, employeeId: string): Promise<void> {
+  const alertId = buildFaceBadReferenceAlertId(employeeId);
+  await db
+    .collection("companies")
+    .doc(companyId)
+    .collection("alerts")
+    .doc(alertId)
+    .delete()
+    .catch((err) => {
+      console.warn("Failed to resolve faceBadReference alert", { companyId, alertId, error: String(err) });
+    });
 }
 
 function getWeekStart(date: Date): Date {

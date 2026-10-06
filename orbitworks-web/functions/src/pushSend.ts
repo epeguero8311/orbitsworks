@@ -14,6 +14,9 @@ const ALERT_TITLE: Record<AlertDoc["alertType"], string> = {
   missedClockOut: "Missed Clock-Out",
   clockedInOutsideGeofence: "Outside Geofence",
   siteMismatch: "Wrong Site",
+  faceMismatch: "Face Mismatch",
+  faceNoFace: "No Face Detected",
+  faceBadReference: "Bad Reference Photo",
 };
 
 // Sends one alert to every registered, notification-enabled device on the

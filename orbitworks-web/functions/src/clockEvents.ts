@@ -14,6 +14,7 @@ import {
 import { MAPBOX_TOKEN, haversineMeters, reverseGeocode } from "./geocoding";
 import { classifyGeofence, detectSite, DetectableSite, GeofenceStatus } from "./geofencing";
 import { checkLateClockIn, checkEarlyClockOut, checkOutsideGeofence, checkSiteMismatch } from "./alerts";
+import { checkFaceMatch, REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY } from "./rekognition";
 
 // Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
 // why this can't just be imported.
@@ -100,7 +101,10 @@ async function handleDeviceTracking(
 // current-status snapshot without a separate per-employee query. This
 // is what lets the app determine in/out/break offline.
 export const onClockEventCreated = onDocumentCreated(
-  { document: "companies/{companyId}/clockEvents/{eventId}", secrets: [MAPBOX_TOKEN] },
+  {
+    document: "companies/{companyId}/clockEvents/{eventId}",
+    secrets: [MAPBOX_TOKEN, REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY],
+  },
   async (event) => {
     const data = event.data?.data();
     if (!data || !data.employeeId) return;
@@ -538,6 +542,20 @@ export const onClockEventCreated = onDocumentCreated(
     } catch (err) {
       console.warn("Alert generation failed", { eventId: event.params.eventId, companyId, error: String(err) });
     }
+
+    // Face Verification (Pro) - runs last, fully isolated from every check
+    // above: its own try/catch, never rethrows (checkFaceMatch already
+    // never throws internally either - this is belt-and-suspenders, same
+    // as handleDeviceTracking's extra .catch above). A slow or failed AWS
+    // call can never delay or fail the clock event write, the
+    // timesheetApproval/overrideEvent writes, or any alert check above
+    // it. checkFaceMatch re-fetches the event itself and does its own
+    // Pro/enabled/pfp guards - see functions/src/rekognition.ts.
+    try {
+      await checkFaceMatch(companyId, event.params.eventId);
+    } catch (err) {
+      console.warn("Face check failed", { eventId: event.params.eventId, companyId, error: String(err) });
+    }
   }
 );
 
@@ -713,7 +731,10 @@ export const correctClockEvent = onCall(async (request) => {
   return { success: true };
 });
 
-export const reassignClockEvent = onCall(async (request) => {
+// Face Verification (Pro) secrets are bound here too (6.6) - reassigning
+// re-runs checkFaceMatch directly below, rather than relying on a trigger
+// re-fire that onCreate (unlike onDocumentWritten) can never give it.
+export const reassignClockEvent = onCall({ secrets: [REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY] }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
@@ -798,13 +819,28 @@ export const reassignClockEvent = onCall(async (request) => {
   // subcontractor payroll reports correct: the event should follow
   // whichever company the *new* employee belongs to, not whatever the
   // original employee's company was.
+  //
+  // Face Verification (Pro) 6.6 - the old faceCheck compared the WRONG
+  // person, so it's deleted here rather than left stale. onClockEventCreated
+  // only fires on CREATE, so nothing else will ever redo this check after a
+  // reassign - checkFaceMatch is called directly below instead.
   await eventRef.update({
     employeeId: newEmployeeId,
     employeeName: newEmployee.name ?? "Unknown",
     subcontractorId: newEmployee.subcontractorId ?? null,
     subcontractorName: newEmployee.subcontractorName ?? null,
     adjustmentHistory: admin.firestore.FieldValue.arrayUnion(adjustment),
+    faceCheck: admin.firestore.FieldValue.delete(),
   });
+
+  // Isolated from the reassign itself, same reasoning as
+  // onClockEventCreated's own face check - a slow/failed AWS call must
+  // never fail the reassign call the admin is waiting on.
+  try {
+    await checkFaceMatch(callerCompanyId, eventId);
+  } catch (err) {
+    console.warn("Face check failed after reassign", { eventId, companyId: callerCompanyId, error: String(err) });
+  }
 
   return { success: true };
 });

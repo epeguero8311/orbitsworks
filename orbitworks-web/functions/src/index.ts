@@ -49,3 +49,5 @@ export {
 export { geocodeJobSiteAddress } from "./geocoding";
 
 export { checkPeriodicAlerts } from "./alerts";
+
+export { onEmployeePhotoWrite } from "./rekognition";
