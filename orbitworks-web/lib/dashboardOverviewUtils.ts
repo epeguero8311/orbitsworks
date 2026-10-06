@@ -26,7 +26,11 @@ export type AlertItem = {
     | "overtime"
     | "missedClockOut"
     | "clockedInOutsideGeofence"
-    | "siteMismatch";
+    | "siteMismatch"
+    // Face Verification (Pro) - see functions/src/alerts.ts.
+    | "faceMismatch"
+    | "faceNoFace"
+    | "faceBadReference";
   // Who/what this alert is about - an employee name for every alert type
   // today. A future site-level alert (no single employee involved) should
   // put the site name (or "All Sites") here instead - alertTitle() below
@@ -55,6 +59,9 @@ export const ALERT_SHORT_TAGS: Record<AlertItem["alertType"], string> = {
   earlyClockOut: "Early Clock Out",
   clockedInOutsideGeofence: "Outside Geofence",
   siteMismatch: "Wrong Site",
+  faceMismatch: "Face Mismatch",
+  faceNoFace: "No Face Detected",
+  faceBadReference: "Bad Reference Photo",
 };
 
 // Drives the severity dot in AlertsPanel - urgent (red) for alerts that need
@@ -73,6 +80,11 @@ export const ALERT_SEVERITY: Record<AlertItem["alertType"], AlertSeverity> = {
   earlyClockOut: "warning",
   clockedInOutsideGeofence: "warning",
   siteMismatch: "info",
+  // Never block a clock event, same reasoning as clockedInOutsideGeofence -
+  // "someone should take a look," one notch below urgent.
+  faceMismatch: "warning",
+  faceNoFace: "warning",
+  faceBadReference: "warning",
 };
 
 export function alertTitle(alert: AlertItem) {

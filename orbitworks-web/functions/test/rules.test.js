@@ -54,6 +54,24 @@ test.beforeEach(async () => {
       dateKey: "2026-01-01",
       readByDeviceIds: ["device-existing"],
     });
+    // Face Verification (Pro) rules tests below need a real active
+    // employee (isActiveOrClosingOpenSession does a get() on this doc)
+    // and a pre-existing clockEvent to update.
+    await setDoc(doc(db, "companies", COMPANY_A, "employees", "emp1"), {
+      name: "Jordan",
+      active: true,
+      assignedSiteIds: [],
+      pin: "1234",
+    });
+    await setDoc(doc(db, "companies", COMPANY_A, "clockEvents", "evt1"), {
+      employeeId: "emp1",
+      employeeName: "Jordan",
+      siteId: null,
+      siteName: "Not specified",
+      type: "in",
+      source: "pin",
+      createdByUid: "admin-uid",
+    });
   });
 });
 
@@ -205,4 +223,92 @@ test("no client can delete a push token doc", async () => {
   );
   const { deleteDoc } = require("firebase/firestore");
   await assertFails(deleteDoc(doc(db, "companies", COMPANY_A, "pushTokens", "device-mine")));
+});
+
+// Face Verification (Pro) - faceCheck (clockEvents) and faceReference/
+// faceStatus (employees) are all server-written only, by functions/src/
+// rekognition.ts (Admin SDK, bypasses rules entirely) - see the comments
+// on both match blocks in firestore.rules.
+const FAKE_FACE_CHECK = {
+  status: "match",
+  similarity: 99,
+  threshold: 90,
+  referencePhotoUrl: "https://example.com/ref.jpg",
+  facesInTarget: 1,
+  checkedAt: new Date(),
+};
+const FAKE_FACE_REFERENCE = {
+  status: "bad",
+  photoUrl: "https://example.com/ref.jpg",
+  reason: "noFace",
+  flaggedAt: new Date(),
+};
+
+test("client cannot create a clockEvent with faceCheck set", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "clockEvents", "evt-forged"), {
+      employeeId: "emp1",
+      employeeName: "Jordan",
+      siteId: null,
+      siteName: "Not specified",
+      type: "in",
+      source: "pin",
+      createdByUid: "admin-uid",
+      faceCheck: FAKE_FACE_CHECK,
+    })
+  );
+});
+
+test("client cannot add faceCheck to an existing clockEvent via update", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A, "clockEvents", "evt1"), {
+      faceCheck: FAKE_FACE_CHECK,
+    })
+  );
+});
+
+test("client can still update a clockEvent's ordinary fields normally", async () => {
+  const db = adminContext().firestore();
+  await assertSucceeds(
+    updateDoc(doc(db, "companies", COMPANY_A, "clockEvents", "evt1"), {
+      note: "Adjusted via admin note",
+    })
+  );
+});
+
+test("client cannot create an employee doc with faceReference set", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "employees", "emp-forged-ref"), {
+      name: "Forged",
+      active: false,
+      assignedSiteIds: [],
+      pin: "0000",
+      faceReference: FAKE_FACE_REFERENCE,
+    })
+  );
+});
+
+test("client cannot create an employee doc with faceStatus set", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "employees", "emp-forged-status"), {
+      name: "Forged",
+      active: false,
+      assignedSiteIds: [],
+      pin: "0000",
+      faceStatus: "enrolled",
+    })
+  );
+});
+
+test("client cannot add faceReference to an existing employee via update", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A, "employees", "emp1"), {
+      faceReference: FAKE_FACE_REFERENCE,
+    })
+  );
 });

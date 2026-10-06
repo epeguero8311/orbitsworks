@@ -73,6 +73,36 @@ export interface SubcontractorAssignmentRecord {
   reason?: string;
 }
 
+// ---- Face Verification (Pro) ----
+//
+// Both written server-only (functions/src/rekognition.ts, Admin SDK) -
+// firestore.rules denies these keys to every client write. Unrelated to
+// Employee.faceStatus below, which was staged for a different (Collections/
+// enrollment-based) design that was never built - this feature does its
+// own 1:1 CompareFaces check per clock event instead and never reads
+// faceStatus.
+export type FaceCheckStatus = "match" | "mismatch" | "noFace";
+
+export interface FaceCheck {
+  status: FaceCheckStatus;
+  similarity: number | null; // best score 0-100, null when noFace
+  threshold: number; // cutoff used at check time (FACE_MATCH_THRESHOLD)
+  referencePhotoUrl: string; // the employee pfp used for this check
+  facesInTarget: number; // faces detected in the clock photo
+  checkedAt: Timestamp;
+}
+
+// Set on the employee doc when their pfp has no usable face - checks are
+// skipped (no AWS call) while employee.photoUrl still matches
+// faceReference.photoUrl, so a bad photo only costs one AWS call until
+// it's replaced.
+export interface FaceReferenceState {
+  status: "bad";
+  photoUrl: string; // the exact pfp that was bad
+  reason: string; // e.g. "noFace", "multipleFaces", "InvalidParameterException"
+  flaggedAt: Timestamp;
+}
+
 export interface Employee {
   id: string;
   name: string;
@@ -102,13 +132,17 @@ export interface Employee {
   lastEventType?: "in" | "out" | "breakStart" | "breakEnd";
   // Set by createEmployee (functions/src/createEmployee.ts) when an employee
   // is created from the mobile app's Create Employee flow - unset for every
-  // employee created any other way. The future AWS Rekognition enrollment
-  // step looks for "not_enrolled" and flips it to "enrolled" once the
-  // reference photo is registered; no client can set this field directly.
+  // employee created any other way. Staged for a Collections/enrollment-
+  // based face feature that was never built - Face Verification (Pro)
+  // above is a different, unrelated design and never reads this field.
   faceStatus?: "not_enrolled" | "enrolled";
   // Only meaningful when jobId is unset (custom rate) - see Job.rateHistory
   // for the job-linked equivalent. Same seed-on-first-edit behavior.
   rateHistory?: RateHistoryEntry[];
+  // Face Verification (Pro). Absent means "fine/unchecked" - only present
+  // while the pfp currently on file has no usable face. Server-written
+  // only (functions/src/rekognition.ts).
+  faceReference?: FaceReferenceState;
 }
 
 export interface Invite {
@@ -208,6 +242,11 @@ export interface ClockEvent {
   // so renaming a device later never rewrites history.
   deviceId?: string;
   deviceNameSnapshot?: string | null;
+  // Face Verification (Pro). Absent whenever the check didn't run at all
+  // (no pfp, feature off, Core plan, or predates this feature) - never a
+  // fourth status to render alongside match/mismatch/noFace. Server-
+  // written only (functions/src/rekognition.ts).
+  faceCheck?: FaceCheck;
 }
 
 // Device Recognition Pro. Doc only exists once a supervisor/admin names the
@@ -238,10 +277,24 @@ export interface Device {
 export interface AlertActionRecord {
   id: string;
   alertKey: string;
-  alertType: "maxHours" | "missedClockOut" | "overtime" | "breakTooLong" | "clockedInOutsideGeofence";
+  alertType:
+    | "maxHours"
+    | "missedClockOut"
+    | "overtime"
+    | "breakTooLong"
+    | "clockedInOutsideGeofence"
+    // Face Verification (Pro). faceBadReference has no entry here - it's
+    // never ignored/resolved through this mechanism (no Ignore action at
+    // all per spec), only auto-resolved server-side by deleting the alert
+    // doc directly once the pfp passes again.
+    | "faceMismatch"
+    | "faceNoFace";
   employeeId: string;
   status: "ignored" | "resolved";
-  actionTaken?: "clockOut" | "editTime" | "endBreak";
+  // "confirmedMatch" is Face Verification (Pro)'s "Confirmed it's them" -
+  // a resolve with no underlying clock event write, unlike clockOut/
+  // editTime/endBreak which all create or adjust one.
+  actionTaken?: "clockOut" | "editTime" | "endBreak" | "confirmedMatch";
   resolvedByUid: string;
   resolvedByName: string;
   resolvedAt: Timestamp;
@@ -268,7 +321,16 @@ export type MobileAlertType =
   | "overtime"
   | "missedClockOut"
   | "clockedInOutsideGeofence"
-  | "siteMismatch";
+  | "siteMismatch"
+  // Face Verification (Pro). faceMismatch/faceNoFace are per-clock-event,
+  // same as clockedInOutsideGeofence. faceBadReference is the one
+  // exception to "one doc per underlying condition, kept forever": it's
+  // one per employee (deterministic id has no dateKey in it, unlike every
+  // other type here) and is deleted outright - not ignored/resolved via
+  // alertActions - once the pfp passes DetectFaces again.
+  | "faceMismatch"
+  | "faceNoFace"
+  | "faceBadReference";
 
 export interface MobileAlert {
   id: string;

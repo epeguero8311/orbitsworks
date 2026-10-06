@@ -90,6 +90,7 @@ export type CompanySettings = {
   appSettings: AppSettings;
   geofencing: GeofencingSettings;
   exportSettings: ExportSettings;
+  faceVerification: FaceVerificationSettings;
 };
 
 export const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
@@ -130,6 +131,19 @@ export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
   roundTotalMinutes: 0,
 };
 
+// Face Verification (Pro) - off by default per company (it costs money and
+// scans faces, so it must be opt-in even for Pro companies). The Cloud
+// Function re-checks Pro + enabled itself before ever calling AWS - a
+// client can write this doc directly (firestore.rules only requires
+// admin/owner), so this flag alone is never trusted as the sole gate.
+export type FaceVerificationSettings = {
+  enabled: boolean;
+};
+
+export const DEFAULT_FACE_VERIFICATION_SETTINGS: FaceVerificationSettings = {
+  enabled: false,
+};
+
 const DEFAULT_SETTINGS: CompanySettings = {
   name: null,
   logoUrl: null,
@@ -141,6 +155,7 @@ const DEFAULT_SETTINGS: CompanySettings = {
   appSettings: DEFAULT_APP_SETTINGS,
   geofencing: DEFAULT_GEOFENCING_SETTINGS,
   exportSettings: DEFAULT_EXPORT_SETTINGS,
+  faceVerification: DEFAULT_FACE_VERIFICATION_SETTINGS,
 };
 
 export function useCompanySettings() {
@@ -183,6 +198,10 @@ export function useCompanySettings() {
         exportSettings: {
           ...DEFAULT_EXPORT_SETTINGS,
           ...(data.exportSettings ?? {}),
+        },
+        faceVerification: {
+          ...DEFAULT_FACE_VERIFICATION_SETTINGS,
+          ...(data.faceVerification ?? {}),
         },
       });
       setLoading(false);

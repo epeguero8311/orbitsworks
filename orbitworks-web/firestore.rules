@@ -224,9 +224,15 @@ service cloud.firestore {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId;
 
+        // faceStatus/faceReference are both server-written-only fields
+        // (see the update rule's comment below) - denied here too, not
+        // just on update, so a direct create can't forge either one
+        // in the brief window before the Admin SDK (addEmployee/
+        // createEmployee, which bypass rules) would otherwise set them.
         allow create: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
+          !request.resource.data.keys().hasAny(['faceStatus', 'faceReference']) &&
           (request.resource.data.active != true || (underCap(companyId) && notPastDue(companyId)));
 
         // isAdmin/isSupervisor/linkedUserId are role-like fields - only
@@ -238,12 +244,14 @@ service cloud.firestore {
         // only createEmployee (Admin SDK) sets it at creation, and only
         // the future AWS Rekognition enrollment step (also Admin SDK)
         // may ever flip it to "enrolled" - no client, including an
-        // admin, edits it directly.
+        // admin, edits it directly. faceReference is Face Verification
+        // (Pro) - server-written only, by the reference-photo-check
+        // Cloud Function (Admin SDK) - see functions/src/rekognition.ts.
         allow update: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus']) &&
+            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference']) &&
           (
             request.resource.data.active != true ||
             resource.data.active == true ||
@@ -291,9 +299,13 @@ service cloud.firestore {
           // here - a client does legitimately send an initial guess for
           // those (auto-detection only ever corrects them after the fact,
           // via the update rule below).
+          // faceCheck (Face Verification, Pro) joins this denylist for the
+          // same reason - onClockEventCreated writes it after the fact
+          // (Admin SDK), so no client gets even a brief window to set it
+          // at create time either.
           !request.resource.data.keys().hasAny([
             'geofenceStatus', 'distanceFromSiteM', 'locationAddress',
-            'siteCorrected', 'siteMismatch', 'siteAutoDetected'
+            'siteCorrected', 'siteMismatch', 'siteAutoDetected', 'faceCheck'
           ]);
         allow update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
@@ -317,7 +329,12 @@ service cloud.firestore {
               // event - see functions/src/clockEvents.ts), so nothing,
               // not even an admin correction, should silently rewrite
               // which device a past event is attributed to.
-              'deviceId', 'deviceNameSnapshot'
+              'deviceId', 'deviceNameSnapshot',
+              // Face Verification (Pro) - server-written only, by
+              // onClockEventCreated/reassignClockEvent (Admin SDK) - see
+              // functions/src/rekognition.ts. Never trust a client-supplied
+              // match result, same reasoning as geofenceStatus above.
+              'faceCheck'
             ]) &&
           (
             isAdminOrOwner() ||
