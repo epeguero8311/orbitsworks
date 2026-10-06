@@ -1,5 +1,18 @@
 # Face Verification (Pro) - Build Spec for Claude Code
 
+## Update: always-on for Pro (post-v1)
+
+Face checks are no longer a company-level opt-in. They run automatically
+for every Pro company whenever an employee has a pfp - there is no
+`faceVerification.enabled` field anymore. The only remaining company
+setting is `faceVerification.alertsEnabled` (default true): when false,
+checks still run and `faceCheck` still gets saved on the clock event
+(badges keep working), but `faceMismatch`/`faceNoFace` alerts (and their
+push) are skipped. `faceBadReference` always fires regardless, since it
+means checks are paused for that employee. Everything below this notice
+describes the original v1 design; where it conflicts with this notice,
+this notice wins.
+
 Read this whole file before touching code. Inspect the real files listed in "Inspect first"
 before editing anything - do not guess anchors, shapes, or helper names.
 
@@ -28,7 +41,7 @@ score creates a `faceMismatch` alert for admins/supervisors.
 | Match cutoff | **90** similarity (constant `FACE_MATCH_THRESHOLD`) | Tune after real testing. |
 | `SimilarityThreshold` sent to AWS | **0** | Always get a score back. AWS hides scores under 80 by default. |
 | Region | `us-east-1` (hardcoded) | |
-| Feature default | `faceVerification.enabled = false` | It costs money and scans faces, so it must be opt-in. |
+| Feature default | Always on for Pro, never for Core, no company opt-out | Changed from the original opt-in design - see "Update: always-on for Pro" below. |
 | Which events | Both `type: "in"` and `type: "out"` | Same reference pfp for both. |
 
 ## 3. AWS + secrets (ALREADY DONE - do not redo)
