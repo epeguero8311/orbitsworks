@@ -156,6 +156,13 @@ export interface Invite {
   // place (Edit Employee modal's Supervisor access toggle) rather than
   // creating a brand new one - see acceptInvite in functions/src/company.ts.
   linkExistingEmployeeId?: string;
+  // The employee's existing name, snapshotted at invite time - set
+  // alongside linkExistingEmployeeId only. /join reads this (via
+  // app/api/invites/lookup) to show the name read-only instead of making
+  // an existing employee re-type it. Fresh invites (no
+  // linkExistingEmployeeId) never set this - the name is unknown until
+  // the invitee types it in on /join.
+  name?: string;
   status: "pending" | "accepted";
   emailStatus: "pending" | "sent" | "failed";
   emailSentAt?: Timestamp | null;
