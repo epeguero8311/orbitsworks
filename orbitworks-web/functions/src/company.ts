@@ -97,11 +97,6 @@ export const acceptInvite = onCall(async (request) => {
     throw new HttpsError("failed-precondition", "Account has no email.");
   }
 
-  const name = (request.data && request.data.name ? String(request.data.name) : "").trim();
-  if (!name || name.length > 200) {
-    throw new HttpsError("invalid-argument", "A valid name is required.");
-  }
-
   const existingUserDoc = await db.collection("users").doc(uid).get();
   if (existingUserDoc.exists) {
     throw new HttpsError("already-exists", "This account is already set up.");
@@ -125,6 +120,7 @@ export const acceptInvite = onCall(async (request) => {
     role?: "supervisor" | "admin";
     assignedSiteIds?: string[];
     linkExistingEmployeeId?: string;
+    name?: string;
   };
   const role: "supervisor" | "admin" = invite.role === "admin" ? "admin" : "supervisor";
 
@@ -143,10 +139,21 @@ export const acceptInvite = onCall(async (request) => {
       await admin.auth().deleteUser(uid);
       throw new HttpsError("not-found", "The employee record for this invite no longer exists.");
     }
-    const employee = employeeSnap.data() as { linkedUserId?: string; assignedSiteIds?: string[] };
+    const employee = employeeSnap.data() as { name?: string; linkedUserId?: string; assignedSiteIds?: string[] };
     if (employee.linkedUserId) {
       await admin.auth().deleteUser(uid);
       throw new HttpsError("failed-precondition", "This employee already has a linked account.");
+    }
+
+    // Never the client-typed name here - /join shows this employee's name
+    // read-only for exactly this reason (see app/join/page.tsx and
+    // app/api/invites/lookup). invite.name is the snapshot taken when the
+    // promotion was sent; employee.name covers an invite created before
+    // that field existed.
+    const linkedName = (invite.name || employee.name || "").trim();
+    if (!linkedName) {
+      await admin.auth().deleteUser(uid);
+      throw new HttpsError("failed-precondition", "This employee record has no name on file.");
     }
 
     const batch = db.batch();
@@ -156,7 +163,7 @@ export const acceptInvite = onCall(async (request) => {
       role,
       companyId: invite.companyId,
       assignedSiteIds: employee.assignedSiteIds || [],
-      name: name,
+      name: linkedName,
       email: email,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -191,7 +198,15 @@ export const acceptInvite = onCall(async (request) => {
 
   // --- Fresh invite: no employee history, create a brand new doc with
   // an auto-generated ID (never assumed to equal uid - see linkedUserId
-  // as the join instead).
+  // as the join instead). Unlike the link branch above, there's no
+  // existing name to fall back to, so the client-typed name is the only
+  // source and still has to be validated here.
+  const name = (request.data && request.data.name ? String(request.data.name) : "").trim();
+  if (!name || name.length > 200) {
+    await admin.auth().deleteUser(uid);
+    throw new HttpsError("invalid-argument", "A valid name is required.");
+  }
+
   const companySnap = await companyRef.get();
   const companyData = companySnap.data() as
     | { employeeCap?: number | null; activeEmployeeCount?: number }
