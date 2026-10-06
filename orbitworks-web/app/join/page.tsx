@@ -17,6 +17,11 @@ function JoinForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [name, setName] = useState("");
+  // True only for a promotion invite (linkExistingEmployeeId) with a
+  // snapshotted name - set from app/api/invites/lookup below, never from
+  // a URL param (tamperable). A fresh invite leaves this false and keeps
+  // today's editable, blank name field.
+  const [nameLocked, setNameLocked] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -27,6 +32,31 @@ function JoinForm() {
   const emailFromLink = searchParams.get("email");
   useEffect(() => {
     if (emailFromLink) setEmail(emailFromLink);
+  }, [emailFromLink]);
+
+  useEffect(() => {
+    if (!emailFromLink) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/invites/lookup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: emailFromLink }),
+        });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { name?: string | null };
+        if (data.name) {
+          setName(data.name);
+          setNameLocked(true);
+        }
+      } catch (err) {
+        console.error("Invite lookup failed:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [emailFromLink]);
 
   const emailHasError = errorField === "email" || errorField === "credentials";
@@ -188,9 +218,14 @@ function JoinForm() {
                 id="name"
                 type="text"
                 required
+                readOnly={nameLocked}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                className={`w-full rounded-lg border px-3.5 py-2.5 text-sm outline-none focus:border-accent focus:ring-1 focus:ring-accent ${
+                  nameLocked
+                    ? "border-gray-200 bg-gray-50 text-gray-600"
+                    : "border-gray-200 text-gray-950"
+                }`}
                 placeholder="Jane Smith"
               />
             </div>
