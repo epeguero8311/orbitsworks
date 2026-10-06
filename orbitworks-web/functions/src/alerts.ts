@@ -110,8 +110,12 @@ export const ALERT_SETTINGS_DEFAULTS = {
   earlyClockOutAlert: true,
   clockedInOutsideGeofence: true,
   siteMismatchWarning: true,
-  // Face Verification (Pro) - default true per spec (they only fire at
-  // all once faceVerification.enabled is also true for the company).
+  // Face Verification (Pro) - default true per spec.
+  // Dead weight in practice - no UI ever writes these, so they always
+  // resolve to the true default here. The real on/off switch for
+  // faceMismatch/faceNoFace is company.faceVerification.alertsEnabled,
+  // read separately below (getCompanyAlertContext's faceAlertsEnabled) -
+  // faceBadReference never checks either one, it always fires.
   faceMismatchAlert: true,
   faceNoFaceAlert: true,
   faceBadReferenceAlert: true,
@@ -126,6 +130,13 @@ interface CompanyAlertContext {
   gracePeriodMinutes: number;
   autoClockOut: boolean;
   weeklyOvertimeThreshold: number;
+  // Face Verification (Pro) - company.faceVerification.alertsEnabled,
+  // default true when missing (see FACE_VERIFICATION_SPEC.md). Checks
+  // themselves always run on Pro companies now (functions/src/
+  // rekognition.ts); this only gates whether faceMismatch/faceNoFace
+  // alerts (and their push) get created. faceBadReference ignores this
+  // entirely - it always fires, since it means checks are paused.
+  faceAlertsEnabled: boolean;
 }
 
 // Missing settings (fail-safe requirement) always resolve to
@@ -144,6 +155,7 @@ async function getCompanyAlertContext(companyId: string): Promise<CompanyAlertCo
     gracePeriodMinutes: data.attendanceRules?.gracePeriodMinutes ?? 0,
     autoClockOut: data.attendanceRules?.autoClockOut ?? false,
     weeklyOvertimeThreshold: data.weeklyOvertimeThreshold ?? 40,
+    faceAlertsEnabled: data.faceVerification?.alertsEnabled !== false,
   };
 }
 
@@ -435,7 +447,7 @@ export async function createFaceMismatchAlert(
   if (!isCompanyInTestScope(companyId)) return;
 
   const ctx = await getCompanyAlertContext(companyId);
-  if (!ctx || !ctx.alerts.faceMismatchAlert) return;
+  if (!ctx || !ctx.alerts.faceMismatchAlert || !ctx.faceAlertsEnabled) return;
 
   const ts = timestamp ? timestamp.toDate() : new Date();
   await maybeCreateAndPush(
@@ -465,7 +477,7 @@ export async function createFaceNoFaceAlert(
   if (!isCompanyInTestScope(companyId)) return;
 
   const ctx = await getCompanyAlertContext(companyId);
-  if (!ctx || !ctx.alerts.faceNoFaceAlert) return;
+  if (!ctx || !ctx.alerts.faceNoFaceAlert || !ctx.faceAlertsEnabled) return;
 
   const ts = timestamp ? timestamp.toDate() : new Date();
   await maybeCreateAndPush(

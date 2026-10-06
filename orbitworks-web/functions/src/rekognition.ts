@@ -72,13 +72,17 @@ async function downloadImage(path: string, context: Record<string, unknown>): Pr
 
 type FaceVerificationCompany = {
   planTier?: string;
-  faceVerification?: { enabled?: boolean };
 };
 
-async function isFaceVerificationActive(companyId: string): Promise<boolean> {
+// Face checks are always on for Pro, never for Core - there is no company
+// opt-out anymore (see FACE_VERIFICATION_SPEC.md). The only remaining
+// company-level knob, faceVerification.alertsEnabled, controls whether
+// faceMismatch/faceNoFace alerts fire - that's read separately, in
+// alerts.ts's getCompanyAlertContext, not here.
+async function isProCompany(companyId: string): Promise<boolean> {
   const companySnap = await db.collection("companies").doc(companyId).get();
   const company = companySnap.data() as FaceVerificationCompany | undefined;
-  return !!company && isProPlan(company.planTier) && company.faceVerification?.enabled === true;
+  return !!company && isProPlan(company.planTier);
 }
 
 type ClockEventFaceData = {
@@ -112,7 +116,7 @@ export async function checkFaceMatch(companyId: string, eventId: string): Promis
     const data = eventSnap.data() as ClockEventFaceData | undefined;
     if (!data || !data.photoUrl || data.faceCheck) return;
 
-    if (!(await isFaceVerificationActive(companyId))) return;
+    if (!(await isProCompany(companyId))) return;
 
     const employeeId = data.employeeId;
     if (!employeeId) return;
@@ -253,8 +257,8 @@ export const onEmployeePhotoWrite = onDocumentWritten(
       const employeeRef = after.ref;
 
       if (!afterPhotoUrl) {
-        // No pfp = feature silently off for them - same treatment as the
-        // main check's "employee has no pfp" guard.
+        // No pfp = checks silently skipped for them - same treatment as
+        // the main check's "employee has no pfp" guard.
         if (afterData.faceReference) {
           await employeeRef.update({ faceReference: admin.firestore.FieldValue.delete() });
         }
@@ -262,7 +266,7 @@ export const onEmployeePhotoWrite = onDocumentWritten(
         return;
       }
 
-      if (!(await isFaceVerificationActive(companyId))) return;
+      if (!(await isProCompany(companyId))) return;
 
       const path = storagePathFromDownloadUrl(afterPhotoUrl);
       if (!path) {
