@@ -330,3 +330,49 @@ test("client cannot add faceReference to an existing employee via update", async
     })
   );
 });
+
+// Face Verification (Pro) company-settings toggle - COMPANY_A has no
+// planTier set in beforeEach (defaults to Core), so it doubles as the
+// "not Pro" fixture here.
+test("Core company admin cannot enable faceVerification via direct write", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A), {
+      faceVerification: { enabled: true },
+    })
+  );
+});
+
+test("Core company admin CAN disable faceVerification (never blocked, any plan)", async () => {
+  const db = adminContext().firestore();
+  await assertSucceeds(
+    updateDoc(doc(db, "companies", COMPANY_A), {
+      faceVerification: { enabled: false },
+    })
+  );
+});
+
+test("Pro company admin can enable faceVerification via direct write", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "companies", COMPANY_A), {
+      name: "Company A",
+      planTier: "pro_tier1",
+    });
+  });
+  const db = adminContext().firestore();
+  await assertSucceeds(
+    updateDoc(doc(db, "companies", COMPANY_A), {
+      faceVerification: { enabled: true },
+    })
+  );
+});
+
+test("client still cannot change planTier itself even to enable faceVerification", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A), {
+      planTier: "pro_tier1",
+      faceVerification: { enabled: true },
+    })
+  );
+});
