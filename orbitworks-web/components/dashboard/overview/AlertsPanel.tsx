@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useAlertActions } from "@/lib/hooks/useAlertActions";
 import { useServerAlerts } from "@/lib/hooks/useServerAlerts";
 import type { ClockEvent } from "@/lib/types";
@@ -37,6 +38,7 @@ export default function AlertsPanel({
     resolvedKeys,
     ignoreAlert,
     ignoreAll,
+    confirmFaceMatchFromAlert,
     clockOutFromAlert,
     endBreakFromAlert,
     submitEditTimeFromAlert,
@@ -66,7 +68,17 @@ export default function AlertsPanel({
   const eventById = new Map<string, ClockEvent>();
   recentEvents.forEach((e) => eventById.set(e.id, e));
 
-  const EVENT_SCOPED_ALERT_TYPES = new Set(["clockedInOutsideGeofence", "siteMismatch"]);
+  // faceMismatch/faceNoFace join these for the same reason - both are
+  // about a specific past clock-in, not current status. faceBadReference
+  // is never event-scoped at all (no clock event caused it), so it's
+  // deliberately left out - eventByEmployee would attach a wrong/stale
+  // event to it otherwise.
+  const EVENT_SCOPED_ALERT_TYPES = new Set([
+    "clockedInOutsideGeofence",
+    "siteMismatch",
+    "faceMismatch",
+    "faceNoFace",
+  ]);
 
   const alertItems: AlertItem[] = serverAlerts.map((a) => ({
     ...a,
@@ -82,7 +94,9 @@ export default function AlertsPanel({
     setIgnoringAll(true);
     setAlertActionError(null);
     try {
-      await ignoreAll(visibleAlertItems);
+      // faceBadReference has no Ignore (individually or in bulk) - it
+      // auto-resolves server-side, never via alertActions.
+      await ignoreAll(visibleAlertItems.filter((a) => a.alertType !== "faceBadReference"));
     } catch (err) {
       console.error("Ignore all alerts error:", err);
       setAlertActionError("Couldn't ignore all alerts. Try again.");
@@ -112,6 +126,19 @@ export default function AlertsPanel({
     } catch (err) {
       console.error("Clock out from alert error:", err);
       setAlertActionError("Couldn't clock out. Try again.");
+    } finally {
+      setAlertActionSubmitting(null);
+    }
+  }
+
+  async function handleConfirmFaceMatch(alert: AlertItem) {
+    setAlertActionSubmitting(alert.key);
+    setAlertActionError(null);
+    try {
+      await confirmFaceMatchFromAlert(alert);
+    } catch (err) {
+      console.error("Confirm face match error:", err);
+      setAlertActionError("Couldn't confirm. Try again.");
     } finally {
       setAlertActionSubmitting(null);
     }
@@ -209,6 +236,44 @@ export default function AlertsPanel({
                     </p>
                     <p className="text-xs text-gray-600">{alert.detail}</p>
 
+                    {(alert.alertType === "faceMismatch" || alert.alertType === "faceNoFace") &&
+                      alert.event && (
+                        <div className="mt-3 grid max-w-xs grid-cols-2 gap-2">
+                          <div>
+                            <p className="mb-1 text-center text-xs text-gray-500">Clock photo</p>
+                            <div className="aspect-square overflow-hidden rounded-md bg-gray-100">
+                              {alert.event.photoUrl ? (
+                                <img
+                                  src={alert.event.photoUrl}
+                                  alt="Clock photo"
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full items-center justify-center text-xs text-gray-600">
+                                  No photo
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="mb-1 text-center text-xs text-gray-500">Profile photo</p>
+                            <div className="aspect-square overflow-hidden rounded-md bg-gray-100">
+                              {alert.event.faceCheck?.referencePhotoUrl ? (
+                                <img
+                                  src={alert.event.faceCheck.referencePhotoUrl}
+                                  alt="Employee profile photo"
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full items-center justify-center text-xs text-gray-600">
+                                  No photo
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                     {isEditing ? (
                       <div className="mt-3 space-y-2 rounded-md border border-amber-200 bg-white p-3">
                         <label className="block text-xs font-medium text-gray-600">
@@ -292,14 +357,37 @@ export default function AlertsPanel({
                             Edit Time
                           </button>
                         )}
-                        <button
-                          type="button"
-                          disabled={isSubmitting}
-                          onClick={() => handleIgnoreAlert(alert)}
-                          className="text-xs font-medium text-gray-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {isSubmitting ? "Working..." : "Ignore"}
-                        </button>
+                        {(alert.alertType === "faceMismatch" || alert.alertType === "faceNoFace") && (
+                          <button
+                            type="button"
+                            disabled={isSubmitting}
+                            onClick={() => handleConfirmFaceMatch(alert)}
+                            className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Confirmed it&apos;s them
+                          </button>
+                        )}
+                        {alert.alertType === "faceBadReference" && (
+                          <Link
+                            href={`/dashboard/employees?openEmployee=${alert.employeeId}`}
+                            className="text-xs font-medium text-accent hover:underline"
+                          >
+                            Update photo
+                          </Link>
+                        )}
+                        {/* faceBadReference has no Ignore - it auto-resolves
+                            server-side once the pfp passes again, there's
+                            nothing to dismiss in the meantime. */}
+                        {alert.alertType !== "faceBadReference" && (
+                          <button
+                            type="button"
+                            disabled={isSubmitting}
+                            onClick={() => handleIgnoreAlert(alert)}
+                            className="text-xs font-medium text-gray-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isSubmitting ? "Working..." : "Ignore"}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

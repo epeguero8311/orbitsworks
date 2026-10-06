@@ -201,6 +201,18 @@ export function EmployeesTable({
                           Supervisor
                         </span>
                       ) : null}
+                      {/* Face Verification (Pro) - "bad" takes priority
+                          over "no pfp" since a bad pfp usually still has
+                          a photoUrl set (it's bad because DetectFaces
+                          couldn't find/confirm a face in it, not because
+                          it's missing). */}
+                      {employee.faceReference?.status === "bad" ? (
+                        <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                          Photo needs update
+                        </span>
+                      ) : !employee.photoUrl ? (
+                        <span className="text-xs font-normal text-gray-500">No face check</span>
+                      ) : null}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-gray-600">

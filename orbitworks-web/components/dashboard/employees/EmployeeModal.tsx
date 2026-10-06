@@ -53,6 +53,10 @@ export function EmployeeModal({
           employeeName={employee.name}
           photoPreview={m.photoPreview}
           photoUrl={employee.photoUrl}
+          faceReferenceBad={
+            employee.faceReference?.status === "bad" &&
+            employee.faceReference.photoUrl === employee.photoUrl
+          }
           onPhotoChange={m.handlePhotoChange}
           currentPin={m.currentPin}
           editingPin={m.editingPin}
