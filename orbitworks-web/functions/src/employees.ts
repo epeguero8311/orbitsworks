@@ -1,7 +1,14 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
-import { db, deactivateEmployeeAuth, closeOpenSessionForDeactivation } from "./shared";
+import {
+  db,
+  deactivateEmployeeAuth,
+  closeOpenSessionForDeactivation,
+  isOverActiveCap,
+  isOverTotalCap,
+  EmployeeCapFields,
+} from "./shared";
 import { reserveNewPin } from "./pins";
 
 // Creates the employee doc and reserves its PIN entirely server-side
@@ -38,15 +45,19 @@ export const addEmployee = onCall(async (request) => {
 
   const companySnap = await db.collection("companies").doc(callerCompanyId).get();
   const company = companySnap.data() as
-    | { employeeCap?: number | null; activeEmployeeCount?: number; subscriptionStatus?: string }
+    | (EmployeeCapFields & { subscriptionStatus?: string })
     | undefined;
-  const cap = company?.employeeCap ?? null;
-  const currentCount = company?.activeEmployeeCount ?? 0;
   if (company?.subscriptionStatus === "past_due") {
     throw new HttpsError("failed-precondition", "Subscription is past due.");
   }
-  if (cap !== null && currentCount >= cap) {
+  if (isOverActiveCap(company)) {
     throw new HttpsError("resource-exhausted", "This company has reached its employee limit.");
+  }
+  if (isOverTotalCap(company)) {
+    throw new HttpsError(
+      "resource-exhausted",
+      "This company has reached its total employee record limit. Delete some old employee records to add more."
+    );
   }
 
   const companyRef = db.collection("companies").doc(callerCompanyId);
@@ -111,14 +122,14 @@ export const setEmployeeActive = onCall(async (request) => {
   if (active && employee.active !== true) {
     const companySnap = await db.collection("companies").doc(callerCompanyId).get();
     const company = companySnap.data() as
-      | { employeeCap?: number | null; activeEmployeeCount?: number; subscriptionStatus?: string }
+      | (EmployeeCapFields & { subscriptionStatus?: string })
       | undefined;
-    const cap = company?.employeeCap ?? null;
-    const currentCount = company?.activeEmployeeCount ?? 0;
     if (company?.subscriptionStatus === "past_due") {
       throw new HttpsError("failed-precondition", "Subscription is past due.");
     }
-    if (cap !== null && currentCount >= cap) {
+    // Total cap isn't checked here - reactivating an existing doc doesn't
+    // grow totalEmployeeCount, only the active-cap dimension applies.
+    if (isOverActiveCap(company)) {
       throw new HttpsError("resource-exhausted", "This company has reached its employee limit.");
     }
   }
@@ -322,17 +333,58 @@ export const onEmployeeWrite = onDocumentWritten(
     const before = event.data?.before?.data();
     const after = event.data?.after?.data();
 
+    // totalEmployeeCount tracks doc existence (create -> +1, delete -> -1),
+    // independent of active/inactive - it's the "total" half of the
+    // active/total employee cap pair (see lib/stripe/tiers.ts PriceTier.
+    // totalCap), capping how many employee records a company can keep
+    // around at all rather than how many can be active at once.
+    const existedBefore = before !== undefined;
+    const existsAfter = after !== undefined;
+
+    const update: Record<string, unknown> = {};
+
+    if (existedBefore !== existsAfter) {
+      update.totalEmployeeCount = admin.firestore.FieldValue.increment(existsAfter ? 1 : -1);
+    }
+
     const wasActive = before ? before.active === true : false;
     const isActive = after ? after.active === true : false;
 
-    if (wasActive === isActive) return;
+    if (wasActive !== isActive) {
+      update.activeEmployeeCount = admin.firestore.FieldValue.increment(isActive ? 1 : -1);
+    }
 
-    const delta = isActive ? 1 : -1;
-    await db.collection("companies").doc(companyId).update({
-      activeEmployeeCount: admin.firestore.FieldValue.increment(delta),
-    });
+    if (Object.keys(update).length === 0) return;
+
+    await db.collection("companies").doc(companyId).update(update);
   }
 );
+
+// One-time (but idempotent - safe to run more than once, same convention
+// as backfillEmployeePins in pins.ts) repair for companies that had
+// employee docs before totalEmployeeCount started being tracked by
+// onEmployeeWrite above: it only ever applies +1/-1 deltas going forward,
+// so a company's existing doc count at the moment this deployed would
+// otherwise never be reflected. Recounts the employees subcollection
+// directly and overwrites totalEmployeeCount with the true count.
+export const backfillTotalEmployeeCount = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const employeesRef = db.collection("companies").doc(callerCompanyId).collection("employees");
+  const countSnap = await employeesRef.count().get();
+  const totalEmployeeCount = countSnap.data().count;
+
+  await db.collection("companies").doc(callerCompanyId).update({ totalEmployeeCount });
+
+  return { success: true, totalEmployeeCount };
+});
 
 export const reassignEmployeeSubcontractor = onCall(async (request) => {
   if (!request.auth) {

@@ -46,8 +46,13 @@ export function CurrentPlanCard({
         <p className="mt-2 text-sm text-gray-950">{planLabel}</p>
         <p className="mt-1 text-xs text-gray-600">
           {company.activeEmployeeCount} of{" "}
-          {company.employeeCap === null ? "unlimited" : company.employeeCap} employees used
+          {company.employeeCap === null ? "unlimited" : company.employeeCap} active employees used
         </p>
+        {company.totalEmployeeCap != null && (
+          <p className="mt-0.5 text-xs text-gray-600">
+            {company.totalEmployeeCount ?? 0} of {company.totalEmployeeCap} total employee records used
+          </p>
+        )}
         {isFreePlan && (
           <p className="mt-3 rounded-lg bg-accent/10 px-3.5 py-2 text-xs font-medium text-accent">
             You're on the free plan. Upgrade below once you need more than 8 employees.

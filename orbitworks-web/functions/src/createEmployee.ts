@@ -1,6 +1,6 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { db } from "./shared";
+import { db, isOverActiveCap, isOverTotalCap, EmployeeCapFields } from "./shared";
 
 // Mirrors orbitworks-app/lib/validators/createEmployee.js's JUNK_PINS - keep
 // both in sync by hand (no shared package across the app/web boundary, same
@@ -133,12 +133,10 @@ export const createEmployee = onCall(async (request) => {
 
   const companySnap = await companyRef.get();
   const company = companySnap.data() as
-    | {
+    | (EmployeeCapFields & {
         appSettings?: { allowAppEmployeeCreate?: boolean };
-        employeeCap?: number | null;
-        activeEmployeeCount?: number;
         subscriptionStatus?: string;
-      }
+      })
     | undefined;
 
   if (company?.appSettings?.allowAppEmployeeCreate === false) {
@@ -147,10 +145,14 @@ export const createEmployee = onCall(async (request) => {
   if (company?.subscriptionStatus === "past_due") {
     throw new HttpsError("failed-precondition", "Subscription is past due.");
   }
-  const cap = company?.employeeCap ?? null;
-  const currentCount = company?.activeEmployeeCount ?? 0;
-  if (cap !== null && currentCount >= cap) {
+  if (isOverActiveCap(company)) {
     throw new HttpsError("resource-exhausted", "This company has reached its employee limit.");
+  }
+  if (isOverTotalCap(company)) {
+    throw new HttpsError(
+      "resource-exhausted",
+      "This company has reached its total employee record limit. Delete some old employee records to add more."
+    );
   }
 
   const pin = await reserveNonJunkPin(companyId, clientPin);

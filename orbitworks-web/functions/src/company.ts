@@ -1,6 +1,6 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { db, FREE_EMPLOYEE_CAP } from "./shared";
+import { db, FREE_EMPLOYEE_CAP, isOverActiveCap, isOverTotalCap, EmployeeCapFields } from "./shared";
 import { reserveNewPin } from "./pins";
 
 export const createCompany = onCall(async (request) => {
@@ -64,6 +64,8 @@ export const createCompany = onCall(async (request) => {
     planTier: "free",
     employeeCap: FREE_EMPLOYEE_CAP,
     activeEmployeeCount: 0,
+    totalEmployeeCap: null,
+    totalEmployeeCount: 0,
     subscriptionStatus: "active",
     stripeCustomerId: null,
     stripeSubscriptionId: null,
@@ -208,18 +210,20 @@ export const acceptInvite = onCall(async (request) => {
   }
 
   const companySnap = await companyRef.get();
-  const companyData = companySnap.data() as
-    | { employeeCap?: number | null; activeEmployeeCount?: number }
-    | undefined;
+  const companyData = companySnap.data() as EmployeeCapFields | undefined;
 
-  const cap = companyData?.employeeCap ?? null;
-  const currentCount = companyData?.activeEmployeeCount ?? 0;
-
-  if (cap !== null && currentCount >= cap) {
+  if (isOverActiveCap(companyData)) {
     await admin.auth().deleteUser(uid);
     throw new HttpsError(
       "resource-exhausted",
       "This company has reached its employee limit. Ask an admin to upgrade the plan before accepting this invite."
+    );
+  }
+  if (isOverTotalCap(companyData)) {
+    await admin.auth().deleteUser(uid);
+    throw new HttpsError(
+      "resource-exhausted",
+      "This company has reached its total employee record limit. Ask an admin to delete some old employee records before accepting this invite."
     );
   }
 

@@ -134,6 +134,7 @@ async function autoRevertToFree(companyId: string) {
   await companyRef.update({
     planTier: "free",
     employeeCap: FREE_EMPLOYEE_CAP,
+    totalEmployeeCap: null,
     subscriptionStatus: "active",
     stripeSubscriptionId: null,
   });
@@ -220,6 +221,7 @@ async function syncSubscriptionToFirestore(subscription: Stripe.Subscription) {
   if (tier && (subscription.status === "active" || subscription.status === "trialing")) {
     update.planTier = tier.key;
     update.employeeCap = tier.employeeCap;
+    update.totalEmployeeCap = tier.totalCap;
   }
 
   await adminDb.collection("companies").doc(companyId).update(update);

@@ -24,6 +24,8 @@ export type CompanyBilling = {
   planTier: string;
   employeeCap: number | null;
   activeEmployeeCount: number;
+  totalEmployeeCap: number | null;
+  totalEmployeeCount: number;
   subscriptionStatus: string;
   pendingPromotionCodeLabel?: string | null;
 };
@@ -185,6 +187,21 @@ export function useBillingPage() {
     if (!company) return;
 
     const tier = PRICE_TIERS.find((t) => t.key === tierKey);
+
+    // A total-record overage can't be fixed by deactivating employees (the
+    // bulk-deactivate flow below only brings down activeEmployeeCount) - the
+    // only fix is deleting old employee records, which isn't something to
+    // do for someone automatically, so this blocks the switch outright
+    // instead of opening that flow.
+    const currentTotalCount = company.totalEmployeeCount ?? 0;
+    if (tier && tier.totalCap !== null && tier.totalCap < currentTotalCount) {
+      showToast(
+        `This plan allows up to ${tier.totalCap} total employee records, but you have ${currentTotalCount}. Delete some old employee records before switching.`,
+        "error"
+      );
+      return;
+    }
+
     const isDowngradeBelowCap =
       tier && tier.employeeCap !== null && tier.employeeCap < company.activeEmployeeCount;
 

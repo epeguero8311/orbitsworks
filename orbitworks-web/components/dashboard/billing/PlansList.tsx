@@ -123,7 +123,7 @@ export function PlansList({
   const currentProduct = getTierByKey(currentPlanTier)?.product ?? "core";
   const [selected, setSelected] = useState<PlanProduct>(currentProduct);
 
-  const tiers = getTiersByProduct(selected);
+  const tiers = getTiersByProduct(selected, currentPlanTier);
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6">
@@ -131,8 +131,9 @@ export function PlansList({
         <div>
           <h2 className="text-base font-semibold text-gray-950">Plans</h2>
           <p className="mt-1 text-xs text-gray-600">
-            Pricing is based on your total number of employees, including
-            supervisors.
+            Pricing is based on your active employees (including
+            supervisors) and your total employee records, active and
+            inactive combined.
           </p>
         </div>
 

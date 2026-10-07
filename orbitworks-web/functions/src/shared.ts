@@ -5,6 +5,32 @@ export const db = admin.firestore();
 
 export const FREE_EMPLOYEE_CAP = 8;
 
+// Shared by every path that creates an employee doc or flips one active
+// (addEmployee, createEmployee, setEmployeeActive, acceptInvite's fresh-invite
+// branch) so the active-cap and total-cap comparisons can't drift between
+// them. totalEmployeeCount/totalEmployeeCap cover ALL employee docs that
+// currently exist (active + inactive) - permanently deleting one (deleteEmployee)
+// frees a slot, deactivating does not. null caps (free plan, and every legacy
+// tier from before this field existed) mean "no limit."
+export type EmployeeCapFields = {
+  employeeCap?: number | null;
+  activeEmployeeCount?: number;
+  totalEmployeeCap?: number | null;
+  totalEmployeeCount?: number;
+};
+
+export function isOverActiveCap(company: EmployeeCapFields | undefined): boolean {
+  const cap = company?.employeeCap ?? null;
+  const count = company?.activeEmployeeCount ?? 0;
+  return cap !== null && count >= cap;
+}
+
+export function isOverTotalCap(company: EmployeeCapFields | undefined): boolean {
+  const cap = company?.totalEmployeeCap ?? null;
+  const count = company?.totalEmployeeCount ?? 0;
+  return cap !== null && count >= cap;
+}
+
 // Same bound as overrideReasonSchema (lib/validators/overrideReason.ts) and
 // OverrideReasonScreen.js's MIN_LENGTH/MAX_LENGTH - kept in sync manually
 // since this package can't import across the app/web boundary. firestore.rules

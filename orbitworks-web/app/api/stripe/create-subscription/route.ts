@@ -33,6 +33,13 @@ export async function POST(request: NextRequest) {
     if (!tier) {
       return NextResponse.json({ error: "Invalid tier." }, { status: 400 });
     }
+    // Hidden tiers (grandfathered pricing) are resolvable for existing
+    // subscribers' current state but can never be newly subscribed to -
+    // PlansList already leaves them out of what's clickable, this is the
+    // server-side backstop against a direct API call.
+    if (tier.hidden) {
+      return NextResponse.json({ error: "This plan is no longer available." }, { status: 400 });
+    }
 
     const companyRef = adminDb.collection("companies").doc(companyId);
     const companySnap = await companyRef.get();
@@ -44,7 +51,23 @@ export async function POST(request: NextRequest) {
       stripeCustomerId?: string | null;
       stripeSubscriptionId?: string | null;
       pendingPromotionCode?: string | null;
+      totalEmployeeCount?: number;
     };
+
+    // Server-side backstop matching useBillingPage.ts's proceedWithTierChange
+    // guard - deactivating employees can't fix a total-record overage (only
+    // deleting records can), so unlike the active-cap downgrade flow there's
+    // no bulk-deactivate-then-retry path to fall back to here.
+    if (tier.totalCap !== null && tier.totalCap < (company.totalEmployeeCount ?? 0)) {
+      return NextResponse.json(
+        {
+          error: `This plan allows up to ${tier.totalCap} total employee records, but you have ${
+            company.totalEmployeeCount ?? 0
+          }. Delete some old employee records before switching.`,
+        },
+        { status: 400 }
+      );
+    }
 
     const pendingPromotionCode = company.pendingPromotionCode ?? null;
 

@@ -22,6 +22,16 @@ service cloud.firestore {
       return cap == null || !(count >= cap);
     }
 
+    // Total employee *records* (active + inactive) cap - looser than and
+    // independent of underCap, which only counts active ones. Every new
+    // employee doc consumes a total slot regardless of its `active` value.
+    function underTotalCap(companyId) {
+      let c = companyOf(companyId);
+      let cap = c.get('totalEmployeeCap', null);
+      let count = c.get('totalEmployeeCount', 0);
+      return cap == null || !(count >= cap);
+    }
+
     function notPastDue(companyId) {
       return companyOf(companyId).get('subscriptionStatus', 'active') != 'past_due';
     }
@@ -190,6 +200,8 @@ service cloud.firestore {
           'employeeCap',
           'subscriptionStatus',
           'activeEmployeeCount',
+          'totalEmployeeCap',
+          'totalEmployeeCount',
           'stripeCustomerId',
           'stripeSubscriptionId',
           'trialEndsAt'
@@ -243,6 +255,7 @@ service cloud.firestore {
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.keys().hasAny(['faceStatus', 'faceReference']) &&
+          underTotalCap(companyId) &&
           (request.resource.data.active != true || (underCap(companyId) && notPastDue(companyId)));
 
         // isAdmin/isSupervisor/linkedUserId are role-like fields - only
