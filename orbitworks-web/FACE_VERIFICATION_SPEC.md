@@ -50,7 +50,7 @@ score creates a `faceMismatch` alert for admins/supervisors.
 | Where it runs | Cloud Function (Firestore trigger on clockEvents) | Background, server-only, no API route. |
 | Match cutoff | **90** similarity (constant `FACE_MATCH_THRESHOLD`) | Tune after real testing. |
 | `SimilarityThreshold` sent to AWS | **0** | Always get a score back. AWS hides scores under 80 by default. |
-| Region | `us-east-1` (hardcoded) | |
+| Region | `us-east-2` (constant `REKOGNITION_REGION`) | Greenfield Adventures' AWS-managed SCP only allows normal services in its selected region (us-east-2) - us-east-1 is blocked to global-only services, which is what denied CompareFaces there. Not configurable on our end. |
 | Feature default | Always on for Pro, never for Core, no company opt-out | Changed from the original opt-in design - see "Update: always-on for Pro" below. |
 | Which events | Both `type: "in"` and `type: "out"` | Same reference pfp for both. |
 
@@ -138,7 +138,7 @@ Add `faceVerification: z.object({ enabled: z.boolean() })` to the company settin
 ### 6.3 Cloud Function `functions/src/rekognition.ts`
 
 - `defineSecret("REKOGNITION_ACCESS_KEY_ID")`, `defineSecret("REKOGNITION_SECRET_ACCESS_KEY")`, mirroring geocoding.ts.
-- `RekognitionClient({ region: "us-east-1", credentials: { accessKeyId, secretAccessKey } })`. Create it inside the handler (secrets are only readable at runtime).
+- `RekognitionClient({ region: REKOGNITION_REGION, credentials: { accessKeyId, secretAccessKey } })` - see section 2 for why the region is `us-east-2`, not `us-east-1`. Create it inside the handler (secrets are only readable at runtime).
 - Install: `npm install @aws-sdk/client-rekognition` inside `functions/`.
 
 Trigger choice:

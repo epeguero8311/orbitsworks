@@ -12,7 +12,12 @@ import { createFaceMismatchAlert, createFaceNoFaceAlert, createOrKeepFaceBadRefe
 export const REKOGNITION_ACCESS_KEY_ID = defineSecret("REKOGNITION_ACCESS_KEY_ID");
 export const REKOGNITION_SECRET_ACCESS_KEY = defineSecret("REKOGNITION_SECRET_ACCESS_KEY");
 
-const REKOGNITION_REGION = "us-east-1";
+// Greenfield Adventures (the AWS account/project backing this) is an
+// AWS-managed-SCP "project" whose region policy only allows normal
+// services in its selected region, us-east-2 - us-east-1 is blocked down
+// to global-only services, which is why CompareFaces got an explicit
+// deny there. Not configurable on our end (AWS-managed SCP).
+const REKOGNITION_REGION = "us-east-2";
 export const FACE_MATCH_THRESHOLD = 90;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
