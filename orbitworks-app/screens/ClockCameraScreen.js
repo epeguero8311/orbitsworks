@@ -1,27 +1,35 @@
 import { useState, useRef, useEffect } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, Feather } from "@expo/vector-icons";
 import * as Sentry from "@sentry/react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../lib/AuthContext";
+import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
 import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import { queueClockEvent } from "../lib/clockQueue";
 import { drainQueue } from "../lib/queueSync";
 import { getBestEffortLocationIfPro } from "../lib/location";
 import { getCurrentLocalStatus, getCurrentLocalSite } from "../lib/clockStatusLocal";
-import { checkGeofenceForClockIn, isAutoDetectionActive, detectAssignedSite, detectLocalSite } from "../lib/geofenceCheck";
-
-const ASK_SITE_KEY = "orbitworks_ask_site_each_time";
+import { checkGeofenceForClockIn, isAutoDetectionActive, getSitesForEmployeePicker, detectLocalSite } from "../lib/geofenceCheck";
+import ScreenHeader from "../components/ScreenHeader";
 
 export default function ClockCameraScreen({ route, navigation }) {
   const { employee } = route.params;
   const { userData, currentUser } = useAuth();
+  const { colors } = useTheme();
   const { selectedSite } = useSiteSession();
-  const { isPro } = useCompanySettings(userData?.companyId);
+  const { isPro, settings } = useCompanySettings(userData?.companyId);
   const [permission, requestPermission] = useCameraPermissions();
   const [submitting, setSubmitting] = useState(false);
+  // "Ask for job site each time" (App Settings on the website) - forces a
+  // pick before the camera ever shows, for a clock-IN only (a clock-out
+  // always keeps the session's existing site - see handleCapture). Wins
+  // over Pro geofencing auto-detection too when the admin has it on. null
+  // while being determined; [] once determined the gate doesn't apply (or
+  // the company has no sites to offer at all).
+  const [siteOptions, setSiteOptions] = useState(null);
+  const [pickedSite, setPickedSite] = useState(null);
   const cameraRef = useRef(null);
   const isMounted = useRef(true);
 
@@ -31,6 +39,24 @@ export default function ClockCameraScreen({ route, navigation }) {
       isMounted.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function resolveSiteGate() {
+      const currentStatus = await getCurrentLocalStatus(employee.id);
+      const nextType = currentStatus === "out" ? "in" : "out";
+      // Takes priority over Pro geofencing auto-detection (see
+      // handleCapture) - an admin explicitly turning this on means a
+      // manual pick every time, even on a company with located sites.
+      const required = nextType === "in" && settings.appSettings.askJobSiteEachTime;
+      const options = required ? await getSitesForEmployeePicker(employee) : [];
+      if (!cancelled) setSiteOptions(options);
+    }
+    resolveSiteGate();
+    return () => {
+      cancelled = true;
+    };
+  }, [employee, settings.appSettings.askJobSiteEachTime]);
 
   if (!permission) {
     return <View style={styles.center}><ActivityIndicator color="#3b6fe0" /></View>;
@@ -42,6 +68,37 @@ export default function ClockCameraScreen({ route, navigation }) {
         <TouchableOpacity style={styles.permButton} onPress={requestPermission}>
           <Text style={styles.permButtonText}>Grant Permission</Text>
         </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (siteOptions === null) {
+    return <View style={styles.center}><ActivityIndicator color="#3b6fe0" /></View>;
+  }
+
+  if (siteOptions.length > 0 && !pickedSite) {
+    // "All Sites" (id "none") is the explicit bail-out - the operator can
+    // still pick it to tag the clock-in as not tied to a specific site,
+    // same "none" convention as SiteSession's own "No Site" option (see
+    // handleCapture, which maps it to siteId: null / "Not specified").
+    const pickerData = [{ id: "none", name: "All Sites" }, ...siteOptions];
+    return (
+      <View style={[styles.pickerContainer, { backgroundColor: colors.background }]}>
+        <ScreenHeader title={`${employee.name}'s Job Site`} onBack={() => navigation.goBack()} />
+        <FlatList
+          data={pickerData}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.pickerList}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[styles.pickerRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={() => setPickedSite(item)}
+            >
+              <Text style={[styles.pickerName, { color: colors.text }]}>{item.name}</Text>
+              <Feather name="chevron-right" size={20} color={colors.subtext} />
+            </TouchableOpacity>
+          )}
+        />
       </View>
     );
   }
@@ -66,12 +123,31 @@ export default function ClockCameraScreen({ route, navigation }) {
       // active, located site at all (fenced or not - Geofencing Part 5),
       // there's no site picker: the app finds the site itself instead of
       // trusting SiteSessionContext's selectedSite. A company with no
-      // located sites (or Core) keeps today's exact flow.
+      // located sites (or Core) keeps today's exact flow. "Ask for job
+      // site each time" (below) takes priority over all of this when an
+      // admin has explicitly turned it on - a manual pick every time,
+      // even on a company with located sites.
       const autoDetect = isPro && (await isAutoDetectionActive());
+      const askJobSite = settings.appSettings.askJobSiteEachTime;
 
       let siteId;
       let siteName;
-      if (autoDetect) {
+      if (askJobSite) {
+        // Same clock-out convention as the geofence branch below: keep
+        // the clock-in's site, never re-ask mid-session. The clock-IN
+        // case was already forced through the picker above (see the
+        // siteOptions/pickedSite gate before the camera ever shows), so
+        // pickedSite is set unless the company had no sites to offer.
+        if (nextType === "out") {
+          const lastSite = await getCurrentLocalSite(employee.id);
+          siteId = lastSite.siteId;
+          siteName = lastSite.siteName || "Not specified";
+        } else {
+          const isNone = !pickedSite || pickedSite.id === "none";
+          siteId = isNone ? null : pickedSite.id;
+          siteName = isNone ? "Not specified" : pickedSite.name;
+        }
+      } else if (autoDetect) {
         if (nextType === "out") {
           // A clock-out always keeps the clock-in's site, never re-detects
           // (see lib/clockStatusLocal.js's getCurrentLocalSite).
@@ -88,21 +164,6 @@ export default function ClockCameraScreen({ route, navigation }) {
             location?.lat != null && location?.lng != null ? location : null,
             location?.accuracyM ?? null
           );
-          siteId = detected.siteId;
-          siteName = detected.siteName;
-        }
-      } else if ((await AsyncStorage.getItem(ASK_SITE_KEY)) !== "false") {
-        // "Ask for job site each time" (Settings), default on - rather than
-        // making the user pick from a list, auto-detect the clocking
-        // employee's own assigned site (see lib/geofenceCheck.js). Same
-        // clock-out convention as the geofence branch above: keep the
-        // clock-in's site, never re-detect mid-session.
-        if (nextType === "out") {
-          const lastSite = await getCurrentLocalSite(employee.id);
-          siteId = lastSite.siteId;
-          siteName = lastSite.siteName || "Not specified";
-        } else {
-          const detected = await detectAssignedSite(employee);
           siteId = detected.siteId;
           siteName = detected.siteName;
         }
@@ -124,7 +185,11 @@ export default function ClockCameraScreen({ route, navigation }) {
           locationAccuracyM: location?.accuracyM ?? null,
         });
 
-        if (autoDetect && geofence.applicable) {
+        // Never overrides an explicit manual pick (askJobSite) - only
+        // refines the broader located-sites guess above with this
+        // fenced-only match when auto-detection is what's driving site
+        // selection in the first place.
+        if (!askJobSite && autoDetect && geofence.applicable) {
           siteId = geofence.siteId;
           siteName = geofence.siteName || "Not specified";
         }
@@ -251,4 +316,11 @@ const styles = StyleSheet.create({
     borderColor: "#fff", justifyContent: "center", alignItems: "center",
   },
   captureInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: "#fff" },
+  pickerContainer: { flex: 1 },
+  pickerList: { padding: 20 },
+  pickerRow: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    padding: 18, borderRadius: 14, borderWidth: 1.5, marginBottom: 12,
+  },
+  pickerName: { fontSize: 16, fontWeight: "600" },
 });

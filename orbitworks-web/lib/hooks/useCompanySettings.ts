@@ -43,6 +43,11 @@ export type AppSettings = {
   // functions/src/createEmployee.ts, which also enforces this server-side) -
   // when off, the button doesn't even show on mobile.
   allowAppEmployeeCreate: boolean;
+  // Company-wide policy (replaced a per-device AsyncStorage toggle on
+  // mobile) - when on, clock-in without Pro geofencing auto-detection
+  // picks the employee's own assigned site instead of trusting whatever
+  // site is selected on the device (see ClockCameraScreen.js on mobile).
+  askJobSiteEachTime: boolean;
 };
 
 // Geofencing (Pro) Part 2 - company-wide enforcement mode. Clock-outs are
@@ -118,6 +123,7 @@ export const DEFAULT_ALERTS: Alerts = {
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   allowSupervisorOverride: true,
   allowAppEmployeeCreate: true,
+  askJobSiteEachTime: true,
 };
 
 // Existing companies with no saved geofencing value behave as "Flag only"

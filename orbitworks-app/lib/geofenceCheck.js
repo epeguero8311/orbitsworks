@@ -144,19 +144,21 @@ export async function detectLocalSite(location, accuracyM) {
   return { siteId, siteName: siteName || "Not specified" };
 }
 
-// "Ask for job site each time" (Settings) - non-geofence auto detection.
-// Resolves the clocking employee's OWN assigned site instead of making
-// them pick from a list each time. Only auto-detects when they have
-// exactly one assigned site; zero or more than one is ambiguous, so it's
-// left "Not specified" rather than guessing wrong (same convention as the
-// geofencing branch in ClockCameraScreen).
-export async function detectAssignedSite(employee) {
-  const ids = employee?.assignedSiteIds || [];
-  if (ids.length !== 1) return { siteId: null, siteName: "Not specified" };
-
+// "Ask for job site each time" (App Settings on the website) - the list
+// ClockCameraScreen's forced site picker offers for a given employee:
+// their own assigned sites when they have any, otherwise every active
+// company site (so there's always something to pick from).
+export async function getSitesForEmployeePicker(employee) {
   const db = await getDb();
-  const row = await db.getFirstAsync("SELECT name FROM sites_cache WHERE siteId = ?", [ids[0]]);
-  return { siteId: ids[0], siteName: row?.name || "Not specified" };
+  const ids = employee?.assignedSiteIds || [];
+  const rows =
+    ids.length > 0
+      ? await db.getAllAsync(
+          `SELECT * FROM sites_cache WHERE active = 1 AND siteId IN (${ids.map(() => "?").join(",")}) ORDER BY name`,
+          ids
+        )
+      : await db.getAllAsync(`SELECT * FROM sites_cache WHERE active = 1 ORDER BY name`);
+  return rows.map((row) => ({ id: row.siteId, name: row.name }));
 }
 
 // Returns { applicable: false } for anything not subject to on-device

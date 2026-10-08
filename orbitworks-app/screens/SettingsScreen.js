@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { View, Text, Switch, TouchableOpacity, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { signOut } from "firebase/auth";
 import { auth } from "../lib/firebase";
@@ -14,7 +13,6 @@ import { getNotificationState, setNotificationsEnabled, registerForPushNotificat
 import ScreenHeader from "../components/ScreenHeader";
 import DeviceNameRow from "../components/DeviceNameRow";
 
-const ASK_SITE_KEY = "orbitworks_ask_site_each_time";
 const APP_VERSION = Constants.expoConfig?.version ?? "-";
 
 function formatLastSync(ms) {
@@ -26,16 +24,9 @@ export default function SettingsScreen() {
   const { currentUser, userData } = useAuth();
   const { colors, isDark, toggleTheme } = useTheme();
   const { isPro } = useCompanySettings(userData?.companyId);
-  const [askSite, setAskSite] = useState(true);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [lastSync, setLastSync] = useState(null);
   const companyId = userData?.companyId;
-
-  useEffect(() => {
-    AsyncStorage.getItem(ASK_SITE_KEY).then((val) => {
-      if (val !== null) setAskSite(val === "true");
-    });
-  }, []);
 
   useEffect(() => {
     if (!companyId) return;
@@ -50,11 +41,6 @@ export default function SettingsScreen() {
     refreshLastSync();
     return subscribeQueueChange(refreshLastSync);
   }, [refreshLastSync]);
-
-  const handleToggleAskSite = (value) => {
-    setAskSite(value);
-    AsyncStorage.setItem(ASK_SITE_KEY, String(value));
-  };
 
   const handleToggleNotifications = async (value) => {
     setNotifEnabled(value);
@@ -92,14 +78,6 @@ export default function SettingsScreen() {
             <Text style={[styles.rowLabel, { color: colors.text }]}>Dark mode</Text>
           </View>
           <Switch value={isDark} onValueChange={toggleTheme} trackColor={{ true: colors.accent }} />
-        </View>
-
-        <View style={[styles.row, { borderColor: colors.border }]}>
-          <View style={styles.rowLeft}>
-            <Feather name="map-pin" size={18} color={colors.text} />
-            <Text style={[styles.rowLabel, { color: colors.text }]}>Ask for job site each time</Text>
-          </View>
-          <Switch value={askSite} onValueChange={handleToggleAskSite} trackColor={{ true: colors.accent }} />
         </View>
 
         <View style={[styles.row, { borderColor: colors.border }]}>

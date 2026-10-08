@@ -48,6 +48,14 @@ export function AppSettingsCard({
             setAppSettings((prev) => ({ ...prev, allowAppEmployeeCreate: v }))
           }
         />
+        <Toggle
+          label="Ask for job site each time"
+          description="At clock-in, pick the employee's assigned job site instead of using whatever site is selected on the device."
+          checked={appSettings.askJobSiteEachTime}
+          onChange={(v) =>
+            setAppSettings((prev) => ({ ...prev, askJobSiteEachTime: v }))
+          }
+        />
       </div>
     </div>
   );
