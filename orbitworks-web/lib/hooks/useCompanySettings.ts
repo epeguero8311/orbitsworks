@@ -41,6 +41,10 @@ export type AppSettings = {
   // functions/src/createEmployee.ts, which also enforces this server-side) -
   // when off, the button doesn't even show on mobile.
   allowAppEmployeeCreate: boolean;
+  // Gates the mobile app's Update Employee flow (see updateEmployeeProfile in
+  // functions/src/updateEmployee.ts, which also enforces this server-side) -
+  // independent of allowAppEmployeeCreate, defaulted the same way.
+  allowAppEmployeeUpdate: boolean;
   // Company-wide policy (replaced a per-device AsyncStorage toggle on
   // mobile) - when on, clock-in without Pro geofencing auto-detection
   // picks the employee's own assigned site instead of trusting whatever
@@ -83,6 +87,7 @@ export const DEFAULT_ALERTS: Alerts = {
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   allowSupervisorOverride: true,
   allowAppEmployeeCreate: true,
+  allowAppEmployeeUpdate: true,
   askJobSiteEachTime: true,
 };
 

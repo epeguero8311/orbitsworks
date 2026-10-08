@@ -301,6 +301,18 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // Update Employee (mobile) - one doc per employee edit, written once
+      // by the updateEmployeeProfile callable (Admin SDK only, bypasses
+      // rules - see functions/src/updateEmployee.ts). A durable audit
+      // record the web dashboard resolves by id (AlertsPanel.tsx) to show
+      // old/new name and side-by-side photos; never written by a client
+      // directly, same deny-by-default shape as pins/{pinId} above.
+      match /employeeUpdates/{updateId} {
+        allow read: if request.auth != null &&
+          request.auth.token.companyId == companyId;
+        allow write: if false;
+      }
+
       match /clockEvents/{eventId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId;

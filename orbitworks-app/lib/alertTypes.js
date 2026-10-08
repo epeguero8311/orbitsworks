@@ -15,6 +15,8 @@ export const ALERT_TYPES = [
   "faceMismatch",
   "faceNoFace",
   "faceBadReference",
+  // Update Employee (mobile) - see orbitworks-web/functions/src/alerts.ts.
+  "employeeUpdated",
 ];
 
 export const ALERT_TYPE_LABEL = {
@@ -29,8 +31,12 @@ export const ALERT_TYPE_LABEL = {
   faceMismatch: "Face Mismatch",
   faceNoFace: "No Face Detected",
   faceBadReference: "Bad Reference Photo",
+  employeeUpdated: "Employee Updated",
 };
 
+// Static fallback only - employeeUpdated's real severity is per-instance
+// (set on the alert doc itself, see functions/src/alerts.ts), not looked up
+// by type the way every other entry here is.
 export const ALERT_SEVERITY = {
   maxHours: "urgent",
   missedClockOut: "urgent",
@@ -43,4 +49,5 @@ export const ALERT_SEVERITY = {
   faceMismatch: "warning",
   faceNoFace: "warning",
   faceBadReference: "warning",
+  employeeUpdated: "warning",
 };

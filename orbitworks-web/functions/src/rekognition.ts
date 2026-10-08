@@ -29,8 +29,11 @@ function isProPlan(planTier: string | undefined | null): boolean {
 }
 
 // Created inside each handler, never at module scope - secrets are only
-// readable once the function is actually invoked with them bound.
-function getRekognitionClient(): RekognitionClient {
+// readable once the function is actually invoked with them bound. Exported
+// for updateEmployee.ts's old-vs-new reference photo compare (Update
+// Employee, mobile) - same client, same secrets, no reason to build a
+// second one.
+export function getRekognitionClient(): RekognitionClient {
   return new RekognitionClient({
     region: REKOGNITION_REGION,
     credentials: {
@@ -47,7 +50,8 @@ function getRekognitionClient(): RekognitionClient {
 // exactly this shape. Pulls the object path back out of the `/o/<encoded>`
 // segment so the Admin SDK can download the bytes directly instead of
 // making an authenticated HTTP request to the download URL itself.
-function storagePathFromDownloadUrl(url: string): string | null {
+// Exported for updateEmployee.ts - same URL shape, same extraction need.
+export function storagePathFromDownloadUrl(url: string): string | null {
   const match = url.match(/\/o\/([^?]+)/);
   if (!match) return null;
   try {
@@ -60,7 +64,7 @@ function storagePathFromDownloadUrl(url: string): string | null {
 // Best-effort only - every failure path (bad path, download error, too
 // large) returns null rather than throwing, so a bad image can never
 // block the clock event or the pfp write it's checking.
-async function downloadImage(path: string, context: Record<string, unknown>): Promise<Buffer | null> {
+export async function downloadImage(path: string, context: Record<string, unknown>): Promise<Buffer | null> {
   try {
     const bucket = admin.storage().bucket();
     const [buffer] = await bucket.file(path).download();
@@ -84,7 +88,7 @@ type FaceVerificationCompany = {
 // company-level knob, faceVerification.alertsEnabled, controls whether
 // faceMismatch/faceNoFace alerts fire - that's read separately, in
 // alerts.ts's getCompanyAlertContext, not here.
-async function isProCompany(companyId: string): Promise<boolean> {
+export async function isProCompany(companyId: string): Promise<boolean> {
   const companySnap = await db.collection("companies").doc(companyId).get();
   const company = companySnap.data() as FaceVerificationCompany | undefined;
   return !!company && isProPlan(company.planTier);
@@ -315,3 +319,38 @@ export const onEmployeePhotoWrite = onDocumentWritten(
     }
   }
 );
+
+// Update Employee (mobile) - the one new piece of Rekognition surface this
+// feature adds. Everything else (new-photo usability) is already covered
+// by onEmployeePhotoWrite above, unchanged, since it reacts to any
+// photoUrl change regardless of cause. This is purely 1:1 CompareFaces
+// between the old and new reference photo, same call shape as
+// checkFaceMatch's - used by updateEmployeeProfile (functions/src/
+// updateEmployee.ts) to decide the Employee Updated alert's severity (same
+// person -> warning, different person -> urgent). Never throws - any AWS
+// error or a zero-face result returns null, and the caller treats that as
+// "couldn't compare" (falls back to warning), same fail-open philosophy as
+// every other Rekognition call in this file.
+export async function compareReferencePhotos(
+  oldBytes: Buffer,
+  newBytes: Buffer
+): Promise<{ similarity: number; samePerson: boolean } | null> {
+  try {
+    const client = getRekognitionClient();
+    const result = await client.send(
+      new CompareFacesCommand({
+        SourceImage: { Bytes: oldBytes },
+        TargetImage: { Bytes: newBytes },
+        SimilarityThreshold: 0,
+      })
+    );
+    const faceMatches = result.FaceMatches ?? [];
+    if (faceMatches.length === 0) return null;
+    const best = Math.max(0, ...faceMatches.map((m) => m.Similarity ?? 0));
+    const similarity = Math.round(best * 10) / 10;
+    return { similarity, samePerson: similarity >= FACE_MATCH_THRESHOLD };
+  } catch (err) {
+    console.warn("Reference photo compare failed", { error: String(err) });
+    return null;
+  }
+}

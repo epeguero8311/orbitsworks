@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useAlertActions } from "@/lib/hooks/useAlertActions";
 import { useServerAlerts } from "@/lib/hooks/useServerAlerts";
+import { useEmployeeUpdates } from "@/lib/hooks/useEmployeeUpdates";
 import type { ClockEvent } from "@/lib/types";
 import {
   ALERT_SEVERITY,
@@ -34,6 +35,7 @@ export default function AlertsPanel({
   recentEvents: ClockEvent[];
 }) {
   const { alerts: serverAlerts, loading: alertsLoading } = useServerAlerts();
+  const { employeeUpdates } = useEmployeeUpdates();
   const {
     resolvedKeys,
     ignoreAlert,
@@ -80,12 +82,18 @@ export default function AlertsPanel({
     "faceNoFace",
   ]);
 
+  // Update Employee (mobile) - every employeeUpdated alert has exactly one
+  // specific update it's about (no "current status" ambiguity the way
+  // clock-event-scoped alerts have), so this is a plain id->doc lookup.
+  const employeeUpdateById = new Map(employeeUpdates.map((u) => [u.id, u]));
+
   const alertItems: AlertItem[] = serverAlerts.map((a) => ({
     ...a,
     event:
       EVENT_SCOPED_ALERT_TYPES.has(a.alertType) && a.eventId
         ? eventById.get(a.eventId) ?? eventByEmployee.get(a.employeeId)
         : eventByEmployee.get(a.employeeId),
+    employeeUpdate: a.employeeUpdateId ? employeeUpdateById.get(a.employeeUpdateId) : undefined,
   }));
   const visibleAlertItems = alertItems.filter((a) => !resolvedKeys.has(a.key));
   const isLoading = loading || alertsLoading;
@@ -227,7 +235,7 @@ export default function AlertsPanel({
               <div key={alert.key} className="rounded-lg bg-amber-50 p-3.5">
                 <div className="flex items-start gap-3">
                   <span
-                    className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${SEVERITY_DOT_CLASSES[ALERT_SEVERITY[alert.alertType]]}`}
+                    className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${SEVERITY_DOT_CLASSES[alert.severity ?? ALERT_SEVERITY[alert.alertType]]}`}
                     aria-hidden="true"
                   />
                   <div className="flex-1">
@@ -273,6 +281,60 @@ export default function AlertsPanel({
                           </div>
                         </div>
                       )}
+
+                    {alert.alertType === "employeeUpdated" && alert.employeeUpdate && (
+                      <div className="mt-3">
+                        {alert.employeeUpdate.changedFields.includes("name") && (
+                          <p className="text-xs text-gray-600">
+                            Name: {alert.employeeUpdate.oldName} -&gt; {alert.employeeUpdate.newName}
+                          </p>
+                        )}
+                        {alert.employeeUpdate.changedFields.includes("photo") && (
+                          <div className="mt-2 grid max-w-xs grid-cols-2 gap-2">
+                            <div>
+                              <p className="mb-1 text-center text-xs text-gray-500">Previous photo</p>
+                              <div className="aspect-square overflow-hidden rounded-md bg-gray-100">
+                                {alert.employeeUpdate.oldPhotoUrl ? (
+                                  <img
+                                    src={alert.employeeUpdate.oldPhotoUrl}
+                                    alt="Previous photo"
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-full items-center justify-center text-xs text-gray-600">
+                                    No photo
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="mb-1 text-center text-xs text-gray-500">New photo</p>
+                              <div className="aspect-square overflow-hidden rounded-md bg-gray-100">
+                                {alert.employeeUpdate.newPhotoUrl ? (
+                                  <img
+                                    src={alert.employeeUpdate.newPhotoUrl}
+                                    alt="New photo"
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-full items-center justify-center text-xs text-gray-600">
+                                    No photo
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        <p className="mt-2 text-xs text-gray-500">
+                          {alert.employeeUpdate.updatedByName}
+                          {alert.employeeUpdate.updatedByDeviceName
+                            ? ` - ${alert.employeeUpdate.updatedByDeviceName}`
+                            : ""}
+                          {" - "}
+                          {alert.employeeUpdate.createdAt?.toDate().toLocaleString()}
+                        </p>
+                      </div>
+                    )}
 
                     {isEditing ? (
                       <div className="mt-3 space-y-2 rounded-md border border-amber-200 bg-white p-3">

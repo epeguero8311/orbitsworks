@@ -16,6 +16,8 @@ export {
 
 export { createEmployee } from "./createEmployee";
 
+export { updateEmployeeProfile } from "./updateEmployee";
+
 export {
   setEmployeePin,
   backfillEmployeePins,
@@ -48,6 +50,10 @@ export {
 
 export { geocodeJobSiteAddress } from "./geocoding";
 
-export { checkPeriodicAlerts } from "./alerts";
+export {
+  checkPeriodicAlerts,
+  cleanupRetainedEmployeePhotos,
+  onEmployeeUpdateAlertDismissed,
+} from "./alerts";
 
 export { onEmployeePhotoWrite } from "./rekognition";

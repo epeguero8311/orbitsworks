@@ -36,6 +36,12 @@ export default function DashboardScreen({ navigation }) {
     (userData?.role === "supervisor" || userData?.role === "admin" || userData?.role === "owner") &&
     settings.appSettings.allowAppEmployeeCreate;
 
+  // Update Employee (mobile) - same role/toggle gating shape as
+  // canCreateEmployee above, its own independent company setting.
+  const canUpdateEmployee =
+    (userData?.role === "supervisor" || userData?.role === "admin" || userData?.role === "owner") &&
+    settings.appSettings.allowAppEmployeeUpdate;
+
   const isNoneSite = selectedSite?.id === "none";
   const filteredEmployees =
     selectedSite && !isNoneSite
@@ -185,6 +191,20 @@ export default function DashboardScreen({ navigation }) {
             <View style={styles.breaksLeft}>
               <Feather name="user-plus" size={22} color={colors.accent} />
               <Text style={[styles.createEmployeeText, { color: colors.text }]}>Create Employee</Text>
+            </View>
+            <Feather name="chevron-right" size={22} color={colors.subtext} />
+          </TouchableOpacity>
+        )}
+
+        {canUpdateEmployee && (
+          <TouchableOpacity
+            style={[styles.createEmployeeCard, { borderColor: colors.border, backgroundColor: colors.card }]}
+            onPress={() => navigation.navigate("UpdateEmployee")}
+            activeOpacity={0.85}
+          >
+            <View style={styles.breaksLeft}>
+              <Feather name="edit-3" size={22} color={colors.accent} />
+              <Text style={[styles.createEmployeeText, { color: colors.text }]}>Update Employee</Text>
             </View>
             <Feather name="chevron-right" size={22} color={colors.subtext} />
           </TouchableOpacity>

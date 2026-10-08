@@ -11,6 +11,7 @@ import { SiteSessionProvider } from "./lib/SiteSessionContext";
 import { usePinTableSync } from "./lib/hooks/usePinTableSync";
 import { useQueueSync } from "./lib/hooks/useQueueSync";
 import { useEmployeeQueueSync } from "./lib/hooks/useEmployeeQueueSync";
+import { useEmployeeUpdateQueueSync } from "./lib/hooks/useEmployeeUpdateQueueSync";
 import { useQueuePendingCount } from "./lib/hooks/useQueuePendingCount";
 import { usePushRegistration } from "./lib/hooks/usePushRegistration";
 import { useAlertsFeed } from "./lib/hooks/useAlertsFeed";
@@ -37,6 +38,8 @@ import OverridePinEntryScreen from "./screens/OverridePinEntryScreen";
 import OverrideEmployeeListScreen from "./screens/OverrideEmployeeListScreen";
 import OverrideReasonScreen from "./screens/OverrideReasonScreen";
 import CreateEmployeeScreen from "./screens/CreateEmployeeScreen";
+import UpdateEmployeeScreen from "./screens/UpdateEmployeeScreen";
+import EditEmployeeScreen from "./screens/EditEmployeeScreen";
 import EmployeeSyncAlertsScreen from "./screens/EmployeeSyncAlertsScreen";
 import * as Sentry from '@sentry/react-native';
 
@@ -110,6 +113,7 @@ function RootNavigator() {
   usePinTableSync();
   useQueueSync();
   useEmployeeQueueSync();
+  useEmployeeUpdateQueueSync();
   usePushRegistration();
 
   const onNativeSplashHandoff = useCallback(() => {
@@ -150,6 +154,8 @@ function RootNavigator() {
             <Stack.Screen name="OverrideEmployeeList" component={OverrideEmployeeListScreen} />
             <Stack.Screen name="OverrideReason" component={OverrideReasonScreen} />
             <Stack.Screen name="CreateEmployee" component={CreateEmployeeScreen} />
+            <Stack.Screen name="UpdateEmployee" component={UpdateEmployeeScreen} />
+            <Stack.Screen name="EditEmployee" component={EditEmployeeScreen} />
             <Stack.Screen name="EmployeeSyncAlerts" component={EmployeeSyncAlertsScreen} />
           </>
         ) : (

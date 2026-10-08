@@ -35,7 +35,9 @@ async function generateLocalPin() {
   return randomNonJunkPin();
 }
 
-async function persistEmployeePhoto(photoUri) {
+// Exported for employeeUpdateQueue.js (Update Employee, mobile) - same
+// local-copy need, a retaken photo during an edit.
+export async function persistEmployeePhoto(photoUri) {
   const dir = `${FileSystem.documentDirectory}employeePhotos/`;
   await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
   const dest = `${dir}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;

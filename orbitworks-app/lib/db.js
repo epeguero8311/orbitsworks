@@ -134,6 +134,31 @@ export async function getDb() {
       timestamp INTEGER NOT NULL,
       read INTEGER NOT NULL DEFAULT 0
     );
+
+    -- Update Employee (mobile) - local-first offline queue, same role as
+    -- employee_queue above but for editing an existing employee's name/photo
+    -- instead of creating a new one (see lib/employeeUpdateQueue.js / lib/
+    -- employeeUpdateQueueSync.js). A separate table rather than a shared one
+    -- with employee_queue: no PIN here, and photoLocalUri is nullable (a
+    -- name-only edit queues with no photo at all) where employee_queue's is
+    -- always required. updateId is this edit's own client-generated
+    -- Firestore auto-ID (companies/{companyId}/employeeUpdates/{updateId}),
+    -- separate from employeeId (which employee this edit is about) - mirrors
+    -- updateEmployeeProfile's idempotent-replay-by-updateId check
+    -- server-side.
+    CREATE TABLE IF NOT EXISTS employee_update_queue (
+      localId TEXT PRIMARY KEY,
+      employeeId TEXT NOT NULL,
+      updateId TEXT NOT NULL,
+      name TEXT,
+      photoLocalUri TEXT,
+      deviceId TEXT,
+      updatedByName TEXT NOT NULL,
+      syncStatus TEXT NOT NULL DEFAULT 'pending',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      lastError TEXT,
+      createdAt INTEGER NOT NULL
+    );
   `);
 
   // Migrations for installs created before these columns existed - ALTER

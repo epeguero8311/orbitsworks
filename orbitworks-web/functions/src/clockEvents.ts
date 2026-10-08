@@ -27,7 +27,10 @@ function isProPlan(planTier: string | undefined | null): boolean {
 // only after both the rules and this function are deployed.
 export const DEVICE_TRACKING_ENABLED = defineBoolean("DEVICE_TRACKING_ENABLED", { default: false });
 
-const DEVICE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Exported for updateEmployee.ts (Update Employee, mobile) - same
+// device-id shape (a UUID v4 the app generates once per install, see
+// orbitworks-app/lib/deviceId.js), same validation need.
+export const DEVICE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Device Recognition Pro. Stamps lastSeenAt/lastUserUid onto an EXISTING,
 // already-named device doc (mobile Settings / web Devices name it first -

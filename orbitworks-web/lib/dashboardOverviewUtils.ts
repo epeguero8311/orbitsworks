@@ -1,4 +1,4 @@
-import type { ClockEvent } from "@/lib/types";
+import type { ClockEvent, EmployeeUpdate } from "@/lib/types";
 
 // How far back an ignored/resolved alertAction stays remembered - see
 // useAlertActions.ts's resolvedAt query.
@@ -30,7 +30,9 @@ export type AlertItem = {
     // Face Verification (Pro) - see functions/src/alerts.ts.
     | "faceMismatch"
     | "faceNoFace"
-    | "faceBadReference";
+    | "faceBadReference"
+    // Update Employee (mobile) - see functions/src/alerts.ts.
+    | "employeeUpdated";
   // Who/what this alert is about - an employee name for every alert type
   // today. A future site-level alert (no single employee involved) should
   // put the site name (or "All Sites") here instead - alertTitle() below
@@ -46,6 +48,13 @@ export type AlertItem = {
   // or re-clocked-in employee must not attach the wrong session to an
   // "Edit Time" action.
   eventId?: string | null;
+  // Update Employee (mobile). employeeUpdated's own per-instance severity
+  // (red for a different-person photo swap, yellow otherwise) - read off
+  // the alert doc itself (useServerAlerts.ts), unlike every other type
+  // whose severity is the fixed ALERT_SEVERITY[alertType] below.
+  severity?: AlertSeverity;
+  employeeUpdateId?: string | null;
+  employeeUpdate?: EmployeeUpdate;
 };
 
 // Short tag shown after the "-" in an alert's title, e.g. "Ryan Mitchell -
@@ -62,6 +71,7 @@ export const ALERT_SHORT_TAGS: Record<AlertItem["alertType"], string> = {
   faceMismatch: "Face Mismatch",
   faceNoFace: "No Face Detected",
   faceBadReference: "Bad Reference Photo",
+  employeeUpdated: "Employee Updated",
 };
 
 // Drives the severity dot in AlertsPanel - urgent (red) for alerts that need
@@ -85,6 +95,10 @@ export const ALERT_SEVERITY: Record<AlertItem["alertType"], AlertSeverity> = {
   faceMismatch: "warning",
   faceNoFace: "warning",
   faceBadReference: "warning",
+  // Static fallback only - AlertsPanel.tsx prefers the per-doc `severity`
+  // field for this type (set per-instance by createEmployeeUpdatedAlert),
+  // falling back to this only if that field is somehow missing.
+  employeeUpdated: "warning",
 };
 
 export function alertTitle(alert: AlertItem) {

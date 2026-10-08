@@ -49,6 +49,14 @@ export function AppSettingsCard({
           }
         />
         <Toggle
+          label="Allow updating employees from the app"
+          description="Supervisors and admins can update an employee's name or photo from the mobile app."
+          checked={appSettings.allowAppEmployeeUpdate}
+          onChange={(v) =>
+            setAppSettings((prev) => ({ ...prev, allowAppEmployeeUpdate: v }))
+          }
+        />
+        <Toggle
           label="Ask for job site each time"
           description="At clock-in, pick the employee's assigned job site instead of using whatever site is selected on the device."
           checked={appSettings.askJobSiteEachTime}

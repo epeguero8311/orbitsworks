@@ -10,12 +10,16 @@ const JUNK_PINS = new Set([
   "1234", "4321", "0123", "1212", "2580",
 ]);
 
-const NAME_MAX_LENGTH = 100;
+export const NAME_MAX_LENGTH = 100;
 // Shape of a client-generated Firestore auto-ID (doc(collection(...)).id) -
-// see employeeQueue.js on the app side for where this is created.
-const EMPLOYEE_ID_REGEX = /^[A-Za-z0-9_-]{10,40}$/;
+// see employeeQueue.js on the app side for where this is created. Also
+// reused by updateEmployee.ts for the updateId it validates (same
+// client-generated-auto-id shape, different collection).
+export const EMPLOYEE_ID_REGEX = /^[A-Za-z0-9_-]{10,40}$/;
 
-function requireCreatorAuth(request: { auth?: { uid: string; token: Record<string, unknown> } }): {
+// Exported for updateEmployee.ts (Update Employee, mobile) - same
+// admin/owner/supervisor gate, no reason to re-derive it.
+export function requireCreatorAuth(request: { auth?: { uid: string; token: Record<string, unknown> } }): {
   companyId: string;
   uid: string;
 } {

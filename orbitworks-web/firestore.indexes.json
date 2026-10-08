@@ -82,6 +82,14 @@
         { "fieldPath": "companyId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "employeeUpdates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "retainedPhotoDeletedAt", "order": "ASCENDING" },
+        { "fieldPath": "retainedPhotoExpiresAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

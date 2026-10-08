@@ -7,6 +7,7 @@ const DEFAULTS = {
   appSettings: {
     allowSupervisorOverride: true,
     allowAppEmployeeCreate: true,
+    allowAppEmployeeUpdate: true,
     askJobSiteEachTime: true,
   },
   attendanceRules: {

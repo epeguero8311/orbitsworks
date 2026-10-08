@@ -2,6 +2,7 @@ import { z } from "zod";
 import * as admin from "firebase-admin";
 import type { Timestamp } from "firebase-admin/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { db, localDateKey, localMinutesOfDay } from "./shared";
 import { ALERTS_FEED_ENABLED, isCompanyInTestScope } from "./flags";
 import { sendPushForAlert } from "./pushSend";
@@ -32,6 +33,10 @@ export const ALERT_TYPES = [
   "faceMismatch",
   "faceNoFace",
   "faceBadReference",
+  // Update Employee (mobile) - see functions/src/updateEmployee.ts. One per
+  // update (not per employee/day), per-instance severity (not the fixed
+  // lookup below) - see createEmployeeUpdatedAlert's own comment.
+  "employeeUpdated",
 ] as const;
 
 export type AlertType = (typeof ALERT_TYPES)[number];
@@ -53,6 +58,12 @@ export const ALERT_SEVERITY: Record<AlertType, "urgent" | "warning" | "info"> = 
   faceMismatch: "warning",
   faceNoFace: "warning",
   faceBadReference: "warning",
+  // Static fallback only - createEmployeeUpdatedAlert sets the real
+  // per-instance severity directly on the doc (warning for a name-only
+  // edit or a same-person photo swap, urgent for a different-person
+  // swap), bypassing this lookup the same way faceBadReference's bespoke
+  // writer bypasses createAlertIfNew below.
+  employeeUpdated: "warning",
 };
 
 // The untrusted-input boundary for alert generation: validates every id
@@ -71,6 +82,10 @@ export const alertInputSchema = z.object({
   siteName: z.string().nullable(),
   message: z.string().min(1),
   eventId: z.string().min(1).nullable(),
+  // Update Employee (mobile) - set only for employeeUpdated, null for
+  // every other type, same convention as eventId/siteId being present but
+  // unused outside their own alert types.
+  employeeUpdateId: z.string().min(1).nullable(),
   dateKey: z.string().min(1),
 });
 
@@ -171,6 +186,9 @@ const ALERT_ID_PREFIX: Record<AlertType, string> = {
   // Only used directly by buildFaceBadReferenceAlertId below, never by
   // buildAlertId - this is the one type with no dateKey in its id.
   faceBadReference: "badref",
+  // Only used directly by buildEmployeeUpdatedAlertId below - keyed by
+  // updateId instead of a dateKey, same reason as faceBadReference.
+  employeeUpdated: "empupdate",
 };
 
 function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string): string {
@@ -280,6 +298,7 @@ export async function checkLateClockIn(
       siteName: typeof data.siteName === "string" ? data.siteName : null,
       message: "Clocked in late",
       eventId,
+      employeeUpdateId: null,
       dateKey: localDateKey(ts),
     },
     data.timestamp ?? admin.firestore.Timestamp.now()
@@ -321,6 +340,7 @@ export async function checkEarlyClockOut(
       siteName: typeof data.siteName === "string" ? data.siteName : null,
       message: "Clocked out early",
       eventId,
+      employeeUpdateId: null,
       dateKey: localDateKey(ts),
     },
     data.timestamp ?? admin.firestore.Timestamp.now()
@@ -375,6 +395,7 @@ export async function checkOutsideGeofence(
       siteName: site.siteName,
       message,
       eventId,
+      employeeUpdateId: null,
       dateKey: localDateKey(ts),
     },
     data.timestamp ?? admin.firestore.Timestamp.now()
@@ -419,6 +440,7 @@ export async function checkSiteMismatch(
       siteName: site.siteName,
       message: `Clocked in at ${siteName} - not one of their assigned job sites.`,
       eventId,
+      employeeUpdateId: null,
       dateKey: localDateKey(ts),
     },
     data.timestamp ?? admin.firestore.Timestamp.now()
@@ -458,6 +480,7 @@ export async function createFaceMismatchAlert(
       siteName: null,
       message: `Face didn't match the clock photo (${similarity}% similarity) - confirm it's really ${employeeName}.`,
       eventId,
+      employeeUpdateId: null,
       dateKey: localDateKey(ts),
     },
     timestamp ?? admin.firestore.Timestamp.now()
@@ -488,6 +511,7 @@ export async function createFaceNoFaceAlert(
       siteName: null,
       message: "No face was detected in the clock photo.",
       eventId,
+      employeeUpdateId: null,
       dateKey: localDateKey(ts),
     },
     timestamp ?? admin.firestore.Timestamp.now()
@@ -531,6 +555,7 @@ export async function createOrKeepFaceBadReferenceAlert(
     siteName: null,
     message: `${employeeName}'s profile photo has no usable face. Face verification is paused for them until it's updated.`,
     eventId: null,
+    employeeUpdateId: null,
     // Not used for the id (see above) - just satisfies MobileAlert's
     // required field.
     dateKey: localDateKey(now.toDate()),
@@ -593,6 +618,176 @@ export async function resolveFaceBadReferenceAlert(companyId: string, employeeId
       console.warn("Failed to resolve faceBadReference alert", { companyId, alertId, error: String(err) });
     });
 }
+
+// Update Employee (mobile) - called from updateEmployeeProfile (functions/
+// src/updateEmployee.ts) after it writes the employee doc + employeeUpdates
+// record. Bypasses createAlertIfNew/ALERT_SEVERITY entirely (same reason
+// createOrKeepFaceBadReferenceAlert does): severity here is per-instance
+// (computed by the caller from the old-vs-new photo compare), not a fixed
+// per-type lookup. id = `empupdate-${updateId}` - already globally unique
+// (updateId is a client-generated Firestore auto-id), so unlike every
+// dateKey-scoped type above, no employeeId/dateKey composition is needed -
+// ref.create() still gives idempotency against a retried callable.
+function buildEmployeeUpdatedAlertId(updateId: string): string {
+  return `${ALERT_ID_PREFIX.employeeUpdated}-${updateId}`;
+}
+
+function employeeUpdatedMessage(changedFields: ("name" | "photo")[]): string {
+  const changedName = changedFields.includes("name");
+  const changedPhoto = changedFields.includes("photo");
+  if (changedName && changedPhoto) return "Name and photo were updated from the app.";
+  if (changedPhoto) return "Profile photo was updated from the app.";
+  return "Name was updated from the app.";
+}
+
+export async function createEmployeeUpdatedAlert(
+  companyId: string,
+  employeeId: string,
+  employeeName: string,
+  updateId: string,
+  changedFields: ("name" | "photo")[],
+  severity: "warning" | "urgent",
+  timestamp: admin.firestore.Timestamp
+): Promise<void> {
+  if (!ALERTS_FEED_ENABLED.value()) return;
+  if (!isCompanyInTestScope(companyId)) return;
+
+  const alertId = buildEmployeeUpdatedAlertId(updateId);
+  const input: AlertInput = {
+    companyId,
+    alertType: "employeeUpdated",
+    employeeId,
+    employeeName,
+    siteId: null,
+    siteName: null,
+    message: employeeUpdatedMessage(changedFields),
+    eventId: null,
+    employeeUpdateId: updateId,
+    dateKey: localDateKey(timestamp.toDate()),
+  };
+  const parsed = alertInputSchema.safeParse(input);
+  if (!parsed.success) {
+    console.warn("Skipping malformed employeeUpdated alert input", { input, issues: parsed.error.issues });
+    return;
+  }
+
+  const ref = db.collection("companies").doc(companyId).collection("alerts").doc(alertId);
+  const docData = {
+    ...parsed.data,
+    severity,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    occurredAt: timestamp,
+    readByDeviceIds: [] as string[],
+  };
+
+  let created: AlertDoc;
+  try {
+    await ref.create(docData);
+    created = { id: alertId, ...parsed.data, severity, createdAt: timestamp, occurredAt: timestamp, readByDeviceIds: [] };
+  } catch (err) {
+    const code = (err as { code?: number | string })?.code;
+    if (code !== 6 && code !== "already-exists") {
+      console.warn("employeeUpdated alert write failed", { companyId, alertId, error: String(err) });
+    }
+    return;
+  }
+
+  try {
+    await sendPushForAlert(created);
+  } catch (err) {
+    console.warn("Push send failed", { companyId, alertId, error: String(err) });
+  }
+}
+
+// Update Employee (mobile) - deletes the retained old reference photo from
+// Storage. Shared by the scheduled sweep (30-day expiry) and the
+// dismiss-triggered early delete below - both just need "delete this path
+// if it's still there and mark it gone," so the actual Storage call and
+// the employeeUpdates write live here once.
+async function deleteRetainedPhoto(
+  companyId: string,
+  updateId: string,
+  oldPhotoPath: string
+): Promise<void> {
+  const ref = db.collection("companies").doc(companyId).collection("employeeUpdates").doc(updateId);
+  try {
+    await admin.storage().bucket().file(oldPhotoPath).delete();
+  } catch (err) {
+    console.warn("Failed to delete retained employee photo", { companyId, updateId, oldPhotoPath, error: String(err) });
+  }
+  await ref.update({ retainedPhotoDeletedAt: admin.firestore.Timestamp.now() }).catch((err) => {
+    console.warn("Failed to mark retained photo deleted", { companyId, updateId, error: String(err) });
+  });
+}
+
+// Update Employee (mobile) - daily sweep, same per-company-isolated shape
+// as checkPeriodicAlerts below. Only ever deletes the Storage blob - the
+// employeeUpdates doc itself is a permanent audit record, same as
+// clockEvents history.
+export const cleanupRetainedEmployeePhotos = onSchedule("every 24 hours", async () => {
+  const now = admin.firestore.Timestamp.now();
+  const companiesSnap = await db.collection("companies").get();
+  for (const companyDoc of companiesSnap.docs) {
+    try {
+      const dueSnap = await companyDoc.ref
+        .collection("employeeUpdates")
+        .where("retainedPhotoExpiresAt", "<=", now)
+        .where("retainedPhotoDeletedAt", "==", null)
+        .get();
+      for (const doc of dueSnap.docs) {
+        const data = doc.data() as { oldPhotoPath?: string | null };
+        if (!data.oldPhotoPath) continue;
+        await deleteRetainedPhoto(companyDoc.id, doc.id, data.oldPhotoPath);
+      }
+    } catch (err) {
+      console.warn("Retained photo cleanup failed for company", { companyId: companyDoc.id, error: String(err) });
+    }
+  }
+});
+
+// Update Employee (mobile) - dismissing an employeeUpdated alert (the
+// client's existing Ignore button, same alertActions write every other
+// type already uses - see useAlertActions.ts) is what triggers deleting
+// the retained old photo early, instead of waiting for the 30-day sweep
+// above. Isolated in its own try/catch - never blocks or undoes the
+// alertAction write that already succeeded.
+export const onEmployeeUpdateAlertDismissed = onDocumentCreated(
+  "companies/{companyId}/alertActions/{actionId}",
+  async (event) => {
+    const companyId = event.params.companyId;
+    try {
+      const data = event.data?.data() as
+        | { alertType?: string; status?: string; alertKey?: string }
+        | undefined;
+      if (!data || data.alertType !== "employeeUpdated" || data.status !== "ignored" || !data.alertKey) return;
+
+      const alertSnap = await db
+        .collection("companies")
+        .doc(companyId)
+        .collection("alerts")
+        .doc(data.alertKey)
+        .get();
+      const employeeUpdateId = (alertSnap.data() as { employeeUpdateId?: string | null } | undefined)
+        ?.employeeUpdateId;
+      if (!employeeUpdateId) return;
+
+      const updateSnap = await db
+        .collection("companies")
+        .doc(companyId)
+        .collection("employeeUpdates")
+        .doc(employeeUpdateId)
+        .get();
+      const update = updateSnap.data() as
+        | { oldPhotoPath?: string | null; retainedPhotoDeletedAt?: unknown }
+        | undefined;
+      if (!update?.oldPhotoPath || update.retainedPhotoDeletedAt) return;
+
+      await deleteRetainedPhoto(companyId, employeeUpdateId, update.oldPhotoPath);
+    } catch (err) {
+      console.warn("employeeUpdated dismiss cleanup failed", { companyId, error: String(err) });
+    }
+  }
+);
 
 function getWeekStart(date: Date): Date {
   const d = new Date(date);
@@ -689,6 +884,7 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
           siteName: site?.siteName ?? null,
           message: "Break ran too long",
           eventId: event.id,
+          employeeUpdateId: null,
           dateKey: localDateKey(d),
         },
         admin.firestore.Timestamp.now()
@@ -716,6 +912,7 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
           siteName: site?.siteName ?? null,
           message: "Worked too many hours today",
           eventId: event.id,
+          employeeUpdateId: null,
           dateKey: localDateKey(d),
         },
         admin.firestore.Timestamp.now()
@@ -740,6 +937,7 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
           siteName: site?.siteName ?? null,
           message: "Missed clock-out",
           eventId: event.id,
+          employeeUpdateId: null,
           dateKey: localDateKey(d),
         },
         admin.firestore.Timestamp.now()
@@ -778,6 +976,7 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
           siteName: null,
           message: "Over weekly hour limit",
           eventId: null,
+          employeeUpdateId: null,
           dateKey: weekKey,
         },
         admin.firestore.Timestamp.now()

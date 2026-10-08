@@ -143,6 +143,15 @@ export interface Employee {
   // while the pfp currently on file has no usable face. Server-written
   // only (functions/src/rekognition.ts).
   faceReference?: FaceReferenceState;
+  // Update Employee (mobile) - set by updateEmployeeProfile (functions/src/
+  // updateEmployee.ts) whenever a supervisor/admin edits name/photo from the
+  // app. lastUpdateId is the idempotency marker (mirrors createEmployee's
+  // matching-field replay check, just keyed on the client-generated updateId
+  // instead) - never read by the client beyond that replay check.
+  updatedByUid?: string;
+  updatedAt?: Timestamp;
+  updatedByDeviceId?: string | null;
+  lastUpdateId?: string;
 }
 
 export interface Invite {
@@ -295,7 +304,11 @@ export interface AlertActionRecord {
     // all per spec), only auto-resolved server-side by deleting the alert
     // doc directly once the pfp passes again.
     | "faceMismatch"
-    | "faceNoFace";
+    | "faceNoFace"
+    // Update Employee (mobile) - "ignored" here is what triggers
+    // onEmployeeUpdateAlertDismissed's early delete of the retained old
+    // photo (functions/src/alerts.ts). No "resolved"/actionTaken path.
+    | "employeeUpdated";
   employeeId: string;
   status: "ignored" | "resolved";
   // "confirmedMatch" is Face Verification (Pro)'s "Confirmed it's them" -
@@ -337,7 +350,12 @@ export type MobileAlertType =
   // alertActions - once the pfp passes DetectFaces again.
   | "faceMismatch"
   | "faceNoFace"
-  | "faceBadReference";
+  | "faceBadReference"
+  // Update Employee (mobile). One per update (not per employee/day, unlike
+  // every type above except faceBadReference) - see employeeUpdateId below.
+  // Severity is per-instance (red for a different-person photo swap, yellow
+  // otherwise), not the fixed per-type value every other alert uses.
+  | "employeeUpdated";
 
 export interface MobileAlert {
   id: string;
@@ -350,10 +368,51 @@ export interface MobileAlert {
   message: string;
   severity: "urgent" | "warning" | "info";
   eventId: string | null;
+  // Update Employee (mobile). Set only for employeeUpdated alerts - points
+  // at companies/{companyId}/employeeUpdates/{employeeUpdateId}, which the
+  // web dashboard resolves to render the old/new name and side-by-side
+  // photos (same join pattern eventId already uses for faceMismatch).
+  employeeUpdateId: string | null;
   dateKey: string;
   createdAt: Timestamp;
   occurredAt: Timestamp;
   readByDeviceIds: string[];
+}
+
+// Update Employee (mobile). One doc per employee edit, written once by
+// updateEmployeeProfile (functions/src/updateEmployee.ts, Admin SDK only -
+// see firestore.rules) - a durable audit record that outlives the alert it
+// generated (the alert can be ignored/dismissed; this never is). oldPhotoUrl/
+// newPhotoUrl are both Storage download URLs (never the same path - see
+// oldPhotoPath comment), same convention as Employee.photoUrl/
+// ClockEvent.photoUrl everywhere else in this codebase.
+export interface EmployeeUpdate {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  changedFields: ("name" | "photo")[];
+  oldName: string | null;
+  newName: string | null;
+  oldPhotoUrl: string | null;
+  newPhotoUrl: string | null;
+  // Storage object path (not a download URL) for the retained old photo -
+  // used by the Admin SDK to delete the blob directly (cleanupRetainedEmployeePhotos
+  // / onEmployeeUpdateAlertDismissed in functions/src/alerts.ts). Null
+  // whenever changedFields doesn't include "photo".
+  oldPhotoPath: string | null;
+  severity: "warning" | "urgent";
+  photoCompareRan: boolean;
+  photoCompareSimilarity: number | null;
+  updatedByUid: string;
+  updatedByName: string;
+  updatedByDeviceId: string | null;
+  updatedByDeviceName: string | null;
+  createdAt: Timestamp;
+  // Both null whenever changedFields doesn't include "photo". Set together
+  // at write time; retainedPhotoDeletedAt flips once the blob is actually
+  // gone (either the 30-day sweep or an early dismiss) - never un-set.
+  retainedPhotoExpiresAt: Timestamp | null;
+  retainedPhotoDeletedAt: Timestamp | null;
 }
 
 // ---- Push Notifications ----
