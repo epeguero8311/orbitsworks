@@ -13,7 +13,9 @@ import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
-import { localDateKey } from "@/lib/reportUtils";
+import { useSites } from "@/lib/hooks/useSites";
+import { localDateKey, dateKey, startOfWeek } from "@/lib/reportUtils";
+import { evaluateSessionWarnings, type SessionWarning } from "@/lib/sessionWarnings";
 import type { ClockEvent, Flag, TimesheetApproval } from "@/lib/types";
 
 export type ApprovalRow = {
@@ -34,28 +36,16 @@ export type ApprovalRow = {
   sessionEventIds: string[];
   isClockedInNow: boolean;
   flags: Flag[];
-  // Geofencing (Pro) Part 4 addition - client-computed, same as the
-  // Overview alert (Part 4), not a server-written flag like
-  // SUPERVISOR_OVERRIDE. Gated on the "Clocked in outside geofence" alert
-  // toggle and Pro plan; true if either end of the session was outside a
-  // geofenced site.
-  hasGeofenceWarning: boolean;
-  // Auto site detection - same client-computed shape as hasGeofenceWarning
-  // above, gated on the "Clocked in at unassigned site" alert toggle.
-  // Clock-in only - siteMismatch is never set on a clock-out.
-  hasSiteMismatchWarning: boolean;
-  // Auto site detection - true when the clock-in's siteId is null AND it
-  // was flagged outside a geofence. That specific combination can only
-  // happen when auto-detection ran and matched no fenced site at all (see
-  // functions/src/clockEvents.ts's detectSite) - never gated on a settings
-  // toggle since there's no "off" for a session with literally no site on
-  // it. Not Pro-gated either for the same reason: it can't occur otherwise.
-  hasNoSiteDetectedWarning: boolean;
   jobId: string | null;
   // The employee's currently assigned job, used as the Job dropdown's
   // "(Default)" label - not necessarily what jobId above was saved with,
   // since the employee's assignment can change after a day was approved.
   defaultJobId: string | null;
+  // Every Settings > Alerts warning type that fired on this session,
+  // already carrying its evidence (see lib/sessionWarnings.ts) - replaces
+  // the old hasGeofenceWarning/hasSiteMismatchWarning/hasNoSiteDetectedWarning
+  // booleans, which only covered 3 of the ~13 warning types this now does.
+  warnings: SessionWarning[];
 };
 
 type EventWithId = Omit<ClockEvent, "id"> & { id: string };
@@ -78,6 +68,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
   const { userData } = useAuth();
   const { employees } = useEmployees();
   const { settings, isPro } = useCompanySettings();
+  const { sites } = useSites();
   const [events, setEvents] = useState<EventWithId[]>([]);
   const [approvals, setApprovals] = useState<Map<string, TimesheetApproval>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -87,17 +78,29 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     if (!userData?.companyId) return;
     setLoading(true);
 
-    const start = new Date(`${startDate}T00:00:00`);
-    // A session that clocks in on the last displayed day can clock out
+    // Widened to the full calendar week(s) spanning startDate..endDate -
+    // the overtime check below needs each employee's whole week of
+    // sessions to know whether a given one pushed them over
+    // weeklyOvertimeThreshold, even in Day mode where the display range is
+    // a single day. visibleRows (below) still filters back down to
+    // exactly startDate..endDate, same as before this widening.
+    const fetchStartKey = dateKey(startOfWeek(new Date(`${startDate}T00:00:00`)));
+    const fetchEndWeekStart = startOfWeek(new Date(`${endDate}T00:00:00`));
+    const fetchEndDate = new Date(fetchEndWeekStart);
+    fetchEndDate.setDate(fetchEndDate.getDate() + 6);
+    const fetchEndKey = dateKey(fetchEndDate);
+
+    const start = new Date(`${fetchStartKey}T00:00:00`);
+    // A session that clocks in on the last fetched day can clock out
     // after midnight, into the next calendar day. The query has to
     // range-filter on the raw `timestamp` field (never adjustedTimestamp -
     // an admin correction must never move a session in or out of the
-    // fetched window), so it fetches one extra day past endDate to make
-    // sure that clock-out event is pulled in too. Sessions are bucketed by
-    // their clock-in day below, so this buffer day's own sessions get
-    // filtered back out of the final rows - it only exists to complete
-    // sessions that started inside the requested range.
-    const end = new Date(`${endDate}T23:59:59`);
+    // fetched window), so it fetches one extra day past fetchEndKey to
+    // make sure that clock-out event is pulled in too. Sessions are
+    // bucketed by their clock-in day below, so this buffer day's own
+    // sessions get filtered back out of the final rows - it only exists to
+    // complete sessions that started inside the fetched window.
+    const end = new Date(`${fetchEndKey}T23:59:59`);
     end.setDate(end.getDate() + 1);
 
     const eventsRef = collection(db, "companies", userData.companyId, "clockEvents");
@@ -155,6 +158,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
   const rows = useMemo<ApprovalRow[]>(() => {
     const mainCompanyName = settings?.name || "Main company";
     const activeEmployeesById = new Map(employees.filter((e) => e.active).map((e) => [e.id, e]));
+    const siteNameById = new Map(sites.map((s) => [s.id, s.name]));
 
     const byEmployee = new Map<string, EventWithId[]>();
     for (const ev of events) {
@@ -187,11 +191,21 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
         ? employee.subcontractorName || "Subcontractor"
         : mainCompanyName;
       const isSubcontractor = !!employee.subcontractorId;
+      const assignedSiteNames = (employee.assignedSiteIds ?? [])
+        .map((id) => siteNameById.get(id))
+        .filter((name): name is string => !!name);
 
       let pendingIn: EventWithId | null = null;
       let breakMs = 0;
       let openBreakStart: EventWithId | null = null;
       let sessionIds: string[] = [];
+      // Cumulative NET worked hours (breaks excluded) for this employee
+      // across the fetched week, through and including each session in
+      // turn - feeds the overtime check the same way
+      // functions/src/alerts.ts's weekly sweep does (accumulateWorkedMs).
+      // The widened fetch query above guarantees `empEvents` always spans
+      // one full calendar week, in both Day and Week mode.
+      let cumulativeWeekHours = 0;
 
       for (const ev of empEvents) {
         const ts = (ev.adjustedTimestamp ?? ev.timestamp)?.toDate();
@@ -222,6 +236,16 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
 
           if (durationMs > 0) {
             const approval = approvals.get(pendingIn.id);
+            const hours = durationMs / (1000 * 60 * 60);
+            const breakHours = breakMs / (1000 * 60 * 60);
+            cumulativeWeekHours += hours - breakHours;
+            const overrideEventId = approval?.flags?.find(
+              (f) => f.type === "SUPERVISOR_OVERRIDE"
+            )?.overrideEventId;
+
+            const clockInEvent: ClockEvent = { ...pendingIn };
+            const clockOutEvent: ClockEvent = { ...ev };
+
             allRows.push({
               key: pendingIn.id,
               employeeId: employee.id,
@@ -231,25 +255,30 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
               date: approval?.date ?? localDateKey(inTs),
               siteName: pendingIn.siteName || "Not specified",
               siteId: pendingIn.siteId ?? null,
-              hours: durationMs / (1000 * 60 * 60),
-              breakHours: breakMs / (1000 * 60 * 60),
+              hours,
+              breakHours,
               status: approval?.status ?? "pending",
               eventId: pendingIn.id,
-              clockInEvent: { ...pendingIn },
-              clockOutEvent: { ...ev },
+              clockInEvent,
+              clockOutEvent,
               sessionEventIds: sessionIds,
               isClockedInNow,
               flags: approval?.flags ?? [],
-              hasGeofenceWarning:
-                isPro &&
-                !!settings.alerts.clockedInOutsideGeofence &&
-                (pendingIn.geofenceStatus === "outside" || ev.geofenceStatus === "outside"),
-              hasSiteMismatchWarning:
-                isPro &&
-                !!settings.alerts.siteMismatchWarning &&
-                pendingIn.siteMismatch === true,
-              hasNoSiteDetectedWarning:
-                pendingIn.siteId == null && pendingIn.geofenceStatus === "outside",
+              warnings: evaluateSessionWarnings({
+                clockInEvent,
+                clockOutEvent,
+                hours,
+                breakHours,
+                weekHoursThroughSession: cumulativeWeekHours,
+                assignedSiteNames,
+                overrideEventId,
+                alerts: settings.alerts,
+                businessHours: settings.businessHours,
+                gracePeriodMinutes: settings.attendanceRules.gracePeriodMinutes,
+                weeklyOvertimeThreshold: settings.weeklyOvertimeThreshold,
+                faceVerification: settings.faceVerification,
+                isPro,
+              }),
               jobId: approval?.jobId ?? null,
               defaultJobId: employee.jobId ?? null,
             });
@@ -278,11 +307,15 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     employees,
     events,
     approvals,
+    sites,
     startDate,
     endDate,
     settings?.name,
-    settings.alerts.clockedInOutsideGeofence,
-    settings.alerts.siteMismatchWarning,
+    settings.alerts,
+    settings.businessHours,
+    settings.attendanceRules.gracePeriodMinutes,
+    settings.weeklyOvertimeThreshold,
+    settings.faceVerification,
     isPro,
   ]);
 

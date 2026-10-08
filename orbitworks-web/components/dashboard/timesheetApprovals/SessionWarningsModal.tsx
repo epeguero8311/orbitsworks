@@ -1,10 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { formatGeofenceDistance, buildGoogleMapsUrl } from "@/lib/geo";
+import { formatMinutesAsTime } from "@/lib/reportUtils";
+import {
+  sortWarningsBySeverity,
+  type SessionWarning,
+  type WarningSeverity,
+} from "@/lib/sessionWarnings";
 import type { ClockEvent, JobSite, OverrideEvent } from "@/lib/types";
 
 const ACTION_LABEL: Record<OverrideEvent["action"], string> = {
@@ -14,14 +20,40 @@ const ACTION_LABEL: Record<OverrideEvent["action"], string> = {
   breakEnd: "End break",
 };
 
-// Geofencing (Pro) Part 4 addition - one block per end of the session that
-// was outside the fence (clock-in and clock-out are checked independently,
-// so both can show).
+function formatTime(ts: ClockEvent["timestamp"]) {
+  return ts ? ts.toDate().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "-";
+}
+
+// Soft red/yellow card shell every warning type below renders into - red
+// warnings first, then yellow, per the modal's sort order.
+function WarningCard({
+  severity,
+  title,
+  children,
+}: {
+  severity: WarningSeverity;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`space-y-1.5 rounded-lg p-3.5 text-sm ${
+        severity === "red" ? "bg-red-50" : "bg-amber-50"
+      }`}
+    >
+      <p className="font-medium text-gray-950">{title}</p>
+      {children}
+    </div>
+  );
+}
+
 function GeofenceItem({
+  severity,
   direction,
   event,
   siteName,
 }: {
+  severity: WarningSeverity;
   direction: "in" | "out";
   event: ClockEvent;
   siteName: string;
@@ -33,10 +65,7 @@ function GeofenceItem({
       : null;
 
   return (
-    <div className="space-y-1.5 rounded-lg bg-amber-50 p-3.5 text-sm">
-      <p className="font-medium text-gray-950">
-        {verb} outside of {siteName}
-      </p>
+    <WarningCard severity={severity} title={`${verb} outside of ${siteName}`}>
       {location && event.distanceFromSiteM != null ? (
         <p className="text-gray-600">
           {formatGeofenceDistance(event.distanceFromSiteM)} from site &middot;{" "}
@@ -56,34 +85,37 @@ function GeofenceItem({
       {event.source === "supervisorOverride" && event.authorizedByName && (
         <p className="text-gray-600">Overridden by {event.authorizedByName}</p>
       )}
-    </div>
+    </WarningCard>
   );
 }
 
-// Auto site detection - info-only, never blocks. Only ever set on a
-// clock-in (see functions/src/clockEvents.ts), so there's no direction
-// prop like GeofenceItem above needs.
-function SiteMismatchItem({ event }: { event: ClockEvent }) {
+function UnassignedSiteItem({
+  severity,
+  siteName,
+  assignedSiteNames,
+}: {
+  severity: WarningSeverity;
+  siteName: string;
+  assignedSiteNames: string[];
+}) {
   return (
-    <div className="space-y-1.5 rounded-lg bg-amber-50 p-3.5 text-sm">
-      <p className="font-medium text-gray-950">
-        Clocked in at {event.siteName || "an unassigned site"}
+    <WarningCard severity={severity} title={`Clocked in at ${siteName || "an unassigned site"}`}>
+      <p className="text-gray-600">
+        {assignedSiteNames.length > 0
+          ? `Assigned to ${assignedSiteNames.join(", ")} - this isn't one of them.`
+          : "This isn't one of their assigned job sites."}
       </p>
-      <p className="text-gray-600">This isn&apos;t one of their assigned job sites.</p>
-    </div>
+    </WarningCard>
   );
 }
 
-// Auto site detection - unlike every other item in this modal, this one
-// isn't purely informational: it can only ever appear for a clock-in whose
-// siteId is null AND was flagged outside a geofence (see
-// useTimesheetApprovals.ts's hasNoSiteDetectedWarning), so there's no
-// existing site name to show - the admin has to pick the real one.
 function NoSiteDetectedItem({
+  severity,
   sites,
   onAssign,
   onAssigned,
 }: {
+  severity: WarningSeverity;
   sites: JobSite[];
   onAssign: (siteId: string) => Promise<void>;
   onAssigned: () => void;
@@ -107,11 +139,8 @@ function NoSiteDetectedItem({
   }
 
   return (
-    <div className="space-y-2 rounded-lg bg-amber-50 p-3.5 text-sm">
-      <p className="font-medium text-gray-950">No job site detected</p>
-      <p className="text-gray-600">
-        This clock-in wasn&apos;t near any fenced site. Assign one:
-      </p>
+    <WarningCard severity={severity} title="No job site detected">
+      <p className="text-gray-600">This clock-in wasn&apos;t near any fenced site. Assign one:</p>
       <div className="flex gap-2">
         <select
           value={selectedSiteId}
@@ -137,51 +166,137 @@ function NoSiteDetectedItem({
         </button>
       </div>
       {error && <p className="text-red-600">{error}</p>}
-    </div>
+    </WarningCard>
   );
 }
 
-// Reused for both the supervisor-override warning and the Geofencing
-// (Pro) Part 4 addition - one modal listing every warning on a session,
-// rather than a separate modal per warning type. Renamed from
-// OverrideDetailsModal, which this replaces.
+function TimeWarningItem({
+  severity,
+  title,
+  expectedMinutes,
+  actualTime,
+}: {
+  severity: WarningSeverity;
+  title: string;
+  expectedMinutes: number;
+  actualTime: ClockEvent["timestamp"];
+}) {
+  return (
+    <WarningCard severity={severity} title={title}>
+      <p className="text-gray-600">
+        Expected by {formatMinutesAsTime(expectedMinutes)}, actual {formatTime(actualTime)}
+      </p>
+    </WarningCard>
+  );
+}
+
+function FaceWarningItem({
+  severity,
+  title,
+  direction,
+  event,
+}: {
+  severity: WarningSeverity;
+  title: string;
+  direction: "in" | "out";
+  event: ClockEvent;
+}) {
+  const faceCheck = event.faceCheck;
+  return (
+    <WarningCard severity={severity} title={title}>
+      <div className="grid max-w-xs grid-cols-2 gap-2">
+        <div>
+          <p className="mb-1 text-center text-xs text-gray-500">
+            {direction === "in" ? "Clock in" : "Clock out"} photo
+          </p>
+          <div className="aspect-square overflow-hidden rounded-md bg-white">
+            {event.photoUrl ? (
+              <img src={event.photoUrl} alt="Clock photo" className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full items-center justify-center text-xs text-gray-600">No photo</div>
+            )}
+          </div>
+        </div>
+        <div>
+          <p className="mb-1 text-center text-xs text-gray-500">Reference photo</p>
+          <div className="aspect-square overflow-hidden rounded-md bg-white">
+            {faceCheck?.referencePhotoUrl ? (
+              <img
+                src={faceCheck.referencePhotoUrl}
+                alt="Employee reference photo"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-xs text-gray-600">No photo</div>
+            )}
+          </div>
+        </div>
+      </div>
+      {faceCheck?.similarity != null && (
+        <p className="text-gray-600">Similarity: {faceCheck.similarity}%</p>
+      )}
+    </WarningCard>
+  );
+}
+
+function warningTitle(warning: SessionWarning): string {
+  switch (warning.type) {
+    case "lateClockIn":
+      return "Late clock-in";
+    case "earlyClockOut":
+      return "Early clock-out";
+    case "maxHours":
+      return "Max hours exceeded";
+    case "overtime":
+      return "Overtime";
+    case "missedClockOut":
+      return "Missed clock-out";
+    case "maxBreak":
+      return "Break too long";
+    case "faceLowConfidence":
+      return "Low-confidence face match";
+    case "faceMismatch":
+      return "Face mismatch";
+    case "faceNoFace":
+      return "No face detected";
+    default:
+      return "";
+  }
+}
+
+// Reused for every warning type on a session - one modal listing every
+// warning that fired, rather than a separate modal per type. Renders red
+// (urgent) warnings before yellow ones, each as its own evidence card -
+// see lib/sessionWarnings.ts for what fires each type and why.
 export default function SessionWarningsModal({
   employeeName,
   siteName,
-  clockInEvent,
-  clockOutEvent,
-  overrideEventId,
+  warnings,
   sites,
   onAssignSite,
   onClose,
 }: {
   employeeName: string;
   siteName: string;
-  clockInEvent: ClockEvent;
-  clockOutEvent: ClockEvent;
-  overrideEventId?: string;
+  warnings: SessionWarning[];
   sites: JobSite[];
   onAssignSite: (siteId: string) => Promise<void>;
   onClose: () => void;
 }) {
   const { userData } = useAuth();
+  const overrideWarning = warnings.find((w) => w.type === "supervisorOverride");
   const [overrideEvent, setOverrideEvent] = useState<OverrideEvent | null>(null);
-  const [overrideLoading, setOverrideLoading] = useState(!!overrideEventId);
+  const [overrideLoading, setOverrideLoading] = useState(!!overrideWarning);
   const [overrideError, setOverrideError] = useState("");
 
   useEffect(() => {
-    if (!overrideEventId || !userData?.companyId) return;
+    if (!overrideWarning || overrideWarning.type !== "supervisorOverride" || !userData?.companyId) return;
+    const overrideEventId = overrideWarning.overrideEventId;
     let cancelled = false;
 
     async function load() {
       try {
-        const ref = doc(
-          db,
-          "companies",
-          userData!.companyId,
-          "overrideEvents",
-          overrideEventId!
-        );
+        const ref = doc(db, "companies", userData!.companyId, "overrideEvents", overrideEventId);
         const snap = await getDoc(ref);
         if (cancelled) return;
         if (snap.exists()) {
@@ -201,12 +316,10 @@ export default function SessionWarningsModal({
     return () => {
       cancelled = true;
     };
-  }, [userData?.companyId, overrideEventId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userData?.companyId, overrideWarning]);
 
-  const clockInOutside = clockInEvent.geofenceStatus === "outside";
-  const clockOutOutside = clockOutEvent.geofenceStatus === "outside";
-  const siteMismatch = clockInEvent.siteMismatch === true;
-  const noSiteDetected = clockInEvent.siteId == null && clockInEvent.geofenceStatus === "outside";
+  const sortedWarnings = sortWarningsBySeverity(warnings);
 
   return (
     <div
@@ -220,48 +333,138 @@ export default function SessionWarningsModal({
         <h2 className="text-base font-semibold text-gray-950">Session warnings</h2>
         <p className="mt-0.5 text-xs text-gray-600">{employeeName}</p>
 
-        <div className="mt-3 space-y-3">
-          {overrideEventId &&
-            (overrideLoading ? (
-              <p className="text-sm text-gray-600">Loading...</p>
-            ) : overrideError ? (
-              <p className="text-sm text-red-600">{overrideError}</p>
-            ) : overrideEvent ? (
-              <div className="space-y-2.5 rounded-lg bg-amber-50 p-3.5 text-sm">
-                <p className="font-medium text-gray-950">Supervisor override</p>
-                <div>
-                  <p className="text-xs font-medium text-gray-600">Authorized by</p>
-                  <p className="text-gray-950">{overrideEvent.supervisorName ?? "Unknown"}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-600">Action</p>
-                  <p className="text-gray-950">{ACTION_LABEL[overrideEvent.action]}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-600">Reason</p>
-                  <p className="text-gray-950">{overrideEvent.reason}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-600">Recorded</p>
-                  <p className="text-gray-950">
-                    {overrideEvent.createdAt
-                      ? overrideEvent.createdAt.toDate().toLocaleString()
-                      : "-"}
-                  </p>
-                </div>
-              </div>
-            ) : null)}
-
-          {clockInOutside && (
-            <GeofenceItem direction="in" event={clockInEvent} siteName={siteName} />
-          )}
-          {clockOutOutside && (
-            <GeofenceItem direction="out" event={clockOutEvent} siteName={siteName} />
-          )}
-          {siteMismatch && <SiteMismatchItem event={clockInEvent} />}
-          {noSiteDetected && (
-            <NoSiteDetectedItem sites={sites} onAssign={onAssignSite} onAssigned={onClose} />
-          )}
+        <div className="mt-3 max-h-[70vh] space-y-3 overflow-y-auto">
+          {sortedWarnings.map((warning, i) => {
+            switch (warning.type) {
+              case "supervisorOverride":
+                return (
+                  <div key={i}>
+                    {overrideLoading ? (
+                      <p className="text-sm text-gray-600">Loading...</p>
+                    ) : overrideError ? (
+                      <p className="text-sm text-red-600">{overrideError}</p>
+                    ) : overrideEvent ? (
+                      <WarningCard severity={warning.severity} title="Supervisor override">
+                        <div>
+                          <p className="text-xs font-medium text-gray-600">Authorized by</p>
+                          <p className="text-gray-950">{overrideEvent.supervisorName ?? "Unknown"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-gray-600">Action</p>
+                          <p className="text-gray-950">{ACTION_LABEL[overrideEvent.action]}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-gray-600">Reason</p>
+                          <p className="text-gray-950">{overrideEvent.reason}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-gray-600">Recorded</p>
+                          <p className="text-gray-950">
+                            {overrideEvent.createdAt ? overrideEvent.createdAt.toDate().toLocaleString() : "-"}
+                          </p>
+                        </div>
+                      </WarningCard>
+                    ) : null}
+                  </div>
+                );
+              case "outsideGeofence":
+                return (
+                  <GeofenceItem
+                    key={i}
+                    severity={warning.severity}
+                    direction={warning.direction}
+                    event={warning.event}
+                    siteName={siteName}
+                  />
+                );
+              case "unassignedSite":
+                return (
+                  <UnassignedSiteItem
+                    key={i}
+                    severity={warning.severity}
+                    siteName={warning.siteName}
+                    assignedSiteNames={warning.assignedSiteNames}
+                  />
+                );
+              case "noSiteDetected":
+                return (
+                  <NoSiteDetectedItem
+                    key={i}
+                    severity={warning.severity}
+                    sites={sites}
+                    onAssign={onAssignSite}
+                    onAssigned={onClose}
+                  />
+                );
+              case "lateClockIn":
+                return (
+                  <TimeWarningItem
+                    key={i}
+                    severity={warning.severity}
+                    title={warningTitle(warning)}
+                    expectedMinutes={warning.expectedMinutes}
+                    actualTime={warning.actualTime}
+                  />
+                );
+              case "earlyClockOut":
+                return (
+                  <TimeWarningItem
+                    key={i}
+                    severity={warning.severity}
+                    title={warningTitle(warning)}
+                    expectedMinutes={warning.expectedMinutes}
+                    actualTime={warning.actualTime}
+                  />
+                );
+              case "maxHours":
+                return (
+                  <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
+                    <p className="text-gray-600">
+                      Worked {warning.hours.toFixed(1)}h, limit {warning.thresholdHours}h
+                    </p>
+                  </WarningCard>
+                );
+              case "overtime":
+                return (
+                  <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
+                    <p className="text-gray-600">
+                      {warning.weekHours.toFixed(1)}h this week, limit {warning.thresholdHours}h/week
+                    </p>
+                  </WarningCard>
+                );
+              case "missedClockOut":
+                return (
+                  <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
+                    <p className="text-gray-600">
+                      {warning.note || "The system clocked this employee out automatically."} (
+                      {formatTime(warning.actualTime)})
+                    </p>
+                  </WarningCard>
+                );
+              case "maxBreak":
+                return (
+                  <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
+                    <p className="text-gray-600">
+                      Break was {Math.round(warning.breakMinutes)} min, limit {warning.thresholdMinutes} min
+                    </p>
+                  </WarningCard>
+                );
+              case "faceLowConfidence":
+              case "faceMismatch":
+              case "faceNoFace":
+                return (
+                  <FaceWarningItem
+                    key={i}
+                    severity={warning.severity}
+                    title={warningTitle(warning)}
+                    direction={warning.direction}
+                    event={warning.event}
+                  />
+                );
+              default:
+                return null;
+            }
+          })}
         </div>
 
         <div className="mt-4">
