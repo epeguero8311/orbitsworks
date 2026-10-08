@@ -6,11 +6,9 @@ import { haversineMeters } from "./geocoding";
 // own radius, because geofencing was never turned on for it.
 const DEFAULT_SITE_RADIUS_METERS = 150;
 
-// Geofencing (Pro) Part 3 - shared between onClockEventCreated (async,
-// after-the-fact record labeling - see clockEvents.ts) and
-// redeemTempClockLink (synchronous, before-the-write enforcement - see
-// tempClockLinks.ts). Kept here so those two entry points can never
-// disagree about what "inside"/"outside" or a denial message means.
+// Geofencing (Pro) - used by onClockEventCreated for after-the-fact record
+// labeling (see clockEvents.ts): every clock-in is always allowed through,
+// just classified/flagged as inside or outside the fence.
 //
 // Never trust a classification the client sent - only ever compute it
 // here, from the raw lat/lng and the site's own stored location/radius.
@@ -177,53 +175,4 @@ export function formatGeofenceDistance(meters: number): string {
   }
   const miles = meters / 1609.344;
   return `${miles.toFixed(1)} mi`;
-}
-
-export type EnforcementMode = "flag" | "requireReason" | "block";
-
-export interface EnforcementResult {
-  allowed: boolean;
-  requiresReason: boolean;
-  // Set whenever allowed is false, or requiresReason is true and no
-  // reason was given yet - callers append their own surface-specific
-  // suffix (e.g. the temp link's "Ask your supervisor to clock you in.").
-  denialMessage?: string;
-}
-
-// Only meaningful for status === "outside" - callers should skip this
-// entirely (allowed: true) when classifyGeofence/detectSite found the
-// worker inside, or when the site isn't geofenced at all. siteName is
-// null when auto-detection didn't land inside any fence at all (no
-// single site to name in the message).
-export function evaluateEnforcement({
-  distanceM,
-  mode,
-  siteName,
-  hasReason,
-}: {
-  distanceM: number | null;
-  mode: EnforcementMode;
-  siteName: string | null;
-  hasReason: boolean;
-}): EnforcementResult {
-  const distancePhrase =
-    distanceM != null && siteName
-      ? `You're ${formatGeofenceDistance(distanceM)} from ${siteName}.`
-      : distanceM != null
-        ? `You're ${formatGeofenceDistance(distanceM)} from the nearest job site.`
-        : siteName
-          ? `We couldn't confirm your location near ${siteName}.`
-          : "We couldn't confirm your location near a job site.";
-
-  if (mode === "flag") {
-    return { allowed: true, requiresReason: false };
-  }
-  if (mode === "requireReason") {
-    return {
-      allowed: hasReason,
-      requiresReason: true,
-      denialMessage: hasReason ? undefined : "A reason is required to clock in from this location.",
-    };
-  }
-  return { allowed: false, requiresReason: false, denialMessage: distancePhrase };
 }

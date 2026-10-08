@@ -128,7 +128,6 @@ interface CompanyAlertContext {
   businessHoursOpen: string;
   businessHoursClose: string;
   gracePeriodMinutes: number;
-  autoClockOut: boolean;
   weeklyOvertimeThreshold: number;
   // Face Verification (Pro) - company.faceVerification.alertsEnabled,
   // default true when missing (see FACE_VERIFICATION_SPEC.md). Checks
@@ -153,7 +152,6 @@ async function getCompanyAlertContext(companyId: string): Promise<CompanyAlertCo
     businessHoursOpen: data.businessHours?.open ?? "08:00",
     businessHoursClose: data.businessHours?.close ?? "17:00",
     gracePeriodMinutes: data.attendanceRules?.gracePeriodMinutes ?? 0,
-    autoClockOut: data.attendanceRules?.autoClockOut ?? false,
     weeklyOvertimeThreshold: data.weeklyOvertimeThreshold ?? 40,
     faceAlertsEnabled: data.faceVerification?.alertsEnabled !== false,
   };
@@ -635,8 +633,8 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
   const now = new Date();
   const eventsRef = companyDoc.ref.collection("clockEvents");
 
-  // Same 3-day lookback autoClockOutStaleSessions already uses - enough
-  // to find every employee's latest event without scanning full history.
+  // 3-day lookback - enough to find every employee's latest event without
+  // scanning full history.
   const lookbackStart = admin.firestore.Timestamp.fromMillis(now.getTime() - 3 * 24 * 60 * 60 * 1000);
   const recentSnap = await eventsRef.where("timestamp", ">=", lookbackStart).orderBy("timestamp", "desc").get();
   const recentEvents = recentSnap.docs.map(toMinimalEvent).filter((e): e is MinimalClockEvent => e !== null);
@@ -725,10 +723,8 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
     }
   }
 
-  // Missed Clock Out - only meaningful when auto clock-out is off (if
-  // it's on, the nightly autoClockOutStaleSessions sweep already closes
-  // these silently, same guard dashboardOverviewUtils.ts uses).
-  if (alerts.missedClockOutAlert && !ctx.autoClockOut) {
+  // Missed Clock Out
+  if (alerts.missedClockOutAlert) {
     for (const event of currentlyActive) {
       const d = effectiveDate(event);
       if (!d || localDateKey(d) === localDateKey(now)) continue;

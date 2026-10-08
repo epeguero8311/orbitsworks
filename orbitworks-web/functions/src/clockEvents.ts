@@ -1,6 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onDocumentCreated, type FirestoreEvent } from "firebase-functions/v2/firestore";
-import { onSchedule } from "firebase-functions/v2/scheduler";
 import { defineBoolean } from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import { Timestamp } from "firebase-admin/firestore";
@@ -309,9 +308,8 @@ export const onClockEventCreated = onDocumentCreated(
     // it can appear in an approved Excel export. Only fires for
     // type == "in" - breakStart/breakEnd/out belong to a session whose
     // approval doc was already created when that session's "in" fired.
-    // NOTE: date is derived from the function's server timezone, same
-    // simplification autoClockOutStaleSessions already makes - a clock-in
-    // right around midnight could land on the "wrong" date row.
+    // NOTE: date is derived from the function's server timezone - a
+    // clock-in right around midnight could land on the "wrong" date row.
     const isReasonedOverride =
       data.source === "supervisorOverride" &&
       typeof data.reason === "string" &&
@@ -555,104 +553,6 @@ export const onClockEventCreated = onDocumentCreated(
       await checkFaceMatch(companyId, event.params.eventId);
     } catch (err) {
       console.warn("Face check failed", { eventId: event.params.eventId, companyId, error: String(err) });
-    }
-  }
-);
-
-export const autoClockOutStaleSessions = onSchedule(
-  { schedule: "0 23 * * *", timeZone: "America/Chicago" },
-  async () => {
-    const companiesSnap = await db.collection("companies").get();
-
-    for (const companyDoc of companiesSnap.docs) {
-      const company = companyDoc.data() as {
-        attendanceRules?: { autoClockOut?: boolean };
-        businessHours?: { close?: string };
-      };
-
-      if (!company.attendanceRules || !company.attendanceRules.autoClockOut) continue;
-
-      const closeTimeStr = company.businessHours && company.businessHours.close
-        ? company.businessHours.close
-        : "17:00";
-      const closeParts = closeTimeStr.split(":").map(Number);
-      const closeH = closeParts[0];
-      const closeM = closeParts[1];
-
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-
-      const lookbackStart = admin.firestore.Timestamp.fromMillis(
-        todayStart.getTime() - 3 * 24 * 60 * 60 * 1000
-      );
-
-      const eventsRef = companyDoc.ref.collection("clockEvents");
-      const recentEventsSnap = await eventsRef
-        .where("timestamp", ">=", lookbackStart)
-        .orderBy("timestamp", "desc")
-        .get();
-
-      type LatestEvent = {
-        type: string;
-        timestamp: admin.firestore.Timestamp;
-        siteId: string | null;
-        siteName: string;
-        employeeName: string;
-      };
-
-      const latestByEmployee = new Map<string, LatestEvent>();
-
-      recentEventsSnap.docs.forEach((eventDoc) => {
-        const data = eventDoc.data() as {
-          employeeId: string;
-          employeeName: string;
-          type: string;
-          timestamp: admin.firestore.Timestamp;
-          siteId: string | null;
-          siteName: string;
-        };
-        if (!latestByEmployee.has(data.employeeId)) {
-          latestByEmployee.set(data.employeeId, {
-            type: data.type,
-            timestamp: data.timestamp,
-            siteId: data.siteId,
-            siteName: data.siteName,
-            employeeName: data.employeeName,
-          });
-        }
-      });
-
-      const batch = db.batch();
-      let hasWrites = false;
-
-      latestByEmployee.forEach((latest, employeeId) => {
-        if (latest.type !== "in") return;
-
-        const eventDate = latest.timestamp.toDate();
-        if (eventDate >= todayStart) return;
-
-        const closeTimestamp = new Date(eventDate);
-        closeTimestamp.setHours(closeH, closeM, 0, 0);
-
-        const newEventRef = companyDoc.ref.collection("clockEvents").doc();
-        batch.set(newEventRef, {
-          employeeId: employeeId,
-          employeeName: latest.employeeName,
-          siteId: latest.siteId,
-          siteName: latest.siteName,
-          type: "out",
-          source: "autoClockOut",
-          note: "Automatically clocked out - session left open from a prior day",
-          createdByUid: "system",
-          timestamp: admin.firestore.Timestamp.fromDate(closeTimestamp),
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        hasWrites = true;
-      });
-
-      if (hasWrites) {
-        await batch.commit();
-      }
     }
   }
 );

@@ -44,7 +44,7 @@ function setFlags({ alertsFeed, pushEnabled, testCompanyIds }) {
 async function seedCompany(companyId, overrides = {}) {
   await db.collection("companies").doc(companyId).set({
     businessHours: { open: "08:00", close: "17:00" },
-    attendanceRules: { gracePeriodMinutes: 0, autoClockOut: false },
+    attendanceRules: { gracePeriodMinutes: 0 },
     weeklyOvertimeThreshold: 40,
     alerts: {
       maxHoursWarning: true,
@@ -532,7 +532,7 @@ test("maxHours fires via the periodic sweep", async () => {
   assert.equal(snap.size, 1);
 });
 
-test("missedClockOut fires via the periodic sweep (autoClockOut off)", async () => {
+test("missedClockOut fires via the periodic sweep", async () => {
   const companyId = "c11";
   await seedCompany(companyId);
   setFlags({ alertsFeed: true, pushEnabled: false });

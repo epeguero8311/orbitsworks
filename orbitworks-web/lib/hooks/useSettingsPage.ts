@@ -10,12 +10,10 @@ import {
   AttendanceRules,
   Alerts,
   AppSettings,
-  EnforcementMode,
   FaceVerificationSettings,
   DEFAULT_ATTENDANCE_RULES,
   DEFAULT_ALERTS,
   DEFAULT_APP_SETTINGS,
-  DEFAULT_GEOFENCING_SETTINGS,
   DEFAULT_EXPORT_SETTINGS,
   DEFAULT_FACE_VERIFICATION_SETTINGS,
 } from "@/lib/hooks/useCompanySettings";
@@ -42,9 +40,6 @@ export function useSettingsPage() {
   const [alerts, setAlerts] = useState<Alerts>(DEFAULT_ALERTS);
   const [appSettings, setAppSettings] = useState<AppSettings>(
     DEFAULT_APP_SETTINGS
-  );
-  const [enforcementMode, setEnforcementMode] = useState<EnforcementMode>(
-    DEFAULT_GEOFENCING_SETTINGS.enforcementMode
   );
   const [isPro, setIsPro] = useState(false);
   const [exportSettings, setExportSettings] = useState<ExportSettings>(
@@ -92,10 +87,6 @@ export function useSettingsPage() {
             ...DEFAULT_APP_SETTINGS,
             ...(data.appSettings ?? {}),
           });
-          setEnforcementMode(
-            (data.geofencing?.enforcementMode as EnforcementMode) ??
-              DEFAULT_GEOFENCING_SETTINGS.enforcementMode
-          );
           setIsPro(isProPlan(data.planTier));
           setExportSettings({
             ...DEFAULT_EXPORT_SETTINGS,
@@ -156,7 +147,6 @@ export function useSettingsPage() {
         attendanceRules,
         alerts,
         appSettings,
-        geofencing: { enforcementMode },
         exportSettings,
         faceVerification,
       });
@@ -194,8 +184,6 @@ export function useSettingsPage() {
     setAlerts,
     appSettings,
     setAppSettings,
-    enforcementMode,
-    setEnforcementMode,
     isPro,
     exportSettings,
     setExportSettings,

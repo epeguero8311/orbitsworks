@@ -3,8 +3,8 @@ export const DEVICE_NAME_MAX_LENGTH = 24;
 
 // Mirrors lib/validators/device.ts's deviceNameSchema on orbitworks-web -
 // keep both in sync by hand (no shared package across the app/web
-// boundary, same convention as OverrideReasonScreen.js/GeofenceReasonScreen.js's
-// MIN_LENGTH/MAX_LENGTH constants).
+// boundary, same convention as OverrideReasonScreen.js's MIN_LENGTH/
+// MAX_LENGTH constants).
 export function validateDeviceName(name) {
   const trimmed = (name ?? "").trim();
   if (trimmed.length < DEVICE_NAME_MIN_LENGTH) {

@@ -1,42 +1,29 @@
 import { getDb } from "./db";
 
-// Geofencing (Pro) auto site detection + hybrid checking - on-device,
-// best-effort site detection against the sites_cache/sync_meta rows
-// pinSync.js's syncPinTable() populates. There is no site picker anymore
-// once a company has any fenced site at all (see hasFencedSites below) -
-// the app has to find the matching site itself, the same way the server
-// does.
+// Geofencing (Pro) auto site detection - on-device, best-effort site
+// detection against the sites_cache/sync_meta rows pinSync.js's
+// syncPinTable() populates. There is no site picker anymore once a
+// company has any located site at all (see hasLocatedSites below) - the
+// app has to find the matching site itself, the same way the server does.
 //
-// This exists purely to drive the immediate clock-in UX (which screen to
-// show, Block/Require-reason modes only - "Flag mode does no check" per
-// spec, since nothing here can ever block or require a reason in that
-// mode anyway) with no signal at all. It is never trusted as the
-// authoritative record: the saved event's real siteId/geofenceStatus is
-// always recomputed server-side once it syncs (onClockEventCreated), from
-// the same raw lat/lng this device captured, independent of whatever this
-// file concluded, and the client is blocked (firestore.rules) from ever
-// writing those fields itself.
+// This exists purely to populate the optimistic queued event before it
+// syncs. It is never trusted as the authoritative record: the saved
+// event's real siteId/geofenceStatus is always recomputed server-side
+// once it syncs (onClockEventCreated), from the same raw lat/lng this
+// device captured, independent of whatever this file concluded, and the
+// client is blocked (firestore.rules) from ever writing those fields
+// itself. Geofencing itself is always flag-only - nothing here ever
+// blocks a clock-in or requires a reason.
 //
 // detectSiteLocal below is duplicated from functions/src/geofencing.ts's
 // detectSite - same convention as isProPlan elsewhere in this app, since
 // nothing can be imported across the app/functions package boundary.
-
-const METERS_PER_FOOT = 0.3048;
 
 // Mirrors functions/src/geofencing.ts's own copy (same cross-package
 // duplication convention as isProPlan elsewhere) - the fallback "on site"
 // radius for a located site that was never asked to save its own radius,
 // because geofencing was never turned on for it.
 const DEFAULT_SITE_RADIUS_METERS = 150;
-
-function formatDistance(meters) {
-  const feet = meters / METERS_PER_FOOT;
-  if (feet < 1000) {
-    return `${Math.round(feet)} ft`;
-  }
-  const miles = meters / 1609.344;
-  return `${miles.toFixed(1)} mi`;
-}
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -90,28 +77,15 @@ function detectSiteLocal(location, accuracyM, sites) {
 async function getCachedSettings() {
   const db = await getDb();
   const rows = await db.getAllAsync(
-    "SELECT key, value FROM sync_meta WHERE key IN ('isPro', 'geofenceEnforcementMode', 'hasFencedSites', 'hasLocatedSites')"
+    "SELECT key, value FROM sync_meta WHERE key IN ('isPro', 'hasLocatedSites')"
   );
   const byKey = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   return {
     isPro: byKey.isPro === "1",
-    enforcementMode: byKey.geofenceEnforcementMode || "flag",
-    hasFencedSites: byKey.hasFencedSites === "1",
     hasLocatedSites: byKey.hasLocatedSites === "1",
   };
 }
 
-async function getCachedFencedSites() {
-  const db = await getDb();
-  return db.getAllAsync(
-    `SELECT * FROM sites_cache
-     WHERE active = 1 AND requireGeofence = 1 AND lat IS NOT NULL AND lng IS NOT NULL AND radiusMeters IS NOT NULL`
-  );
-}
-
-// Broader than getCachedFencedSites above - every active, located site,
-// geofenced or not (Geofencing Part 5: requireGeofence gates enforcement
-// only, not whether a site can be matched at all).
 async function getCachedLocatedSites() {
   const db = await getDb();
   return db.getAllAsync(
@@ -123,8 +97,7 @@ async function getCachedLocatedSites() {
 // attribution instead - a Pro company with at least one active, located
 // site (fenced or not). ClockCameraScreen checks this before deciding
 // whether to use SiteSessionContext's selectedSite (today's flow) or
-// detection. Enforcement (block/require-reason) is a separate, narrower
-// gate - see checkGeofenceForClockIn below.
+// detection.
 export async function isAutoDetectionActive() {
   const settings = await getCachedSettings();
   return settings.isPro && settings.hasLocatedSites;
@@ -159,42 +132,4 @@ export async function getSitesForEmployeePicker(employee) {
         )
       : await db.getAllAsync(`SELECT * FROM sites_cache WHERE active = 1 ORDER BY name`);
   return rows.map((row) => ({ id: row.siteId, name: row.name }));
-}
-
-// Returns { applicable: false } for anything not subject to on-device
-// checking at all: Core plan, a Pro company with no fenced sites ("keep
-// today's flow exactly"), or Flag mode (which never blocks or requires a
-// reason, so there's nothing for this check to decide - the server still
-// detects the site and flags the event asynchronously either way).
-//
-// Otherwise returns:
-//   { applicable: true, status, distanceM, mode, siteId, siteName,
-//     action: "proceed" | "requireReason" | "block", message? }
-// siteId/siteName are this device's own best-effort detected site (or
-// null when nothing matched) - purely to populate the optimistic queued
-// event; the server may still correct it once the event syncs.
-export async function checkGeofenceForClockIn({ location, locationAccuracyM }) {
-  const settings = await getCachedSettings();
-  if (!settings.isPro || !settings.hasFencedSites) return { applicable: false };
-  if (settings.enforcementMode === "flag") return { applicable: false };
-
-  const sites = await getCachedFencedSites();
-  if (sites.length === 0) return { applicable: false };
-
-  const { status, distanceM, siteId, siteName } = detectSiteLocal(location, locationAccuracyM, sites);
-  const mode = settings.enforcementMode;
-
-  if (status === "inside") {
-    return { applicable: true, status, distanceM, mode, siteId, siteName, action: "proceed" };
-  }
-
-  if (mode === "requireReason") {
-    return { applicable: true, status, distanceM, mode, siteId, siteName, action: "requireReason" };
-  }
-
-  const message =
-    distanceM != null
-      ? `You're ${formatDistance(distanceM)} from the nearest job site.`
-      : "We couldn't confirm your location near a job site.";
-  return { applicable: true, status, distanceM, mode, siteId, siteName, action: "block", message };
 }

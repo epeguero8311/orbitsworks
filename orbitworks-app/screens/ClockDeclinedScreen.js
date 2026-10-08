@@ -2,9 +2,8 @@ import { useEffect } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { recordDeclinedClockIn } from "../lib/declinedClockIns";
 
-// Geofencing (Pro) auto site detection - reached from ClockCameraScreen for
-// any declined/failed clock-in (Block-mode geofence denial, a deactivated
-// employee, etc.), not just geofencing. Mirrors ClockConfirmScreen's exact
+// Reached from ClockCameraScreen for a declined/failed clock-in (e.g. a
+// deactivated employee). Mirrors ClockConfirmScreen's exact
 // layout (same success confirmation the worker just saw) but red, and
 // stays up longer (~5s vs ~2s) since there's more to read. Purely
 // informational - no "Ask a Supervisor" button; a supervisor can still

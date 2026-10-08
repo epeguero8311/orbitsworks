@@ -3,8 +3,6 @@
 import { useSettingsPage } from "@/lib/hooks/useSettingsPage";
 import { CompanyProfileCard } from "@/components/dashboard/settings/CompanyProfileCard";
 import { BusinessHoursCard } from "@/components/dashboard/settings/BusinessHoursCard";
-import { AttendanceRulesCard } from "@/components/dashboard/settings/AttendanceRulesCard";
-import { GeofencingCard } from "@/components/dashboard/settings/GeofencingCard";
 import { ExportSettingsCard } from "@/components/dashboard/settings/ExportSettingsCard";
 import { AlertsCard } from "@/components/dashboard/settings/AlertsCard";
 import { AppSettingsCard } from "@/components/dashboard/settings/AppSettingsCard";
@@ -37,17 +35,10 @@ export default function SettingsPage() {
             onBusinessOpenChange={s.setBusinessOpen}
             businessClose={s.businessClose}
             onBusinessCloseChange={s.setBusinessClose}
-          />
-
-          <AttendanceRulesCard
-            attendanceRules={s.attendanceRules}
-            setAttendanceRules={s.setAttendanceRules}
-          />
-
-          <GeofencingCard
-            isPro={s.isPro}
-            enforcementMode={s.enforcementMode}
-            onEnforcementModeChange={s.setEnforcementMode}
+            gracePeriodMinutes={s.attendanceRules.gracePeriodMinutes}
+            onGracePeriodMinutesChange={(v) =>
+              s.setAttendanceRules((prev) => ({ ...prev, gracePeriodMinutes: v }))
+            }
           />
 
           <DevicesCard isPro={s.isPro} />

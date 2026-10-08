@@ -1,5 +1,9 @@
-{
+﻿{
   "projects": {
-    "default": "orbitworks-7ef59"
-  }
+    "default": "orbitworks-dev-ew",
+    "dev": "orbitworks-dev-ew",
+    "prod": "orbitworks-7ef59"
+  },
+  "targets": {},
+  "etags": {}
 }

@@ -25,7 +25,6 @@ export {
 
 export {
   onClockEventCreated,
-  autoClockOutStaleSessions,
   correctClockEvent,
   reassignClockEvent,
   assignSessionSite,

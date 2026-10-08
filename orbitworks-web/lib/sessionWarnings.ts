@@ -159,11 +159,13 @@ export function evaluateSessionWarnings(input: EvaluateSessionWarningsInput): Se
     );
   }
 
-  // The only signal a CLOSED session carries of a missed clock-out: the
-  // nightly stale-session sweep (functions/src/clockEvents.ts's
-  // autoClockOutStaleSessions) closed it on the employee's behalf. The
-  // "still open" missed-clock-out case is a different, already-working
-  // system (the Overview alerts feed) and can't apply to a closed row.
+  // The only signal a CLOSED session carries of a missed clock-out: a
+  // legacy "autoClockOut"-sourced event, written by the old nightly
+  // stale-session sweep (now removed - see git history) back when a
+  // company had that setting on. Historical events only; nothing creates
+  // this source anymore. The "still open" missed-clock-out case is a
+  // different, already-working system (the Overview alerts feed) and
+  // can't apply to a closed row.
   if (alerts.missedClockOutAlert && clockOutEvent.source === "autoClockOut") {
     const outTs = effectiveTimestamp(clockOutEvent);
     if (outTs) {

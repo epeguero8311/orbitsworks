@@ -32,8 +32,7 @@ export interface PickedLocation {
 // verified location is available (the address was never picked from Places
 // autocomplete, and - for an edit - the site doesn't already have saved
 // coordinates from before this feature existed). Callers (SitesSection.tsx,
-// useEditSiteModal.ts) show err.message directly, same pattern as
-// ClockValidationError in useClockEvents.ts.
+// useEditSiteModal.ts) show err.message directly.
 export class AddressNotVerifiedError extends Error {}
 
 function radiusMetersFrom(input: JobSiteInput): number {

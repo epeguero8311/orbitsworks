@@ -8,9 +8,6 @@ import { isProPlan } from "@/lib/stripe/tiers";
 import type { ExportSettings } from "@/lib/types";
 
 export type AttendanceRules = {
-  allowEarlyClockIn: boolean;
-  allowLateClockOut: boolean;
-  autoClockOut: boolean;
   gracePeriodMinutes: number;
   requireOverrideReason: boolean;
 };
@@ -23,8 +20,9 @@ export type Alerts = {
   missedClockOutMinutes: number;
   maxBreakWarning: boolean;
   maxBreakMinutes: number;
-  // Alert logic itself ships in Part 4 of Geofencing - this is just the
-  // saved preference for now (see GeofencingCard, AlertsCard).
+  // Controls the "Clocked in outside geofence" alert (see AlertsCard).
+  // Geofence enforcement itself is always flag-only - this toggle is the
+  // only knob left.
   clockedInOutsideGeofence: boolean;
   // Auto site detection - fires when a clock-in's detected site isn't one
   // of the employee's own assignedSiteIds. Info-only, never blocks (see
@@ -50,40 +48,6 @@ export type AppSettings = {
   askJobSiteEachTime: boolean;
 };
 
-// Geofencing (Pro) Part 2 - company-wide enforcement mode. Clock-outs are
-// never affected by any mode; only flagged, never blocked (see
-// GeofencingCard's always-shown note). Read by clock-in enforcement in
-// Part 3 and the alert in Part 4 - this module is the shared read model
-// for both the Settings form and those later consumers.
-export type EnforcementMode = "flag" | "requireReason" | "block";
-
-export type GeofencingSettings = {
-  enforcementMode: EnforcementMode;
-};
-
-export const ENFORCEMENT_MODE_OPTIONS: {
-  value: EnforcementMode;
-  label: string;
-  description: string;
-}[] = [
-  {
-    value: "flag",
-    label: "Flag only",
-    description: "Clock-in goes through and is marked as outside the geofence.",
-  },
-  {
-    value: "requireReason",
-    label: "Require reason",
-    description:
-      "The worker must type a reason before the clock-in goes through; it's still flagged.",
-  },
-  {
-    value: "block",
-    label: "Block",
-    description: "Clock-in is denied unless a supervisor overrides it.",
-  },
-];
-
 export type CompanySettings = {
   name: string | null;
   logoUrl: string | null;
@@ -93,15 +57,11 @@ export type CompanySettings = {
   attendanceRules: AttendanceRules;
   alerts: Alerts;
   appSettings: AppSettings;
-  geofencing: GeofencingSettings;
   exportSettings: ExportSettings;
   faceVerification: FaceVerificationSettings;
 };
 
 export const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
-  allowEarlyClockIn: true,
-  allowLateClockOut: true,
-  autoClockOut: false,
   gracePeriodMinutes: 0,
   requireOverrideReason: true,
 };
@@ -124,12 +84,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   allowSupervisorOverride: true,
   allowAppEmployeeCreate: true,
   askJobSiteEachTime: true,
-};
-
-// Existing companies with no saved geofencing value behave as "Flag only"
-// - see the CompanySettings.geofencing merge below and in useSettingsPage.
-export const DEFAULT_GEOFENCING_SETTINGS: GeofencingSettings = {
-  enforcementMode: "flag",
 };
 
 export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
@@ -161,7 +115,6 @@ const DEFAULT_SETTINGS: CompanySettings = {
   attendanceRules: DEFAULT_ATTENDANCE_RULES,
   alerts: DEFAULT_ALERTS,
   appSettings: DEFAULT_APP_SETTINGS,
-  geofencing: DEFAULT_GEOFENCING_SETTINGS,
   exportSettings: DEFAULT_EXPORT_SETTINGS,
   faceVerification: DEFAULT_FACE_VERIFICATION_SETTINGS,
 };
@@ -198,10 +151,6 @@ export function useCompanySettings() {
         appSettings: {
           ...DEFAULT_APP_SETTINGS,
           ...(data.appSettings ?? {}),
-        },
-        geofencing: {
-          ...DEFAULT_GEOFENCING_SETTINGS,
-          ...(data.geofencing ?? {}),
         },
         exportSettings: {
           ...DEFAULT_EXPORT_SETTINGS,

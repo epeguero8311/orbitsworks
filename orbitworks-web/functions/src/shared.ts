@@ -39,8 +39,7 @@ export function isOverTotalCap(company: EmployeeCapFields | undefined): boolean 
 export const OVERRIDE_REASON_MIN_LENGTH = 10;
 export const OVERRIDE_REASON_MAX_LENGTH = 500;
 
-// Matches the timezone autoClockOutStaleSessions already uses for its
-// schedule. Cloud Functions' runtime clock reads in UTC by default, so
+// Cloud Functions' runtime clock reads in UTC by default, so
 // computing a "which calendar day is this" date key with raw
 // Date.getFullYear()/getMonth()/getDate() silently shifts any evening
 // event (e.g. after ~7 PM Central) onto the next day once UTC crosses

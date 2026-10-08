@@ -48,11 +48,6 @@ export const createCompany = onCall(async (request) => {
     businessHours: { open: "08:00", close: "17:00" },
     weeklyOvertimeThreshold: 40,
     overtimeMultiplier: 1.5,
-    attendanceRules: {
-      allowEarlyClockIn: true,
-      allowLateClockOut: true,
-      autoClockOut: false,
-    },
     alerts: {
       maxHoursWarning: true,
       overtimeWarning: true,

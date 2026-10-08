@@ -23,8 +23,6 @@ import type { ClockEvent, Employee, JobSite } from "@/lib/types";
 
 export type ClockDirection = "in" | "out" | "breakStart" | "breakEnd";
 
-export class ClockValidationError extends Error {}
-
 export type ClockEventSearchFilters = {
   employeeId?: string;
   siteId?: string;
@@ -109,12 +107,12 @@ export function useClockEvents() {
 
   // True when an employee's current status is "in"/"break" only because
   // their session was never closed on a PRIOR day - not a real ongoing
-  // shift. This happens when the source that would normally clock them out
-  // (the mobile app, or the nightly autoClockOutStaleSessions job when a
-  // company has that setting off) never wrote the closing event. Without
-  // this, such an employee is permanently stuck: isEligibleFor("in") stays
-  // false forever, so they can never be selected to clock in again without
-  // first being manually clocked out as a separate step.
+  // shift. This happens when the mobile app never wrote the closing event
+  // (e.g. the employee forgot to clock out and never opened the app
+  // again). Without this, such an employee is permanently stuck:
+  // isEligibleFor("in") stays false forever, so they can never be selected
+  // to clock in again without first being manually clocked out as a
+  // separate step.
   function isStaleOpenSession(id: string): boolean {
     const status = statusOf(id);
     if (status === "out") return false;
@@ -139,37 +137,6 @@ export function useClockEvents() {
     note: string
   ) {
     if (!userData?.companyId || !currentUser) return;
-
-    const now = new Date();
-
-    if (direction === "in" || direction === "out") {
-      const [openH, openM] = settings.businessHours.open.split(":").map(Number);
-      const [closeH, closeM] = settings.businessHours.close.split(":").map(Number);
-      const businessOpenToday = new Date(now);
-      businessOpenToday.setHours(openH, openM, 0, 0);
-      const businessCloseToday = new Date(now);
-      businessCloseToday.setHours(closeH, closeM, 0, 0);
-
-      if (
-        direction === "in" &&
-        !settings.attendanceRules.allowEarlyClockIn &&
-        now < businessOpenToday
-      ) {
-        throw new ClockValidationError(
-          `Early clock-in isn't allowed before ${settings.businessHours.open}. Enable it in Settings if needed.`
-        );
-      }
-
-      if (
-        direction === "out" &&
-        !settings.attendanceRules.allowLateClockOut &&
-        now > businessCloseToday
-      ) {
-        throw new ClockValidationError(
-          `Late clock-out isn't allowed after ${settings.businessHours.close}. Enable it in Settings if needed.`
-        );
-      }
-    }
 
     const eventsRef = collection(
       db,

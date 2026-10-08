@@ -14,8 +14,6 @@ export async function syncPinTable() {
   const employees = result.data.employees || [];
   const sites = result.data.sites || [];
   const isPro = !!result.data.isPro;
-  const enforcementMode = result.data.enforcementMode || "flag";
-  const hasFencedSites = !!result.data.hasFencedSites;
   const hasLocatedSites = !!result.data.hasLocatedSites;
 
   const db = await getDb();
@@ -80,19 +78,10 @@ export async function syncPinTable() {
     "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('isPro', ?)",
     [isPro ? "1" : "0"]
   );
-  await db.runAsync(
-    "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('geofenceEnforcementMode', ?)",
-    [enforcementMode]
-  );
   // Geofencing (Pro) auto site detection - whether this company has any
-  // fenced+active site at all (enforcement gate - stays narrow) vs any
-  // active site with saved coordinates at all, fenced or not (attribution
-  // gate - decides whether to skip the manual picker). false on either
-  // means "keep today's flow exactly."
-  await db.runAsync(
-    "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('hasFencedSites', ?)",
-    [hasFencedSites ? "1" : "0"]
-  );
+  // active site with saved coordinates at all, fenced or not (decides
+  // whether to skip the manual picker). false means "keep today's flow
+  // exactly."
   await db.runAsync(
     "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('hasLocatedSites', ?)",
     [hasLocatedSites ? "1" : "0"]

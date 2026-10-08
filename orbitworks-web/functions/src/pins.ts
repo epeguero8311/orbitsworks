@@ -342,8 +342,6 @@ export const getPinSyncTable = onCall(async (request) => {
     .filter((e) => !!e.pin);
 
   const isPro = isProPlan(companySnap.data()?.planTier as string | undefined);
-  const enforcementMode =
-    (companySnap.data()?.geofencing?.enforcementMode as string | undefined) ?? "flag";
 
   const sites = sitesSnap.docs.map((doc) => {
     const data = doc.data();
@@ -358,15 +356,11 @@ export const getPinSyncTable = onCall(async (request) => {
     };
   });
 
-  // hasFencedSites gates on-device geofence ENFORCEMENT (block/require-
-  // reason) only - stays narrow, fenced-sites-only (see
-  // lib/geofenceCheck.js's checkGeofenceForClockIn). hasLocatedSites gates
-  // whether the app skips its manual site picker at all and attempts
-  // on-device ATTRIBUTION instead - broader, matches detectSite's own
-  // candidate pool in functions/src/geofencing.ts (any active site with
-  // saved coordinates, geofenced or not - Geofencing Part 5).
-  const hasFencedSites = isPro && sites.some((s) => s.active && s.requireGeofence);
+  // hasLocatedSites gates whether the app skips its manual site picker at
+  // all and attempts on-device ATTRIBUTION instead - matches detectSite's
+  // own candidate pool in functions/src/geofencing.ts (any active site
+  // with saved coordinates, geofenced or not).
   const hasLocatedSites = isPro && sites.some((s) => s.active && s.lat != null && s.lng != null);
 
-  return { employees, sites, isPro, enforcementMode, hasFencedSites, hasLocatedSites };
+  return { employees, sites, isPro, hasLocatedSites };
 });
