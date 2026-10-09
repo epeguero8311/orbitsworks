@@ -3,13 +3,15 @@ import { Feather } from "@expo/vector-icons";
 import { useTheme } from "../lib/ThemeContext";
 import { useSyncQueue } from "../lib/hooks/useSyncQueue";
 import ScreenHeader from "../components/ScreenHeader";
+import DevSyncFaultPanel from "../components/DevSyncFaultPanel";
 
 const ACTION_LABEL = { in: "Clock In", out: "Clock Out", breakStart: "Break Start", breakEnd: "Break End" };
-const STATUS_LABEL = { pending: "Waiting", syncing: "Syncing", synced: "Synced", failed: "Failed" };
+const STATUS_LABEL = { pending: "Waiting", syncing: "Syncing", synced: "Synced", failed: "Failed", dead: "Stuck" };
 
 function statusColor(status, colors) {
   if (status === "synced") return colors.green;
   if (status === "failed") return colors.red;
+  if (status === "dead") return colors.red;
   if (status === "syncing") return colors.accent;
   return colors.dotOff;
 }
@@ -20,11 +22,18 @@ function formatTime(ms) {
 
 export default function SyncQueueScreen() {
   const { colors } = useTheme();
-  const { items, online, syncing, syncNow } = useSyncQueue();
+  const { items, online, syncing, syncNow, retry } = useSyncQueue();
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Sync Queue" />
+
+      {/* Dev-only fault injection panel. __DEV__ is a compile-time literal
+          in a production bundle (false), so this whole block - including
+          the DevSyncFaultPanel import's usage - is dead code a release
+          build's minifier removes. See lib/syncFaults.js for the full
+          guarantee and the production checklist for how to verify it. */}
+      {__DEV__ && <DevSyncFaultPanel items={items} />}
 
       <View style={[styles.statusBar, { borderBottomColor: colors.border }]}>
         <View style={styles.statusLeft}>
@@ -71,6 +80,16 @@ export default function SyncQueueScreen() {
                   {item.lastError || "Sync failed"}
                 </Text>
                 <TouchableOpacity onPress={syncNow} disabled={syncing || !online}>
+                  <Text style={[styles.retry, { color: colors.accent }]}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {item.syncStatus === "dead" && (
+              <View style={styles.failedRow}>
+                <Text style={[styles.failedReason, { color: colors.red }]} numberOfLines={2}>
+                  Gave up after {item.attempts} attempts: {item.lastError || "Sync failed"}
+                </Text>
+                <TouchableOpacity onPress={() => retry(item.localId)} disabled={syncing || !online}>
                   <Text style={[styles.retry, { color: colors.accent }]}>Retry</Text>
                 </TouchableOpacity>
               </View>
