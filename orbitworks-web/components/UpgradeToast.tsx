@@ -8,10 +8,12 @@ export function UpgradeToast({
   visible,
   onClose,
   message = "You've reached your employee limit.",
+  actionLabel = "Upgrade to add more →",
 }: {
   visible: boolean;
   onClose: () => void;
   message?: string;
+  actionLabel?: string;
 }) {
   useEffect(() => {
     if (!visible) return;
@@ -33,7 +35,7 @@ export function UpgradeToast({
             href="/dashboard/billing"
             className="mt-1.5 inline-block text-sm font-medium text-accent hover:text-accent-hover"
           >
-            Upgrade to add more &rarr;
+            {actionLabel}
           </Link>
         </div>
         <button

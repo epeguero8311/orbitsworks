@@ -31,6 +31,7 @@ export function EmployeesTable({
   employeeLimit?: number;
 }) {
   const [showUpgradeToast, setShowUpgradeToast] = useState(false);
+  const [showPastDueToast, setShowPastDueToast] = useState(false);
   const [companyFilter, setCompanyFilter] = useState("");
   const [showInactive, setShowInactive] = useState(false);
 
@@ -73,6 +74,8 @@ export function EmployeesTable({
       console.error("Toggle employee active error:", err);
       if (err?.code === "functions/resource-exhausted") {
         setShowUpgradeToast(true);
+      } else if (err?.code === "functions/failed-precondition") {
+        setShowPastDueToast(true);
       }
     }
   }
@@ -276,6 +279,12 @@ export function EmployeesTable({
         visible={showUpgradeToast}
         onClose={() => setShowUpgradeToast(false)}
         message="You've reached your employee limit."
+      />
+      <UpgradeToast
+        visible={showPastDueToast}
+        onClose={() => setShowPastDueToast(false)}
+        message="Your last payment failed. Reactivating employees is paused until it's resolved."
+        actionLabel={"Fix billing →"}
       />
     </div>
   );

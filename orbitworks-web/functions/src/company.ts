@@ -205,8 +205,14 @@ export const acceptInvite = onCall(async (request) => {
   }
 
   const companySnap = await companyRef.get();
-  const companyData = companySnap.data() as EmployeeCapFields | undefined;
+  const companyData = companySnap.data() as
+    | (EmployeeCapFields & { subscriptionStatus?: string })
+    | undefined;
 
+  if (companyData?.subscriptionStatus === "past_due") {
+    await admin.auth().deleteUser(uid);
+    throw new HttpsError("failed-precondition", "Subscription is past due.");
+  }
   if (isOverActiveCap(companyData)) {
     await admin.auth().deleteUser(uid);
     throw new HttpsError(
