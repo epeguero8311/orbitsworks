@@ -3,7 +3,7 @@ import NetInfo from "@react-native-community/netinfo";
 import { useAuth } from "../AuthContext";
 import { getDb } from "../db";
 import { subscribeQueueChange } from "../queueEvents";
-import { drainQueue, isQueueSyncing } from "../queueSync";
+import { drainQueue, isQueueSyncing, retryQueueItem } from "../queueSync";
 
 // How long a 'synced' row stays visible in the Sync Queue list after it
 // finishes, purely for display - separate from queueSync.js's own
@@ -13,8 +13,10 @@ const SYNCED_DISPLAY_MS = 3000;
 
 // Read-only view of event_queue for the Sync Queue tab. Refreshes off the
 // same notifyQueueChange pub/sub the offline overlay already uses, plus
-// connectivity changes - never polls, and never writes to the table, so
-// viewing this screen can't mutate, reorder, or drop anything queued.
+// connectivity changes - never polls, and never writes to the table
+// itself (retry() is the one deliberate exception - a human-initiated
+// un-dead-letter, not an automatic mutation), so viewing this screen
+// can't silently mutate, reorder, or drop anything queued.
 export function useSyncQueue() {
   const { userData } = useAuth();
   const companyId = userData?.companyId;
@@ -78,5 +80,17 @@ export function useSyncQueue() {
     if (companyId) drainQueue(companyId);
   }, [companyId]);
 
-  return { items, online, syncing, syncNow };
+  // Un-dead-letters a single row: resets attempts/lastError and puts it
+  // back to 'pending' so the next drain (triggered right after) will
+  // pick it up again. Dead rows are otherwise permanently excluded from
+  // drainQueue's own SELECT, so without this they would sit forever.
+  const retry = useCallback(
+    async (localId) => {
+      await retryQueueItem(localId);
+      if (companyId) drainQueue(companyId);
+    },
+    [companyId]
+  );
+
+  return { items, online, syncing, syncNow, retry };
 }
