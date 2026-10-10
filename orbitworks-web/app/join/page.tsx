@@ -129,8 +129,7 @@ function JoinForm() {
           );
         } else if (code === "functions/failed-precondition") {
           setError(
-            (err as { message?: string })?.message ||
-              "Your company's subscription is past due. Ask your admin to resolve billing before you can join."
+            "Your company's subscription is past due. Ask your admin to resolve billing before you can join."
           );
         } else {
           setError("Something went wrong. Try again.");
