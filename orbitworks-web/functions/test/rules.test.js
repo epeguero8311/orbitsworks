@@ -3,7 +3,8 @@
 // evaluation) via @firebase/rules-unit-testing.
 //
 // Usage: start `firebase emulators:start --only firestore` first, then
-// `node --test test/rules.test.js` from functions/.
+// `node --test test/rules.test.js` from functions/. Port must match
+// firebase.json's emulators.firestore.port.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -25,7 +26,7 @@ test.before(async () => {
     projectId: "orbitworks-rules-test",
     firestore: {
       host: "localhost",
-      port: 8080,
+      port: 8090,
       rules: fs.readFileSync(path.join(__dirname, "..", "..", "firestore.rules"), "utf8"),
     },
   });

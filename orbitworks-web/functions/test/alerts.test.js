@@ -8,7 +8,8 @@
 // machinery, which expects plain serializable field maps it can encode to
 // a Firestore proto - awkward for hand-built fixtures.
 process.env.GCLOUD_PROJECT = "orbitworks-func-test";
-process.env.FIRESTORE_EMULATOR_HOST = "localhost:8080";
+// Port must match firebase.json's emulators.firestore.port.
+process.env.FIRESTORE_EMULATOR_HOST = "localhost:8090";
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -27,7 +28,7 @@ const { db } = require("../lib/shared.js");
 
 async function clearFirestore() {
   await fetch(
-    `http://localhost:8080/emulator/v1/projects/${process.env.GCLOUD_PROJECT}/databases/(default)/documents`,
+    `http://localhost:8090/emulator/v1/projects/${process.env.GCLOUD_PROJECT}/databases/(default)/documents`,
     { method: "DELETE" }
   );
 }

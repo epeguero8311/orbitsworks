@@ -15,7 +15,8 @@
 // "c1" everywhere caused a flaky failure when run alongside alerts.test.js
 // (also using "c1") until each test got its own company id.
 process.env.GCLOUD_PROJECT = "orbitworks-rekognition-test";
-process.env.FIRESTORE_EMULATOR_HOST = "localhost:8080";
+// Port must match firebase.json's emulators.firestore.port.
+process.env.FIRESTORE_EMULATOR_HOST = "localhost:8090";
 // Dummy values - the real AWS client (RekognitionClient.prototype.send,
 // stubbed below) never actually reads these, but defineSecret(...).value()
 // reads straight from process.env in this non-emulated-Functions context
