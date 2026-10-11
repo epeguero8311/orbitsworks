@@ -58,7 +58,7 @@ export default function TempClockLinkPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-gray-950">Temp Clock-In Link</h1>
+      <h1 className="text-xl font-semibold text-gray-950">Temp Link</h1>
       <p className="mt-1 text-sm text-gray-600">
         Generate a short-lived link for one job site. Anyone who opens it can
         clock in or out with their PIN and a photo - no app install needed.
