@@ -32,6 +32,7 @@ export function AddEmployeeForm({
   const [error, setError] = useState("");
   const [createdPin, setCreatedPin] = useState<string | null>(null);
   const [showUpgradeToast, setShowUpgradeToast] = useState(false);
+  const [upgradeToastMessage, setUpgradeToastMessage] = useState("");
 
   const activeJobs = jobs.filter((j) => j.active);
   const activeSubcontractors = subcontractors.filter((s) => s.active);
@@ -101,6 +102,7 @@ export function AddEmployeeForm({
     } catch (err: any) {
       console.error("Add employee error:", err);
       if (err?.code === "functions/resource-exhausted") {
+        setUpgradeToastMessage(err.message || "You've reached your employee limit.");
         setShowUpgradeToast(true);
       } else if (err?.code === "functions/failed-precondition") {
         setError(err.message || "Subscription is past due.");
@@ -303,7 +305,7 @@ export function AddEmployeeForm({
       <UpgradeToast
         visible={showUpgradeToast}
         onClose={() => setShowUpgradeToast(false)}
-        message="You've reached your employee limit."
+        message={upgradeToastMessage}
       />
     </form>
   );
