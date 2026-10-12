@@ -1,6 +1,6 @@
 import NetInfo from "@react-native-community/netinfo";
 import * as FileSystem from "expo-file-system/legacy";
-import { doc, setDoc, Timestamp } from "firebase/firestore";
+import { doc, setDoc, getDoc, Timestamp } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import * as Sentry from "@sentry/react-native";
 import { db as firestoreDb, storage, auth } from "./firebase";
@@ -362,21 +362,63 @@ async function syncOne(sqlite, item, companyId) {
   } else if (__DEV__ && isFaultActive("failSetDoc")) {
     writePromise = Promise.reject(fakePermissionDeniedError());
   } else {
-    // Timing out here does NOT cancel the write - a Firestore setDoc()
-    // call that is already in flight when the timer fires may still
-    // reach the server and land later, there is no client-side way to
-    // abort it. That is fine: the doc id is this item's stable localId,
-    // so whether this timeout causes a retry (another setDoc with the
-    // same id) or the original delayed write lands after the retry
-    // already succeeded, isIdempotentReplay in firestore.rules only
-    // allows a same-identity replay of the same event - never a
-    // duplicate clock event, never a silently lost one.
-    writePromise = setDoc(eventRef, payload);
+    // merge: true, not a plain overwrite - this matters even for an
+    // ordinary first write, not just a retry. onClockEventCreated adds
+    // fields this payload never includes (geofenceStatus, siteAutoDetected,
+    // deviceId, etc. - see firestore.rules' clockEvents update denylist).
+    // A plain (non-merge) setDoc REPLACES the whole document, which would
+    // DELETE those server-added fields on any later write to this same
+    // id - and Firestore rules treat a removed field as an "affected key"
+    // just like a changed one, so that delete alone is enough to land on
+    // the denylist and get rejected with permission-denied, even though
+    // every client-owned field is byte-identical to what's already there.
+    // That is exactly the timeout-then-retry case this code exists to
+    // make safe: timing out here does NOT cancel the write, so a retry
+    // can run against a doc the original (merely slow) write already
+    // enriched. With merge: true, the retry only ever touches the fields
+    // listed in payload - every server-added field is left untouched on
+    // both sides of the diff, so isIdempotentReplay's identity check is
+    // what actually decides it, not an accidental field deletion.
+    writePromise = setDoc(eventRef, payload, { merge: true });
   }
 
   try {
     await withTimeout(writePromise, resolveTimeoutMs(FIRESTORE_WRITE_TIMEOUT_MS), "setDoc");
   } catch (err) {
+    // Belt-and-suspenders for the exact scenario merge:true exists to
+    // prevent, in case some other field or rule neither of us has
+    // thought of yet still causes a rejection: if the server says
+    // permission-denied, check whether a matching-identity document
+    // already exists under this id - if so, a prior attempt's write
+    // already landed for real, and this must count as synced, never
+    // Stuck. Only trusts a doc whose core identity fields match this
+    // item's own; never accepts an unrelated doc that happens to share
+    // the id.
+    if (err && err.code === "permission-denied") {
+      try {
+        const existingSnap = await getDoc(eventRef);
+        const existing = existingSnap.exists() ? existingSnap.data() : null;
+        if (
+          existing &&
+          existing.localId === item.localId &&
+          existing.employeeId === item.employeeId &&
+          existing.type === item.type &&
+          existing.createdByUid === item.createdByUid
+        ) {
+          Sentry.addBreadcrumb({
+            category: "queueSync",
+            message: "syncOne:alreadyLanded",
+            level: "info",
+            data: { localId: item.localId },
+          });
+          await finalizeSynced(sqlite, item, resolvedPhoto);
+          return;
+        }
+      } catch {
+        // Re-read itself failed - fall through to normal failure handling.
+      }
+    }
+
     // A genuine server rejection (rules denial, wrong account/company) -
     // attach exactly what we tried to write so Sentry shows the real
     // field values, not just that it failed (goal 11).
@@ -400,6 +442,13 @@ async function syncOne(sqlite, item, companyId) {
     data: { localId: item.localId },
   });
 
+  await finalizeSynced(sqlite, item, resolvedPhoto);
+}
+
+// Shared tail for both the normal success path and the "it already
+// landed under a prior attempt" fallback above - marks the row synced
+// and best-effort cleans up its local photo, identically either way.
+async function finalizeSynced(sqlite, item, resolvedPhoto) {
   // Do NOT delete on success - mark 'synced' and keep the row instead.
   // Deleting immediately opened a race: the local override in
   // useLocalStatusOverlay disappeared the instant this write finished,
