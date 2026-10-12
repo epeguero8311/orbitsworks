@@ -11,6 +11,11 @@
     "preview": {
       "distribution": "internal"
     },
+    "previewStore": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "environment": "preview"
+    },
     "production": {
       "autoIncrement": true
     }
