@@ -514,6 +514,32 @@ service cloud.firestore {
           isAdminOrOwner();
         allow write: if false;
       }
+
+      match /queueBackups/{localId} {
+        // Off-phone copy of a mobile offline-queue item's RAW local
+        // fields, written by the phone itself BEFORE the real sync/
+        // validation attempt (lib/queueSync.js backupItemIfNeeded) - so a
+        // punch that only ever existed in one phone's local SQLite still
+        // has a copy here even if it's later quarantined as invalid or
+        // never reaches Firestore as a real clockEvent. Admin/owner read
+        // only, same pattern as timesheetApprovals/overrideEvents.
+        //
+        // Deliberately does NOT check request.resource.data.createdByUid
+        // against anything - that field is the item's own (possibly
+        // corrupted/mismatched) content, exactly the kind of row this
+        // exists to preserve, so validating it here would reject the
+        // rows it's most needed for. backedUpByUid is a separate field
+        // the client sets to its OWN uid and is what's actually checked,
+        // so there's still a real, trustworthy record of who wrote it.
+        allow read: if request.auth != null &&
+          request.auth.token.companyId == companyId &&
+          isAdminOrOwner();
+        allow create, update: if request.auth != null &&
+          request.auth.token.companyId == companyId &&
+          request.resource.data.localId == localId &&
+          request.resource.data.backedUpByUid == request.auth.uid;
+        allow delete: if false;
+      }
     }
 
     // Help-chat telemetry - server-only, written by the Admin SDK from

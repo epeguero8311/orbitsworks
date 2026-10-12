@@ -181,6 +181,7 @@ export async function getDb() {
     "ALTER TABLE event_queue ADD COLUMN deviceNameSnapshot TEXT",
     "ALTER TABLE event_queue ADD COLUMN syncedAt INTEGER",
     "ALTER TABLE pin_cache ADD COLUMN lastEventTimestamp INTEGER",
+    "ALTER TABLE event_queue ADD COLUMN backedUp INTEGER NOT NULL DEFAULT 0",
   ];
   for (const migration of migrations) {
     try {

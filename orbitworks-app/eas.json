@@ -25,6 +25,11 @@
       "distribution": "internal",
       "channel": "preview"
     },
+    "previewStore": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "environment": "preview"
+    },
     "production": {
       "autoIncrement": true,
       "channel": "production"

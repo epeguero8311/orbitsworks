@@ -20,6 +20,26 @@ function formatTime(ms) {
   return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+// Translates a raw lastError (a timeout:<step> label, a validation:*
+// message, or a Firestore error code) into something a supervisor can
+// read without knowing what setDoc or getDownloadURL are. The raw value
+// stays in SQLite/Sentry for debugging - this is display-only.
+function describeError(lastError) {
+  if (!lastError) return "Sync failed";
+  if (lastError.startsWith("invalid:")) return lastError.slice("invalid:".length);
+  if (lastError.startsWith("timeout:photoStat") || lastError.startsWith("timeout:photoFetch") || lastError.startsWith("timeout:photoBlob")) {
+    return "Couldn't read the photo on this phone - will retry";
+  }
+  if (lastError.startsWith("timeout:uploadBytesResumable") || lastError.startsWith("timeout:getDownloadURL")) {
+    return "Couldn't upload the photo - will retry";
+  }
+  if (lastError.startsWith("timeout:setDoc") || lastError.startsWith("timeout:item")) {
+    return "Couldn't reach the server - will retry";
+  }
+  if (lastError.includes("permission-denied")) return "Server rejected this entry - contact support";
+  return lastError;
+}
+
 export default function SyncQueueScreen() {
   const { colors } = useTheme();
   const { items, online, syncing, syncNow, retry } = useSyncQueue();
@@ -77,7 +97,7 @@ export default function SyncQueueScreen() {
             {item.syncStatus === "failed" && (
               <View style={styles.failedRow}>
                 <Text style={[styles.failedReason, { color: colors.red }]} numberOfLines={2}>
-                  {item.lastError || "Sync failed"}
+                  {describeError(item.lastError)}
                 </Text>
                 <TouchableOpacity onPress={syncNow} disabled={syncing || !online}>
                   <Text style={[styles.retry, { color: colors.accent }]}>Retry</Text>
@@ -87,7 +107,7 @@ export default function SyncQueueScreen() {
             {item.syncStatus === "dead" && (
               <View style={styles.failedRow}>
                 <Text style={[styles.failedReason, { color: colors.red }]} numberOfLines={2}>
-                  Gave up after {item.attempts} attempts: {item.lastError || "Sync failed"}
+                  Gave up after {item.attempts} attempts: {describeError(item.lastError)}
                 </Text>
                 <TouchableOpacity onPress={() => retry(item.localId)} disabled={syncing || !online}>
                   <Text style={[styles.retry, { color: colors.accent }]}>Retry</Text>

@@ -6,6 +6,7 @@ import { isQueueSyncing } from "../lib/queueSync";
 import {
   getSyncFaults,
   subscribeSyncFaults,
+  setHangPhotoBlob,
   setHangUpload,
   setHangSetDoc,
   setFailSetDoc,
@@ -70,6 +71,13 @@ export default function DevSyncFaultPanel({ items }) {
 
       <Text style={[styles.sectionLabel, { color: colors.subtext }]}>Fault switches</Text>
 
+      <FaultRow
+        label="hangPhotoBlob"
+        hint="response.blob() on the local photo never resolves - the 1.0.10 root cause"
+        value={faults.hangPhotoBlob}
+        onChange={setHangPhotoBlob}
+        colors={colors}
+      />
       <FaultRow
         label="hangUpload"
         hint="uploadBytesResumable never resolves"
