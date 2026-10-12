@@ -26,6 +26,7 @@
 // it only flips in-memory switches that queueSync.js chooses to read.
 
 const defaultState = {
+  hangPhotoBlob: false,
   hangUpload: false,
   hangSetDoc: false,
   failSetDoc: false,
@@ -61,6 +62,10 @@ function setFlag(key, value) {
   if (!__DEV__) return;
   state = { ...state, [key]: value };
   notify();
+}
+
+export function setHangPhotoBlob(value) {
+  setFlag("hangPhotoBlob", value);
 }
 
 export function setHangUpload(value) {

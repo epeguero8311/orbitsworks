@@ -67,6 +67,7 @@ export async function getDb() {
     "ALTER TABLE event_queue ADD COLUMN reason TEXT",
     "ALTER TABLE event_queue ADD COLUMN overrideEventId TEXT",
     "ALTER TABLE event_queue ADD COLUMN syncedAt INTEGER",
+    "ALTER TABLE event_queue ADD COLUMN backedUp INTEGER NOT NULL DEFAULT 0",
   ];
   for (const migration of migrations) {
     try {

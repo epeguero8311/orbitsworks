@@ -3,12 +3,29 @@ import * as FileSystem from "expo-file-system/legacy";
 import { doc, setDoc, Timestamp } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import * as Sentry from "@sentry/react-native";
-import { db as firestoreDb, storage } from "./firebase";
+import { db as firestoreDb, storage, auth } from "./firebase";
 import { getDb } from "./db";
 import { notifyQueueChange } from "./queueEvents";
 import { isFaultActive, resolveTimeoutMs, hangForever, fakePermissionDeniedError } from "./syncFaults";
 
 let syncing = false;
+
+// Bumped every time a drain starts, and again whenever the stall
+// detector below forcibly abandons one. A drain captures its own value
+// at start (myEpoch) and checks it against the current one at every
+// checkpoint - success, failure, or the top of the next loop iteration.
+// If they no longer match, this drain has been abandoned (the lock was
+// forced open so a fresher drain could run) and must stop touching
+// anything immediately: no more SQLite writes, no more counters, no
+// clobbering a row a newer drain may have already finished. This is
+// what keeps "force the lock open" from re-introducing the two-drains-
+// at-once bug it exists to prevent.
+let currentEpoch = 0;
+
+// Which item (if any) the current drain is in the middle of - purely so
+// a stall report in Sentry says which punch was stuck, not just "a
+// drain" (see the stall detector in drainQueue).
+let inFlightLocalId = null;
 
 // Lets the Sync Queue tab show a live "syncing" state without polling -
 // it just reads this alongside its own notifyQueueChange-driven refresh.
@@ -24,34 +41,63 @@ const SYNCED_RETENTION_MS = 60 * 60 * 1000; // 1 hour
 
 // Per-step timeouts. None of these can actually abort Firestore/Storage
 // network work below the JS layer - they exist so a stalled step (e.g.
-// a radio that is "connected" but can't actually reach the internet)
-// rejects instead of hanging the for-loop in drainQueue forever. See
-// withTimeout/withUploadTimeout below. Every usage below goes through
-// resolveTimeoutMs() so the dev-only fault panel can shrink all of them
-// at once (lib/syncFaults.js) without touching these production values.
+// a radio that is "connected" but can't actually reach the internet, or
+// a corrupt local file that never finishes decoding) rejects instead of
+// hanging forever. Every usage below goes through resolveTimeoutMs() so
+// the dev-only fault panel can shrink all of them at once without
+// touching these production values.
+const PHOTO_STAT_TIMEOUT_MS = 10 * 1000;
 const PHOTO_FETCH_TIMEOUT_MS = 20 * 1000;
-const PHOTO_DOWNLOAD_URL_TIMEOUT_MS = 20 * 1000;
+const PHOTO_BLOB_TIMEOUT_MS = 20 * 1000;
 const PHOTO_UPLOAD_TIMEOUT_MS = 60 * 1000;
+const PHOTO_DOWNLOAD_URL_TIMEOUT_MS = 20 * 1000;
 const FIRESTORE_WRITE_TIMEOUT_MS = 30 * 1000;
 
-// Upper bound on how long a single drainQueue() pass may hold the
-// `syncing` lock. Exists purely so a hang that somehow isn't caught by
-// the per-step timeouts above (or any other bug) can never wedge the
-// lock open forever - see the watchdog in drainQueue.
-const DRAIN_WATCHDOG_MS = 5 * 60 * 1000;
+// Per-item ceiling (the 1.0.10 fix): the sum of every step above that a
+// single item can go through -
+//   photoStat(10) + photoFetch(20) + photoBlob(20) + upload(60) +
+//   getDownloadURL(20) + setDoc(30) = 160s worst case.
+// PER_ITEM_TIMEOUT_MS sits ~50s / ~31% above that sum, so it only ever
+// fires for a step with no timeout of its own - known or future - never
+// by racing a step that is already correctly timed. This is what
+// actually stops one item from blocking the rest of the queue: even a
+// completely unanticipated hang anywhere inside syncOne can cost this
+// item at most ~3.5 minutes before the loop moves on.
+const PER_ITEM_TIMEOUT_MS = 210 * 1000;
+
+// The backstop for a hang OUTSIDE the per-item loop (e.g. in getDb(),
+// the initial pending-rows query, or cleanupSyncedQueueItems()) - the
+// one class of hang the per-item timeout above cannot reach. An 85-item
+// drain grinding through items one at a time, each well under
+// PER_ITEM_TIMEOUT_MS, never comes close to this: it only fires when
+// NOTHING has finished in a long time, not because the drain has been
+// running for a while. That is the fix for the old fixed 5-minute
+// watchdog, which killed the whole pass on a clock, whether or not it
+// was making progress.
+const STALL_THRESHOLD_MS = 2 * PER_ITEM_TIMEOUT_MS; // 420s / 7 min
+const STALL_CHECK_INTERVAL_MS = 15 * 1000;
+
+// Best-effort timeouts for work that must never affect whether an item
+// counts as synced: backing it up and cleaning up its photo file after
+// success. Deliberately NOT part of the per-item budget above.
+const BACKUP_TIMEOUT_MS = 10 * 1000;
+const PHOTO_CLEANUP_TIMEOUT_MS = 10 * 1000;
 
 // After this many failed attempts, an item is parked as 'dead' instead
 // of being retried forever. Dead items are excluded from drainQueue but
 // never deleted - they keep their photo and lastError so a human can
-// inspect and manually retry from the Sync Queue tab.
+// inspect and manually retry from the Sync Queue tab. A structurally
+// invalid item (see validateQueueItem) skips straight to 'dead' - no
+// retry count can ever fix a missing employeeId, so burning 8 attempts
+// on it only delays quarantining it.
 const DEAD_LETTER_ATTEMPTS = 8;
 
 // Races `promise` against a timer. If the timer wins, rejects with an
 // Error whose message is `timeout:<label>` so Sentry/lastError make it
-// obvious which step stalled. Does not and cannot cancel `promise` itself
-// - see withUploadTimeout for the one step (upload) where cancellation is
-// actually possible, and the comment above the setDoc call for why an
-// uncancelled Firestore write is still safe.
+// obvious which step stalled. Does not and cannot cancel `promise`
+// itself - see withUploadTimeout for the one step (upload) where
+// cancellation is actually possible, and the comment above the setDoc
+// call for why an uncancelled Firestore write is still safe.
 function withTimeout(promise, ms, label) {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -94,14 +140,131 @@ function withUploadTimeout(task, ms, label) {
   });
 }
 
+// Reads a Response's body as a Blob, racing it against a timeout. This
+// is the exact gap the original 1.0.9 fix missed: fetch() resolving to
+// a Response is guarded, but decoding that Response's body never was.
+// On a bad local file (truncated, zero-byte, or otherwise unreadable),
+// this is the step that can hang with no network involved at all.
+function readBlobWithTimeout(response, ms, label) {
+  if (__DEV__ && isFaultActive("hangPhotoBlob")) return hangForever();
+  return withTimeout(response.blob(), ms, label);
+}
+
+const CLOCK_PHOTOS_DIR_NAME = "clockPhotos/";
+
+// Confirms a locally-stored photo is actually usable before spending a
+// network round trip on it, and repairs the one specific way a stored
+// path can go stale: iOS can change an app's container path across an
+// update, so an OLD absolute path baked in at save time (documentDirectory
+// + "clockPhotos/<file>") may no longer resolve even though the file
+// itself is still sitting at the same place under the CURRENT
+// documentDirectory. Only the "clockPhotos/<file>" suffix is trusted for
+// the repair - never an arbitrary path.
+//
+// Returns { uri, info } for a confirmed-usable file, or null if the
+// file is genuinely missing or empty even after the repair attempt.
+// Letting getInfoAsync's own timeout rejection propagate (rather than
+// catching it here) is deliberate: a stat call that itself hangs is not
+// positive proof the file is bad, so it must NOT be treated as "drop
+// the photo" - see uploadPhotoForItem's caller for that distinction.
+async function resolvePhotoUri(storedUri) {
+  const info = await withTimeout(
+    FileSystem.getInfoAsync(storedUri),
+    resolveTimeoutMs(PHOTO_STAT_TIMEOUT_MS),
+    "photoStat"
+  );
+  if (info.exists && info.size > 0) return { uri: storedUri, info };
+
+  const idx = storedUri.indexOf(CLOCK_PHOTOS_DIR_NAME);
+  if (idx !== -1) {
+    const repairedUri = `${FileSystem.documentDirectory}${storedUri.slice(idx)}`;
+    if (repairedUri !== storedUri) {
+      const repairedInfo = await withTimeout(
+        FileSystem.getInfoAsync(repairedUri),
+        resolveTimeoutMs(PHOTO_STAT_TIMEOUT_MS),
+        "photoStat"
+      );
+      if (repairedInfo.exists && repairedInfo.size > 0) return { uri: repairedUri, info: repairedInfo };
+    }
+  }
+  return null;
+}
+
 async function uploadPhoto(companyId, employeeId, localUri) {
   const response = await withTimeout(fetch(localUri), resolveTimeoutMs(PHOTO_FETCH_TIMEOUT_MS), "photoFetch");
-  const blob = await response.blob();
+  const blob = await readBlobWithTimeout(response, resolveTimeoutMs(PHOTO_BLOB_TIMEOUT_MS), "photoBlob");
   const filename = `${Date.now()}.jpg`;
   const photoRef = ref(storage, `companies/${companyId}/clockEvents/${employeeId}/${filename}`);
   const uploadTask = uploadBytesResumable(photoRef, blob);
   await withUploadTimeout(uploadTask, resolveTimeoutMs(PHOTO_UPLOAD_TIMEOUT_MS), "uploadBytesResumable");
   return withTimeout(getDownloadURL(photoRef), resolveTimeoutMs(PHOTO_DOWNLOAD_URL_TIMEOUT_MS), "getDownloadURL");
+}
+
+// Hard structural validation (goal 9): catches data that is broken, not
+// merely suspicious. Deliberately narrow - only fields that make the
+// item impossible to write or impossible to interpret at all. Never
+// attempts to fix or guess a value; a failure here always means
+// straight-to-dead quarantine, not a retry.
+function validateQueueItem(item) {
+  if (!item.localId || typeof item.localId !== "string") return "Missing localId";
+  if (!item.employeeId || typeof item.employeeId !== "string") return "Missing employee ID";
+  if (!item.createdByUid || typeof item.createdByUid !== "string") return "Missing createdByUid";
+  if (!["in", "out", "breakStart", "breakEnd"].includes(item.type)) {
+    return `Invalid clock type: ${JSON.stringify(item.type)}`;
+  }
+  if (!Number.isFinite(item.clientTimestamp) || item.clientTimestamp <= 0) return "Invalid clock time";
+  if (!Number.isFinite(item.createdAt) || item.createdAt <= 0) return "Invalid createdAt";
+  return null;
+}
+
+// Best-effort, one-time, off-phone copy of an item's raw local fields -
+// written BEFORE validation or sync so even a structurally-broken item
+// (which will never reach Firestore as a real clock event) still has
+// its original values preserved somewhere an admin can see them. Keyed
+// by localId (idempotent - safe to call again, and skipped entirely
+// once the local `backedUp` flag is set). A failure here is logged but
+// never allowed to block the real sync attempt - this is a safety net,
+// not another single point that can stall the queue.
+async function backupItemIfNeeded(sqlite, companyId, item) {
+  if (item.backedUp) return;
+  try {
+    const backupRef = doc(firestoreDb, "companies", companyId, "queueBackups", item.localId);
+    await withTimeout(
+      setDoc(backupRef, {
+        localId: item.localId,
+        employeeId: item.employeeId ?? null,
+        employeeName: item.employeeName ?? null,
+        siteId: item.siteId ?? null,
+        siteName: item.siteName ?? null,
+        type: item.type ?? null,
+        note: item.note ?? null,
+        source: item.source ?? null,
+        authorizedById: item.authorizedById ?? null,
+        authorizedByName: item.authorizedByName ?? null,
+        createdByUid: item.createdByUid ?? null,
+        clientTimestamp: item.clientTimestamp ?? null,
+        subcontractorId: item.subcontractorId ?? null,
+        subcontractorName: item.subcontractorName ?? null,
+        reason: item.reason ?? null,
+        overrideEventId: item.overrideEventId ?? null,
+        createdAt: item.createdAt ?? null,
+        attempts: item.attempts ?? 0,
+        lastError: item.lastError ?? null,
+        hadPhoto: !!item.photoLocalUri,
+        backedUpByUid: auth.currentUser ? auth.currentUser.uid : null,
+        backedUpAt: Timestamp.now(),
+      }),
+      resolveTimeoutMs(BACKUP_TIMEOUT_MS),
+      "queueBackup"
+    );
+    await sqlite.runAsync("UPDATE event_queue SET backedUp = 1 WHERE localId = ?", [item.localId]);
+  } catch (err) {
+    Sentry.captureMessage("queueSync:backupFailed", {
+      level: "warning",
+      tags: { area: "queueSync", localId: item.localId },
+      contexts: { queueBackup: { errorMessage: err.message } },
+    });
+  }
 }
 
 // Writes using the queue item's own localId as the Firestore document ID
@@ -128,14 +291,42 @@ async function syncOne(sqlite, item, companyId) {
   });
 
   let photoUrl = null;
+  let resolvedPhoto = null;
   if (item.photoLocalUri) {
-    photoUrl = await uploadPhoto(companyId, item.employeeId, item.photoLocalUri);
-    Sentry.addBreadcrumb({
-      category: "queueSync",
-      message: "syncOne:photoUploaded",
-      level: "info",
-      data: { localId: item.localId },
-    });
+    // A positive, completed stat result (file missing, or present but
+    // 0 bytes) is the ONLY thing that drops the photo (goal 6/8). A stat
+    // call that itself throws/times out is not proof the file is bad -
+    // it propagates normally below and fails the whole item instead, so
+    // it gets retried later with the photo still attached, not dropped.
+    resolvedPhoto = await resolvePhotoUri(item.photoLocalUri);
+    if (!resolvedPhoto) {
+      Sentry.captureMessage("queueSync:photoDropped", {
+        level: "warning",
+        tags: { area: "queueSync", localId: item.localId, reason: "missing-or-empty" },
+        contexts: { photo: { storedUri: item.photoLocalUri } },
+      });
+    } else {
+      Sentry.addBreadcrumb({
+        category: "queueSync",
+        message: "syncOne:photoFound",
+        level: "info",
+        data: {
+          localId: item.localId,
+          fileSize: resolvedPhoto.info.size,
+          repaired: resolvedPhoto.uri !== item.photoLocalUri,
+        },
+      });
+      // Any failure from here on (network, upload, timeout) is ambiguous
+      // - not proof the file is bad - so it propagates up and fails the
+      // whole item normally, keeping photoLocalUri for the next retry.
+      photoUrl = await uploadPhoto(companyId, item.employeeId, resolvedPhoto.uri);
+      Sentry.addBreadcrumb({
+        category: "queueSync",
+        message: "syncOne:photoUploaded",
+        level: "info",
+        data: { localId: item.localId },
+      });
+    }
   }
 
   // Dev-only fault injection: swap the real Firestore write for either a
@@ -143,6 +334,28 @@ async function syncOne(sqlite, item, companyId) {
   // like a rules rejection would (failSetDoc) - never actually touching
   // Firestore in either case. Both are only reachable with __DEV__ true,
   // see lib/syncFaults.js for the guarantee.
+  const payload = {
+    localId: item.localId,
+    employeeId: item.employeeId,
+    employeeName: item.employeeName,
+    siteId: item.siteId ?? null,
+    siteName: item.siteName ?? "Not specified",
+    subcontractorId: item.subcontractorId ?? null,
+    subcontractorName: item.subcontractorName ?? null,
+    type: item.type,
+    source: item.source ?? null,
+    photoUrl: photoUrl,
+    note: item.note ?? null,
+    authorizedById: item.authorizedById ?? null,
+    authorizedByName: item.authorizedByName ?? null,
+    reason: item.reason ?? null,
+    overrideEventId: item.overrideEventId ?? null,
+    createdByUid: item.createdByUid,
+    clientTimestamp: Timestamp.fromMillis(item.clientTimestamp),
+    timestamp: Timestamp.fromMillis(item.clientTimestamp),
+    createdAt: Timestamp.fromMillis(item.createdAt),
+  };
+
   let writePromise;
   if (__DEV__ && isFaultActive("hangSetDoc")) {
     writePromise = hangForever();
@@ -158,30 +371,27 @@ async function syncOne(sqlite, item, companyId) {
     // already succeeded, isIdempotentReplay in firestore.rules only
     // allows a same-identity replay of the same event - never a
     // duplicate clock event, never a silently lost one.
-    writePromise = setDoc(eventRef, {
-      localId: item.localId,
-      employeeId: item.employeeId,
-      employeeName: item.employeeName,
-      siteId: item.siteId ?? null,
-      siteName: item.siteName ?? "Not specified",
-      subcontractorId: item.subcontractorId ?? null,
-      subcontractorName: item.subcontractorName ?? null,
-      type: item.type,
-      source: item.source ?? null,
-      photoUrl: photoUrl,
-      note: item.note ?? null,
-      authorizedById: item.authorizedById ?? null,
-      authorizedByName: item.authorizedByName ?? null,
-      reason: item.reason ?? null,
-      overrideEventId: item.overrideEventId ?? null,
-      createdByUid: item.createdByUid,
-      clientTimestamp: Timestamp.fromMillis(item.clientTimestamp),
-      timestamp: Timestamp.fromMillis(item.clientTimestamp),
-      createdAt: Timestamp.fromMillis(item.createdAt),
-    });
+    writePromise = setDoc(eventRef, payload);
   }
 
-  await withTimeout(writePromise, resolveTimeoutMs(FIRESTORE_WRITE_TIMEOUT_MS), "setDoc");
+  try {
+    await withTimeout(writePromise, resolveTimeoutMs(FIRESTORE_WRITE_TIMEOUT_MS), "setDoc");
+  } catch (err) {
+    // A genuine server rejection (rules denial, wrong account/company) -
+    // attach exactly what we tried to write so Sentry shows the real
+    // field values, not just that it failed (goal 11).
+    if (err && err.code && err.code !== "timeout") {
+      err.rejectedPayload = {
+        ...payload,
+        clientTimestamp: item.clientTimestamp,
+        timestamp: item.clientTimestamp,
+        createdAt: item.createdAt,
+      };
+    }
+    if (resolvedPhoto) err.photoDiagnostics = { exists: true, size: resolvedPhoto.info.size };
+    else if (item.photoLocalUri) err.photoDiagnostics = { exists: false, size: 0 };
+    throw err;
+  }
 
   Sentry.addBreadcrumb({
     category: "queueSync",
@@ -189,10 +399,6 @@ async function syncOne(sqlite, item, companyId) {
     level: "info",
     data: { localId: item.localId },
   });
-
-  if (item.photoLocalUri) {
-    await FileSystem.deleteAsync(item.photoLocalUri, { idempotent: true });
-  }
 
   // Do NOT delete on success - mark 'synced' and keep the row instead.
   // Deleting immediately opened a race: the local override in
@@ -209,6 +415,22 @@ async function syncOne(sqlite, item, companyId) {
     [Date.now(), item.localId]
   );
   notifyQueueChange();
+
+  // Fire-and-forget: cleanup must never retroactively affect an already-
+  // successful sync. Not awaited, own short timeout, errors just logged.
+  if (resolvedPhoto) {
+    withTimeout(
+      FileSystem.deleteAsync(resolvedPhoto.uri, { idempotent: true }),
+      resolveTimeoutMs(PHOTO_CLEANUP_TIMEOUT_MS),
+      "photoCleanup"
+    ).catch((err) => {
+      Sentry.captureMessage("queueSync:photoCleanupFailed", {
+        level: "warning",
+        tags: { area: "queueSync", localId: item.localId },
+        contexts: { error: { message: err.message } },
+      });
+    });
+  }
 }
 
 // Purges old synced rows so event_queue doesn't grow unbounded. Safe to
@@ -222,6 +444,46 @@ export async function cleanupSyncedQueueItems() {
     [Date.now() - SYNCED_RETENTION_MS]
   );
   notifyQueueChange();
+}
+
+// Reads every pending/failed row for a drain pass. If the batch query
+// itself throws (goal 12 - a single unreadable row can poison a SELECT *
+// on some SQLite driver paths), falls back to reading just the id
+// column, then hydrating each row one at a time so a single corrupted
+// row can be skipped-and-logged instead of blocking every other item's
+// read.
+async function readPendingItems(sqlite) {
+  try {
+    return await sqlite.getAllAsync(
+      "SELECT * FROM event_queue WHERE syncStatus IN ('pending','failed') ORDER BY clientTimestamp ASC"
+    );
+  } catch (batchErr) {
+    Sentry.captureException(batchErr, { tags: { area: "queueSync", step: "batchRead" } });
+
+    let ids = [];
+    try {
+      ids = await sqlite.getAllAsync(
+        "SELECT localId FROM event_queue WHERE syncStatus IN ('pending','failed') ORDER BY clientTimestamp ASC"
+      );
+    } catch (idsErr) {
+      Sentry.captureException(idsErr, { tags: { area: "queueSync", step: "batchReadFallbackIds" } });
+      return [];
+    }
+
+    const rows = [];
+    for (const { localId } of ids) {
+      try {
+        const row = await sqlite.getFirstAsync("SELECT * FROM event_queue WHERE localId = ?", [localId]);
+        if (row) rows.push(row);
+      } catch (rowErr) {
+        Sentry.captureException(rowErr, {
+          tags: { area: "queueSync", step: "rowRead" },
+          contexts: { row: { localId } },
+        });
+      }
+    }
+    return rows;
+  }
 }
 
 export async function drainQueue(companyId) {
@@ -247,35 +509,52 @@ export async function drainQueue(companyId) {
     return;
   }
 
+  const myEpoch = ++currentEpoch;
   syncing = true;
   notifyQueueChange();
 
-  // The lock above must never be held forever. The per-step timeouts in
-  // syncOne/uploadPhoto are the first line of defense, but this watchdog
-  // is the backstop: if a full drain pass is still running after 5
-  // minutes (10s in dev when the fault panel's timeout override is set)
-  // - whatever the reason - force the lock open so the next trigger
-  // (NetInfo, AppState, the poll interval, resetStuckSyncs) can try
-  // again instead of every future sync silently no-op'ing against a
-  // lock that will never clear on its own.
-  const watchdog = setTimeout(() => {
-    if (!syncing) return;
-    Sentry.captureMessage("queueSync:watchdog-forced-unlock", {
-      level: "warning",
-      tags: { area: "queueSync" },
-      contexts: {
-        queueSync: { companyId, maxDrainMs: resolveTimeoutMs(DRAIN_WATCHDOG_MS) },
-      },
-    });
-    syncing = false;
-    notifyQueueChange();
-  }, resolveTimeoutMs(DRAIN_WATCHDOG_MS));
+  let lastProgressAt = Date.now();
+
+  // The lock above must never be held forever, but a FIXED total-duration
+  // cap is the wrong invariant for a queue that can legitimately take
+  // longer than any fixed number to drain (an 85-item backlog, each
+  // taking a few real seconds, easily clears 5 minutes while perfectly
+  // healthy). This only fires when NOTHING has finished - success or
+  // failure - in STALL_THRESHOLD_MS, i.e. truly stuck, not just long.
+  //
+  // Firing here does not stop whatever is currently in flight inside
+  // this drain - it can't, there's no cancellation token that reaches
+  // into syncOne. What it does is bump currentEpoch, making myEpoch
+  // stale. This drain checks that at every checkpoint (top of the loop,
+  // and right after any item settles) and stops touching the database
+  // the moment it notices - so even though it may still be "running" in
+  // the background for up to one more PER_ITEM_TIMEOUT_MS, it can never
+  // again write a status that could clobber what a newer drain does.
+  const stallCheck = setInterval(() => {
+    if (myEpoch !== currentEpoch) {
+      clearInterval(stallCheck);
+      return;
+    }
+    if (Date.now() - lastProgressAt > resolveTimeoutMs(STALL_THRESHOLD_MS)) {
+      Sentry.captureMessage("queueSync:stall-forced-unlock", {
+        level: "warning",
+        tags: { area: "queueSync" },
+        contexts: {
+          queueSync: { companyId, inFlightLocalId, stallThresholdMs: resolveTimeoutMs(STALL_THRESHOLD_MS) },
+        },
+      });
+      currentEpoch++;
+      syncing = false;
+      notifyQueueChange();
+      clearInterval(stallCheck);
+    }
+  }, resolveTimeoutMs(STALL_CHECK_INTERVAL_MS));
 
   try {
     // Dev-only: hang before any item is even picked up, bypassing every
     // per-item try/catch below entirely. This is the one fault that
-    // exercises the watchdog as a true last resort rather than the
-    // per-step timeouts in syncOne/uploadPhoto.
+    // exercises the stall detector as a true last resort rather than the
+    // per-item timeout below.
     if (__DEV__ && isFaultActive("hangWholeDrain")) {
       await hangForever();
     }
@@ -283,9 +562,7 @@ export async function drainQueue(companyId) {
     await cleanupSyncedQueueItems().catch(() => {});
 
     const sqlite = await getDb();
-    const pending = await sqlite.getAllAsync(
-      "SELECT * FROM event_queue WHERE syncStatus IN ('pending','failed') ORDER BY clientTimestamp ASC"
-    );
+    const pending = await readPendingItems(sqlite);
 
     Sentry.addBreadcrumb({
       category: "queueSync",
@@ -299,17 +576,37 @@ export async function drainQueue(companyId) {
     let deadCount = 0;
 
     for (const item of pending) {
+      if (myEpoch !== currentEpoch) break;
+      inFlightLocalId = item.localId;
+
       await sqlite.runAsync("UPDATE event_queue SET syncStatus = 'syncing' WHERE localId = ?", [item.localId]);
       notifyQueueChange();
+
+      // Best-effort, never throws, never blocks the real attempt below.
+      await backupItemIfNeeded(sqlite, companyId, item);
+
       try {
-        await syncOne(sqlite, item, companyId);
+        const validationError = validateQueueItem(item);
+        if (validationError) {
+          const err = new Error(`invalid:${validationError}`);
+          err.code = "queue-validation";
+          throw err;
+        }
+
+        await withTimeout(syncOne(sqlite, item, companyId), resolveTimeoutMs(PER_ITEM_TIMEOUT_MS), "item");
+
+        if (myEpoch !== currentEpoch) break;
         syncedCount++;
+        lastProgressAt = Date.now();
       } catch (err) {
+        if (myEpoch !== currentEpoch) break;
+
         console.log("Sync failed for", item.localId, err.message);
         failedCount++;
 
+        const isValidationFailure = err.code === "queue-validation";
         const nextAttempts = (item.attempts || 0) + 1;
-        const isDead = nextAttempts >= DEAD_LETTER_ATTEMPTS;
+        const isDead = isValidationFailure || nextAttempts >= DEAD_LETTER_ATTEMPTS;
         if (isDead) deadCount++;
 
         // A persistent failure (attempts keeps climbing) means this item
@@ -326,6 +623,7 @@ export async function drainQueue(companyId) {
             source: item.source ?? "unknown",
             persistent: item.attempts >= 2 ? "true" : "false",
             deadLetter: isDead ? "true" : "false",
+            invalid: isValidationFailure ? "true" : "false",
             timedOut: typeof err.message === "string" && err.message.startsWith("timeout:") ? "true" : "false",
           },
           contexts: {
@@ -340,6 +638,8 @@ export async function drainQueue(companyId) {
               errorMessage: err.message,
               errorCode: err.code,
             },
+            ...(err.photoDiagnostics ? { photo: err.photoDiagnostics } : {}),
+            ...(err.rejectedPayload ? { rejectedPayload: err.rejectedPayload } : {}),
           },
         });
 
@@ -348,8 +648,11 @@ export async function drainQueue(companyId) {
           [isDead ? "dead" : "failed", nextAttempts, err.message || "Unknown error", item.localId]
         );
         notifyQueueChange();
+        lastProgressAt = Date.now();
       }
     }
+
+    inFlightLocalId = null;
 
     Sentry.addBreadcrumb({
       category: "queueSync",
@@ -362,14 +665,23 @@ export async function drainQueue(companyId) {
     // Firestore) - independent of whether every individual item
     // succeeded; per-item failures stay visible in the Sync Queue tab
     // itself. Drives Settings' "last successful sync" display.
-    await sqlite
-      .runAsync("INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('queueLastSync', ?)", [String(Date.now())])
-      .catch(() => {});
-    notifyQueueChange();
+    if (myEpoch === currentEpoch) {
+      await sqlite
+        .runAsync("INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('queueLastSync', ?)", [String(Date.now())])
+        .catch(() => {});
+      notifyQueueChange();
+    }
   } finally {
-    clearTimeout(watchdog);
-    syncing = false;
-    notifyQueueChange();
+    clearInterval(stallCheck);
+    // Only release the lock if this is still the drain currentEpoch
+    // recognizes. If the stall detector already abandoned this epoch,
+    // the lock state is already whatever it set - this drain releasing
+    // it again (or stomping on a newer drain's lock) would reintroduce
+    // the exact two-drains-at-once bug the epoch check exists to stop.
+    if (myEpoch === currentEpoch) {
+      syncing = false;
+      notifyQueueChange();
+    }
   }
 }
 
@@ -382,7 +694,9 @@ export async function resetStuckSyncs() {
 // Manual recovery for a 'dead' item from the Sync Queue tab - clears the
 // attempt count and lastError and puts it back in line for the next
 // drain. Never used automatically; dead-lettering only happens from
-// exhausted automatic retries, so un-dead-lettering is a human decision.
+// exhausted automatic retries or a validation failure, so un-dead-
+// lettering is a human decision. Does not touch `backedUp` - the raw
+// data hasn't changed, so the existing backup is still accurate.
 export async function retryQueueItem(localId) {
   const sqlite = await getDb();
   await sqlite.runAsync(
