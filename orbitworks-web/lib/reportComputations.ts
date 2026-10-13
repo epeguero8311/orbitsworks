@@ -198,7 +198,14 @@ export function computePayrollAndSessions(
   subcontractorByEmployeeId: Map<string, SubcontractorInfo>,
   defaultRateByEmployeeId: Map<string, number | null>,
   automaticBreakMinutes: number,
-  minimumShiftHours: number
+  minimumShiftHours: number,
+  // Keyed by clock-in event id: Auto Break settings frozen on a session at
+  // the moment it was approved. A session not in this map (pending, or
+  // pre-cutover with no approval doc at all) falls back to the live
+  // automaticBreakMinutes/minimumShiftHours above - same rule the
+  // Timesheet Approvals page already applies, so Reports/Excel can never
+  // disagree with it over whether an approved session's hours moved.
+  autoBreakByClockInId: Map<string, { minutes: number; minShiftHours: number }> = new Map()
 ): {
   summaries: EmployeeSummary[];
   sessions: SessionRecord[];
@@ -278,12 +285,13 @@ export function computePayrollAndSessions(
       } else if (event.type === "out" && pendingIn) {
         const durationMs = event.timestamp.toMillis() - pendingIn.timestamp.toMillis();
         if (durationMs > 0) {
+          const frozenAutoBreak = autoBreakByClockInId.get(pendingIn.id);
           const { breakMs: effectiveBreakMs, netMs } = applyAutoBreak(
             durationMs,
             currentSessionBreakMs,
             true,
-            automaticBreakMinutes,
-            minimumShiftHours
+            frozenAutoBreak?.minutes ?? automaticBreakMinutes,
+            frozenAutoBreak?.minShiftHours ?? minimumShiftHours
           );
           totalMs += durationMs;
           totalBreakMs += effectiveBreakMs;

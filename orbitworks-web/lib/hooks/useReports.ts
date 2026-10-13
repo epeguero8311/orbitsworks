@@ -104,6 +104,13 @@ export function useReports() {
         );
         const approvalsSnapshot = await getDocs(approvalsQuery);
         const approvalStatusByClockInId = new Map<string, "pending" | "approved">();
+        // Auto Break settings frozen on an approved session at the moment
+        // it was approved - same frozen-vs-live split the Timesheet
+        // Approvals page already applies. Only populated for approved
+        // docs; a pending or pre-cutover (no doc at all) session has no
+        // entry here, so computePayrollAndSessions falls back to the
+        // company's live settings for those, same as before this existed.
+        const autoBreakByClockInId = new Map<string, { minutes: number; minShiftHours: number }>();
         // Job picked and saved on a Timesheet Approvals row, rolled up to
         // one vote per employee+day - keyed the same way as
         // hoursByEmployeeDay ("employeeId__date") so buildDayRows can look
@@ -118,8 +125,16 @@ export function useReports() {
             employeeId?: string;
             date?: string;
             jobId?: string | null;
+            autoBreakMinutesApplied?: number;
+            autoBreakMinShiftHoursApplied?: number;
           };
           approvalStatusByClockInId.set(d.id, data.status ?? "pending");
+          if (data.status === "approved") {
+            autoBreakByClockInId.set(d.id, {
+              minutes: data.autoBreakMinutesApplied ?? 0,
+              minShiftHours: data.autoBreakMinShiftHoursApplied ?? 0,
+            });
+          }
           if (data.jobId && data.employeeId && data.date) {
             const key = `${data.employeeId}__${data.date}`;
             const votes = approvedJobIdVotesByDay.get(key) ?? new Set<string>();
@@ -198,7 +213,8 @@ export function useReports() {
           subcontractorByEmployeeId,
           defaultRateByEmployeeId,
           settings.exportSettings.automaticBreakMinutes,
-          settings.exportSettings.minimumShiftHours
+          settings.exportSettings.minimumShiftHours,
+          autoBreakByClockInId
         );
         setSummaries(payroll.summaries);
         setHoursByEmployeeDay(payroll.hoursByEmployeeDay);
