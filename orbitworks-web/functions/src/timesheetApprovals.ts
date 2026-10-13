@@ -76,6 +76,32 @@ function statusUpdateFields(
   };
 }
 
+// Automatic Break settings, snapshotted onto the approval doc the moment
+// it's approved - so a later change to Export Settings can never move an
+// already-approved session's hours (the client reads these frozen fields
+// for an "approved" row instead of the company's live settings). Toggling
+// back to pending clears them so a re-approval always re-stamps fresh.
+async function resolveAutoBreakFields(
+  companyId: string,
+  status: "pending" | "approved"
+): Promise<Record<string, unknown>> {
+  if (status !== "approved") {
+    return {
+      autoBreakMinutesApplied: admin.firestore.FieldValue.delete(),
+      autoBreakMinShiftHoursApplied: admin.firestore.FieldValue.delete(),
+    };
+  }
+  const companySnap = await db.collection("companies").doc(companyId).get();
+  const exportSettings = (companySnap.data()?.exportSettings ?? {}) as {
+    automaticBreakMinutes?: number;
+    minimumShiftHours?: number;
+  };
+  return {
+    autoBreakMinutesApplied: exportSettings.automaticBreakMinutes ?? 0,
+    autoBreakMinShiftHoursApplied: exportSettings.minimumShiftHours ?? 0,
+  };
+}
+
 // The Job dropdown on the Approvals row only gets written to the approval
 // doc at the moment a row is approved - toggling back to pending never
 // touches it, so the picked job survives a pending<->approved toggle.
@@ -142,9 +168,11 @@ export const setApprovalStatus = onCall(async (request) => {
 
   const approvedByName = status === "approved" ? await resolveApprovedByName(request.auth.uid) : "";
   const jobFields = await resolveJobFields(callerCompanyId, status, jobId);
+  const autoBreakFields = await resolveAutoBreakFields(callerCompanyId, status);
   await approvalRef.update({
     ...statusUpdateFields(status, request.auth.uid, approvedByName),
     ...jobFields,
+    ...autoBreakFields,
   });
 
   return { success: true };
@@ -201,6 +229,9 @@ export const setApprovalStatusBulk = onCall(async (request) => {
 
   const approvedByName = status === "approved" ? await resolveApprovedByName(request.auth.uid) : "";
   const statusFields = statusUpdateFields(status, request.auth.uid, approvedByName);
+  // Same status for every row in this batch, so the Auto Break snapshot
+  // (unlike the per-row Job picks below) only needs resolving once.
+  const autoBreakFields = await resolveAutoBreakFields(callerCompanyId, status);
 
   // Each row can have picked a different Job, so job fields are resolved
   // per event rather than once for the whole batch.
@@ -220,7 +251,11 @@ export const setApprovalStatusBulk = onCall(async (request) => {
   approvalRefs.forEach((ref, i) => {
     const eventId = eventIds[i];
     const healData = healDataByEventId.get(eventId);
-    const updateFields = { ...statusFields, ...jobFieldsByEventId.get(eventId) };
+    const updateFields = {
+      ...statusFields,
+      ...jobFieldsByEventId.get(eventId),
+      ...autoBreakFields,
+    };
     if (healData) {
       batch.set(ref, { ...healData, ...updateFields });
     } else {

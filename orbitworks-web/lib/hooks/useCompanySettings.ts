@@ -71,6 +71,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {
   roundDailyMinutes: 0,
   roundTotalMinutes: 0,
+  automaticBreakMinutes: 0,
+  minimumShiftHours: 0,
 };
 
 const DEFAULT_SETTINGS: CompanySettings = {

@@ -228,6 +228,15 @@ export interface TimesheetApproval {
   // moment the row is approved (null = the employee's default job).
   jobId?: string | null;
   jobName?: string | null;
+  // Automatic Break settings in effect at the moment this session was
+  // approved, snapshotted so a later change to Export Settings can never
+  // retroactively change an already-approved session's hours. Undefined on
+  // any doc approved before this feature shipped, or still "pending" -
+  // callers treat that as 0 (no auto break), which is exactly what already-
+  // approved history showed before this existed. Pending sessions ignore
+  // these fields entirely and read the company's live settings instead.
+  autoBreakMinutesApplied?: number;
+  autoBreakMinShiftHoursApplied?: number;
 }
 
 // ---- Supervisor Overrides ----
@@ -347,4 +356,10 @@ export type RoundingIncrement = 0 | 5 | 15 | 30;
 export interface ExportSettings {
   roundDailyMinutes: RoundingIncrement;
   roundTotalMinutes: RoundingIncrement;
+  // Automatic Break: minutes deducted from EVERY shift that meets
+  // minimumShiftHours, stacking with any real tracked break. 0 = off.
+  automaticBreakMinutes: number;
+  // Auto break only applies to shifts at least this many hours long. 0 =
+  // no minimum (every shift qualifies once automaticBreakMinutes is set).
+  minimumShiftHours: number;
 }

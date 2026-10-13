@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { localDateKey } from "@/lib/reportUtils";
+import { applyAutoBreak } from "@/lib/autoBreak";
 import type { ClockEvent, Flag, TimesheetApproval } from "@/lib/types";
 
 export type ApprovalRow = {
@@ -205,6 +206,26 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
 
           if (durationMs > 0) {
             const approval = approvals.get(pendingIn.id);
+            // Already-approved sessions use the Auto Break settings
+            // snapshotted on the approval doc at the moment they were
+            // approved, so a later change to Export Settings can never
+            // move an already-approved session's hours. Pending sessions
+            // preview against the company's current live settings.
+            const autoBreakMinutes =
+              approval?.status === "approved"
+                ? approval.autoBreakMinutesApplied ?? 0
+                : settings.exportSettings.automaticBreakMinutes;
+            const minShiftHours =
+              approval?.status === "approved"
+                ? approval.autoBreakMinShiftHoursApplied ?? 0
+                : settings.exportSettings.minimumShiftHours;
+            const { breakMs: effectiveBreakMs } = applyAutoBreak(
+              durationMs,
+              breakMs,
+              true,
+              autoBreakMinutes,
+              minShiftHours
+            );
             allRows.push({
               key: pendingIn.id,
               employeeId: employee.id,
@@ -215,7 +236,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
               siteName: pendingIn.siteName || "Not specified",
               siteId: pendingIn.siteId ?? null,
               hours: durationMs / (1000 * 60 * 60),
-              breakHours: breakMs / (1000 * 60 * 60),
+              breakHours: effectiveBreakMs / (1000 * 60 * 60),
               status: approval?.status ?? "pending",
               eventId: pendingIn.id,
               clockInEvent: { ...pendingIn },
@@ -247,7 +268,16 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
       a.date === b.date ? a.employeeName.localeCompare(b.employeeName) : a.date.localeCompare(b.date)
     );
     return visibleRows;
-  }, [employees, events, approvals, startDate, endDate, settings?.name]);
+  }, [
+    employees,
+    events,
+    approvals,
+    startDate,
+    endDate,
+    settings?.name,
+    settings.exportSettings.automaticBreakMinutes,
+    settings.exportSettings.minimumShiftHours,
+  ]);
 
   const pendingCount = useMemo(
     () => rows.filter((r) => r.status === "pending").length,

@@ -13,8 +13,10 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
-import type { ClockEvent, Job } from "@/lib/types";
+import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
+import type { ClockEvent, Job, TimesheetApproval } from "@/lib/types";
 import { dateKey, startOfWeek } from "@/lib/reportUtils";
+import { applyAutoBreak } from "@/lib/autoBreak";
 
 export type EmployeeHistoryDayRow = {
   dateLabel: string;
@@ -50,6 +52,7 @@ type EventWithDate = Omit<ClockEvent, "id"> & {
 
 export function useEmployeeTimesheet() {
   const { userData } = useAuth();
+  const { settings } = useCompanySettings();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -106,6 +109,23 @@ export function useEmployeeTimesheet() {
           return { ...data, id: d.id, timestamp: effective, wasAdjusted: !!data.adjustedTimestamp };
         });
 
+        // Keyed by the clock-in event id, same as timesheetApprovals doc
+        // ids - lets an already-approved session here use the Auto Break
+        // settings frozen at approval time instead of the company's live
+        // ones, same rule the Timesheet Approvals page follows.
+        const approvalsRef = collection(db, "companies", userData.companyId, "timesheetApprovals");
+        const approvalsQuery = query(
+          approvalsRef,
+          where("employeeId", "==", employeeId),
+          where("date", ">=", startDate),
+          where("date", "<=", endDate)
+        );
+        const approvalsSnapshot = await getDocs(approvalsQuery);
+        const approvalByClockInId = new Map<string, TimesheetApproval>();
+        approvalsSnapshot.docs.forEach((d) => {
+          approvalByClockInId.set(d.id, { id: d.id, ...(d.data() as Omit<TimesheetApproval, "id">) });
+        });
+
         const dayRows: EmployeeHistoryDayRow[] = [];
         let pendingIn: EventWithDate | null = null;
         let openBreakStart: EventWithDate | null = null;
@@ -135,7 +155,25 @@ export function useEmployeeTimesheet() {
             if (event.wasAdjusted) sessionAdjusted = true;
             const durationMs = event.timestamp.toMillis() - pendingIn.timestamp.toMillis();
             if (durationMs > 0) {
-              const netMs = durationMs - currentSessionBreakMs;
+              const approval = approvalByClockInId.get(pendingIn.id);
+              // Same frozen-at-approval rule as the Timesheet Approvals
+              // page: an approved session keeps the Auto Break settings
+              // stamped on it at approval time, not the company's live ones.
+              const autoBreakMinutes =
+                approval?.status === "approved"
+                  ? approval.autoBreakMinutesApplied ?? 0
+                  : settings.exportSettings.automaticBreakMinutes;
+              const minShiftHours =
+                approval?.status === "approved"
+                  ? approval.autoBreakMinShiftHoursApplied ?? 0
+                  : settings.exportSettings.minimumShiftHours;
+              const { breakMs: effectiveBreakMs, netMs } = applyAutoBreak(
+                durationMs,
+                currentSessionBreakMs,
+                true,
+                autoBreakMinutes,
+                minShiftHours
+              );
               const weekKey = dateKey(startOfWeek(pendingIn.timestamp.toDate()));
               weeklyMs.set(weekKey, (weeklyMs.get(weekKey) ?? 0) + netMs);
 
@@ -159,7 +197,7 @@ export function useEmployeeTimesheet() {
                   minute: "2-digit",
                 }),
                 hours: durationMs / (1000 * 60 * 60),
-                breakHours: currentSessionBreakMs / (1000 * 60 * 60),
+                breakHours: effectiveBreakMs / (1000 * 60 * 60),
                 note: sessionNotes.join("; "),
                 adjusted: sessionAdjusted,
               });
@@ -198,7 +236,11 @@ export function useEmployeeTimesheet() {
         setLoading(false);
       }
     },
-    [userData?.companyId]
+    [
+      userData?.companyId,
+      settings.exportSettings.automaticBreakMinutes,
+      settings.exportSettings.minimumShiftHours,
+    ]
   );
 
   return { runTimesheet, loading, error };

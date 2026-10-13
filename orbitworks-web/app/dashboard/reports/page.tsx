@@ -28,7 +28,8 @@ const ROUNDING_LABELS: Record<number, string> = {
 export default function ReportsPage() {
   const { userData } = useAuth();
   const { settings } = useCompanySettings();
-  const { roundDailyMinutes, roundTotalMinutes } = settings.exportSettings;
+  const { roundDailyMinutes, roundTotalMinutes, automaticBreakMinutes, minimumShiftHours } =
+    settings.exportSettings;
   const [companyName, setCompanyName] = useState("OrbitWorks");
 
   useEffect(() => {
@@ -202,6 +203,18 @@ export default function ReportsPage() {
               className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600 hover:bg-gray-200"
             >
               Total rounding: {ROUNDING_LABELS[roundTotalMinutes]}
+            </Link>
+            <Link
+              href="/dashboard/settings"
+              className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600 hover:bg-gray-200"
+            >
+              Auto break: {automaticBreakMinutes > 0 ? `${automaticBreakMinutes} min` : "Off"}
+            </Link>
+            <Link
+              href="/dashboard/settings"
+              className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-600 hover:bg-gray-200"
+            >
+              Min shift: {minimumShiftHours > 0 ? `${minimumShiftHours}h` : "None"}
             </Link>
             <button
               onClick={() => handleRunReport(startDate, endDate)}

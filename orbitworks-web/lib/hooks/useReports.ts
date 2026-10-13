@@ -196,7 +196,9 @@ export function useReports() {
         const payroll = computePayrollAndSessions(
           gatedEvents,
           subcontractorByEmployeeId,
-          defaultRateByEmployeeId
+          defaultRateByEmployeeId,
+          settings.exportSettings.automaticBreakMinutes,
+          settings.exportSettings.minimumShiftHours
         );
         setSummaries(payroll.summaries);
         setHoursByEmployeeDay(payroll.hoursByEmployeeDay);
@@ -210,7 +212,8 @@ export function useReports() {
           payroll.siteHoursTotal,
           subcontractorByEmployeeId,
           settings.businessHours.open,
-          settings.attendanceRules.gracePeriodMinutes ?? 0
+          settings.attendanceRules.gracePeriodMinutes ?? 0,
+          payroll.breakHoursByEmployeeDay
         );
         setAttendanceRecords(attendanceResult.attendanceRecords);
         setAttendance(attendanceResult.attendance);
@@ -223,7 +226,13 @@ export function useReports() {
         setLoading(false);
       }
     },
-    [userData?.companyId, settings.businessHours.open, settings.attendanceRules.gracePeriodMinutes]
+    [
+      userData?.companyId,
+      settings.businessHours.open,
+      settings.attendanceRules.gracePeriodMinutes,
+      settings.exportSettings.automaticBreakMinutes,
+      settings.exportSettings.minimumShiftHours,
+    ]
   );
 
   return {

@@ -81,6 +81,64 @@ export function ExportSettingsCard({
           The final payroll total is rounded up. Shown in the summary at the top.
         </p>
       </div>
+
+      <div className="mt-5">
+        <label
+          htmlFor="automaticBreakMinutes"
+          className="mb-2 block text-sm font-medium text-gray-950"
+        >
+          Automatic Break (minutes)
+        </label>
+        <input
+          id="automaticBreakMinutes"
+          type="number"
+          min="0"
+          max="120"
+          step="1"
+          value={exportSettings.automaticBreakMinutes}
+          onChange={(e) =>
+            setExportSettings((prev) => ({
+              ...prev,
+              automaticBreakMinutes: e.target.value
+                ? Math.min(120, Math.max(0, Math.round(Number(e.target.value))))
+                : 0,
+            }))
+          }
+          className="w-32 rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+        />
+        <p className="mt-2 text-xs text-gray-600">
+          Deducted per shift, in addition to any real tracked break. 0 = off.
+          For companies that don&apos;t track breaks but still want one
+          deducted from payroll.
+        </p>
+      </div>
+
+      <div className="mt-5">
+        <label
+          htmlFor="minimumShiftHours"
+          className="mb-2 block text-sm font-medium text-gray-950"
+        >
+          Minimum Shift Length (hours)
+        </label>
+        <input
+          id="minimumShiftHours"
+          type="number"
+          min="0"
+          step="0.25"
+          value={exportSettings.minimumShiftHours}
+          onChange={(e) =>
+            setExportSettings((prev) => ({
+              ...prev,
+              minimumShiftHours: e.target.value ? Math.max(0, Number(e.target.value)) : 0,
+            }))
+          }
+          className="w-32 rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+        />
+        <p className="mt-2 text-xs text-gray-600">
+          The Automatic Break above only applies to shifts at least this long.
+          Shorter shifts are unaffected.
+        </p>
+      </div>
     </div>
   );
 }

@@ -21,6 +21,7 @@ import {
   formatMinutesAsTime,
   APPROVALS_CUTOVER_DATE,
 } from "@/lib/reportUtils";
+import { applyAutoBreak } from "@/lib/autoBreak";
 
 export type EventWithDate = ClockEvent & { timestamp: Timestamp };
 
@@ -195,7 +196,9 @@ export function buildShiftNotes(
 export function computePayrollAndSessions(
   gatedEvents: EventWithDate[],
   subcontractorByEmployeeId: Map<string, SubcontractorInfo>,
-  defaultRateByEmployeeId: Map<string, number | null>
+  defaultRateByEmployeeId: Map<string, number | null>,
+  automaticBreakMinutes: number,
+  minimumShiftHours: number
 ): {
   summaries: EmployeeSummary[];
   sessions: SessionRecord[];
@@ -275,12 +278,20 @@ export function computePayrollAndSessions(
       } else if (event.type === "out" && pendingIn) {
         const durationMs = event.timestamp.toMillis() - pendingIn.timestamp.toMillis();
         if (durationMs > 0) {
+          const { breakMs: effectiveBreakMs, netMs } = applyAutoBreak(
+            durationMs,
+            currentSessionBreakMs,
+            true,
+            automaticBreakMinutes,
+            minimumShiftHours
+          );
           totalMs += durationMs;
-          totalBreakMs += currentSessionBreakMs;
+          totalBreakMs += effectiveBreakMs;
           sessionCount += 1;
 
           const hrs = durationMs / (1000 * 60 * 60);
-          const breakHrs = currentSessionBreakMs / (1000 * 60 * 60);
+          const breakHrs = effectiveBreakMs / (1000 * 60 * 60);
+          const netHrs = netMs / (1000 * 60 * 60);
           sessionsOut.push({
             employeeId,
             employeeName: pendingIn.employeeName,
@@ -307,9 +318,12 @@ export function computePayrollAndSessions(
           breakHoursByDayOut.set(hbdKey, (breakHoursByDayOut.get(hbdKey) ?? 0) + breakHrs);
 
           if (pendingIn.siteId) {
+            // Net of break (real + auto), not gross - a site's cost
+            // analytics should reflect paid hours, same basis as
+            // estimatedPay below.
             siteHoursTotal.set(
               pendingIn.siteId,
-              (siteHoursTotal.get(pendingIn.siteId) ?? 0) + hrs
+              (siteHoursTotal.get(pendingIn.siteId) ?? 0) + netHrs
             );
           }
         }
@@ -391,7 +405,8 @@ export function computeAttendanceAndSiteReports(
   siteHoursTotal: Map<string, number>,
   subcontractorByEmployeeId: Map<string, SubcontractorInfo>,
   businessOpenTime: string,
-  gracePeriodMinutes: number
+  gracePeriodMinutes: number,
+  breakHoursByEmployeeDay: Map<string, number>
 ): {
   attendance: AttendanceStats;
   employeesPerDay: EmployeesPerDayPoint[];
@@ -430,20 +445,12 @@ export function computeAttendanceAndSiteReports(
     const firstIn = sorted.find((e) => e.type === "in");
     const lastOut = [...sorted].reverse().find((e) => e.type === "out");
 
-    // Break time for the day, independent of the payroll session
-    // pairing above - just sums every breakStart->breakEnd pair that
-    // falls on this calendar day.
-    let dayBreakMs = 0;
-    let openBreakStartDay: EventWithDate | null = null;
-    for (const ev of sorted) {
-      if (ev.type === "breakStart" && !openBreakStartDay) {
-        openBreakStartDay = ev;
-      } else if (ev.type === "breakEnd" && openBreakStartDay) {
-        dayBreakMs += ev.timestamp.toMillis() - openBreakStartDay.timestamp.toMillis();
-        openBreakStartDay = null;
-      }
-    }
-    const dayBreakHours = dayBreakMs / (1000 * 60 * 60);
+    // Break time for the day, read from the same per-session numbers the
+    // payroll pass already computed (real break + any Automatic Break),
+    // rather than re-summing breakStart->breakEnd pairs independently -
+    // one calculation path, so this can never silently disagree with the
+    // Reports/Excel break totals over whether Auto Break applied.
+    const dayBreakHours = breakHoursByEmployeeDay.get(key) ?? 0;
 
     const daySet = employeesByDay.get(day) ?? new Set<string>();
     daySet.add(employeeId);

@@ -7,11 +7,11 @@ import { ALERTS_FEED_ENABLED, isCompanyInTestScope } from "./flags";
 import { sendPushForAlert } from "./pushSend";
 import {
   deriveStatus,
-  accumulateWorkedMs,
   getAccumulatedWorkedMs,
   effectiveDate,
   type MinimalClockEvent,
 } from "./clockStatus";
+import { applyAutoBreak, splitShiftSegments } from "./autoBreak";
 
 // Launch set only - outside-geofence and site-mismatch need geofence data
 // that doesn't exist on main yet, so they're deferred. lowStaffing was
@@ -102,6 +102,8 @@ interface CompanyAlertContext {
   gracePeriodMinutes: number;
   autoClockOut: boolean;
   weeklyOvertimeThreshold: number;
+  automaticBreakMinutes: number;
+  minimumShiftHours: number;
 }
 
 // Missing settings (fail-safe requirement) always resolve to
@@ -120,6 +122,8 @@ async function getCompanyAlertContext(companyId: string): Promise<CompanyAlertCo
     gracePeriodMinutes: data.attendanceRules?.gracePeriodMinutes ?? 0,
     autoClockOut: data.attendanceRules?.autoClockOut ?? false,
     weeklyOvertimeThreshold: data.weeklyOvertimeThreshold ?? 40,
+    automaticBreakMinutes: data.exportSettings?.automaticBreakMinutes ?? 0,
+    minimumShiftHours: data.exportSettings?.minimumShiftHours ?? 0,
   };
 }
 
@@ -450,7 +454,21 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
     const weekKey = localDateKey(weekStart);
     for (const [employeeId, empEvents] of byEmployee) {
       const sorted = [...empEvents].sort((a, b) => (effectiveDate(a)?.getTime() ?? 0) - (effectiveDate(b)?.getTime() ?? 0));
-      const hours = accumulateWorkedMs(sorted, now.getTime()) / (1000 * 60 * 60);
+      // Overtime is measured after Auto Break's deduction, applied per
+      // shift so a still-open shift (no clock-out yet) never has it
+      // deducted early - only each already-closed shift this week does.
+      const segments = splitShiftSegments(sorted, now.getTime());
+      const totalNetMs = segments.reduce((sum, seg) => {
+        const { netMs } = applyAutoBreak(
+          seg.grossMs,
+          seg.breakMs,
+          seg.hasClockOut,
+          ctx.automaticBreakMinutes,
+          ctx.minimumShiftHours
+        );
+        return sum + netMs;
+      }, 0);
+      const hours = totalNetMs / (1000 * 60 * 60);
       if (hours <= ctx.weeklyOvertimeThreshold) continue;
       const employeeName = employeeNames.get(employeeId) ?? "An employee";
       await maybeCreateAndPush(
