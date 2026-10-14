@@ -421,6 +421,18 @@ export function useBillingPage() {
       const { tierKey } = pendingDeletion;
       setPendingDeletion(null);
 
+      // deleteEmployeesBulk only deletes the docs - totalEmployeeCount is
+      // decremented by the separate onEmployeeWrite trigger, which can lag
+      // behind. Wait for it to land before checkout, otherwise
+      // create-subscription's server-side totalCap backstop can read the
+      // pre-delete count and reject a switch that should now be valid.
+      const tier = PRICE_TIERS.find((t) => t.key === tierKey);
+      if (tier && tier.totalCap !== null) {
+        const totalCap = tier.totalCap;
+        setOverlayMessage("Finishing up...");
+        await waitForCompanyUpdate((c) => c.totalEmployeeCount <= totalCap, 10, 1000);
+      }
+
       await startCheckout(tierKey);
     } catch (err) {
       console.error("Delete employees error:", err);
