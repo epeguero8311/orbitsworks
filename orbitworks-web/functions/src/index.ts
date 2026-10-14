@@ -11,6 +11,7 @@ export {
   onEmployeeWrite,
   reassignEmployeeSubcontractor,
   deleteEmployee,
+  deleteEmployeesBulk,
   backfillTotalEmployeeCount,
 } from "./employees";
 

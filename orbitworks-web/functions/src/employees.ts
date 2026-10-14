@@ -494,21 +494,15 @@ export const reassignEmployeeSubcontractor = onCall(async (request) => {
 // fresh later - Firebase Auth enforces unique emails per project), any
 // pending invite for that email is cleared, and the employee's PIN
 // reservation is released so a future employee can reuse it.
-export const deleteEmployee = onCall(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "You must be signed in.");
-  }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
-
-  const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
-  if (!employeeId) {
-    throw new HttpsError("invalid-argument", "employeeId is required.");
-  }
-
+//
+// Shared by deleteEmployee and deleteEmployeesBulk below so the
+// close-session -> delete-auth -> release-pin/invites/doc sequence (and
+// its failure-window ordering, see the comment inline) only lives once.
+async function deleteEmployeeRecord(
+  callerCompanyId: string,
+  employeeId: string,
+  callerUid: string
+): Promise<void> {
   const employeeRef = db
     .collection("companies")
     .doc(callerCompanyId)
@@ -543,7 +537,7 @@ export const deleteEmployee = onCall(async (request) => {
   // itself: if this threw after the Auth account were already gone, the
   // employee doc would survive pointing at a dead linkedUserId, making
   // the Edit Employee modal claim a login still works when it doesn't.
-  await closeOpenSessionForDeactivation(callerCompanyId, employeeId, request.auth.uid);
+  await closeOpenSessionForDeactivation(callerCompanyId, employeeId, callerUid);
 
   if (linkedUserId) {
     const userRef = db.collection("users").doc(linkedUserId);
@@ -573,6 +567,62 @@ export const deleteEmployee = onCall(async (request) => {
   }
   batch.delete(employeeRef);
   await batch.commit();
+}
+
+export const deleteEmployee = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
+  if (!employeeId) {
+    throw new HttpsError("invalid-argument", "employeeId is required.");
+  }
+
+  await deleteEmployeeRecord(callerCompanyId, employeeId, request.auth.uid);
 
   return { success: true };
+});
+
+// Bulk counterpart used by the billing downgrade flow: when switching to a
+// plan whose totalCap is below the company's current total employee record
+// count, deactivating alone can't fix it (inactive records still count
+// toward totalEmployeeCount), so the client has the admin pick records to
+// permanently delete instead. Processes ids sequentially (deleteEmployeeRecord
+// does Auth + Firestore work per employee, not a single batch) and skips
+// ids that no longer exist, same tolerance as deactivateEmployeesBulk.
+export const deleteEmployeesBulk = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const employeeIds: string[] = Array.isArray(request.data?.employeeIds)
+    ? request.data.employeeIds.map((id: unknown) => String(id))
+    : [];
+  if (employeeIds.length === 0) {
+    throw new HttpsError("invalid-argument", "employeeIds is required.");
+  }
+
+  let deletedCount = 0;
+  for (const employeeId of employeeIds) {
+    try {
+      await deleteEmployeeRecord(callerCompanyId, employeeId, request.auth.uid);
+      deletedCount++;
+    } catch (err: any) {
+      if (err instanceof HttpsError && err.code === "not-found") continue;
+      throw err;
+    }
+  }
+
+  return { success: true, deletedCount };
 });
