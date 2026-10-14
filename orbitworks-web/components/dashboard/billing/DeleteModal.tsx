@@ -6,7 +6,6 @@ type EmployeeLite = {
   id: string;
   name: string;
   isSupervisor?: boolean;
-  active?: boolean;
 };
 
 export default function DeleteModal({
@@ -47,8 +46,8 @@ export default function DeleteModal({
         <p className="mt-1.5 text-sm text-gray-600">
           This plan allows fewer total employee records (active and inactive
           combined) than you currently have. Select exactly {requiredCount}{" "}
-          record{requiredCount === 1 ? "" : "s"} to permanently delete before
-          continuing.
+          inactive record{requiredCount === 1 ? "" : "s"} to permanently
+          delete before continuing.
         </p>
         <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-800">
           This can't be undone. Deleted employees lose their login and clock
@@ -69,17 +68,8 @@ export default function DeleteModal({
                 className="h-4 w-4 rounded border-gray-300 text-accent focus:ring-accent"
               />
               <span className="text-gray-950">{emp.name}</span>
-              <span
-                className={`ml-auto rounded-full px-2 py-0.5 text-xs ${
-                  emp.active
-                    ? "bg-accent/10 text-accent"
-                    : "bg-gray-100 text-gray-600"
-                }`}
-              >
-                {emp.active ? "Active" : "Inactive"}
-              </span>
               {emp.isSupervisor && (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                <span className="ml-auto rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
                   Supervisor
                 </span>
               )}
