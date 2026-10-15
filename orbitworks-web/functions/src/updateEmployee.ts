@@ -58,6 +58,19 @@ export const updateEmployeeProfile = onCall(
     const name = typeof data.name === "string" ? data.name.trim() : undefined;
     const photoUrl = typeof data.photoUrl === "string" ? data.photoUrl.trim() : undefined;
     const deviceId = typeof data.deviceId === "string" ? data.deviceId.trim() : null;
+    // Mobile notice-before-capture (Terms Section 4.1) - the client-side
+    // moment the supervisor/admin tapped "I understand" on the identity-
+    // verification notice shown before the camera opened, not the moment
+    // this call lands (which can be much later for an offline queue
+    // replay). Only meaningful when a new photo is actually being set;
+    // ignored for a name-only edit. This logs that the notice was shown -
+    // it does not replace the Customer's own written employee notice/
+    // consent obligation (Terms Section 4.1, Biometric Data Policy
+    // Section 3).
+    const photoNoticeShownAtMs =
+      typeof data.photoNoticeShownAt === "number" && Number.isFinite(data.photoNoticeShownAt)
+        ? data.photoNoticeShownAt
+        : null;
     const updatedByNameRaw = typeof data.updatedByName === "string" ? data.updatedByName.trim() : "";
     const updatedByName = updatedByNameRaw.slice(0, UPDATED_BY_NAME_MAX_LENGTH) || "A supervisor";
 
@@ -166,6 +179,9 @@ export const updateEmployeeProfile = onCall(
     batch.update(employeeRef, {
       ...(nameChanged ? { name } : {}),
       ...(photoChanged ? { photoUrl } : {}),
+      ...(photoChanged && photoNoticeShownAtMs
+        ? { photoNoticeAck: { uid, shownAt: admin.firestore.Timestamp.fromMillis(photoNoticeShownAtMs) } }
+        : {}),
       updatedByUid: uid,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedByDeviceId: deviceId,

@@ -10,6 +10,7 @@ import {
   EmployeeCapFields,
 } from "./shared";
 import { reserveNewPin } from "./pins";
+import { storagePathFromDownloadUrl } from "./rekognition";
 
 // Creates the employee doc and reserves its PIN entirely server-side
 // (Admin SDK transaction via reserveNewPin, same primitive acceptInvite
@@ -134,7 +135,14 @@ export const setEmployeeActive = onCall(async (request) => {
     }
   }
 
-  await employeeRef.update({ active: active });
+  // deactivatedAt feeds biometricRetention.ts's cleanupDeactivatedEmployeePhotos
+  // (1 year after deactivation, or 3 years after the last clock event,
+  // whichever is sooner). Cleared on reactivation so a re-deactivation
+  // later restarts the clock from the new date, not a stale one.
+  await employeeRef.update({
+    active: active,
+    deactivatedAt: active ? admin.firestore.FieldValue.delete() : admin.firestore.FieldValue.serverTimestamp(),
+  });
 
   if (!active) {
     await closeOpenSessionForDeactivation(callerCompanyId, employeeId, request.auth.uid);
@@ -177,7 +185,10 @@ export const deactivateEmployeesBulk = onCall(async (request) => {
     const employeeSnap = await employeesRef.doc(employeeId).get();
     if (!employeeSnap.exists) continue;
     const employee = employeeSnap.data() as { linkedUserId?: string };
-    batch.update(employeesRef.doc(employeeId), { active: false });
+    batch.update(employeesRef.doc(employeeId), {
+      active: false,
+      deactivatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
     if (employee.linkedUserId) {
       linkedUserIds.push(employee.linkedUserId);
     }
@@ -512,8 +523,27 @@ async function deleteEmployeeRecord(
   if (!employeeSnap.exists) {
     throw new HttpsError("not-found", "Employee not found.");
   }
-  const employee = employeeSnap.data() as { linkedUserId?: string; pin?: string };
+  const employee = employeeSnap.data() as { linkedUserId?: string; pin?: string; photoUrl?: string };
   const linkedUserId = employee.linkedUserId;
+
+  // Fixes the orphaned-Storage-file bug: a reference photo used to
+  // outlive the employee doc that pointed to it indefinitely, since
+  // deleting the doc never touched Storage. The photo is biometric data
+  // (see components/legal/BiometricPolicyContent.tsx), so it's deleted
+  // here instead of waiting on any time-based sweep.
+  if (employee.photoUrl) {
+    const path = storagePathFromDownloadUrl(employee.photoUrl);
+    if (path) {
+      try {
+        await admin.storage().bucket().file(path).delete();
+      } catch (err) {
+        const code = (err as { code?: number } | undefined)?.code;
+        if (code !== 404) {
+          console.warn("Failed to delete employee reference photo on delete", { callerCompanyId, employeeId, path, error: String(err) });
+        }
+      }
+    }
+  }
 
   let email: string | null = null;
 

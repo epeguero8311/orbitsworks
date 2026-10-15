@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { Dispatch, SetStateAction } from "react";
 import type { Alerts, FaceVerificationSettings } from "@/lib/hooks/useCompanySettings";
 import { Toggle } from "@/components/dashboard/settings/Toggle";
@@ -143,6 +144,21 @@ export function AlertsCard({
             disabled={!isPro}
             badge={!isPro && <ProBadgeLink />}
           />
+          {isPro && (
+            <p className="mt-1 pl-0 text-xs text-gray-500">
+              Before enabling face checks for an employee (adding their
+              profile photo), give them notice and get any consent
+              required by law. Use our{" "}
+              <Link
+                href="/employee-notice"
+                target="_blank"
+                className="font-medium text-accent underline"
+              >
+                employee notice template
+              </Link>
+              .
+            </p>
+          )}
         </div>
       </div>
     </div>

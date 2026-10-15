@@ -90,6 +90,14 @@
         { "fieldPath": "retainedPhotoDeletedAt", "order": "ASCENDING" },
         { "fieldPath": "retainedPhotoExpiresAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "companies",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "biometricPhotosWipedAt", "order": "ASCENDING" },
+        { "fieldPath": "planCanceledAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

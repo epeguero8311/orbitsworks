@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, FormEvent } from "react";
+import Link from "next/link";
 import { useSites, AddressNotVerifiedError, type PickedLocation } from "@/lib/hooks/useSites";
 import { Toggle } from "@/components/dashboard/settings/Toggle";
 import { EditSiteModal } from "@/components/dashboard/sites/EditSiteModal";
@@ -174,12 +175,26 @@ export default function SitesSection() {
             badge={!isPro && <ProBadgeLink />}
           />
           {requireGeofence && (
-            <RadiusFields
-              radiusValue={radiusValue}
-              radiusUnit={radiusUnit}
-              onRadiusValueChange={setRadiusValue}
-              onRadiusUnitChange={setRadiusUnit}
-            />
+            <>
+              <RadiusFields
+                radiusValue={radiusValue}
+                radiusUnit={radiusUnit}
+                onRadiusValueChange={setRadiusValue}
+                onRadiusUnitChange={setRadiusUnit}
+              />
+              <p className="mt-2 text-xs text-gray-500">
+                Give employees notice and get any consent required by law
+                before enabling location tracking. Use our{" "}
+                <Link
+                  href="/employee-notice"
+                  target="_blank"
+                  className="font-medium text-accent underline"
+                >
+                  employee notice template
+                </Link>
+                .
+              </p>
+            </>
           )}
         </div>
 

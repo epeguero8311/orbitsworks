@@ -204,7 +204,18 @@ service cloud.firestore {
           'totalEmployeeCount',
           'stripeCustomerId',
           'stripeSubscriptionId',
-          'trialEndsAt'
+          'trialEndsAt',
+          // Terms acceptance is server-stamped only (functions/src/
+          // company.ts's createCompany/acceptUpdatedTerms) - a client
+          // could otherwise spoof having accepted a newer version than it
+          // actually saw.
+          'termsVersion',
+          'agreedToTermsAt',
+          // Biometric photo retention (functions/src/biometricRetention.ts,
+          // app/api/stripe/webhook/route.ts) - both are written only by
+          // the Stripe webhook and the cancellation sweep, never a client.
+          'planCanceledAt',
+          'biometricPhotosWipedAt'
         ]) &&
         // Face Verification (Pro) - checks themselves always run for Pro,
         // never for Core, with no company opt-out (functions/src/
@@ -254,7 +265,7 @@ service cloud.firestore {
         allow create: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
-          !request.resource.data.keys().hasAny(['faceStatus', 'faceReference']) &&
+          !request.resource.data.keys().hasAny(['faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt']) &&
           underTotalCap(companyId) &&
           (request.resource.data.active != true || (underCap(companyId) && notPastDue(companyId)));
 
@@ -274,7 +285,7 @@ service cloud.firestore {
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference']) &&
+            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt']) &&
           (
             request.resource.data.active != true ||
             resource.data.active == true ||

@@ -53,7 +53,7 @@ export async function persistEmployeePhoto(photoUri) {
 // employees/{employeeId}/reference.jpg) before createEmployee ever runs -
 // see employeeQueueSync.js for why that ordering is what makes sync
 // idempotent and retry-safe without a separate rollback step.
-export async function queueCreateEmployee({ name, photoUri, createdByUid, companyId }) {
+export async function queueCreateEmployee({ name, photoUri, createdByUid, companyId, photoNoticeShownAt }) {
   const employeeId = doc(collection(firestoreDb, "companies", companyId, "employees")).id;
   const [photoLocalUri, clientPin] = await Promise.all([
     persistEmployeePhoto(photoUri),
@@ -66,9 +66,9 @@ export async function queueCreateEmployee({ name, photoUri, createdByUid, compan
   const sqlite = await getDb();
   await sqlite.runAsync(
     `INSERT INTO employee_queue
-      (localId, employeeId, name, photoLocalUri, clientPin, createdByUid, syncStatus, attempts, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
-    [localId, employeeId, name, photoLocalUri, clientPin, createdByUid, now]
+      (localId, employeeId, name, photoLocalUri, clientPin, createdByUid, syncStatus, attempts, createdAt, photoNoticeShownAt)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
+    [localId, employeeId, name, photoLocalUri, clientPin, createdByUid, now, photoNoticeShownAt ?? null]
   );
   notifyEmployeeQueueChange();
 

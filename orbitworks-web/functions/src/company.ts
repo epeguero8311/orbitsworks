@@ -64,6 +64,9 @@ export const createCompany = onCall(async (request) => {
     subscriptionStatus: "active",
     stripeCustomerId: null,
     stripeSubscriptionId: null,
+
+    agreedToTermsAt: admin.firestore.FieldValue.serverTimestamp(),
+    termsVersion: termsVersion,
   });
 
   const userRef = db.collection("users").doc(uid);
@@ -82,6 +85,45 @@ export const createCompany = onCall(async (request) => {
   await admin.auth().setCustomUserClaims(uid, { role: "owner", companyId: companyId });
 
   return { companyId: companyId };
+});
+
+// Terms re-accept for existing companies (Terms Section 19, Privacy
+// Policy Section 12). Owner-only - the owner is the one with authority to
+// bind the company (see createCompany/TermsContent.tsx Section 1), so
+// they're the only one who can accept on the company's behalf; admins and
+// supervisors are never blocked by a stale termsVersion (see
+// DashboardLayout.tsx, which only renders the re-accept modal for the
+// owner). Writes the same two fields createCompany does, on both docs, so
+// a re-accept looks identical to an original acceptance to anything that
+// reads them later.
+export const acceptUpdatedTerms = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const role = request.auth.token.role as string | undefined;
+  const companyId = request.auth.token.companyId as string | undefined;
+  if (role !== "owner" || !companyId) {
+    throw new HttpsError("permission-denied", "Only the company owner can accept updated terms.");
+  }
+
+  const termsVersion = (request.data && request.data.termsVersion ? String(request.data.termsVersion) : "").trim();
+  if (!termsVersion || termsVersion.length > 50) {
+    throw new HttpsError("invalid-argument", "Missing terms version.");
+  }
+
+  const uid = request.auth.uid;
+  const batch = db.batch();
+  batch.update(db.collection("companies").doc(companyId), {
+    agreedToTermsAt: admin.firestore.FieldValue.serverTimestamp(),
+    termsVersion,
+  });
+  batch.update(db.collection("users").doc(uid), {
+    agreedToTermsAt: admin.firestore.FieldValue.serverTimestamp(),
+    termsVersion,
+  });
+  await batch.commit();
+
+  return { success: true };
 });
 
 export const acceptInvite = onCall(async (request) => {

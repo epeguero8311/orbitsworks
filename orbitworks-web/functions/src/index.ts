@@ -1,4 +1,4 @@
-export { createCompany, acceptInvite } from "./company";
+export { createCompany, acceptInvite, acceptUpdatedTerms } from "./company";
 
 export { sendInviteEmail, resendInviteEmail } from "./invites";
 
@@ -58,3 +58,9 @@ export {
 } from "./alerts";
 
 export { onEmployeePhotoWrite } from "./rekognition";
+
+export {
+  cleanupClockEventPhotos,
+  cleanupDeactivatedEmployeePhotos,
+  cleanupCanceledCompanyPhotos,
+} from "./biometricRetention";

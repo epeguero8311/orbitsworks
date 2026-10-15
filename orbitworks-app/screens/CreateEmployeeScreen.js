@@ -13,6 +13,7 @@ import { queueCreateEmployee } from "../lib/employeeQueue";
 import { syncEmployeeQueueItemNow } from "../lib/employeeQueueSync";
 import ScreenHeader from "../components/ScreenHeader";
 import CreateEmployeeSuccessModal from "../components/CreateEmployeeSuccessModal";
+import PhotoNoticeModal from "../components/PhotoNoticeModal";
 
 // How long the online attempt gets to finish before this just falls back to
 // the offline messaging - the queued item keeps retrying in the background
@@ -41,6 +42,11 @@ export default function CreateEmployeeScreen({ navigation }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [result, setResult] = useState(null); // { name, pin, photoUri, offline }
+  // Notice-before-capture (Terms Section 4.1) - the camera only renders
+  // once this holds a timestamp, gating every path into handleCapture
+  // behind having shown and acknowledged the notice first. Threaded
+  // through to queueCreateEmployee as photoNoticeShownAt.
+  const [photoNoticeShownAt, setPhotoNoticeShownAt] = useState(null);
 
   const canSubmit = !!validateEmployeeName(name).valid && !!confirmedPhotoUri && !submitting;
 
@@ -84,6 +90,7 @@ export default function CreateEmployeeScreen({ navigation }) {
         photoUri: confirmedPhotoUri,
         createdByUid: currentUser.uid,
         companyId: userData.companyId,
+        photoNoticeShownAt,
       });
 
       const net = await NetInfo.fetch();
@@ -182,6 +189,12 @@ export default function CreateEmployeeScreen({ navigation }) {
               <Text style={styles.previewButtonText}>Grant Permission</Text>
             </TouchableOpacity>
           </View>
+        ) : !photoNoticeShownAt ? (
+          <View style={[styles.photoBox, styles.permBox, { borderColor: colors.border }]}>
+            <Text style={[styles.permText, { color: colors.text }]}>
+              Review the identity-verification notice to continue.
+            </Text>
+          </View>
         ) : (
           <View style={styles.photoBox}>
             <CameraView ref={cameraRef} style={styles.cameraFill} facing="front" />
@@ -215,6 +228,11 @@ export default function CreateEmployeeScreen({ navigation }) {
         photoUri={result?.photoUri}
         offline={result?.offline}
         onClose={handleModalClose}
+      />
+
+      <PhotoNoticeModal
+        visible={!!permission?.granted && !photoNoticeShownAt && !rawPhotoUri && !confirmedPhotoUri}
+        onAcknowledge={setPhotoNoticeShownAt}
       />
     </KeyboardAvoidingView>
   );

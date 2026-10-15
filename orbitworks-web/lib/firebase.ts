@@ -2,7 +2,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import { getFunctions } from "firebase/functions";
+import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
 import { isSupported, getAnalytics } from "firebase/analytics";
 
 // Env-gated so this can never silently fall back to the production
@@ -44,6 +44,25 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
+
+// Opt-in only, never on by default - lets callable functions be tested
+// against a project's REAL Firestore/Storage/Auth data (e.g. prod)
+// without deploying anything there: run
+// `firebase emulators:start --only functions --project <alias>` (no
+// firestore/storage/auth emulator alongside it), set this var in
+// .env.local, and every httpsCallable from this client routes to that
+// local emulator instead of whatever's actually deployed, while reads/
+// writes made directly from the client (db/storage/auth above) still hit
+// the real project untouched. globalThis guard is only to survive Next.js
+// Fast Refresh re-running this module - connectFunctionsEmulator throws
+// if called more than once on the same functions instance.
+declare global {
+  var __functionsEmulatorConnected: boolean | undefined;
+}
+if (process.env.NEXT_PUBLIC_USE_FUNCTIONS_EMULATOR === "true" && !globalThis.__functionsEmulatorConnected) {
+  connectFunctionsEmulator(functions, "127.0.0.1", 5091);
+  globalThis.__functionsEmulatorConnected = true;
+}
 
 // Analytics only works in the browser, and only if supported -
 // calling getAnalytics() during server rendering will throw.

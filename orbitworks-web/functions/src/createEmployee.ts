@@ -92,6 +92,13 @@ export const createEmployee = onCall(async (request) => {
   const photoUrl = typeof data.photoUrl === "string" ? data.photoUrl.trim() : "";
   const clientPin =
     data.clientPin !== undefined && data.clientPin !== null ? String(data.clientPin).trim() : null;
+  // Mobile notice-before-capture (Terms Section 4.1) - see
+  // updateEmployee.ts's matching field for why this is the tap moment,
+  // not the sync moment, and what it does and doesn't prove.
+  const photoNoticeShownAtMs =
+    typeof data.photoNoticeShownAt === "number" && Number.isFinite(data.photoNoticeShownAt)
+      ? data.photoNoticeShownAt
+      : null;
 
   if (!EMPLOYEE_ID_REGEX.test(employeeId)) {
     throw new HttpsError("invalid-argument", "Invalid employeeId.");
@@ -171,6 +178,9 @@ export const createEmployee = onCall(async (request) => {
     pin,
     createdByUid: uid,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    ...(photoNoticeShownAtMs
+      ? { photoNoticeAck: { uid, shownAt: admin.firestore.Timestamp.fromMillis(photoNoticeShownAtMs) } }
+      : {}),
   });
   batch.set(
     companyRef.collection("pins").doc(pin),

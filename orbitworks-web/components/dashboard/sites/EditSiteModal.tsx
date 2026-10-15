@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEditSiteModal } from "@/lib/hooks/useEditSiteModal";
 import { Toggle } from "@/components/dashboard/settings/Toggle";
 import { ProBadgeLink, RadiusFields } from "@/components/dashboard/sites/GeofenceFields";
@@ -137,6 +138,18 @@ export function EditSiteModal({
                   <p className="mt-2 text-xs text-gray-500">
                     Workers must be within {m.radiusValue || 0} {m.radiusUnit} of this address to
                     clock in.
+                  </p>
+                  <p className="mt-2 text-xs text-gray-500">
+                    Give employees notice and get any consent required by
+                    law before enabling location tracking. Use our{" "}
+                    <Link
+                      href="/employee-notice"
+                      target="_blank"
+                      className="font-medium text-accent underline"
+                    >
+                      employee notice template
+                    </Link>
+                    .
                   </p>
                 </>
               )}

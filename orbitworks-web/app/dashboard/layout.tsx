@@ -28,6 +28,8 @@ import { useAuth } from "@/lib/AuthContext";
 import { isProPlan } from "@/lib/stripe/tiers";
 import { PastDueBanner } from "@/components/PastDueBanner";
 import { HelpChat } from "@/components/help-chat/HelpChat";
+import { TermsReacceptModal } from "@/components/dashboard/TermsReacceptModal";
+import { TERMS_VERSION } from "@/components/legal/TermsContent";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutGrid },
@@ -52,6 +54,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [planTier, setPlanTier] = useState<string | null>(null);
+  const [companyTermsVersion, setCompanyTermsVersion] = useState<string | null | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -85,6 +88,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       setLogoUrl(data?.logoUrl ?? null);
       setSubscriptionStatus(data?.subscriptionStatus ?? null);
       setPlanTier(data?.planTier ?? null);
+      setCompanyTermsVersion(data?.termsVersion ?? null);
     });
     return unsubscribe;
   }, [userData?.companyId]);
@@ -250,6 +254,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
         <HelpChat isSubscribed={subscriptionStatus === "active" && planTier !== "free"} />
       </main>
+
+      {userData?.role === "owner" &&
+        companyTermsVersion !== undefined &&
+        companyTermsVersion !== TERMS_VERSION && (
+          <TermsReacceptModal termsVersion={TERMS_VERSION} />
+        )}
     </div>
   );
 }

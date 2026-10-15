@@ -18,6 +18,7 @@ export async function queueUpdateEmployee({
   employeeId,
   name,
   photoUri,
+  photoNoticeShownAt,
   deviceId,
   updatedByName,
   companyId,
@@ -31,9 +32,9 @@ export async function queueUpdateEmployee({
   const sqlite = await getDb();
   await sqlite.runAsync(
     `INSERT INTO employee_update_queue
-      (localId, employeeId, updateId, name, photoLocalUri, deviceId, updatedByName, syncStatus, attempts, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
-    [localId, employeeId, updateId, name ?? null, photoLocalUri, deviceId ?? null, updatedByName, now]
+      (localId, employeeId, updateId, name, photoLocalUri, deviceId, updatedByName, syncStatus, attempts, createdAt, photoNoticeShownAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
+    [localId, employeeId, updateId, name ?? null, photoLocalUri, deviceId ?? null, updatedByName, now, photoLocalUri ? (photoNoticeShownAt ?? null) : null]
   );
   notifyEmployeeQueueChange();
 

@@ -1,9 +1,9 @@
-export const TERMS_VERSION = "2026-09-06-r3";
+export const TERMS_VERSION = "2026-10-14-r5";
 
 export default function TermsContent() {
   return (
     <div className="prose prose-sm max-w-none text-gray-700">
-      <p className="text-sm text-gray-500">Last updated: September 6, 2026</p>
+      <p className="text-sm text-gray-500">Last updated: October 14, 2026 (r5)</p>
 
       <p>
         These Terms and Conditions ("Terms") govern use of OrbitWorks
@@ -12,6 +12,15 @@ export default function TermsContent() {
         users, including administrators, supervisors, and workers
         ("Employees"). By creating an account or using the Service, you
         agree to these Terms.
+      </p>
+      <p>
+        OrbitWorks acts as a service provider (processor) with respect to
+        Employee information that Customer submits to the Service,
+        including biometric and location information described in
+        Sections 4 and 5. Customer is the controller of that information
+        and is solely responsible for how it configures and uses the
+        Service's features with its own workforce, including deciding
+        which features to enable for which Employees.
       </p>
 
       <h2>1. Authority to Bind</h2>
@@ -26,7 +35,8 @@ export default function TermsContent() {
       <p>
         OrbitWorks provides web and mobile tools for workforce scheduling,
         time tracking, job-site management, reporting, timesheet review,
-        and optional face-verification clock-in.
+        and, on paid plans, face verification and location/geofencing
+        features described in Sections 4 and 5.
       </p>
       <p>
         Customer is solely responsible for how it configures and uses the
@@ -66,57 +76,121 @@ export default function TermsContent() {
 
       <h2>4. Biometric Data and Face Verification</h2>
       <p>
-        If Customer enables face-verification features, facial images may
-        be processed through a third-party facial recognition service,
-        currently Amazon Web Services Rekognition.
+        On Pro plans, face verification runs automatically for every
+        Employee who has a profile photo on file. There is no separate
+        company-level opt-in. An Employee is excluded from face checks,
+        and no facial image of theirs is ever sent for comparison, only
+        and precisely when no profile photo has been added for that
+        Employee - this is the mechanism by which Customer can keep an
+        Employee out of face verification entirely. Core plans never run
+        face verification.
       </p>
       <p>
-        During enrollment, a facial image may be analyzed and a facial
-        representation may be stored within a recognition collection
-        associated with Customer's account. That representation may be
-        referenced by an identifier such as a FaceId.
+        When face verification runs, the Employee's clock-in or clock-out
+        photo is compared, one to one, against that Employee's own
+        profile photo using a third-party facial recognition service,
+        currently Amazon Web Services Rekognition. OrbitWorks does not
+        use, and does not permit Rekognition to use, any face-collection,
+        face-indexing, or face-search feature that would store a
+        reusable facial template at Rekognition; the comparison produces
+        only a similarity score and a result (match, mismatch, or no face
+        detected), which is written to the clock event. No facial
+        template, face embedding, or other biometric identifier distinct
+        from the photos themselves is created or stored by OrbitWorks or
+        by Rekognition on Customer's behalf.
       </p>
       <p>
-        During clock-in, clock-out, or another verification event, a
-        newly captured facial image may be compared against the enrolled
-        facial representation to determine whether a match is detected.
+        A mismatch or no-face result never blocks, delays, or
+        auto-corrects a clock event; it only generates an alert for
+        Customer's admins and supervisors to review. Customer must not
+        use a face-verification alert as the sole basis for a discipline,
+        pay, or other adverse employment decision without independent
+        human review, because face matching can be inaccurate (for
+        example, due to lighting, camera angle, image quality, or
+        similar-looking individuals).
       </p>
       <p>
-        Additional information about biometric collection, use,
-        retention, and deletion is described in our Biometric Data Policy,
-        which is incorporated into these Terms.
+        Additional detail about what is collected, how it is processed,
+        and how long it is kept is described in our Biometric Data
+        Policy, which is incorporated into these Terms.
+      </p>
+
+      <h3>4.1 Customer Responsibilities for Biometric Data</h3>
+      <p>
+        Before enabling face verification for any Employee (that is,
+        before adding that Employee's profile photo), Customer must:
+      </p>
+      <ul>
+        <li>
+          (a) give the Employee clear written notice of what biometric
+          information is collected, why, and for how long it is kept;
+        </li>
+        <li>
+          (b) obtain the Employee's written consent or release where
+          required by applicable law, including Illinois' Biometric
+          Information Privacy Act (BIPA), Texas' Capture or Use of
+          Biometric Identifier Act (CUBI), Washington's biometric privacy
+          law, and applicable state consumer-privacy laws such as the
+          CCPA/CPRA;
+        </li>
+        <li>
+          (c) make OrbitWorks' retention schedule for biometric data
+          (described in the Biometric Data Policy) available to the
+          Employee;
+        </li>
+        <li>
+          (d) promptly forward to OrbitWorks any Employee request to
+          delete their biometric data; and
+        </li>
+        <li>
+          (e) otherwise comply with all applicable biometric-privacy and
+          electronic-monitoring laws, including state notice laws that
+          apply to monitoring Employees (for example, New York,
+          Connecticut, and Delaware).
+        </li>
+      </ul>
+      <p>
+        OrbitWorks provides a sample Employee Biometric and Location
+        Notice and Consent template (in English and Spanish) to help
+        Customer meet these obligations; using it does not by itself
+        guarantee compliance with every law that may apply to Customer,
+        and Customer should have it reviewed by its own counsel.
       </p>
       <p>
-        Customer is responsible for providing all notices and obtaining
-        all consents required of Customer under applicable law before
-        enrolling an Employee in face verification.
-      </p>
-      <p>
-        OrbitWorks will process biometric information in accordance with
-        the Biometric Data Policy, these Terms, and applicable law.
-      </p>
-      <p>
-        Face-verification technology is probabilistic and may produce
-        inaccurate matches, failed matches, or other errors.
-      </p>
-      <p>
-        Customer should maintain a reasonable manual review or override
-        process for disputed or unsuccessful verifications and should not
-        rely solely on an automated face-verification result to make an
-        adverse employment decision.
+        Customer may not use face-verification data for any purpose
+        other than timekeeping and attendance verification, and may not
+        sell, lease, trade, or otherwise share biometric data with any
+        third party except as necessary for OrbitWorks to provide the
+        Service.
       </p>
 
       <h2>5. Location Information</h2>
       <p>
-        If Customer enables location-based features, OrbitWorks may
-        process device location information, job-site location
-        information, geofence results, or related information in
-        connection with clock events and workforce management.
+        On Pro plans, when an Employee clocks in or out using their PIN,
+        the Orbitsworks mobile app attempts a single, one-time location
+        fix (never continuous or background tracking) if device location
+        permission has been granted. OrbitWorks requests only
+        while-in-use location permission; it does not request or use
+        "Always"/background location. No location is collected while an
+        Employee is clocked out, between clock events, or on Core plans.
+        If permission is denied or no fix is available in time, the
+        clock event is saved without location rather than being blocked.
+      </p>
+      <p>
+        That location, if captured, is used to show an approximate
+        address for the clock event and, where Customer has set up and
+        enabled a geofence for a job site, to flag whether the Employee
+        was inside or outside that site's radius. Like face verification,
+        a geofence result only generates an alert for Customer's review;
+        it never blocks a clock event.
       </p>
       <p>
         Customer is responsible for providing any notices and obtaining
-        any permissions or consents required by applicable law before
-        using location-based tracking or verification features.
+        any permissions or consents required by applicable law, including
+        state electronic-monitoring notice laws, before using
+        location-based tracking or verification features, and for using
+        the Employee Biometric and Location Notice and Consent template
+        described in Section 4.1 for that purpose.
       </p>
 
       <h2>6. Privacy</h2>

@@ -11,10 +11,17 @@ Orbitsworks is a workforce management SaaS for businesses with mobile or on-site
 - Admin approval workflow: hours must be approved before they appear in payroll reports
 - Payroll-ready Excel export with daily breakdowns, per-job-site totals, and built-in formulas
 - Built for construction, field service, and multi-site crews
+- Pro: automatic face verification comparing each clock-in/clock-out photo against the employee's profile photo; alerts a mismatch, never blocks the clock event
+- Pro: GPS/geofencing that flags clock-ins outside an assigned job site's radius; alert-only, one-time location fix per clock event, no background tracking
+
+## Employer responsibilities
+Face verification and location features require the employer to notify employees and obtain any consent required by law before enabling them. A free bilingual (English/Spanish) notice and consent template is provided at /employee-notice.
 
 ## Links
 - Home: https://orbitsworks.com
 - Support: https://orbitsworks.com/support
 - Privacy Policy: https://orbitsworks.com/privacy
 - Terms of Service: https://orbitsworks.com/terms
+- Biometric Data Policy: https://orbitsworks.com/biometric-policy
+- Employee Notice Template: https://orbitsworks.com/employee-notice
 - Sign up: https://orbitsworks.com/signup

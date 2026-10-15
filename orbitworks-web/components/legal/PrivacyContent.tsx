@@ -4,7 +4,7 @@ export default function PrivacyContent() {
   return (
     <div className="prose prose-sm max-w-none text-gray-700">
       <p className="text-sm text-gray-500">
-        Last updated: September 6, 2026 (version {TERMS_VERSION})
+        Last updated: October 14, 2026 (version {TERMS_VERSION})
       </p>
 
       <p>
@@ -66,27 +66,64 @@ export default function PrivacyContent() {
 
       <h3>Location Information</h3>
       <p>
-        If Customer enables location-based features, OrbitWorks may
-        process precise or approximate device location, job-site
-        location, geofence information, or location-verification results
-        in connection with clock events. The specific location
-        information collected depends on the features enabled by
-        Customer.
+        On Pro plans, when an Employee clocks in or out with their PIN,
+        the mobile app attempts a single, one-time device location fix
+        (latitude, longitude, and accuracy) if the Employee has granted
+        while-in-use location permission. We do not request "Always"/
+        background location permission, and we do not collect location
+        continuously while an Employee is clocked in or at any time while
+        an Employee is clocked out. Core plans never attempt a location
+        fix.
+      </p>
+      <p>
+        If a location fix is captured, we convert it to an approximate
+        address for display and, where Customer has configured and
+        enabled a geofence for a job site, compute whether the Employee
+        was inside or outside that site's radius. This is used only to
+        show the location associated with a clock event and to generate
+        an optional alert for Customer's review; location results never
+        block a clock event. Location information is stored as part of
+        the clock event record it was captured with and follows the
+        retention described in Section 5.
       </p>
 
-      <h3>Photos</h3>
+      <h3>Photos and Biometric Information</h3>
       <p>
-        OrbitWorks may process Employee profile photos and photos
-        captured during enrollment, clock-in, clock-out, or verification
-        workflows. Storage and retention of these photos may depend on
-        the feature used and the retention settings described in this
-        Policy or the Biometric Data Policy.
+        OrbitWorks processes two kinds of photos in connection with face
+        verification, a Pro-plan feature described more fully in our
+        Biometric Data Policy:
       </p>
-
-      <h3>Biometric Information</h3>
+      <ul>
+        <li>
+          an Employee's profile photo, used as the reference photo for
+          comparison; and
+        </li>
+        <li>
+          the photo automatically captured at each clock-in and clock-out,
+          used as the photo compared against the reference photo.
+        </li>
+      </ul>
       <p>
-        If Customer enables face verification, OrbitWorks may process
-        biometric information as described in the Biometric Data Policy.
+        Face verification runs automatically for any Employee who has a
+        profile photo on a Pro plan; an Employee with no profile photo on
+        file is not checked. Clock-in and clock-out photos are captured
+        for every plan tier as a visual record of attendance, whether or
+        not face verification is active for that Employee or company.
+      </p>
+      <p>
+        Comparison is performed by Amazon Web Services Rekognition on a
+        one-to-one basis between an Employee's reference photo and their
+        own clock photo. We do not use any Rekognition feature that
+        stores a reusable facial template, and no separate biometric
+        template or face embedding is stored by OrbitWorks. The
+        comparison result (a match/mismatch/no-face status and similarity
+        score) is stored on the clock event; the underlying photos
+        themselves are stored as described in the Biometric Data Policy.
+      </p>
+      <p>
+        We do not sell, lease, trade, or use biometric information for
+        advertising, profiling, or training artificial-intelligence or
+        machine-learning models.
       </p>
 
       <h3>Billing Information</h3>
@@ -207,9 +244,22 @@ export default function PrivacyContent() {
           fraud-prevention, and legal obligations.
         </li>
         <li>
-          <strong>Biometric information</strong>: according to the
-          retention and destruction schedule described in the Biometric
-          Data Policy.
+          <strong>Biometric information</strong> (reference and
+          clock-event photos processed for face verification): verification
+          photos are deleted 90 days after capture (or 90 days after an
+          open mismatch/no-face alert on that photo is resolved); an
+          Employee's reference photo is deleted 1 year after deactivation
+          or 3 years after their last clock event, whichever is sooner,
+          and immediately if the Employee record is deleted; and every
+          biometric photo for Customer's account is deleted 90 days after
+          Customer's subscription is canceled. Full detail is in the
+          Biometric Data Policy.
+        </li>
+        <li>
+          <strong>Location information</strong>: stored as part of the
+          clock event it was captured with, and retained on the same
+          schedule as that clock, attendance, timesheet, and related
+          workforce record described above.
         </li>
       </ul>
       <p>

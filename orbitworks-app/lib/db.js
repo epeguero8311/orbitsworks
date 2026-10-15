@@ -182,6 +182,13 @@ export async function getDb() {
     "ALTER TABLE event_queue ADD COLUMN syncedAt INTEGER",
     "ALTER TABLE pin_cache ADD COLUMN lastEventTimestamp INTEGER",
     "ALTER TABLE event_queue ADD COLUMN backedUp INTEGER NOT NULL DEFAULT 0",
+    // Notice-before-capture (Terms Section 4.1) - the on-device moment the
+    // identity-verification notice was acknowledged, in ms (Date.now()),
+    // threaded through to createEmployee/updateEmployeeProfile as
+    // photoNoticeShownAt. Null on a name-only employee_update_queue row
+    // (no photo, no notice shown).
+    "ALTER TABLE employee_queue ADD COLUMN photoNoticeShownAt INTEGER",
+    "ALTER TABLE employee_update_queue ADD COLUMN photoNoticeShownAt INTEGER",
   ];
   for (const migration of migrations) {
     try {

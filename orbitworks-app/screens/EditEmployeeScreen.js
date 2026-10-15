@@ -14,6 +14,7 @@ import { syncEmployeeUpdateQueueItemNow } from "../lib/employeeUpdateQueueSync";
 import { getOrCreateDeviceId } from "../lib/deviceId";
 import ScreenHeader from "../components/ScreenHeader";
 import Avatar from "../components/Avatar";
+import PhotoNoticeModal from "../components/PhotoNoticeModal";
 
 // How long the online attempt gets to finish before this just falls back
 // to the offline messaging - same tradeoff as CreateEmployeeScreen.js's
@@ -53,6 +54,12 @@ export default function EditEmployeeScreen({ navigation, route }) {
   const [capturing, setCapturing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
+  // Notice-before-capture (Terms Section 4.1) - same shape as
+  // CreateEmployeeScreen.js's own field, reset on handleChangePhoto so a
+  // later "Change photo" tap in the same screen visit shows it again (the
+  // first acknowledgment is tied to the photo it preceded, not the
+  // screen visit).
+  const [photoNoticeShownAt, setPhotoNoticeShownAt] = useState(null);
 
   const trimmedName = validateEmployeeName(name).trimmed;
   const nameChanged = !!validateEmployeeName(name).valid && trimmedName !== employee.name;
@@ -93,6 +100,7 @@ export default function EditEmployeeScreen({ navigation, route }) {
       const result = await requestPermission();
       if (!result.granted) return;
     }
+    setPhotoNoticeShownAt(null);
     setCameraOpen(true);
   }
 
@@ -114,6 +122,7 @@ export default function EditEmployeeScreen({ navigation, route }) {
         employeeId: employee.id,
         name: nameChanged ? validated.trimmed : null,
         photoUri: newPhotoUri,
+        photoNoticeShownAt: newPhotoUri ? photoNoticeShownAt : null,
         deviceId,
         updatedByName,
         companyId: userData.companyId,
@@ -214,6 +223,12 @@ export default function EditEmployeeScreen({ navigation, route }) {
               <Text style={styles.previewButtonText}>Grant Permission</Text>
             </TouchableOpacity>
           </View>
+        ) : !photoNoticeShownAt ? (
+          <View style={[styles.photoBox, styles.permBox, { borderColor: colors.border }]}>
+            <Text style={[styles.permText, { color: colors.text }]}>
+              Review the identity-verification notice to continue.
+            </Text>
+          </View>
         ) : (
           <View style={styles.photoBox}>
             <CameraView ref={cameraRef} style={styles.cameraFill} facing="front" />
@@ -239,6 +254,11 @@ export default function EditEmployeeScreen({ navigation, route }) {
           {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Save Changes</Text>}
         </TouchableOpacity>
       </ScrollView>
+
+      <PhotoNoticeModal
+        visible={cameraOpen && !!permission?.granted && !photoNoticeShownAt && !rawPhotoUri && !newPhotoUri}
+        onAcknowledge={setPhotoNoticeShownAt}
+      />
     </KeyboardAvoidingView>
   );
 }

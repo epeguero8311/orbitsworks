@@ -60,6 +60,7 @@ async function syncOne(sqlite, item, companyId) {
     name: item.name,
     photoUrl,
     clientPin: item.clientPin,
+    photoNoticeShownAt: item.photoNoticeShownAt ?? null,
   });
   const { pin, pinChanged } = result.data;
 
