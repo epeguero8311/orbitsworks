@@ -40,8 +40,5 @@
     "web": "expo start --web",
     "generate:icons": "node scripts/generate-icons.mjs"
   },
-  "private": true,
-  "devDependencies": {
-    "sharp": "^0.34.5"
-  }
+  "private": true
 }
