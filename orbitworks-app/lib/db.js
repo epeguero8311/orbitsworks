@@ -1,12 +1,21 @@
 import * as SQLite from "expo-sqlite";
 
-let dbInstance = null;
+let dbPromise = null;
 
-export async function getDb() {
-  if (dbInstance) return dbInstance;
-  dbInstance = await SQLite.openDatabaseAsync("orbitworks.db");
+export function getDb() {
+  if (!dbPromise) {
+    dbPromise = openDb().catch((e) => {
+      dbPromise = null;
+      throw e;
+    });
+  }
+  return dbPromise;
+}
 
-  await dbInstance.execAsync(`
+async function openDb() {
+  const db = await SQLite.openDatabaseAsync("orbitworks.db");
+
+  await db.execAsync(`
     PRAGMA journal_mode = WAL;
 
     CREATE TABLE IF NOT EXISTS pin_cache (
@@ -192,11 +201,11 @@ export async function getDb() {
   ];
   for (const migration of migrations) {
     try {
-      await dbInstance.execAsync(migration);
+      await db.execAsync(migration);
     } catch (e) {
       // column already exists - expected on every launch after the first
     }
   }
 
-  return dbInstance;
+  return db;
 }
