@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/react-native";
 import { getDb } from "./db";
 import { getCurrentLocalStatus } from "./clockStatusLocal";
 import { notifyQueueChange } from "./queueEvents";
+import { getOrCreateDeviceId, getCachedDeviceName } from "./deviceId";
 
 export function makeLocalId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -10,10 +11,27 @@ export function makeLocalId() {
 
 async function insertQueueItem(item) {
   const db = await getDb();
+  // locationAttempted distinguishes "Geolocation ran but got no fix"
+  // (item.location === null - a Pro company, permission denied or GPS
+  // timeout) from "never attempted" (item.location === undefined - a
+  // Core company, where callers never invoke getBestEffortLocation at
+  // all). Both collapse to NULL lat/lng, so this flag is the only thing
+  // that lets queueSync.js reproduce the right one server-side: the
+  // former should show "Location not shared", the latter nothing.
+  const locationAttempted = item.location !== undefined ? 1 : 0;
+  // Device Recognition Pro - both reads are local-only (SecureStore/
+  // AsyncStorage), so this never adds a network round trip to the
+  // clock-in path. deviceId is get-or-create (always resolves once
+  // storage works at all); the name is whatever useDeviceDoc.js last
+  // cached for THIS company, null if never named, never observed on
+  // this install, or (defensively) if a caller somehow reached here
+  // without a companyId - never throws either way.
+  const deviceId = await getOrCreateDeviceId();
+  const deviceNameSnapshot = deviceId && item.companyId ? await getCachedDeviceName(item.companyId) : null;
   await db.runAsync(
     `INSERT INTO event_queue
-      (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, subcontractorId, subcontractorName, reason, overrideEventId, syncStatus, attempts, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
+      (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, subcontractorId, subcontractorName, reason, overrideEventId, lat, lng, locationAccuracyM, locationAttempted, deviceId, deviceNameSnapshot, syncStatus, attempts, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
     [
       item.localId,
       item.employeeId,
@@ -32,6 +50,12 @@ async function insertQueueItem(item) {
       item.subcontractorName ?? null,
       item.reason ?? null,
       item.overrideEventId ?? null,
+      item.location?.lat ?? null,
+      item.location?.lng ?? null,
+      item.location?.accuracyM ?? null,
+      locationAttempted,
+      deviceId,
+      deviceNameSnapshot,
       item.createdAt,
     ]
   );
@@ -56,7 +80,17 @@ async function persistPhoto(photoUri, employeeId) {
   return dest;
 }
 
-export async function queueClockEvent({ employee, photoUri, source, createdByUid, siteId, siteName }) {
+export async function queueClockEvent({
+  employee,
+  photoUri,
+  source,
+  createdByUid,
+  companyId,
+  siteId,
+  siteName,
+  location,
+  reason,
+}) {
   const currentStatus = await getCurrentLocalStatus(employee.id);
   const nextType = currentStatus === "out" ? "in" : "out";
 
@@ -65,7 +99,12 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
   // back in. If they were somehow already out (a stale/incorrect cache
   // read), don't let this fall through to a new clock-in.
   if (nextType === "in" && employee.active === false) {
-    throw new Error("This employee has been deactivated and can no longer clock in.");
+    // Tagged so ClockCameraScreen can route this to ClockDeclinedScreen
+    // (a real decline, not a technical failure) rather than silently
+    // resetting the button - see the Geofencing (Pro) declined-screen plan.
+    const err = new Error("This employee has been deactivated and can no longer clock in.");
+    err.code = "employeeDeactivated";
+    throw err;
   }
 
   const persistedUri = await persistPhoto(photoUri, employee.id);
@@ -76,6 +115,7 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
       localId: makeLocalId(),
       employeeId: employee.id,
       employeeName: employee.name,
+      companyId,
       siteId,
       siteName,
       type: "breakEnd",
@@ -83,6 +123,7 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
       createdByUid,
       subcontractorId: employee.subcontractorId ?? null,
       subcontractorName: employee.subcontractorName ?? null,
+      location,
       clientTimestamp: now - 1,
       createdAt: now,
     });
@@ -92,6 +133,7 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
     localId: makeLocalId(),
     employeeId: employee.id,
     employeeName: employee.name,
+    companyId,
     siteId,
     siteName,
     type: nextType,
@@ -100,6 +142,12 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
     createdByUid,
     subcontractorId: employee.subcontractorId ?? null,
     subcontractorName: employee.subcontractorName ?? null,
+    location,
+    // Geofencing (Pro) Part 3 - only ever set on a clock-IN (nextType can
+    // be "out" here too; a reason collected before this call was always
+    // for the pending clock-in, never a clock-out, per spec). Harmless to
+    // pass through on "out" too since callers never do.
+    reason: nextType === "in" ? reason : undefined,
     clientTimestamp: now,
     createdAt: now,
   });
@@ -107,7 +155,7 @@ export async function queueClockEvent({ employee, photoUri, source, createdByUid
   return nextType;
 }
 
-export async function queueBreakEvent({ employee, type, createdByUid, authorizedBy, siteId, siteName }) {
+export async function queueBreakEvent({ employee, type, createdByUid, companyId, authorizedBy, siteId, siteName, location }) {
   // An inactive employee can still end a break they were already on (part
   // of closing their session out), but never start a new one.
   if (type === "breakStart" && employee.active === false) {
@@ -119,6 +167,7 @@ export async function queueBreakEvent({ employee, type, createdByUid, authorized
     localId: makeLocalId(),
     employeeId: employee.id,
     employeeName: employee.name,
+    companyId,
     siteId,
     siteName,
     type,
@@ -128,6 +177,7 @@ export async function queueBreakEvent({ employee, type, createdByUid, authorized
     createdByUid,
     subcontractorId: employee.subcontractorId ?? null,
     subcontractorName: employee.subcontractorName ?? null,
+    location,
     clientTimestamp: now,
     createdAt: now,
   });
@@ -136,11 +186,13 @@ export async function queueBreakEvent({ employee, type, createdByUid, authorized
 export async function queueOverrideClockIn({
   employee,
   createdByUid,
+  companyId,
   authorizedBy,
   siteId,
   siteName,
   reason,
   overrideEventId,
+  location,
 }) {
   if (employee.active === false) {
     throw new Error("This employee has been deactivated and can no longer clock in.");
@@ -151,6 +203,7 @@ export async function queueOverrideClockIn({
     localId: makeLocalId(),
     employeeId: employee.id,
     employeeName: employee.name,
+    companyId,
     siteId,
     siteName,
     type: "in",
@@ -162,6 +215,7 @@ export async function queueOverrideClockIn({
     subcontractorName: employee.subcontractorName ?? null,
     reason: reason ?? null,
     overrideEventId: overrideEventId ?? null,
+    location,
     clientTimestamp: now,
     createdAt: now,
   });
@@ -176,10 +230,12 @@ export async function submitOverrideBatch({
   employees,
   direction,
   createdByUid,
+  companyId,
   authorizedBy,
   siteId,
   siteName,
   reason,
+  location,
 }) {
   const overrideEventId = makeLocalId();
   for (const employee of employees) {
@@ -187,21 +243,25 @@ export async function submitOverrideBatch({
       await queueOverrideClockIn({
         employee,
         createdByUid,
+        companyId,
         authorizedBy,
         siteId,
         siteName,
         reason,
         overrideEventId,
+        location,
       });
     } else {
       await queueOverrideClockOut({
         employee,
         createdByUid,
+        companyId,
         authorizedBy,
         siteId,
         siteName,
         reason,
         overrideEventId,
+        location,
       });
     }
   }
@@ -210,11 +270,13 @@ export async function submitOverrideBatch({
 export async function queueOverrideClockOut({
   employee,
   createdByUid,
+  companyId,
   authorizedBy,
   siteId,
   siteName,
   reason,
   overrideEventId,
+  location,
 }) {
   const currentStatus = await getCurrentLocalStatus(employee.id);
   const now = Date.now();
@@ -224,6 +286,7 @@ export async function queueOverrideClockOut({
       localId: makeLocalId(),
       employeeId: employee.id,
       employeeName: employee.name,
+      companyId,
       siteId,
       siteName,
       type: "breakEnd",
@@ -231,6 +294,7 @@ export async function queueOverrideClockOut({
       createdByUid,
       subcontractorId: employee.subcontractorId ?? null,
       subcontractorName: employee.subcontractorName ?? null,
+      location,
       clientTimestamp: now - 1,
       createdAt: now,
     });
@@ -240,6 +304,7 @@ export async function queueOverrideClockOut({
     localId: makeLocalId(),
     employeeId: employee.id,
     employeeName: employee.name,
+    companyId,
     siteId,
     siteName,
     type: "out",
@@ -251,6 +316,7 @@ export async function queueOverrideClockOut({
     subcontractorName: employee.subcontractorName ?? null,
     reason: reason ?? null,
     overrideEventId: overrideEventId ?? null,
+    location,
     clientTimestamp: now,
     createdAt: now,
   });

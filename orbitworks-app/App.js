@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { Feather } from "@expo/vector-icons";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
@@ -10,10 +10,13 @@ import { ThemeProvider, useTheme } from "./lib/ThemeContext";
 import { SiteSessionProvider } from "./lib/SiteSessionContext";
 import { usePinTableSync } from "./lib/hooks/usePinTableSync";
 import { useQueueSync } from "./lib/hooks/useQueueSync";
+import { useEmployeeQueueSync } from "./lib/hooks/useEmployeeQueueSync";
+import { useEmployeeUpdateQueueSync } from "./lib/hooks/useEmployeeUpdateQueueSync";
 import { useQueuePendingCount } from "./lib/hooks/useQueuePendingCount";
 import { usePushRegistration } from "./lib/hooks/usePushRegistration";
 import { useAlertsFeed } from "./lib/hooks/useAlertsFeed";
 import { navigationRef } from "./lib/navigationRef";
+import FloatingTabBar from "./components/FloatingTabBar";
 import LoginScreen from "./screens/LoginScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import AccountDisabledScreen from "./screens/AccountDisabledScreen";
@@ -28,11 +31,17 @@ import NotesScreen from "./screens/NotesScreen";
 import PinEntryScreen from "./screens/PinEntryScreen";
 import ClockCameraScreen from "./screens/ClockCameraScreen";
 import ClockConfirmScreen from "./screens/ClockConfirmScreen";
+import ClockDeclinedScreen from "./screens/ClockDeclinedScreen";
+import DeclinedAlertsScreen from "./screens/DeclinedAlertsScreen";
 import BreaksPinEntryScreen from "./screens/BreaksPinEntryScreen";
 import BreaksEmployeeListScreen from "./screens/BreaksEmployeeListScreen";
 import OverridePinEntryScreen from "./screens/OverridePinEntryScreen";
 import OverrideEmployeeListScreen from "./screens/OverrideEmployeeListScreen";
 import OverrideReasonScreen from "./screens/OverrideReasonScreen";
+import CreateEmployeeScreen from "./screens/CreateEmployeeScreen";
+import UpdateEmployeeScreen from "./screens/UpdateEmployeeScreen";
+import EditEmployeeScreen from "./screens/EditEmployeeScreen";
+import EmployeeSyncAlertsScreen from "./screens/EmployeeSyncAlertsScreen";
 import * as Sentry from '@sentry/react-native';
 
 Sentry.init({
@@ -58,29 +67,14 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-const TAB_ICONS = {
-  Home: "home",
-  Alerts: "bell",
-  SyncQueue: "refresh-cw",
-  Settings: "settings",
-};
-
 function MainTabs() {
-  const { colors } = useTheme();
   const pendingCount = useQueuePendingCount();
   const { unreadCount } = useAlertsFeed();
 
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.subtext,
-        tabBarStyle: { backgroundColor: colors.background, borderTopColor: colors.border },
-        tabBarIcon: ({ color, size }) => (
-          <Feather name={TAB_ICONS[route.name]} size={size} color={color} />
-        ),
-      })}
+      tabBar={(props) => <FloatingTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="Home" component={DashboardScreen} />
       <Tab.Screen
@@ -104,6 +98,8 @@ function RootNavigator() {
   const [splashAnimationDone, setSplashAnimationDone] = useState(false);
   usePinTableSync();
   useQueueSync();
+  useEmployeeQueueSync();
+  useEmployeeUpdateQueueSync();
   usePushRegistration();
 
   const onNativeSplashHandoff = useCallback(() => {
@@ -136,11 +132,17 @@ function RootNavigator() {
             <Stack.Screen name="PinEntry" component={PinEntryScreen} />
             <Stack.Screen name="ClockCamera" component={ClockCameraScreen} />
             <Stack.Screen name="ClockConfirm" component={ClockConfirmScreen} />
+            <Stack.Screen name="ClockDeclined" component={ClockDeclinedScreen} />
+            <Stack.Screen name="DeclinedAlerts" component={DeclinedAlertsScreen} />
             <Stack.Screen name="BreaksPinEntry" component={BreaksPinEntryScreen} />
             <Stack.Screen name="BreaksEmployeeList" component={BreaksEmployeeListScreen} />
             <Stack.Screen name="OverridePinEntry" component={OverridePinEntryScreen} />
             <Stack.Screen name="OverrideEmployeeList" component={OverrideEmployeeListScreen} />
             <Stack.Screen name="OverrideReason" component={OverrideReasonScreen} />
+            <Stack.Screen name="CreateEmployee" component={CreateEmployeeScreen} />
+            <Stack.Screen name="UpdateEmployee" component={UpdateEmployeeScreen} />
+            <Stack.Screen name="EditEmployee" component={EditEmployeeScreen} />
+            <Stack.Screen name="EmployeeSyncAlerts" component={EmployeeSyncAlertsScreen} />
           </>
         ) : (
           <>
@@ -155,12 +157,14 @@ function RootNavigator() {
 
 export default Sentry.wrap(function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <SiteSessionProvider>
-          <RootNavigator />
-        </SiteSessionProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <SiteSessionProvider>
+            <RootNavigator />
+          </SiteSessionProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 });

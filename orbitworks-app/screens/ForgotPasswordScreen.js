@@ -5,12 +5,12 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Alert,
 } from "react-native";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import Logo from "../components/Logo";
+import Spinner from "../components/Spinner";
 
 export default function ForgotPasswordScreen({ navigation }) {
   const [email, setEmail] = useState("");
@@ -69,7 +69,7 @@ export default function ForgotPasswordScreen({ navigation }) {
           </View>
           <TouchableOpacity style={styles.button} onPress={handleReset} disabled={submitting}>
             {submitting ? (
-              <ActivityIndicator color="#fff" />
+              <Spinner size={20} color="#fff" />
             ) : (
               <Text style={styles.buttonText}>Send Reset Link</Text>
             )}

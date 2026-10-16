@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, FlatList } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Sentry from "@sentry/react-native";
@@ -11,15 +11,17 @@ import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
 import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import { submitOverrideBatch } from "../lib/clockQueue";
 import { drainQueue } from "../lib/queueSync";
+import { getBestEffortLocationIfPro } from "../lib/location";
 import ScreenHeader from "../components/ScreenHeader";
 import Avatar from "../components/Avatar";
+import Spinner from "../components/Spinner";
 
 export default function OverrideEmployeeListScreen({ navigation, route }) {
   const authorizedBy = route?.params?.authorizedBy;
   const { userData, currentUser } = useAuth();
   const { colors } = useTheme();
   const { selectedSite } = useSiteSession();
-  const { settings } = useCompanySettings(userData?.companyId);
+  const { settings, isPro } = useCompanySettings(userData?.companyId);
   const { employees: liveEmployees, loading } = useTodayShift(userData?.companyId);
   const employees = useLocalStatusOverlay(liveEmployees);
   const [direction, setDirection] = useState("in");
@@ -72,6 +74,9 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
 
     const siteId = selectedSite && !isNoneSite ? selectedSite.id : null;
     const siteName = selectedSite && !isNoneSite ? selectedSite.name : "Not specified";
+    // Captured at the moment of this button press (the actual action),
+    // not after a possibly-lengthy reason typed on the next screen.
+    const location = await getBestEffortLocationIfPro(isPro);
 
     // A reason gets collected on its own screen first, then submitted from
     // there - this screen only submits directly when no reason is required.
@@ -82,6 +87,7 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
         siteId,
         siteName,
         authorizedBy,
+        location,
       });
       return;
     }
@@ -92,9 +98,11 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
         employees: selected,
         direction,
         createdByUid: currentUser?.uid,
+        companyId: userData?.companyId,
         authorizedBy,
         siteId,
         siteName,
+        location,
       });
       drainQueue(userData.companyId);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -121,7 +129,7 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.accent} />
+        <Spinner size={40} color={colors.accent} />
       </View>
     );
   }

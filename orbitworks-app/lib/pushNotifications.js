@@ -4,7 +4,7 @@ import * as Device from "expo-device";
 import Constants from "expo-constants";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
-import { getOrCreateDeviceId } from "./deviceId";
+import { getOrCreatePushDeviceId } from "./pushDeviceId";
 
 // Foreground display behavior - show + sound while the app is open, no
 // badge (nothing on this app's icon reads a badge count today).
@@ -59,7 +59,7 @@ export async function registerForPushNotificationsAsync(companyId) {
     const granted = await ensureNotificationPermission();
     if (!granted) return;
 
-    const deviceId = await getOrCreateDeviceId();
+    const deviceId = await getOrCreatePushDeviceId();
     if (!deviceId) return;
 
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
@@ -94,7 +94,7 @@ export async function registerForPushNotificationsAsync(companyId) {
 // revert the switch instead of showing a state that didn't actually save.
 export async function setNotificationsEnabled(companyId, enabled) {
   try {
-    const deviceId = await getOrCreateDeviceId();
+    const deviceId = await getOrCreatePushDeviceId();
     if (!companyId || !deviceId) return false;
     const ref = doc(db, "companies", companyId, "pushTokens", deviceId);
     const existing = await getDoc(ref);
@@ -111,7 +111,7 @@ export async function setNotificationsEnabled(companyId, enabled) {
 // registered (e.g. permission was denied, or this ran on a simulator).
 export async function getNotificationState(companyId) {
   try {
-    const deviceId = await getOrCreateDeviceId();
+    const deviceId = await getOrCreatePushDeviceId();
     if (!companyId || !deviceId) return null;
     const snap = await getDoc(doc(db, "companies", companyId, "pushTokens", deviceId));
     if (!snap.exists()) return null;

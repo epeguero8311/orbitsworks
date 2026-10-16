@@ -1,9 +1,11 @@
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, FlatList, TouchableOpacity, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "../lib/ThemeContext";
 import { useSyncQueue } from "../lib/hooks/useSyncQueue";
+import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
 import ScreenHeader from "../components/ScreenHeader";
 import DevSyncFaultPanel from "../components/DevSyncFaultPanel";
+import Spinner from "../components/Spinner";
 
 const ACTION_LABEL = { in: "Clock In", out: "Clock Out", breakStart: "Break Start", breakEnd: "Break End" };
 const STATUS_LABEL = { pending: "Waiting", syncing: "Syncing", synced: "Synced", failed: "Failed", dead: "Stuck" };
@@ -43,6 +45,7 @@ function describeError(lastError) {
 export default function SyncQueueScreen() {
   const { colors } = useTheme();
   const { items, online, syncing, syncNow, retry } = useSyncQueue();
+  const tabBarSpace = useTabBarSpace();
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -66,7 +69,7 @@ export default function SyncQueueScreen() {
           disabled={syncing || !online}
         >
           {syncing ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <Spinner size={20} color="#fff" />
           ) : (
             <Feather name="refresh-cw" size={14} color="#fff" />
           )}
@@ -77,7 +80,7 @@ export default function SyncQueueScreen() {
       <FlatList
         data={items}
         keyExtractor={(item) => item.localId}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: tabBarSpace }]}
         renderItem={({ item }) => (
           <View style={[styles.row, { borderBottomColor: colors.border }]}>
             <View style={styles.rowTop}>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform,
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import * as Sentry from "@sentry/react-native";
@@ -9,6 +9,7 @@ import { useTheme } from "../lib/ThemeContext";
 import { submitOverrideBatch } from "../lib/clockQueue";
 import { drainQueue } from "../lib/queueSync";
 import ScreenHeader from "../components/ScreenHeader";
+import Spinner from "../components/Spinner";
 
 const MIN_LENGTH = 10;
 const MAX_LENGTH = 500;
@@ -18,7 +19,7 @@ const MAX_LENGTH = 500;
 // instead of submitting directly. Collects one reason for the whole
 // batch, then does the same queue submission that screen would have.
 export default function OverrideReasonScreen({ navigation, route }) {
-  const { selected, direction, siteId, siteName, authorizedBy } = route.params;
+  const { selected, direction, siteId, siteName, authorizedBy, location } = route.params;
   const { userData, currentUser } = useAuth();
   const { colors } = useTheme();
   const [reason, setReason] = useState("");
@@ -35,10 +36,12 @@ export default function OverrideReasonScreen({ navigation, route }) {
         employees: selected,
         direction,
         createdByUid: currentUser?.uid,
+        companyId: userData?.companyId,
         authorizedBy,
         siteId,
         siteName,
         reason: trimmed,
+        location,
       });
       drainQueue(userData.companyId);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -102,7 +105,7 @@ export default function OverrideReasonScreen({ navigation, route }) {
           disabled={!isValid || submitting}
         >
           {submitting ? (
-            <ActivityIndicator color="#fff" />
+            <Spinner size={20} color="#fff" />
           ) : (
             <Text style={styles.submitButtonText}>
               {direction === "in" ? "Clock In" : "Clock Out"}

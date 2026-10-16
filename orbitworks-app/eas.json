@@ -6,10 +6,24 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "channel": "development"
+    },
+    "dev": {
+      "extends": "development",
+      "channel": "dev",
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyCmxM7S1kTHVwC6YJlQcDYebBayFhLX8jQ",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "orbitworks-dev-ew.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "orbitworks-dev-ew",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "orbitworks-dev-ew.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "797101077485",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:797101077485:web:319119d9bf71be32336de4"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "channel": "preview"
     },
     "previewStore": {
       "distribution": "store",
@@ -17,11 +31,17 @@
       "environment": "preview"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "channel": "production"
     }
   },
   "submit": {
     "production": {
+      "ios": {
+        "ascAppId": "6801155800"
+      }
+    },
+    "previewStore": {
       "ios": {
         "ascAppId": "6801155800"
       }

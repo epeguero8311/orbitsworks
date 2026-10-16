@@ -6,12 +6,11 @@ import { useSiteSession } from "../lib/SiteSessionContext";
 import { useTodayShift } from "../lib/hooks/useTodayShift";
 import ScreenHeader from "../components/ScreenHeader";
 
-export default function SiteSelectScreen({ navigation, route }) {
+export default function SiteSelectScreen({ navigation }) {
   const { userData } = useAuth();
   const { colors } = useTheme();
   const { selectedSite, setSelectedSite } = useSiteSession();
   const { sites } = useTodayShift(userData?.companyId);
-  const afterSelect = route?.params?.afterSelect;
 
   const options = [
     { id: null, name: "All Sites" },
@@ -21,11 +20,7 @@ export default function SiteSelectScreen({ navigation, route }) {
 
   const handlePick = (site) => {
     setSelectedSite(site.id === null ? null : { id: site.id, name: site.name });
-    if (afterSelect) {
-      navigation.replace(afterSelect);
-    } else {
-      navigation.goBack();
-    }
+    navigation.goBack();
   };
 
   return (

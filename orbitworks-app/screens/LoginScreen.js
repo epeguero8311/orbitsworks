@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -13,6 +12,7 @@ import {
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import Logo from "../components/Logo";
+import Spinner from "../components/Spinner";
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState("");
@@ -86,7 +86,7 @@ export default function LoginScreen({ navigation }) {
           disabled={submitting}
         >
           {submitting ? (
-            <ActivityIndicator color="#fff" />
+            <Spinner size={20} color="#fff" />
           ) : (
             <Text style={styles.buttonText}>Sign In</Text>
           )}

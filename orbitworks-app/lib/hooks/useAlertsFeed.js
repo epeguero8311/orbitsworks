@@ -3,7 +3,7 @@ import { collection, onSnapshot, query, orderBy, doc, arrayUnion, writeBatch } f
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import { useLocalEmployee } from "./useLocalEmployee";
-import { getOrCreateDeviceId } from "../deviceId";
+import { getOrCreatePushDeviceId } from "../pushDeviceId";
 
 // Live view of companies/{companyId}/alerts, newest first. Fails to an
 // empty list rather than an error (kill-switch-off or unreachable both
@@ -27,7 +27,7 @@ export function useAlertsFeed() {
   const [deviceId, setDeviceId] = useState(null);
 
   useEffect(() => {
-    getOrCreateDeviceId().then(setDeviceId);
+    getOrCreatePushDeviceId().then(setDeviceId);
   }, []);
 
   useEffect(() => {
