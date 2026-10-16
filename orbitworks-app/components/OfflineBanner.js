@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Animated, StyleSheet, Text } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import NetInfo from "@react-native-community/netinfo";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
 
 // Persistent bottom banner, visible only while offline. isConnected
 // covers "no network at all"; isInternetReachable catches the "on wifi
@@ -11,11 +11,12 @@ import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 // isInternetReachable (still checking) is treated as online to avoid a
 // flash of the banner on every cold start.
 //
-// Rendered from DashboardScreen (the Home tab), which sits inside the
-// bottom tab navigator added in Phase 1 - useBottomTabBarHeight() gives
-// the tab bar's real rendered height (already accounts for safe-area
-// insets) so the banner floats just above it instead of colliding with
-// or hiding behind it.
+// Rendered from DashboardScreen (the Home tab). The floating pill tab
+// bar (components/FloatingTabBar.js) doesn't reserve its own row in the
+// navigator's layout - it floats over content - so this uses the same
+// shared useTabBarSpace() every scrollable tab screen uses, rather than
+// React Navigation's own tab bar height, to float just above it instead
+// of colliding with or hiding behind it.
 // How far below its own resting spot the banner slides when hidden. Must
 // clear restingBottom (below) by enough margin that the whole banner is
 // off-screen, not just however-far-happens-to-be-enough for one device's
@@ -25,8 +26,8 @@ import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 const HIDE_OFFSET = 160;
 
 export default function OfflineBanner() {
-  const tabBarHeight = useBottomTabBarHeight();
-  const restingBottom = tabBarHeight + 12;
+  const tabBarSpace = useTabBarSpace();
+  const restingBottom = tabBarSpace + 12;
   const [visible, setVisible] = useState(false);
   const translateY = useRef(new Animated.Value(HIDE_OFFSET)).current;
   const opacity = useRef(new Animated.Value(0)).current;

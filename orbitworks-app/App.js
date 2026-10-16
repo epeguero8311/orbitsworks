@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { Feather } from "@expo/vector-icons";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
@@ -16,6 +16,7 @@ import { useQueuePendingCount } from "./lib/hooks/useQueuePendingCount";
 import { usePushRegistration } from "./lib/hooks/usePushRegistration";
 import { useAlertsFeed } from "./lib/hooks/useAlertsFeed";
 import { navigationRef } from "./lib/navigationRef";
+import FloatingTabBar from "./components/FloatingTabBar";
 import LoginScreen from "./screens/LoginScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import AccountDisabledScreen from "./screens/AccountDisabledScreen";
@@ -66,29 +67,14 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-const TAB_ICONS = {
-  Home: "home",
-  Alerts: "bell",
-  SyncQueue: "refresh-cw",
-  Settings: "settings",
-};
-
 function MainTabs() {
-  const { colors } = useTheme();
   const pendingCount = useQueuePendingCount();
   const { unreadCount } = useAlertsFeed();
 
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.subtext,
-        tabBarStyle: { backgroundColor: colors.background, borderTopColor: colors.border },
-        tabBarIcon: ({ color, size }) => (
-          <Feather name={TAB_ICONS[route.name]} size={size} color={color} />
-        ),
-      })}
+      tabBar={(props) => <FloatingTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="Home" component={DashboardScreen} />
       <Tab.Screen
@@ -171,12 +157,14 @@ function RootNavigator() {
 
 export default Sentry.wrap(function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <SiteSessionProvider>
-          <RootNavigator />
-        </SiteSessionProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <SiteSessionProvider>
+            <RootNavigator />
+          </SiteSessionProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 });

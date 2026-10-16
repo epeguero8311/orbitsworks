@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, Image, StyleSheet,
-  ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform,
+  ScrollView, KeyboardAvoidingView, Platform,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import NetInfo from "@react-native-community/netinfo";
@@ -14,6 +14,7 @@ import { syncEmployeeQueueItemNow } from "../lib/employeeQueueSync";
 import ScreenHeader from "../components/ScreenHeader";
 import CreateEmployeeSuccessModal from "../components/CreateEmployeeSuccessModal";
 import PhotoNoticeModal from "../components/PhotoNoticeModal";
+import Spinner from "../components/Spinner";
 
 // How long the online attempt gets to finish before this just falls back to
 // the offline messaging - the queued item keeps retrying in the background
@@ -128,7 +129,7 @@ export default function CreateEmployeeScreen({ navigation }) {
   }
 
   if (!permission) {
-    return <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>;
+    return <View style={styles.center}><Spinner size={20} color={colors.accent} /></View>;
   }
 
   return (
@@ -205,7 +206,7 @@ export default function CreateEmployeeScreen({ navigation }) {
               onPress={handleCapture}
               disabled={capturing}
             >
-              {capturing ? <ActivityIndicator color="#fff" /> : <View style={styles.captureInner} />}
+              {capturing ? <Spinner size={20} color="#fff" /> : <View style={styles.captureInner} />}
             </TouchableOpacity>
           </View>
         )}
@@ -217,7 +218,7 @@ export default function CreateEmployeeScreen({ navigation }) {
           onPress={handleCreate}
           disabled={!canSubmit}
         >
-          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Create Employee</Text>}
+          {submitting ? <Spinner size={20} color="#fff" /> : <Text style={styles.submitButtonText}>Create Employee</Text>}
         </TouchableOpacity>
       </ScrollView>
 

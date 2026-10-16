@@ -19,13 +19,15 @@ async function insertQueueItem(item) {
   // that lets queueSync.js reproduce the right one server-side: the
   // former should show "Location not shared", the latter nothing.
   const locationAttempted = item.location !== undefined ? 1 : 0;
-  // Device Recognition Pro - both reads are local-only (AsyncStorage), so
-  // this never adds a network round trip to the clock-in path. deviceId is
-  // get-or-create (always resolves once storage works at all); the name
-  // is whatever useDeviceDoc.js last cached, null if never named or never
-  // observed on this install.
+  // Device Recognition Pro - both reads are local-only (SecureStore/
+  // AsyncStorage), so this never adds a network round trip to the
+  // clock-in path. deviceId is get-or-create (always resolves once
+  // storage works at all); the name is whatever useDeviceDoc.js last
+  // cached for THIS company, null if never named, never observed on
+  // this install, or (defensively) if a caller somehow reached here
+  // without a companyId - never throws either way.
   const deviceId = await getOrCreateDeviceId();
-  const deviceNameSnapshot = deviceId ? await getCachedDeviceName() : null;
+  const deviceNameSnapshot = deviceId && item.companyId ? await getCachedDeviceName(item.companyId) : null;
   await db.runAsync(
     `INSERT INTO event_queue
       (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, subcontractorId, subcontractorName, reason, overrideEventId, lat, lng, locationAccuracyM, locationAttempted, deviceId, deviceNameSnapshot, syncStatus, attempts, createdAt)
@@ -83,6 +85,7 @@ export async function queueClockEvent({
   photoUri,
   source,
   createdByUid,
+  companyId,
   siteId,
   siteName,
   location,
@@ -112,6 +115,7 @@ export async function queueClockEvent({
       localId: makeLocalId(),
       employeeId: employee.id,
       employeeName: employee.name,
+      companyId,
       siteId,
       siteName,
       type: "breakEnd",
@@ -129,6 +133,7 @@ export async function queueClockEvent({
     localId: makeLocalId(),
     employeeId: employee.id,
     employeeName: employee.name,
+    companyId,
     siteId,
     siteName,
     type: nextType,
@@ -150,7 +155,7 @@ export async function queueClockEvent({
   return nextType;
 }
 
-export async function queueBreakEvent({ employee, type, createdByUid, authorizedBy, siteId, siteName, location }) {
+export async function queueBreakEvent({ employee, type, createdByUid, companyId, authorizedBy, siteId, siteName, location }) {
   // An inactive employee can still end a break they were already on (part
   // of closing their session out), but never start a new one.
   if (type === "breakStart" && employee.active === false) {
@@ -162,6 +167,7 @@ export async function queueBreakEvent({ employee, type, createdByUid, authorized
     localId: makeLocalId(),
     employeeId: employee.id,
     employeeName: employee.name,
+    companyId,
     siteId,
     siteName,
     type,
@@ -180,6 +186,7 @@ export async function queueBreakEvent({ employee, type, createdByUid, authorized
 export async function queueOverrideClockIn({
   employee,
   createdByUid,
+  companyId,
   authorizedBy,
   siteId,
   siteName,
@@ -196,6 +203,7 @@ export async function queueOverrideClockIn({
     localId: makeLocalId(),
     employeeId: employee.id,
     employeeName: employee.name,
+    companyId,
     siteId,
     siteName,
     type: "in",
@@ -222,6 +230,7 @@ export async function submitOverrideBatch({
   employees,
   direction,
   createdByUid,
+  companyId,
   authorizedBy,
   siteId,
   siteName,
@@ -234,6 +243,7 @@ export async function submitOverrideBatch({
       await queueOverrideClockIn({
         employee,
         createdByUid,
+        companyId,
         authorizedBy,
         siteId,
         siteName,
@@ -245,6 +255,7 @@ export async function submitOverrideBatch({
       await queueOverrideClockOut({
         employee,
         createdByUid,
+        companyId,
         authorizedBy,
         siteId,
         siteName,
@@ -259,6 +270,7 @@ export async function submitOverrideBatch({
 export async function queueOverrideClockOut({
   employee,
   createdByUid,
+  companyId,
   authorizedBy,
   siteId,
   siteName,
@@ -274,6 +286,7 @@ export async function queueOverrideClockOut({
       localId: makeLocalId(),
       employeeId: employee.id,
       employeeName: employee.name,
+      companyId,
       siteId,
       siteName,
       type: "breakEnd",
@@ -291,6 +304,7 @@ export async function queueOverrideClockOut({
     localId: makeLocalId(),
     employeeId: employee.id,
     employeeName: employee.name,
+    companyId,
     siteId,
     siteName,
     type: "out",

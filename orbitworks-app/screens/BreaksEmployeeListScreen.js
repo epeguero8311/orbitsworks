@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, FlatList } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Sentry from "@sentry/react-native";
@@ -14,6 +14,7 @@ import { drainQueue } from "../lib/queueSync";
 import { getBestEffortLocationIfPro } from "../lib/location";
 import ScreenHeader from "../components/ScreenHeader";
 import Avatar from "../components/Avatar";
+import Spinner from "../components/Spinner";
 
 export default function BreaksEmployeeListScreen({ navigation, route }) {
   const authorizedBy = route?.params?.authorizedBy;
@@ -64,6 +65,7 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
           employee: emp,
           type,
           createdByUid: currentUser?.uid,
+          companyId: userData?.companyId,
           authorizedBy,
           siteId: selectedSite && !isNoneSite ? selectedSite.id : null,
           siteName: selectedSite && !isNoneSite ? selectedSite.name : "Not specified",
@@ -94,7 +96,7 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.accent} />
+        <Spinner size={40} color={colors.accent} />
       </View>
     );
   }

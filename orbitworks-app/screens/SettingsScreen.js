@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { View, Text, Switch, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, Switch, TouchableOpacity, StyleSheet, Linking, ScrollView } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { signOut } from "firebase/auth";
@@ -10,6 +10,8 @@ import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import { getLastSyncTime } from "../lib/queueSync";
 import { subscribeQueueChange } from "../lib/queueEvents";
 import { getNotificationState, setNotificationsEnabled, registerForPushNotificationsAsync } from "../lib/pushNotifications";
+import { useLocationPermission } from "../lib/hooks/useLocationPermission";
+import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
 import ScreenHeader from "../components/ScreenHeader";
 import DeviceNameRow from "../components/DeviceNameRow";
 
@@ -26,6 +28,8 @@ export default function SettingsScreen() {
   const { isPro } = useCompanySettings(userData?.companyId);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [lastSync, setLastSync] = useState(null);
+  const { granted: locationGranted, requestPermission: requestLocationPermission } = useLocationPermission();
+  const tabBarSpace = useTabBarSpace();
   const companyId = userData?.companyId;
 
   useEffect(() => {
@@ -62,11 +66,23 @@ export default function SettingsScreen() {
     if (!ok) setNotifEnabled(!value);
   };
 
+  const handleToggleLocation = async (value) => {
+    if (value) {
+      await requestLocationPermission();
+      return;
+    }
+    // There is no app-level "off" for a permission the OS already
+    // granted - only the OS Settings app can actually revoke it. The
+    // switch snaps back once the user returns, since useLocationPermission
+    // re-checks on every foreground.
+    if (locationGranted) Linking.openSettings();
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScreenHeader title="Settings" />
 
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: tabBarSpace }]}>
         <Text style={[styles.sectionLabel, { color: colors.subtext }]}>Logged in as</Text>
         <Text style={[styles.email, { color: colors.text }]}>{currentUser?.email}</Text>
 
@@ -88,6 +104,14 @@ export default function SettingsScreen() {
           <Switch value={notifEnabled} onValueChange={handleToggleNotifications} trackColor={{ true: colors.accent }} />
         </View>
 
+        <View style={[styles.row, { borderColor: colors.border }]}>
+          <View style={styles.rowLeft}>
+            <Feather name="map-pin" size={18} color={colors.text} />
+            <Text style={[styles.rowLabel, { color: colors.text }]}>Location</Text>
+          </View>
+          <Switch value={locationGranted} onValueChange={handleToggleLocation} trackColor={{ true: colors.accent }} />
+        </View>
+
         <View style={[styles.infoRow, { borderColor: colors.border }]}>
           <Text style={[styles.infoLabel, { color: colors.subtext }]}>Last synced</Text>
           <Text style={[styles.infoValue, { color: colors.text }]}>{formatLastSync(lastSync)}</Text>
@@ -102,7 +126,7 @@ export default function SettingsScreen() {
           <Feather name="log-out" size={16} color="#ef4444" />
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
     </View>
   );
 }

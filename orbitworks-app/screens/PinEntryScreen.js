@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -11,6 +11,7 @@ import { useCompanySettings } from "../lib/hooks/useCompanySettings";
 import { findEmployeeByPin } from "../lib/clockLogic";
 import { syncPinTable } from "../lib/pinSync";
 import ScreenHeader from "../components/ScreenHeader";
+import Spinner from "../components/Spinner";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
 
@@ -126,7 +127,7 @@ export default function PinEntryScreen({ navigation }) {
           ))}
         </View>
 
-        {checking && <ActivityIndicator style={{ marginTop: 12 }} color={colors.accent} />}
+        {checking && <View style={{ marginTop: 12, alignItems: "center" }}><Spinner size={20} color={colors.accent} /></View>}
         {error ? <Text style={[styles.error, { color: colors.red }]}>{error}</Text> : null}
 
         <View style={styles.keypad}>

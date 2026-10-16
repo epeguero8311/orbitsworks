@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, FlatList } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, FlatList } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import * as Sentry from "@sentry/react-native";
@@ -13,6 +13,7 @@ import { getBestEffortLocationIfPro } from "../lib/location";
 import { getCurrentLocalStatus, getCurrentLocalSite } from "../lib/clockStatusLocal";
 import { isAutoDetectionActive, getSitesForEmployeePicker, detectLocalSite } from "../lib/geofenceCheck";
 import ScreenHeader from "../components/ScreenHeader";
+import Spinner from "../components/Spinner";
 
 export default function ClockCameraScreen({ route, navigation }) {
   const { employee } = route.params;
@@ -59,7 +60,7 @@ export default function ClockCameraScreen({ route, navigation }) {
   }, [employee, settings.appSettings.askJobSiteEachTime]);
 
   if (!permission) {
-    return <View style={styles.center}><ActivityIndicator color="#3b6fe0" /></View>;
+    return <View style={styles.center}><Spinner size={20} color="#3b6fe0" /></View>;
   }
   if (!permission.granted) {
     return (
@@ -73,7 +74,7 @@ export default function ClockCameraScreen({ route, navigation }) {
   }
 
   if (siteOptions === null) {
-    return <View style={styles.center}><ActivityIndicator color="#3b6fe0" /></View>;
+    return <View style={styles.center}><Spinner size={20} color="#3b6fe0" /></View>;
   }
 
   if (siteOptions.length > 0 && !pickedSite) {
@@ -177,6 +178,7 @@ export default function ClockCameraScreen({ route, navigation }) {
         photoUri: photo.uri,
         source: "pin",
         createdByUid: currentUser.uid,
+        companyId: userData?.companyId,
         siteId,
         siteName,
         location,
@@ -241,7 +243,7 @@ export default function ClockCameraScreen({ route, navigation }) {
       <View style={styles.overlay}>
         <Text style={styles.name}>{employee.name}</Text>
         <TouchableOpacity style={styles.captureButton} onPress={handleCapture} disabled={submitting}>
-          {submitting ? <ActivityIndicator color="#fff" /> : <View style={styles.captureInner} />}
+          {submitting ? <Spinner size={20} color="#fff" /> : <View style={styles.captureInner} />}
         </TouchableOpacity>
       </View>
     </View>

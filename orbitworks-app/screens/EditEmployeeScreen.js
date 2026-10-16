@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, Image, StyleSheet,
-  ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform,
+  ScrollView, KeyboardAvoidingView, Platform,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import NetInfo from "@react-native-community/netinfo";
@@ -15,6 +15,7 @@ import { getOrCreateDeviceId } from "../lib/deviceId";
 import ScreenHeader from "../components/ScreenHeader";
 import Avatar from "../components/Avatar";
 import PhotoNoticeModal from "../components/PhotoNoticeModal";
+import Spinner from "../components/Spinner";
 
 // How long the online attempt gets to finish before this just falls back
 // to the offline messaging - same tradeoff as CreateEmployeeScreen.js's
@@ -151,7 +152,7 @@ export default function EditEmployeeScreen({ navigation, route }) {
   }
 
   if (!permission) {
-    return <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>;
+    return <View style={styles.center}><Spinner size={20} color={colors.accent} /></View>;
   }
 
   return (
@@ -239,7 +240,7 @@ export default function EditEmployeeScreen({ navigation, route }) {
               onPress={handleCapture}
               disabled={capturing}
             >
-              {capturing ? <ActivityIndicator color="#fff" /> : <View style={styles.captureInner} />}
+              {capturing ? <Spinner size={20} color="#fff" /> : <View style={styles.captureInner} />}
             </TouchableOpacity>
           </View>
         )}
@@ -251,7 +252,7 @@ export default function EditEmployeeScreen({ navigation, route }) {
           onPress={handleSave}
           disabled={!canSubmit}
         >
-          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Save Changes</Text>}
+          {submitting ? <Spinner size={20} color="#fff" /> : <Text style={styles.submitButtonText}>Save Changes</Text>}
         </TouchableOpacity>
       </ScrollView>
 

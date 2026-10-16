@@ -1,3 +1,5 @@
+import { getLocationPermissionStatus, requestLocationPermission } from "./locationPermission";
+
 // Long enough for a real GPS/network fix on most devices, short enough
 // that a stuck permission prompt or a cold GPS lock on bad signal never
 // meaningfully delays a clock-in - see queueClockEvent's Promise.all with
@@ -21,9 +23,15 @@ function withTimeout(promise, ms) {
 
 async function getBestEffortLocation(Location) {
   try {
-    let { status } = await Location.getForegroundPermissionsAsync();
+    // Routed through lib/locationPermission.js rather than calling
+    // expo-location directly - see that module's comment: it is the one
+    // source of truth both this and the Settings toggle read through, so
+    // they can never disagree about what "granted" means. This call
+    // itself never shows a dialog - only requestLocationPermissionForToggle
+    // (used by the Settings toggle) ever does.
+    let { status } = await getLocationPermissionStatus();
     if (status !== "granted") {
-      const requested = await withTimeout(Location.requestForegroundPermissionsAsync(), TIMEOUT_MS);
+      const requested = await withTimeout(requestLocationPermission(), TIMEOUT_MS);
       status = requested?.status;
     }
     if (status !== "granted") return null;

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform,
 } from "react-native";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../lib/firebase";
@@ -8,6 +8,7 @@ import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
 import ScreenHeader from "../components/ScreenHeader";
+import Spinner from "../components/Spinner";
 
 export default function NotesScreen({ navigation }) {
   const { userData, currentUser } = useAuth();
@@ -68,7 +69,7 @@ export default function NotesScreen({ navigation }) {
           disabled={!note.trim() || saving}
         >
           {saving ? (
-            <ActivityIndicator color="#fff" />
+            <Spinner size={20} color="#fff" />
           ) : (
             <Text style={styles.saveButtonText}>Save Note</Text>
           )}

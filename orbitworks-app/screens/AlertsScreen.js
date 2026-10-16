@@ -3,6 +3,7 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal } from "react
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "../lib/ThemeContext";
 import { useAlertsFeed } from "../lib/hooks/useAlertsFeed";
+import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
 import { ALERT_TYPES, ALERT_TYPE_LABEL } from "../lib/alertTypes";
 import ScreenHeader from "../components/ScreenHeader";
 
@@ -24,6 +25,7 @@ const FILTERS = [{ key: "all", label: "All" }, { key: "unread", label: "Unread" 
 export default function AlertsScreen({ route }) {
   const { colors } = useTheme();
   const { alerts, unreadCount, markAllRead } = useAlertsFeed();
+  const tabBarSpace = useTabBarSpace();
   const [filter, setFilter] = useState("all");
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const highlightedRef = useRef(route?.params?.alertId ?? null);
@@ -103,7 +105,7 @@ export default function AlertsScreen({ route }) {
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: tabBarSpace }]}
         renderItem={({ item }) => (
           <View
             style={[

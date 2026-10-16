@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, RefreshControl,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useAuth } from "../lib/AuthContext";
@@ -8,6 +8,7 @@ import { useTheme } from "../lib/ThemeContext";
 import { useSiteSession } from "../lib/SiteSessionContext";
 import { useTodayShift } from "../lib/hooks/useTodayShift";
 import { useCompanySettings } from "../lib/hooks/useCompanySettings";
+import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
 import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
 import { useLocalEmployee } from "../lib/hooks/useLocalEmployee";
 import { useEmployeeSyncAlertCount } from "../lib/hooks/useEmployeeSyncAlertCount";
@@ -16,6 +17,7 @@ import { drainQueue } from "../lib/queueSync";
 import { drainEmployeeQueue } from "../lib/employeeQueueSync";
 import OfflineBanner from "../components/OfflineBanner";
 import Avatar from "../components/Avatar";
+import Spinner from "../components/Spinner";
 
 export default function DashboardScreen({ navigation }) {
   const { userData, currentUser, linkedEmployeeId } = useAuth();
@@ -26,6 +28,7 @@ export default function DashboardScreen({ navigation }) {
   const { settings } = useCompanySettings(userData?.companyId);
   const localSupervisor = useLocalEmployee(linkedEmployeeId);
   const employeeSyncAlertCount = useEmployeeSyncAlertCount();
+  const tabBarSpace = useTabBarSpace();
   const [refreshing, setRefreshing] = useState(false);
 
   // Create Employee (mobile) - supervisors and admins only, and only while
@@ -102,7 +105,7 @@ export default function DashboardScreen({ navigation }) {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <ScrollView
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[styles.container, { paddingBottom: tabBarSpace }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />
         }
@@ -134,7 +137,7 @@ export default function DashboardScreen({ navigation }) {
           </TouchableOpacity>
 
           {loading ? (
-            <ActivityIndicator size="large" color="#fff" style={styles.countSpinner} />
+            <View style={styles.countSpinner}><Spinner size={40} color="#fff" /></View>
           ) : (
             <Text style={styles.countNumber}>{clockedInCount}</Text>
           )}
@@ -239,7 +242,7 @@ const styles = StyleSheet.create({
   sitePill: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", marginBottom: 18 },
   sitePillText: { color: "#fff", fontSize: 13, fontWeight: "600", opacity: 0.9 },
   countNumber: { color: "#fff", fontSize: 56, fontWeight: "800", textAlign: "center" },
-  countSpinner: { marginVertical: 14 },
+  countSpinner: { marginVertical: 14, alignItems: "center" },
   countLabel: { color: "#fff", fontSize: 14, textAlign: "center", opacity: 0.9, marginBottom: 20 },
   clockButton: { backgroundColor: "#fff", borderRadius: 14, paddingVertical: 16, alignItems: "center" },
   clockButtonText: { fontSize: 16, fontWeight: "700" },

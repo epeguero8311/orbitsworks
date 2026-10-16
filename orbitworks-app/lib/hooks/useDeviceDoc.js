@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
-import { getOrCreateDeviceId, setCachedDeviceName } from "../deviceId";
+import { getOrCreateDeviceId, getCachedDeviceName, setCachedDeviceName } from "../deviceId";
 
 // Live-reads this install's own device doc (see lib/deviceId.js for how
 // the id itself is chosen/persisted). Returns device: null when the doc
@@ -29,6 +29,26 @@ export function useDeviceDoc(companyId) {
     };
   }, []);
 
+  // Paints the locally cached name immediately - instant, offline-safe,
+  // and what clock-in itself trusts (see clockQueue.js) - before the
+  // Firestore listener below has a chance to resolve. The phone's own
+  // cache is the first thing shown; Firestore is the live sync on top of
+  // it, not the initial source. Only ever a stopgap: the `locked` flag
+  // has no local copy and never appears here, and the onSnapshot effect
+  // below overwrites this the moment it resolves.
+  useEffect(() => {
+    if (!companyId) return;
+    let cancelled = false;
+    getCachedDeviceName(companyId).then((name) => {
+      if (!cancelled && name) {
+        setDevice((prev) => prev ?? { name });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
+
   useEffect(() => {
     if (!companyId || !deviceId) return;
     const ref = doc(db, "companies", companyId, "devices", deviceId);
@@ -38,7 +58,7 @@ export function useDeviceDoc(companyId) {
         const data = snap.exists() ? snap.data() : null;
         setDevice(data);
         setLoading(false);
-        setCachedDeviceName(data?.name ?? null);
+        setCachedDeviceName(companyId, data?.name ?? null);
       },
       (err) => {
         console.log("Device doc listener error:", err);
