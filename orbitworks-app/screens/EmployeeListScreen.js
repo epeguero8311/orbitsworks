@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   searchWrap: { paddingHorizontal: 20, paddingTop: 16 },
   search: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15 },
-  list: { paddingHorizontal: 20, paddingTop: 8 },
+  list: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 },
   row: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, gap: 12 },
   rowText: { flex: 1 },
   name: { fontSize: 16, fontWeight: "600" },
