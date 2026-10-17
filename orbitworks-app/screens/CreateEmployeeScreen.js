@@ -50,6 +50,14 @@ export default function CreateEmployeeScreen({ navigation }) {
   const [photoNoticeShownAt, setPhotoNoticeShownAt] = useState(null);
 
   const canSubmit = !!validateEmployeeName(name).valid && !!confirmedPhotoUri && !submitting;
+  // CameraView's native preview surface renders black on Android when it
+  // is a descendant of a ScrollView (a SurfaceView/TextureView compositing
+  // issue ScrollView's clipping/recycling triggers - iOS's layer-based
+  // preview does not have this problem). Rendered inside a plain View
+  // instead whenever the live camera is actually on screen; every other
+  // state (photo preview, permission prompt, notice) stays in the
+  // ScrollView below.
+  const showingLiveCamera = !!permission?.granted && !!photoNoticeShownAt && !rawPhotoUri && !confirmedPhotoUri;
 
   async function handleCapture() {
     if (!cameraRef.current || capturing) return;
@@ -138,7 +146,33 @@ export default function CreateEmployeeScreen({ navigation }) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScreenHeader title="Create Employee" onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      {showingLiveCamera ? (
+        <View style={styles.content}>{renderFormBody()}</View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          {renderFormBody()}
+        </ScrollView>
+      )}
+
+      <CreateEmployeeSuccessModal
+        visible={!!result}
+        name={result?.name}
+        pin={result?.pin}
+        photoUri={result?.photoUri}
+        offline={result?.offline}
+        onClose={handleModalClose}
+      />
+
+      <PhotoNoticeModal
+        visible={!!permission?.granted && !photoNoticeShownAt && !rawPhotoUri && !confirmedPhotoUri}
+        onAcknowledge={setPhotoNoticeShownAt}
+      />
+    </KeyboardAvoidingView>
+  );
+
+  function renderFormBody() {
+    return (
+      <>
         <Text style={[styles.label, { color: colors.subtext }]}>Full name</Text>
         <TextInput
           value={name}
@@ -220,23 +254,9 @@ export default function CreateEmployeeScreen({ navigation }) {
         >
           {submitting ? <Spinner size={20} color="#fff" /> : <Text style={styles.submitButtonText}>Create Employee</Text>}
         </TouchableOpacity>
-      </ScrollView>
-
-      <CreateEmployeeSuccessModal
-        visible={!!result}
-        name={result?.name}
-        pin={result?.pin}
-        photoUri={result?.photoUri}
-        offline={result?.offline}
-        onClose={handleModalClose}
-      />
-
-      <PhotoNoticeModal
-        visible={!!permission?.granted && !photoNoticeShownAt && !rawPhotoUri && !confirmedPhotoUri}
-        onAcknowledge={setPhotoNoticeShownAt}
-      />
-    </KeyboardAvoidingView>
-  );
+      </>
+    );
+  }
 }
 
 const styles = StyleSheet.create({

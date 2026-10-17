@@ -65,6 +65,14 @@ export default function EditEmployeeScreen({ navigation, route }) {
   const trimmedName = validateEmployeeName(name).trimmed;
   const nameChanged = !!validateEmployeeName(name).valid && trimmedName !== employee.name;
   const canSubmit = !!validateEmployeeName(name).valid && (nameChanged || !!newPhotoUri) && !submitting;
+  // CameraView's native preview surface renders black on Android when it
+  // is a descendant of a ScrollView (a SurfaceView/TextureView compositing
+  // issue ScrollView's clipping/recycling triggers - iOS's layer-based
+  // preview does not have this problem). Rendered inside a plain View
+  // instead whenever the live camera is actually on screen; every other
+  // state (current photo, preview, permission prompt, notice) stays in
+  // the ScrollView below.
+  const showingLiveCamera = cameraOpen && !!permission?.granted && !!photoNoticeShownAt && !rawPhotoUri && !newPhotoUri;
 
   async function handleCapture() {
     if (!cameraRef.current || capturing) return;
@@ -161,7 +169,24 @@ export default function EditEmployeeScreen({ navigation, route }) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScreenHeader title="Edit Employee" onBack={() => navigation.goBack()} />
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      {showingLiveCamera ? (
+        <View style={styles.content}>{renderFormBody()}</View>
+      ) : (
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          {renderFormBody()}
+        </ScrollView>
+      )}
+
+      <PhotoNoticeModal
+        visible={cameraOpen && !!permission?.granted && !photoNoticeShownAt && !rawPhotoUri && !newPhotoUri}
+        onAcknowledge={setPhotoNoticeShownAt}
+      />
+    </KeyboardAvoidingView>
+  );
+
+  function renderFormBody() {
+    return (
+      <>
         <Text style={[styles.label, { color: colors.subtext }]}>Full name</Text>
         <TextInput
           value={name}
@@ -254,14 +279,9 @@ export default function EditEmployeeScreen({ navigation, route }) {
         >
           {submitting ? <Spinner size={20} color="#fff" /> : <Text style={styles.submitButtonText}>Save Changes</Text>}
         </TouchableOpacity>
-      </ScrollView>
-
-      <PhotoNoticeModal
-        visible={cameraOpen && !!permission?.granted && !photoNoticeShownAt && !rawPhotoUri && !newPhotoUri}
-        onAcknowledge={setPhotoNoticeShownAt}
-      />
-    </KeyboardAvoidingView>
-  );
+      </>
+    );
+  }
 }
 
 const styles = StyleSheet.create({
