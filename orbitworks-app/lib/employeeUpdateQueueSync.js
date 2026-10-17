@@ -12,6 +12,25 @@ let syncing = false;
 // Same retention idea as employeeQueueSync.js's RETENTION_MS.
 const RETENTION_MS = 60 * 60 * 1000; // 1 hour
 
+// Same hardening as employeeQueueSync.js's uploadReferencePhoto (ported
+// from queueSync.js's 1.0.9/1.0.10 fix for clock-event photos) - guards
+// against a bad local read silently uploading a corrupt file and still
+// returning a "successful" download URL, and stops a hung step from
+// blocking the queue forever instead of failing and retrying.
+const PHOTO_STAT_TIMEOUT_MS = 10 * 1000;
+const PHOTO_FETCH_TIMEOUT_MS = 20 * 1000;
+const PHOTO_BLOB_TIMEOUT_MS = 20 * 1000;
+const PHOTO_UPLOAD_TIMEOUT_MS = 60 * 1000;
+const PHOTO_DOWNLOAD_URL_TIMEOUT_MS = 20 * 1000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timeout:${label}`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 // Error codes from updateEmployeeProfile that will never succeed on retry -
 // the toggle is off, the employee is inactive/gone, the subscription is
 // past due, or the input itself is invalid. Anything else (network drop,
@@ -25,11 +44,24 @@ const TERMINAL_CODES = new Set([
 ]);
 
 async function uploadUpdatePhoto(companyId, employeeId, updateId, localUri) {
-  const response = await fetch(localUri);
-  const blob = await response.blob();
+  const info = await withTimeout(
+    FileSystem.getInfoAsync(localUri),
+    PHOTO_STAT_TIMEOUT_MS,
+    "photoStat"
+  );
+  if (!info.exists || info.size === 0) {
+    throw new Error("Reference photo is missing or empty on device");
+  }
+
+  const response = await withTimeout(fetch(localUri), PHOTO_FETCH_TIMEOUT_MS, "photoFetch");
+  const blob = await withTimeout(response.blob(), PHOTO_BLOB_TIMEOUT_MS, "photoBlob");
+  if (blob.size === 0) {
+    throw new Error("Reference photo read back empty");
+  }
+
   const photoRef = ref(storage, `companies/${companyId}/employees/${employeeId}/updates/${updateId}.jpg`);
-  await uploadBytes(photoRef, blob);
-  return getDownloadURL(photoRef);
+  await withTimeout(uploadBytes(photoRef, blob), PHOTO_UPLOAD_TIMEOUT_MS, "uploadBytes");
+  return withTimeout(getDownloadURL(photoRef), PHOTO_DOWNLOAD_URL_TIMEOUT_MS, "getDownloadURL");
 }
 
 // Processes exactly one queue row: uploads the retaken photo (if any, and

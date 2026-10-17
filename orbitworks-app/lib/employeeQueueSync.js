@@ -16,6 +16,27 @@ let syncing = false;
 // any listener catch-up window the way that one is.
 const RETENTION_MS = 60 * 60 * 1000; // 1 hour
 
+// Same class of guard as queueSync.js's photo upload (the 1.0.9/1.0.10
+// fix for clock-event photos) - this path never got that hardening, so a
+// bad local read (truncated file, zero-byte capture, a stale URI) would
+// previously upload silently and still return a "successful" download
+// URL, leaving a corrupt image nobody finds out about until it fails to
+// render. These timeouts also stop a hung step from blocking the queue
+// forever instead of failing and retrying on the next drain.
+const PHOTO_STAT_TIMEOUT_MS = 10 * 1000;
+const PHOTO_FETCH_TIMEOUT_MS = 20 * 1000;
+const PHOTO_BLOB_TIMEOUT_MS = 20 * 1000;
+const PHOTO_UPLOAD_TIMEOUT_MS = 60 * 1000;
+const PHOTO_DOWNLOAD_URL_TIMEOUT_MS = 20 * 1000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timeout:${label}`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 // Error codes from createEmployee that will never succeed on retry - the
 // toggle is off, the plan is past due/at its employee cap, the PIN space is
 // exhausted, or the input itself is invalid. Anything else (network drop,
@@ -30,11 +51,24 @@ const TERMINAL_CODES = new Set([
 ]);
 
 async function uploadReferencePhoto(companyId, employeeId, localUri) {
-  const response = await fetch(localUri);
-  const blob = await response.blob();
+  const info = await withTimeout(
+    FileSystem.getInfoAsync(localUri),
+    PHOTO_STAT_TIMEOUT_MS,
+    "photoStat"
+  );
+  if (!info.exists || info.size === 0) {
+    throw new Error("Reference photo is missing or empty on device");
+  }
+
+  const response = await withTimeout(fetch(localUri), PHOTO_FETCH_TIMEOUT_MS, "photoFetch");
+  const blob = await withTimeout(response.blob(), PHOTO_BLOB_TIMEOUT_MS, "photoBlob");
+  if (blob.size === 0) {
+    throw new Error("Reference photo read back empty");
+  }
+
   const photoRef = ref(storage, `companies/${companyId}/employees/${employeeId}/reference.jpg`);
-  await uploadBytes(photoRef, blob);
-  return getDownloadURL(photoRef);
+  await withTimeout(uploadBytes(photoRef, blob), PHOTO_UPLOAD_TIMEOUT_MS, "uploadBytes");
+  return withTimeout(getDownloadURL(photoRef), PHOTO_DOWNLOAD_URL_TIMEOUT_MS, "getDownloadURL");
 }
 
 // Processes exactly one queue row: uploads the reference photo (if not
