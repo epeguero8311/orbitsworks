@@ -1,21 +1,40 @@
 import { Platform, Alert } from "react-native";
-import * as Notifications from "expo-notifications";
+import Constants, { ExecutionEnvironment } from "expo-constants";
 import * as Device from "expo-device";
-import Constants from "expo-constants";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { getOrCreatePushDeviceId } from "./pushDeviceId";
 
-// Foreground display behavior - show + sound while the app is open, no
-// badge (nothing on this app's icon reads a badge count today).
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+// expo-notifications must never be imported at module scope. Importing the
+// package at all (not just calling a push API) runs an internal
+// auto-registration side effect that calls addPushTokenListener as soon as
+// the module is evaluated, and that throws on Android under Expo Go (push
+// was removed there in SDK 53). require() it lazily, and only after
+// confirming we are not in Expo Go - same reason lib/location.js and
+// lib/locationPermission.js require() expo-location lazily instead of
+// importing it.
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+function loadNotifications() {
+  return require("expo-notifications");
+}
+
+let handlerConfigured = false;
+function ensureNotificationHandlerConfigured(Notifications) {
+  if (handlerConfigured) return;
+  handlerConfigured = true;
+
+  // Foreground display behavior - show + sound while the app is open, no
+  // badge (nothing on this app's icon reads a badge count today).
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 // Shows the "why we're asking" explanation only when the system
 // permission is still undetermined (i.e. genuinely first launch after
@@ -23,7 +42,7 @@ Notifications.setNotificationHandler({
 // already-granted or already-denied user again. Denying changes nothing
 // else in the app; this just resolves false and the caller skips
 // registration.
-async function ensureNotificationPermission() {
+async function ensureNotificationPermission(Notifications) {
   const { status, canAskAgain } = await Notifications.getPermissionsAsync();
   if (status === "granted") return true;
   if (status !== "undetermined" || !canAskAgain) return false;
@@ -48,15 +67,26 @@ async function ensureNotificationPermission() {
 
 // Registers (or refreshes) this device's push token. Safe to call on
 // every launch - a no-op on a simulator, a no-op if permission was
-// already denied, and a merge write that preserves an existing
-// notificationsEnabled preference rather than resetting it. Never throws:
-// notification setup failing must never affect the rest of the app.
+// already denied, a no-op in Expo Go (push is unsupported there, and even
+// importing expo-notifications would crash on Android), and a merge write
+// that preserves an existing notificationsEnabled preference rather than
+// resetting it. Never throws: notification setup failing must never
+// affect the rest of the app.
 export async function registerForPushNotificationsAsync(companyId) {
   try {
+    if (isExpoGo) {
+      console.warn(
+        "[pushNotifications] skipped: push notifications are not supported in Expo Go, use a development build instead"
+      );
+      return;
+    }
     if (!Device.isDevice) return;
     if (!companyId) return;
 
-    const granted = await ensureNotificationPermission();
+    const Notifications = loadNotifications();
+    ensureNotificationHandlerConfigured(Notifications);
+
+    const granted = await ensureNotificationPermission(Notifications);
     if (!granted) return;
 
     const deviceId = await getOrCreatePushDeviceId();
