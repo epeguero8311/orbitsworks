@@ -1,25 +1,27 @@
 import NetInfo from "@react-native-community/netinfo";
 import * as FileSystem from "expo-file-system/legacy";
 import { httpsCallable } from "firebase/functions";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, getDownloadURL } from "firebase/storage";
 import { functions, storage } from "./firebase";
-import { getDb } from "./db";
+import { getDb, runExclusive } from "./db";
 import { recordEmployeeSyncAlert } from "./employeeSyncAlerts";
 import { notifyEmployeeQueueChange } from "./employeeQueueEvents";
+import { uploadLocalFileToStorage } from "./storageUpload";
 
 let syncing = false;
 
 // Same retention idea as employeeQueueSync.js's RETENTION_MS.
 const RETENTION_MS = 60 * 60 * 1000; // 1 hour
 
-// Same hardening as employeeQueueSync.js's uploadReferencePhoto (ported
-// from queueSync.js's 1.0.9/1.0.10 fix for clock-event photos) - guards
+// Same hardening as employeeQueueSync.js's uploadReferencePhoto - guards
 // against a bad local read silently uploading a corrupt file and still
 // returning a "successful" download URL, and stops a hung step from
-// blocking the queue forever instead of failing and retrying.
+// blocking the queue forever instead of failing and retrying. The upload
+// itself goes through storageUpload.js's uploadLocalFileToStorage rather
+// than the Firebase SDK's own uploadBytes/uploadBytesResumable - see that
+// file for why both of those are confirmed broken on this React
+// Native/Android setup.
 const PHOTO_STAT_TIMEOUT_MS = 10 * 1000;
-const PHOTO_FETCH_TIMEOUT_MS = 20 * 1000;
-const PHOTO_BLOB_TIMEOUT_MS = 20 * 1000;
 const PHOTO_UPLOAD_TIMEOUT_MS = 60 * 1000;
 const PHOTO_DOWNLOAD_URL_TIMEOUT_MS = 20 * 1000;
 
@@ -53,14 +55,12 @@ async function uploadUpdatePhoto(companyId, employeeId, updateId, localUri) {
     throw new Error("Reference photo is missing or empty on device");
   }
 
-  const response = await withTimeout(fetch(localUri), PHOTO_FETCH_TIMEOUT_MS, "photoFetch");
-  const blob = await withTimeout(response.blob(), PHOTO_BLOB_TIMEOUT_MS, "photoBlob");
-  if (blob.size === 0) {
-    throw new Error("Reference photo read back empty");
-  }
-
   const photoRef = ref(storage, `companies/${companyId}/employees/${employeeId}/updates/${updateId}.jpg`);
-  await withTimeout(uploadBytes(photoRef, blob), PHOTO_UPLOAD_TIMEOUT_MS, "uploadBytes");
+  await withTimeout(
+    uploadLocalFileToStorage(photoRef, localUri, "image/jpeg"),
+    PHOTO_UPLOAD_TIMEOUT_MS,
+    "uploadBytesResumable"
+  );
   return withTimeout(getDownloadURL(photoRef), PHOTO_DOWNLOAD_URL_TIMEOUT_MS, "getDownloadURL");
 }
 
@@ -89,9 +89,11 @@ async function syncOne(sqlite, item, companyId) {
   if (item.photoLocalUri) {
     await FileSystem.deleteAsync(item.photoLocalUri, { idempotent: true });
   }
-  await sqlite.runAsync(
-    "UPDATE employee_update_queue SET syncStatus = 'synced' WHERE localId = ?",
-    [item.localId]
+  await runExclusive(() =>
+    sqlite.runAsync(
+      "UPDATE employee_update_queue SET syncStatus = 'synced' WHERE localId = ?",
+      [item.localId]
+    )
   );
 }
 
@@ -99,9 +101,11 @@ async function markTerminal(sqlite, item, message) {
   if (item.photoLocalUri) {
     await FileSystem.deleteAsync(item.photoLocalUri, { idempotent: true });
   }
-  await sqlite.runAsync(
-    "UPDATE employee_update_queue SET syncStatus = 'rejected', lastError = ? WHERE localId = ?",
-    [message, item.localId]
+  await runExclusive(() =>
+    sqlite.runAsync(
+      "UPDATE employee_update_queue SET syncStatus = 'rejected', lastError = ? WHERE localId = ?",
+      [message, item.localId]
+    )
   );
   await recordEmployeeSyncAlert({
     employeeName: item.name || "An employee",
@@ -111,9 +115,11 @@ async function markTerminal(sqlite, item, message) {
 
 export async function cleanupEmployeeUpdateQueue() {
   const sqlite = await getDb();
-  await sqlite.runAsync(
-    "DELETE FROM employee_update_queue WHERE syncStatus IN ('synced','rejected') AND createdAt < ?",
-    [Date.now() - RETENTION_MS]
+  await runExclusive(() =>
+    sqlite.runAsync(
+      "DELETE FROM employee_update_queue WHERE syncStatus IN ('synced','rejected') AND createdAt < ?",
+      [Date.now() - RETENTION_MS]
+    )
   );
 }
 
@@ -133,20 +139,25 @@ export async function syncEmployeeUpdateQueueItemNow(localId, companyId) {
 
   syncing = true;
   try {
-    await sqlite.runAsync("UPDATE employee_update_queue SET syncStatus = 'syncing' WHERE localId = ?", [localId]);
+    await runExclusive(() =>
+      sqlite.runAsync("UPDATE employee_update_queue SET syncStatus = 'syncing' WHERE localId = ?", [localId])
+    );
     try {
       await syncOne(sqlite, item, companyId);
       notifyEmployeeQueueChange();
       return { success: true };
     } catch (err) {
+      console.log("Employee update sync failed for", item.localId, err.message);
       if (TERMINAL_CODES.has(err?.code)) {
         await markTerminal(sqlite, item, err.message || "Not authorized.");
         notifyEmployeeQueueChange();
         return { success: false, terminal: true };
       }
-      await sqlite.runAsync(
-        "UPDATE employee_update_queue SET syncStatus = 'failed', attempts = attempts + 1, lastError = ? WHERE localId = ?",
-        [err.message || "Unknown error", localId]
+      await runExclusive(() =>
+        sqlite.runAsync(
+          "UPDATE employee_update_queue SET syncStatus = 'failed', attempts = attempts + 1, lastError = ? WHERE localId = ?",
+          [err.message || "Unknown error", localId]
+        )
       );
       notifyEmployeeQueueChange();
       return { success: false, terminal: false };
@@ -171,7 +182,9 @@ export async function drainEmployeeUpdateQueue(companyId) {
     );
 
     for (const item of pending) {
-      await sqlite.runAsync("UPDATE employee_update_queue SET syncStatus = 'syncing' WHERE localId = ?", [item.localId]);
+      await runExclusive(() =>
+        sqlite.runAsync("UPDATE employee_update_queue SET syncStatus = 'syncing' WHERE localId = ?", [item.localId])
+      );
       try {
         await syncOne(sqlite, item, companyId);
       } catch (err) {
@@ -179,9 +192,11 @@ export async function drainEmployeeUpdateQueue(companyId) {
         if (TERMINAL_CODES.has(err?.code)) {
           await markTerminal(sqlite, item, err.message || "Not authorized.");
         } else {
-          await sqlite.runAsync(
-            "UPDATE employee_update_queue SET syncStatus = 'failed', attempts = attempts + 1, lastError = ? WHERE localId = ?",
-            [err.message || "Unknown error", item.localId]
+          await runExclusive(() =>
+            sqlite.runAsync(
+              "UPDATE employee_update_queue SET syncStatus = 'failed', attempts = attempts + 1, lastError = ? WHERE localId = ?",
+              [err.message || "Unknown error", item.localId]
+            )
           );
         }
       }
@@ -194,5 +209,7 @@ export async function drainEmployeeUpdateQueue(companyId) {
 
 export async function resetStuckEmployeeUpdateSyncs() {
   const sqlite = await getDb();
-  await sqlite.runAsync("UPDATE employee_update_queue SET syncStatus = 'pending' WHERE syncStatus = 'syncing'");
+  await runExclusive(() =>
+    sqlite.runAsync("UPDATE employee_update_queue SET syncStatus = 'pending' WHERE syncStatus = 'syncing'")
+  );
 }

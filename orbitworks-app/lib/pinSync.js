@@ -1,14 +1,35 @@
 import * as Crypto from "expo-crypto";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "./firebase";
-import { getDb } from "./db";
+import { getDb, runExclusive } from "./db";
 import { notifyPinTableChange } from "./pinEvents";
 
 async function hashPin(pin) {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, pin);
 }
 
+// syncPinTable() is called from several independent places (Dashboard
+// and PinEntry on mount/focus, employeeQueueSync.js right after a
+// create/update syncs, useSyncQueue.js and usePinTableSync.js on their
+// own polling/focus triggers) with no coordination between them. Its
+// write transaction below is the only one in the app, and SQLite only
+// allows one write transaction at a time on a connection - two of these
+// call sites firing close together threw "database is locked" (same
+// race shape as the getDb() fix in db.js, just never applied here).
+// Memoizing the in-flight promise means a call that arrives while one is
+// already running just awaits that same run instead of starting a
+// second overlapping transaction.
+let inFlightSync = null;
+
 export async function syncPinTable() {
+  if (inFlightSync) return inFlightSync;
+  inFlightSync = doSyncPinTable().finally(() => {
+    inFlightSync = null;
+  });
+  return inFlightSync;
+}
+
+async function doSyncPinTable() {
   const getPinSyncTable = httpsCallable(functions, "getPinSyncTable");
   const result = await getPinSyncTable();
   const employees = result.data.employees || [];
@@ -19,73 +40,87 @@ export async function syncPinTable() {
   const db = await getDb();
   const now = Date.now();
 
-  await db.withTransactionAsync(async () => {
-    await db.runAsync("DELETE FROM pin_cache");
-    for (const emp of employees) {
-      const hashedPin = await hashPin(emp.pin);
-      await db.runAsync(
-        `INSERT INTO pin_cache
-          (employeeId, hashedPin, name, jobTitle, photoUrl, assignedSiteIds, isSupervisor, active, lastEventType, lastEventTimestamp, lastEventSiteId, lastEventSiteName, subcontractorId, subcontractorName, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          emp.id,
-          hashedPin,
-          emp.name,
-          emp.jobTitle,
-          emp.photoUrl,
-          JSON.stringify(emp.assignedSiteIds || []),
-          emp.isSupervisor ? 1 : 0,
-          emp.active ? 1 : 0,
-          emp.lastEventType ?? null,
-          emp.lastEventTimestamp ?? null,
-          emp.lastEventSiteId ?? null,
-          emp.lastEventSiteName ?? null,
-          emp.subcontractorId ?? null,
-          emp.subcontractorName ?? null,
-          now,
-        ]
-      );
-    }
+  // Hashing is an async native-bridge call per employee - done up front,
+  // before the transaction opens, so the write lock below is held only
+  // across synchronous-feeling runAsync calls instead of being held open
+  // across N round trips to expo-crypto. Shrinks the window other writers
+  // on this connection (employee_queue updates, etc.) could collide with.
+  const hashedPins = await Promise.all(employees.map((emp) => hashPin(emp.pin)));
 
-    // Geofencing (Pro) Part 3 - see lib/geofenceCheck.js for how this
-    // cache is read. Advisory only: never trusted as the authoritative
-    // classification, only to drive the on-device UX with no signal.
-    await db.runAsync("DELETE FROM sites_cache");
-    for (const site of sites) {
-      await db.runAsync(
-        `INSERT INTO sites_cache
-          (siteId, name, active, requireGeofence, lat, lng, radiusMeters, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          site.id,
-          site.name,
-          site.active ? 1 : 0,
-          site.requireGeofence ? 1 : 0,
-          site.lat ?? null,
-          site.lng ?? null,
-          site.radiusMeters ?? null,
-          now,
-        ]
-      );
-    }
+  // All of this app's SQLite writes go through runExclusive (see db.js)
+  // so this transaction and the sync_meta writes after it never actually
+  // overlap with another writer on the connection, instead of relying on
+  // SQLite's own busy-retry handler to sort it out.
+  await runExclusive(async () => {
+    await db.withTransactionAsync(async () => {
+      await db.runAsync("DELETE FROM pin_cache");
+      for (let i = 0; i < employees.length; i++) {
+        const emp = employees[i];
+        const hashedPin = hashedPins[i];
+        await db.runAsync(
+          `INSERT INTO pin_cache
+            (employeeId, hashedPin, name, jobTitle, photoUrl, assignedSiteIds, isSupervisor, active, lastEventType, lastEventTimestamp, lastEventSiteId, lastEventSiteName, subcontractorId, subcontractorName, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            emp.id,
+            hashedPin,
+            emp.name,
+            emp.jobTitle,
+            emp.photoUrl,
+            JSON.stringify(emp.assignedSiteIds || []),
+            emp.isSupervisor ? 1 : 0,
+            emp.active ? 1 : 0,
+            emp.lastEventType ?? null,
+            emp.lastEventTimestamp ?? null,
+            emp.lastEventSiteId ?? null,
+            emp.lastEventSiteName ?? null,
+            emp.subcontractorId ?? null,
+            emp.subcontractorName ?? null,
+            now,
+          ]
+        );
+      }
+
+      // Geofencing (Pro) Part 3 - see lib/geofenceCheck.js for how this
+      // cache is read. Advisory only: never trusted as the authoritative
+      // classification, only to drive the on-device UX with no signal.
+      await db.runAsync("DELETE FROM sites_cache");
+      for (const site of sites) {
+        await db.runAsync(
+          `INSERT INTO sites_cache
+            (siteId, name, active, requireGeofence, lat, lng, radiusMeters, updatedAt)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            site.id,
+            site.name,
+            site.active ? 1 : 0,
+            site.requireGeofence ? 1 : 0,
+            site.lat ?? null,
+            site.lng ?? null,
+            site.radiusMeters ?? null,
+            now,
+          ]
+        );
+      }
+    });
+
+    await db.runAsync(
+      "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('pinTableLastSync', ?)",
+      [String(now)]
+    );
+    await db.runAsync(
+      "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('isPro', ?)",
+      [isPro ? "1" : "0"]
+    );
+    // Geofencing (Pro) auto site detection - whether this company has any
+    // active site with saved coordinates at all, fenced or not (decides
+    // whether to skip the manual picker). false means "keep today's flow
+    // exactly."
+    await db.runAsync(
+      "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('hasLocatedSites', ?)",
+      [hasLocatedSites ? "1" : "0"]
+    );
   });
-
-  await db.runAsync(
-    "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('pinTableLastSync', ?)",
-    [String(now)]
-  );
-  await db.runAsync(
-    "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('isPro', ?)",
-    [isPro ? "1" : "0"]
-  );
-  // Geofencing (Pro) auto site detection - whether this company has any
-  // active site with saved coordinates at all, fenced or not (decides
-  // whether to skip the manual picker). false means "keep today's flow
-  // exactly."
-  await db.runAsync(
-    "INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('hasLocatedSites', ?)",
-    [hasLocatedSites ? "1" : "0"]
-  );
 
   // Notify anything reading from the local cache (e.g. the supervisor's
   // own header avatar) that fresh data is available.

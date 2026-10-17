@@ -1,12 +1,13 @@
 import NetInfo from "@react-native-community/netinfo";
 import * as FileSystem from "expo-file-system/legacy";
 import { doc, setDoc, getDoc, Timestamp } from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { ref, getDownloadURL } from "firebase/storage";
 import * as Sentry from "@sentry/react-native";
 import { db as firestoreDb, storage, auth } from "./firebase";
-import { getDb } from "./db";
+import { getDb, runExclusive } from "./db";
 import { notifyQueueChange } from "./queueEvents";
 import { isFaultActive, resolveTimeoutMs, hangForever, fakePermissionDeniedError } from "./syncFaults";
+import { uploadLocalFileToStorage } from "./storageUpload";
 
 let syncing = false;
 
@@ -47,7 +48,10 @@ const SYNCED_RETENTION_MS = 60 * 60 * 1000; // 1 hour
 // the dev-only fault panel can shrink all of them at once without
 // touching these production values.
 const PHOTO_STAT_TIMEOUT_MS = 10 * 1000;
-const PHOTO_FETCH_TIMEOUT_MS = 20 * 1000;
+// Only used to time a dev fault-injection hang (see uploadPhoto's
+// hangPhotoBlob check) - there's no longer a separate real read step to
+// time, since uploadLocalFileToStorage reads the file natively as part
+// of the upload itself.
 const PHOTO_BLOB_TIMEOUT_MS = 20 * 1000;
 const PHOTO_UPLOAD_TIMEOUT_MS = 60 * 1000;
 const PHOTO_DOWNLOAD_URL_TIMEOUT_MS = 20 * 1000;
@@ -55,9 +59,9 @@ const FIRESTORE_WRITE_TIMEOUT_MS = 30 * 1000;
 
 // Per-item ceiling (the 1.0.10 fix): the sum of every step above that a
 // single item can go through -
-//   photoStat(10) + photoFetch(20) + photoBlob(20) + upload(60) +
-//   getDownloadURL(20) + setDoc(30) = 160s worst case.
-// PER_ITEM_TIMEOUT_MS sits ~50s / ~31% above that sum, so it only ever
+//   photoStat(10) + upload(60) +
+//   getDownloadURL(20) + setDoc(30) = 120s worst case.
+// PER_ITEM_TIMEOUT_MS sits ~75s / ~63% above that sum, so it only ever
 // fires for a step with no timeout of its own - known or future - never
 // by racing a step that is already correctly timed. This is what
 // actually stops one item from blocking the rest of the queue: even a
@@ -95,9 +99,10 @@ const DEAD_LETTER_ATTEMPTS = 8;
 // Races `promise` against a timer. If the timer wins, rejects with an
 // Error whose message is `timeout:<label>` so Sentry/lastError make it
 // obvious which step stalled. Does not and cannot cancel `promise`
-// itself - see withUploadTimeout for the one step (upload) where
-// cancellation is actually possible, and the comment above the setDoc
-// call for why an uncancelled Firestore write is still safe.
+// itself - see the comment above the setDoc call for why an uncancelled
+// Firestore write is still safe; uploadLocalFileToStorage's underlying
+// native upload similarly keeps running in the background after a
+// timeout here, it just stops being awaited.
 function withTimeout(promise, ms, label) {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -106,48 +111,6 @@ function withTimeout(promise, ms, label) {
     }, ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
-// uploadBytesResumable returns a thenable UploadTask, not a plain Promise
-// - it also exposes cancel(), which withTimeout() has no way to reach.
-// This races the same way but calls task.cancel() on timeout so a slow
-// upload doesn't keep consuming bandwidth/battery in the background after
-// the queue has already moved on and marked the item failed.
-function withUploadTimeout(task, ms, label) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      task.cancel();
-      reject(new Error(`timeout:${label}`));
-    }, ms);
-
-    // Dev-only: simulate a stalled upload by never attaching the real
-    // completion callbacks below, so only the timer above can ever
-    // settle this promise - same shape as a genuinely dead connection.
-    // The real uploadTask (pointed at the dev Storage bucket) still runs
-    // and still gets cancelled when the timer fires.
-    if (__DEV__ && isFaultActive("hangUpload")) return;
-
-    task.then(
-      (snapshot) => {
-        clearTimeout(timer);
-        resolve(snapshot);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      }
-    );
-  });
-}
-
-// Reads a Response's body as a Blob, racing it against a timeout. This
-// is the exact gap the original 1.0.9 fix missed: fetch() resolving to
-// a Response is guarded, but decoding that Response's body never was.
-// On a bad local file (truncated, zero-byte, or otherwise unreadable),
-// this is the step that can hang with no network involved at all.
-function readBlobWithTimeout(response, ms, label) {
-  if (__DEV__ && isFaultActive("hangPhotoBlob")) return hangForever();
-  return withTimeout(response.blob(), ms, label);
 }
 
 const CLOCK_PHOTOS_DIR_NAME = "clockPhotos/";
@@ -190,13 +153,30 @@ async function resolvePhotoUri(storedUri) {
   return null;
 }
 
+// Uploads via storageUpload.js's uploadLocalFileToStorage rather than the
+// Firebase SDK's own uploadBytes/uploadBytesResumable - both confirmed
+// broken on this React Native/Android setup (see that file for the two
+// separate device-log-confirmed failures). It reads the file natively as
+// part of the upload itself, so there's no separate JS-side byte-read
+// step left to guard - FileSystem.getInfoAsync's exists/size > 0 check
+// in resolvePhotoUri (this function's only caller) is what now stands in
+// for the old "read back empty" guard.
 async function uploadPhoto(companyId, employeeId, localUri) {
-  const response = await withTimeout(fetch(localUri), resolveTimeoutMs(PHOTO_FETCH_TIMEOUT_MS), "photoFetch");
-  const blob = await readBlobWithTimeout(response, resolveTimeoutMs(PHOTO_BLOB_TIMEOUT_MS), "photoBlob");
+  // Dev-only: simulate the local-read step hanging - see
+  // DevSyncFaultPanel.js's hangPhotoBlob switch.
+  if (__DEV__ && isFaultActive("hangPhotoBlob")) {
+    await withTimeout(hangForever(), resolveTimeoutMs(PHOTO_BLOB_TIMEOUT_MS), "photoBlob");
+  }
+
   const filename = `${Date.now()}.jpg`;
   const photoRef = ref(storage, `companies/${companyId}/clockEvents/${employeeId}/${filename}`);
-  const uploadTask = uploadBytesResumable(photoRef, blob);
-  await withUploadTimeout(uploadTask, resolveTimeoutMs(PHOTO_UPLOAD_TIMEOUT_MS), "uploadBytesResumable");
+
+  // Dev-only: simulate the upload step hanging - see
+  // DevSyncFaultPanel.js's hangUpload switch.
+  const uploadPromise = __DEV__ && isFaultActive("hangUpload")
+    ? hangForever()
+    : uploadLocalFileToStorage(photoRef, localUri, "image/jpeg");
+  await withTimeout(uploadPromise, resolveTimeoutMs(PHOTO_UPLOAD_TIMEOUT_MS), "uploadBytesResumable");
   return withTimeout(getDownloadURL(photoRef), resolveTimeoutMs(PHOTO_DOWNLOAD_URL_TIMEOUT_MS), "getDownloadURL");
 }
 
@@ -257,7 +237,9 @@ async function backupItemIfNeeded(sqlite, companyId, item) {
       resolveTimeoutMs(BACKUP_TIMEOUT_MS),
       "queueBackup"
     );
-    await sqlite.runAsync("UPDATE event_queue SET backedUp = 1 WHERE localId = ?", [item.localId]);
+    await runExclusive(() =>
+      sqlite.runAsync("UPDATE event_queue SET backedUp = 1 WHERE localId = ?", [item.localId])
+    );
   } catch (err) {
     Sentry.captureMessage("queueSync:backupFailed", {
       level: "warning",
@@ -474,9 +456,11 @@ async function finalizeSynced(sqlite, item, resolvedPhoto) {
   // real local history instead of falling back to pin_cache.lastEventType,
   // which only refreshes on pull-to-refresh/login and was the direct
   // cause of the wrong Clock In/Out confirmation message.
-  await sqlite.runAsync(
-    "UPDATE event_queue SET syncStatus = 'synced', syncedAt = ? WHERE localId = ?",
-    [Date.now(), item.localId]
+  await runExclusive(() =>
+    sqlite.runAsync(
+      "UPDATE event_queue SET syncStatus = 'synced', syncedAt = ? WHERE localId = ?",
+      [Date.now(), item.localId]
+    )
   );
   notifyQueueChange();
 
@@ -503,9 +487,11 @@ async function finalizeSynced(sqlite, item, resolvedPhoto) {
 // are never touched here - they're kept indefinitely for manual review.
 export async function cleanupSyncedQueueItems() {
   const sqlite = await getDb();
-  await sqlite.runAsync(
-    "DELETE FROM event_queue WHERE syncStatus = 'synced' AND clientTimestamp < ?",
-    [Date.now() - SYNCED_RETENTION_MS]
+  await runExclusive(() =>
+    sqlite.runAsync(
+      "DELETE FROM event_queue WHERE syncStatus = 'synced' AND clientTimestamp < ?",
+      [Date.now() - SYNCED_RETENTION_MS]
+    )
   );
   notifyQueueChange();
 }
@@ -643,7 +629,9 @@ export async function drainQueue(companyId) {
       if (myEpoch !== currentEpoch) break;
       inFlightLocalId = item.localId;
 
-      await sqlite.runAsync("UPDATE event_queue SET syncStatus = 'syncing' WHERE localId = ?", [item.localId]);
+      await runExclusive(() =>
+        sqlite.runAsync("UPDATE event_queue SET syncStatus = 'syncing' WHERE localId = ?", [item.localId])
+      );
       notifyQueueChange();
 
       // Best-effort, never throws, never blocks the real attempt below.
@@ -707,9 +695,11 @@ export async function drainQueue(companyId) {
           },
         });
 
-        await sqlite.runAsync(
-          "UPDATE event_queue SET syncStatus = ?, attempts = ?, lastError = ? WHERE localId = ?",
-          [isDead ? "dead" : "failed", nextAttempts, err.message || "Unknown error", item.localId]
+        await runExclusive(() =>
+          sqlite.runAsync(
+            "UPDATE event_queue SET syncStatus = ?, attempts = ?, lastError = ? WHERE localId = ?",
+            [isDead ? "dead" : "failed", nextAttempts, err.message || "Unknown error", item.localId]
+          )
         );
         notifyQueueChange();
         lastProgressAt = Date.now();
@@ -730,9 +720,9 @@ export async function drainQueue(companyId) {
     // succeeded; per-item failures stay visible in the Sync Queue tab
     // itself. Drives Settings' "last successful sync" display.
     if (myEpoch === currentEpoch) {
-      await sqlite
-        .runAsync("INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('queueLastSync', ?)", [String(Date.now())])
-        .catch(() => {});
+      await runExclusive(() =>
+        sqlite.runAsync("INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('queueLastSync', ?)", [String(Date.now())])
+      ).catch(() => {});
       notifyQueueChange();
     }
   } finally {
@@ -751,7 +741,9 @@ export async function drainQueue(companyId) {
 
 export async function resetStuckSyncs() {
   const sqlite = await getDb();
-  await sqlite.runAsync("UPDATE event_queue SET syncStatus = 'pending' WHERE syncStatus = 'syncing'");
+  await runExclusive(() =>
+    sqlite.runAsync("UPDATE event_queue SET syncStatus = 'pending' WHERE syncStatus = 'syncing'")
+  );
   notifyQueueChange();
 }
 
@@ -763,9 +755,11 @@ export async function resetStuckSyncs() {
 // data hasn't changed, so the existing backup is still accurate.
 export async function retryQueueItem(localId) {
   const sqlite = await getDb();
-  await sqlite.runAsync(
-    "UPDATE event_queue SET syncStatus = 'pending', attempts = 0, lastError = NULL WHERE localId = ?",
-    [localId]
+  await runExclusive(() =>
+    sqlite.runAsync(
+      "UPDATE event_queue SET syncStatus = 'pending', attempts = 0, lastError = NULL WHERE localId = ?",
+      [localId]
+    )
   );
   notifyQueueChange();
 }

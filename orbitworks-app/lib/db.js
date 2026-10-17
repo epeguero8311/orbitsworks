@@ -12,11 +12,42 @@ export function getDb() {
   return dbPromise;
 }
 
+let writeChain = Promise.resolve();
+
+// Serializes every SQLite WRITE across the app through one JS-level
+// queue, instead of relying on SQLite's own busy-retry handler. This app
+// has several independent write paths on this one connection
+// (employee_queue, event_queue, pin_cache via syncPinTable, etc.) with no
+// coordination between them, and confirmed via device log that
+// PRAGMA busy_timeout = 5000 IS set on the connection yet "database is
+// locked" still fires when two of them overlap on Android - so this
+// guarantees no two writes are ever actually in flight at once, rather
+// than hoping the native busy handler retries for us. Reads are
+// deliberately NOT queued through this - WAL mode lets readers run
+// without blocking or being blocked by a writer, only writer-vs-writer
+// actually contends.
+export function runExclusive(fn) {
+  const run = writeChain.then(() => fn());
+  writeChain = run.then(
+    () => {},
+    () => {}
+  );
+  return run;
+}
+
 async function openDb() {
   const db = await SQLite.openDatabaseAsync("orbitworks.db");
 
+  // busy_timeout tells SQLite to wait and retry internally for up to 5s
+  // when a write collides with another writer already holding the lock,
+  // instead of throwing "database is locked" the instant two legitimate
+  // writes overlap by even a few ms - this app has several independent
+  // write paths on this one connection (employee_queue, event_queue,
+  // pin_cache via syncPinTable, etc.) with no shared mutex between them,
+  // so brief overlaps are expected, not a sign of a real deadlock.
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
+    PRAGMA busy_timeout = 5000;
 
     CREATE TABLE IF NOT EXISTS pin_cache (
       employeeId TEXT PRIMARY KEY,
@@ -169,6 +200,14 @@ async function openDb() {
       createdAt INTEGER NOT NULL
     );
   `);
+
+  // One-time confirmation that the pragmas above actually took on this
+  // connection/platform - PRAGMA statements inside a batched execAsync
+  // string are not guaranteed to report back, so this reads them back
+  // explicitly rather than assuming the batch above applied them.
+  const journalMode = await db.getFirstAsync("PRAGMA journal_mode");
+  const busyTimeout = await db.getFirstAsync("PRAGMA busy_timeout");
+  console.log("[db] journal_mode =", journalMode, "busy_timeout =", busyTimeout);
 
   // Migrations for installs created before these columns existed - ALTER
   // TABLE has no IF NOT EXISTS for columns, so each is wrapped and the

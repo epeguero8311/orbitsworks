@@ -5,6 +5,31 @@ import { motion, AnimatePresence } from "framer-motion";
 import type { Employee, JobSite, Job, Subcontractor } from "@/lib/types";
 import { UpgradeToast } from "@/components/UpgradeToast";
 
+// Falls back to an initial instead of the browser's broken-image icon
+// when photoUrl points at a Storage object that is missing, empty, or
+// otherwise fails to load (e.g. a corrupt upload from a buggy mobile
+// client - see lib/employeeQueueSync.js in orbitworks-app).
+function EmployeeAvatar({ photoUrl, name }: { photoUrl?: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!photoUrl || failed) {
+    return (
+      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-100 text-xs font-medium text-gray-600">
+        {name.charAt(0).toUpperCase()}
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={photoUrl}
+      alt={name}
+      className="h-7 w-7 rounded-full object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 export function EmployeesTable({
   employees,
   sites,
@@ -184,13 +209,7 @@ export function EmployeesTable({
                 >
                   <td className="px-6 py-4 font-medium text-gray-950">
                     <span className="flex items-center gap-2">
-                      {employee.photoUrl ? (
-                        <img
-                          src={employee.photoUrl}
-                          alt={employee.name}
-                          className="h-7 w-7 rounded-full object-cover"
-                        />
-                      ) : null}
+                      <EmployeeAvatar photoUrl={employee.photoUrl} name={employee.name} />
                       {employee.name}
                       {employee.isAdmin ? (
                         <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
