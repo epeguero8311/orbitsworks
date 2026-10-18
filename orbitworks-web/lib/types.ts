@@ -166,11 +166,12 @@ export interface Invite {
   // creating a brand new one - see acceptInvite in functions/src/company.ts.
   linkExistingEmployeeId?: string;
   // The employee's existing name, snapshotted at invite time - set
-  // alongside linkExistingEmployeeId only. /join reads this (via
-  // app/api/invites/lookup) to show the name read-only instead of making
-  // an existing employee re-type it. Fresh invites (no
+  // alongside linkExistingEmployeeId only. acceptInvite in
+  // functions/src/company.ts uses this as the authoritative name instead
+  // of trusting whatever the invitee typed on /join. Fresh invites (no
   // linkExistingEmployeeId) never set this - the name is unknown until
-  // the invitee types it in on /join.
+  // the invitee types it in on /join, and that client-typed value is
+  // trusted (there's no prior record to snapshot from).
   name?: string;
   status: "pending" | "accepted";
   emailStatus: "pending" | "sent" | "failed";

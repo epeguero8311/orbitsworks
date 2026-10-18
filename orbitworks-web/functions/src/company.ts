@@ -184,11 +184,10 @@ export const acceptInvite = onCall(async (request) => {
       throw new HttpsError("failed-precondition", "This employee already has a linked account.");
     }
 
-    // Never the client-typed name here - /join shows this employee's name
-    // read-only for exactly this reason (see app/join/page.tsx and
-    // app/api/invites/lookup). invite.name is the snapshot taken when the
-    // promotion was sent; employee.name covers an invite created before
-    // that field existed.
+    // Never the client-typed name here, even though /join collects one -
+    // whatever the invitee types is discarded for a promotion invite.
+    // invite.name is the snapshot taken when the promotion was sent;
+    // employee.name covers an invite created before that field existed.
     const linkedName = (invite.name || employee.name || "").trim();
     if (!linkedName) {
       await admin.auth().deleteUser(uid);

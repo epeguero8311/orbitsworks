@@ -364,10 +364,9 @@ export function useEmployeeModal({
           assignedSiteIds: employee.assignedSiteIds ?? [],
           invitedByUid: currentUser?.uid ?? "",
           linkExistingEmployeeId: employee.id,
-          // Snapshotted so /join can show it read-only instead of making
-          // an existing employee re-type their own name - see
-          // app/api/invites/lookup and acceptInvite in
-          // functions/src/company.ts.
+          // Snapshotted so acceptInvite (functions/src/company.ts) can use
+          // it as the authoritative name instead of trusting whatever an
+          // existing employee types into /join.
           name: employee.name,
           status: "pending",
           createdAt: serverTimestamp(),
