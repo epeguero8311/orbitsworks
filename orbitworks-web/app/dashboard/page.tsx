@@ -79,6 +79,7 @@ export default function DashboardOverviewPage() {
       <AlertsPanel
         loading={status.loading}
         currentlyActive={status.currentlyActive}
+        recentEvents={status.events}
       />
 
       <EmployeesClockedInTable

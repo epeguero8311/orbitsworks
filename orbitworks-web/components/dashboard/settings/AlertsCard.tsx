@@ -1,20 +1,32 @@
 "use client";
 
+import Link from "next/link";
 import type { Dispatch, SetStateAction } from "react";
-import type { Alerts } from "@/lib/hooks/useCompanySettings";
+import type { Alerts, FaceVerificationSettings } from "@/lib/hooks/useCompanySettings";
 import { Toggle } from "@/components/dashboard/settings/Toggle";
 import { ThresholdField } from "@/components/dashboard/settings/ThresholdField";
+import { ProBadgeLink } from "@/components/dashboard/sites/GeofenceFields";
 
 export function AlertsCard({
   alerts,
   setAlerts,
   otThreshold,
   setOtThreshold,
+  otMultiplier,
+  setOtMultiplier,
+  isPro,
+  faceVerification,
+  onFaceVerificationChange,
 }: {
   alerts: Alerts;
   setAlerts: Dispatch<SetStateAction<Alerts>>;
   otThreshold: string;
   setOtThreshold: (value: string) => void;
+  otMultiplier: string;
+  setOtMultiplier: (value: string) => void;
+  isPro: boolean;
+  faceVerification: FaceVerificationSettings;
+  onFaceVerificationChange: (value: FaceVerificationSettings) => void;
 }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6">
@@ -65,6 +77,18 @@ export function AlertsCard({
             value={otThreshold ? parseFloat(otThreshold) : 40}
             onChange={(v) => setOtThreshold(String(v))}
           />
+          <div className="flex items-center gap-2 pb-3.5">
+            <label className="text-xs text-gray-600">Pay multiplier:</label>
+            <input
+              type="number"
+              min="1"
+              step="0.1"
+              value={otMultiplier}
+              onChange={(e) => setOtMultiplier(e.target.value)}
+              className="w-20 rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            />
+            <span className="text-xs text-gray-600">x hourly rate, used in Analytics</span>
+          </div>
         </div>
 
         <div className="py-1">
@@ -93,6 +117,48 @@ export function AlertsCard({
             value={alerts.maxBreakMinutes}
             onChange={(v) => setAlerts((prev) => ({ ...prev, maxBreakMinutes: v }))}
           />
+        </div>
+
+        <div className="py-1">
+          <Toggle
+            label="Clocked in outside geofence"
+            checked={alerts.clockedInOutsideGeofence}
+            onChange={(v) => setAlerts((prev) => ({ ...prev, clockedInOutsideGeofence: v }))}
+          />
+        </div>
+
+        <div className="py-1">
+          <Toggle
+            label="Clocked in at unassigned site"
+            checked={alerts.siteMismatchWarning}
+            onChange={(v) => setAlerts((prev) => ({ ...prev, siteMismatchWarning: v }))}
+          />
+        </div>
+
+        <div className="py-1">
+          <Toggle
+            label="Face recognition alerts"
+            description="Checks always run on every clock-in for Pro - this only controls whether mismatch and no-face alerts fire. Badges in Time Tracking still show either way."
+            checked={faceVerification.alertsEnabled}
+            onChange={(v) => onFaceVerificationChange({ ...faceVerification, alertsEnabled: v })}
+            disabled={!isPro}
+            badge={!isPro && <ProBadgeLink />}
+          />
+          {isPro && (
+            <p className="mt-1 pl-0 text-xs text-gray-500">
+              Before enabling face checks for an employee (adding their
+              profile photo), give them notice and get any consent
+              required by law. Use our{" "}
+              <Link
+                href="/employee-notice"
+                target="_blank"
+                className="font-medium text-accent underline"
+              >
+                employee notice template
+              </Link>
+              .
+            </p>
+          )}
         </div>
       </div>
     </div>

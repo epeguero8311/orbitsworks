@@ -2,9 +2,11 @@ import { z } from "zod";
 import * as admin from "firebase-admin";
 import type { Timestamp } from "firebase-admin/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { db, localDateKey, localMinutesOfDay } from "./shared";
 import { ALERTS_FEED_ENABLED, isCompanyInTestScope } from "./flags";
 import { sendPushForAlert } from "./pushSend";
+import { formatGeofenceDistance, type GeofenceStatus } from "./geofencing";
 import {
   deriveStatus,
   getAccumulatedWorkedMs,
@@ -13,11 +15,11 @@ import {
 } from "./clockStatus";
 import { applyAutoBreak, splitShiftSegments } from "./autoBreak";
 
-// Launch set only - outside-geofence and site-mismatch need geofence data
-// that doesn't exist on main yet, so they're deferred. lowStaffing was
-// removed (not a concept this product tracks). Extend this list (and
-// ALERT_SEVERITY below) when geofence data lands, same as the "extend
-// later: FACE_MISMATCH, OUTSIDE_GEOFENCE" note on Flag in lib/types.ts.
+// lowStaffing was removed (not a concept this product tracks).
+// clockedInOutsideGeofence/siteMismatch both landed here under the exact
+// names lib/types.ts's MobileAlertType and dashboardOverviewUtils.ts's
+// AlertItem already used for them client-side, rather than inventing new
+// ones - no changes needed on either of those union types.
 export const ALERT_TYPES = [
   "lateClockIn",
   "earlyClockOut",
@@ -25,6 +27,16 @@ export const ALERT_TYPES = [
   "maxHours",
   "overtime",
   "missedClockOut",
+  "clockedInOutsideGeofence",
+  "siteMismatch",
+  // Face Verification (Pro) - see functions/src/rekognition.ts.
+  "faceMismatch",
+  "faceNoFace",
+  "faceBadReference",
+  // Update Employee (mobile) - see functions/src/updateEmployee.ts. One per
+  // update (not per employee/day), per-instance severity (not the fixed
+  // lookup below) - see createEmployeeUpdatedAlert's own comment.
+  "employeeUpdated",
 ] as const;
 
 export type AlertType = (typeof ALERT_TYPES)[number];
@@ -36,6 +48,22 @@ export const ALERT_SEVERITY: Record<AlertType, "urgent" | "warning" | "info"> = 
   breakTooLong: "warning",
   lateClockIn: "warning",
   earlyClockOut: "warning",
+  clockedInOutsideGeofence: "warning",
+  // Info-only, same as clockedInOutsideGeofence's own severity choice but
+  // one notch down - a mismatch never blocks or implies anything was
+  // done wrong, just "someone should take a look."
+  siteMismatch: "info",
+  // Face Verification (Pro) - never block a clock event, same reasoning
+  // as clockedInOutsideGeofence.
+  faceMismatch: "warning",
+  faceNoFace: "warning",
+  faceBadReference: "warning",
+  // Static fallback only - createEmployeeUpdatedAlert sets the real
+  // per-instance severity directly on the doc (warning for a name-only
+  // edit or a same-person photo swap, urgent for a different-person
+  // swap), bypassing this lookup the same way faceBadReference's bespoke
+  // writer bypasses createAlertIfNew below.
+  employeeUpdated: "warning",
 };
 
 // The untrusted-input boundary for alert generation: validates every id
@@ -54,6 +82,10 @@ export const alertInputSchema = z.object({
   siteName: z.string().nullable(),
   message: z.string().min(1),
   eventId: z.string().min(1).nullable(),
+  // Update Employee (mobile) - set only for employeeUpdated, null for
+  // every other type, same convention as eventId/siteId being present but
+  // unused outside their own alert types.
+  employeeUpdateId: z.string().min(1).nullable(),
   dateKey: z.string().min(1),
 });
 
@@ -91,6 +123,17 @@ export const ALERT_SETTINGS_DEFAULTS = {
   maxBreakMinutes: 15,
   lateClockInAlert: true,
   earlyClockOutAlert: true,
+  clockedInOutsideGeofence: true,
+  siteMismatchWarning: true,
+  // Face Verification (Pro) - default true per spec.
+  // Dead weight in practice - no UI ever writes these, so they always
+  // resolve to the true default here. The real on/off switch for
+  // faceMismatch/faceNoFace is company.faceVerification.alertsEnabled,
+  // read separately below (getCompanyAlertContext's faceAlertsEnabled) -
+  // faceBadReference never checks either one, it always fires.
+  faceMismatchAlert: true,
+  faceNoFaceAlert: true,
+  faceBadReferenceAlert: true,
 } as const;
 
 type AlertSettings = typeof ALERT_SETTINGS_DEFAULTS;
@@ -100,10 +143,16 @@ interface CompanyAlertContext {
   businessHoursOpen: string;
   businessHoursClose: string;
   gracePeriodMinutes: number;
-  autoClockOut: boolean;
   weeklyOvertimeThreshold: number;
   automaticBreakMinutes: number;
   minimumShiftHours: number;
+  // Face Verification (Pro) - company.faceVerification.alertsEnabled,
+  // default true when missing (see FACE_VERIFICATION_SPEC.md). Checks
+  // themselves always run on Pro companies now (functions/src/
+  // rekognition.ts); this only gates whether faceMismatch/faceNoFace
+  // alerts (and their push) get created. faceBadReference ignores this
+  // entirely - it always fires, since it means checks are paused.
+  faceAlertsEnabled: boolean;
 }
 
 // Missing settings (fail-safe requirement) always resolve to
@@ -120,10 +169,10 @@ async function getCompanyAlertContext(companyId: string): Promise<CompanyAlertCo
     businessHoursOpen: data.businessHours?.open ?? "08:00",
     businessHoursClose: data.businessHours?.close ?? "17:00",
     gracePeriodMinutes: data.attendanceRules?.gracePeriodMinutes ?? 0,
-    autoClockOut: data.attendanceRules?.autoClockOut ?? false,
     weeklyOvertimeThreshold: data.weeklyOvertimeThreshold ?? 40,
     automaticBreakMinutes: data.exportSettings?.automaticBreakMinutes ?? 0,
     minimumShiftHours: data.exportSettings?.minimumShiftHours ?? 0,
+    faceAlertsEnabled: data.faceVerification?.alertsEnabled !== false,
   };
 }
 
@@ -134,6 +183,16 @@ const ALERT_ID_PREFIX: Record<AlertType, string> = {
   maxHours: "max",
   overtime: "ot",
   missedClockOut: "missed",
+  clockedInOutsideGeofence: "geo",
+  siteMismatch: "mismatch",
+  faceMismatch: "facemismatch",
+  faceNoFace: "facenoface",
+  // Only used directly by buildFaceBadReferenceAlertId below, never by
+  // buildAlertId - this is the one type with no dateKey in its id.
+  faceBadReference: "badref",
+  // Only used directly by buildEmployeeUpdatedAlertId below - keyed by
+  // updateId instead of a dateKey, same reason as faceBadReference.
+  employeeUpdated: "empupdate",
 };
 
 function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string): string {
@@ -156,7 +215,16 @@ async function createAlertIfNew(input: AlertInput, occurredAt: Timestamp): Promi
     return null;
   }
   const data = parsed.data;
-  const subjectId = data.employeeId ?? data.siteId ?? "company";
+  // clockedInOutsideGeofence/siteMismatch are both keyed per clock-in
+  // EVENT, not per employee/day like every other type - an employee can
+  // clock in outside the geofence, or at the wrong site, more than once
+  // in the same day, and each one is its own underlying condition
+  // (mirrors the old client-computed buildGeofenceAlertItems, which
+  // keyed its items by event id too).
+  const subjectId =
+    data.alertType === "clockedInOutsideGeofence" || data.alertType === "siteMismatch"
+      ? data.eventId ?? data.employeeId ?? "company"
+      : data.employeeId ?? data.siteId ?? "company";
   const alertId = buildAlertId(data.alertType, subjectId, data.dateKey);
   const ref = db.collection("companies").doc(data.companyId).collection("alerts").doc(alertId);
 
@@ -234,6 +302,7 @@ export async function checkLateClockIn(
       siteName: typeof data.siteName === "string" ? data.siteName : null,
       message: "Clocked in late",
       eventId,
+      employeeUpdateId: null,
       dateKey: localDateKey(ts),
     },
     data.timestamp ?? admin.firestore.Timestamp.now()
@@ -275,11 +344,454 @@ export async function checkEarlyClockOut(
       siteName: typeof data.siteName === "string" ? data.siteName : null,
       message: "Clocked out early",
       eventId,
+      employeeUpdateId: null,
       dateKey: localDateKey(ts),
     },
     data.timestamp ?? admin.firestore.Timestamp.now()
   );
 }
+
+// Geofencing (Pro) Part 4 - the server-generated replacement for what
+// dashboardOverviewUtils.ts's buildGeofenceAlertItems used to compute
+// client-side on every dashboard load. Fires for every enforcement mode
+// (flag/requireReason) and for overrides alike - only geofenceStatus and
+// type matter, not source or mode (a "block" clock-in never reaches here
+// at all, since it's never written as an event). Clock-outs are excluded
+// (type === "in" only), same as the old client version - they're never
+// more than the badge in the log, per spec. geofence/site are passed in
+// by the caller rather than read off `data`, since the geofence
+// resolution that produces them happens earlier in onClockEventCreated
+// and is only ever written back to Firestore, never mutated onto the
+// local `data` object this function receives.
+export async function checkOutsideGeofence(
+  companyId: string,
+  eventId: string,
+  data: FirebaseFirestore.DocumentData,
+  geofence: { applicable: boolean; status: GeofenceStatus | null; distanceM: number | null },
+  site: { siteId: string | null; siteName: string | null }
+): Promise<void> {
+  if (!ALERTS_FEED_ENABLED.value()) return;
+  if (data?.type !== "in") return;
+  if (!geofence.applicable || geofence.status !== "outside") return;
+  if (typeof companyId !== "string" || !companyId) return;
+  if (!isCompanyInTestScope(companyId)) return;
+  if (typeof data.employeeId !== "string" || !data.employeeId) return;
+
+  const ctx = await getCompanyAlertContext(companyId);
+  if (!ctx || !ctx.alerts.clockedInOutsideGeofence) return;
+
+  const ts: Date = data.timestamp ? data.timestamp.toDate() : new Date();
+  const employeeName = typeof data.employeeName === "string" && data.employeeName ? data.employeeName : "An employee";
+  const reason = typeof data.reason === "string" && data.reason ? data.reason : null;
+  const siteName = site.siteName || "the job site";
+  const distancePhrase = geofence.distanceM != null ? formatGeofenceDistance(geofence.distanceM) : null;
+  const message = distancePhrase
+    ? `Clocked in ${distancePhrase} from ${siteName}${reason ? ` - Reason: ${reason}` : ""}`
+    : `Clocked in outside the geofence at ${siteName}${reason ? ` - Reason: ${reason}` : ""}`;
+
+  await maybeCreateAndPush(
+    {
+      companyId,
+      alertType: "clockedInOutsideGeofence",
+      employeeId: data.employeeId,
+      employeeName,
+      siteId: site.siteId,
+      siteName: site.siteName,
+      message,
+      eventId,
+      employeeUpdateId: null,
+      dateKey: localDateKey(ts),
+    },
+    data.timestamp ?? admin.firestore.Timestamp.now()
+  );
+}
+
+// Auto site detection - the server-generated replacement for what
+// dashboardOverviewUtils.ts's buildGeofenceAlertItems used to compute
+// client-side on every dashboard load (same migration as
+// checkOutsideGeofence above). siteMismatch is only ever set on a
+// clock-in (clockEvents.ts), and only when the employee has their own
+// assignedSiteIds and the detected site isn't one of them - info-only,
+// never blocks, so this is purely a "someone should take a look" flag.
+export async function checkSiteMismatch(
+  companyId: string,
+  eventId: string,
+  data: FirebaseFirestore.DocumentData,
+  siteMismatch: boolean,
+  site: { siteId: string | null; siteName: string | null }
+): Promise<void> {
+  if (!ALERTS_FEED_ENABLED.value()) return;
+  if (data?.type !== "in") return;
+  if (!siteMismatch) return;
+  if (typeof companyId !== "string" || !companyId) return;
+  if (!isCompanyInTestScope(companyId)) return;
+  if (typeof data.employeeId !== "string" || !data.employeeId) return;
+
+  const ctx = await getCompanyAlertContext(companyId);
+  if (!ctx || !ctx.alerts.siteMismatchWarning) return;
+
+  const ts: Date = data.timestamp ? data.timestamp.toDate() : new Date();
+  const employeeName = typeof data.employeeName === "string" && data.employeeName ? data.employeeName : "An employee";
+  const siteName = site.siteName || "an unassigned site";
+
+  await maybeCreateAndPush(
+    {
+      companyId,
+      alertType: "siteMismatch",
+      employeeId: data.employeeId,
+      employeeName,
+      siteId: site.siteId,
+      siteName: site.siteName,
+      message: `Clocked in at ${siteName} - not one of their assigned job sites.`,
+      eventId,
+      employeeUpdateId: null,
+      dateKey: localDateKey(ts),
+    },
+    data.timestamp ?? admin.firestore.Timestamp.now()
+  );
+}
+
+// Face Verification (Pro) - called from functions/src/rekognition.ts
+// AFTER it writes faceCheck onto the clock event, fully isolated (its own
+// try/catch there) from the check itself. Mirrors checkOutsideGeofence/
+// checkSiteMismatch above in every other way. Side-by-side clock/
+// reference photos aren't stored on the alert doc itself - the UI
+// resolves the full ClockEvent by eventId (AlertsPanel.tsx already does
+// this for clockedInOutsideGeofence/siteMismatch) and reads photoUrl/
+// faceCheck.referencePhotoUrl off that instead.
+export async function createFaceMismatchAlert(
+  companyId: string,
+  eventId: string,
+  employeeId: string,
+  employeeName: string,
+  similarity: number,
+  timestamp: admin.firestore.Timestamp | null
+): Promise<void> {
+  if (!ALERTS_FEED_ENABLED.value()) return;
+  if (!isCompanyInTestScope(companyId)) return;
+
+  const ctx = await getCompanyAlertContext(companyId);
+  if (!ctx || !ctx.alerts.faceMismatchAlert || !ctx.faceAlertsEnabled) return;
+
+  const ts = timestamp ? timestamp.toDate() : new Date();
+  await maybeCreateAndPush(
+    {
+      companyId,
+      alertType: "faceMismatch",
+      employeeId,
+      employeeName,
+      siteId: null,
+      siteName: null,
+      message: `Face didn't match the clock photo (${similarity}% similarity) - confirm it's really ${employeeName}.`,
+      eventId,
+      employeeUpdateId: null,
+      dateKey: localDateKey(ts),
+    },
+    timestamp ?? admin.firestore.Timestamp.now()
+  );
+}
+
+export async function createFaceNoFaceAlert(
+  companyId: string,
+  eventId: string,
+  employeeId: string,
+  employeeName: string,
+  timestamp: admin.firestore.Timestamp | null
+): Promise<void> {
+  if (!ALERTS_FEED_ENABLED.value()) return;
+  if (!isCompanyInTestScope(companyId)) return;
+
+  const ctx = await getCompanyAlertContext(companyId);
+  if (!ctx || !ctx.alerts.faceNoFaceAlert || !ctx.faceAlertsEnabled) return;
+
+  const ts = timestamp ? timestamp.toDate() : new Date();
+  await maybeCreateAndPush(
+    {
+      companyId,
+      alertType: "faceNoFace",
+      employeeId,
+      employeeName,
+      siteId: null,
+      siteName: null,
+      message: "No face was detected in the clock photo.",
+      eventId,
+      employeeUpdateId: null,
+      dateKey: localDateKey(ts),
+    },
+    timestamp ?? admin.firestore.Timestamp.now()
+  );
+}
+
+// faceBadReference is the one alert type that breaks the "one per
+// employee/day, kept forever, resolved via alertActions ignore/resolve"
+// convention every other type here follows: one per EMPLOYEE (no dateKey
+// in the id - a bad pfp isn't a per-day condition) and resolved by
+// deleting the doc outright once the pfp passes DetectFaces again or is
+// removed (there's no Ignore action for this one per spec). Bypasses
+// buildAlertId/createAlertIfNew's dateKey-based id scheme entirely for
+// that reason - everything else about the write (ref.create() for
+// idempotency, push only on a genuinely NEW flag, not a repeat) still
+// matches maybeCreateAndPush's shape, just inlined here since that
+// dateKey-less id doesn't fit alertInputSchema's id-building path.
+function buildFaceBadReferenceAlertId(employeeId: string): string {
+  return `${ALERT_ID_PREFIX.faceBadReference}-${employeeId}`;
+}
+
+export async function createOrKeepFaceBadReferenceAlert(
+  companyId: string,
+  employeeId: string,
+  employeeName: string
+): Promise<void> {
+  if (!ALERTS_FEED_ENABLED.value()) return;
+  if (!isCompanyInTestScope(companyId)) return;
+
+  const ctx = await getCompanyAlertContext(companyId);
+  if (!ctx || !ctx.alerts.faceBadReferenceAlert) return;
+
+  const alertId = buildFaceBadReferenceAlertId(employeeId);
+  const now = admin.firestore.Timestamp.now();
+  const input: AlertInput = {
+    companyId,
+    alertType: "faceBadReference",
+    employeeId,
+    employeeName,
+    siteId: null,
+    siteName: null,
+    message: `${employeeName}'s profile photo has no usable face. Face verification is paused for them until it's updated.`,
+    eventId: null,
+    employeeUpdateId: null,
+    // Not used for the id (see above) - just satisfies MobileAlert's
+    // required field.
+    dateKey: localDateKey(now.toDate()),
+  };
+  const parsed = alertInputSchema.safeParse(input);
+  if (!parsed.success) {
+    console.warn("Skipping malformed faceBadReference alert input", { input, issues: parsed.error.issues });
+    return;
+  }
+
+  const ref = db.collection("companies").doc(companyId).collection("alerts").doc(alertId);
+  const docData = {
+    ...parsed.data,
+    severity: ALERT_SEVERITY.faceBadReference,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    occurredAt: now,
+    readByDeviceIds: [] as string[],
+  };
+
+  let created: AlertDoc;
+  try {
+    await ref.create(docData);
+    created = {
+      id: alertId,
+      ...parsed.data,
+      severity: ALERT_SEVERITY.faceBadReference,
+      createdAt: now,
+      occurredAt: now,
+      readByDeviceIds: [],
+    };
+  } catch (err) {
+    const code = (err as { code?: number | string })?.code;
+    if (code !== 6 && code !== "already-exists") {
+      console.warn("faceBadReference alert write failed", { companyId, alertId, error: String(err) });
+    }
+    return; // already flagged for this employee - no new push
+  }
+
+  try {
+    await sendPushForAlert(created);
+  } catch (err) {
+    console.warn("Push send failed", { companyId, alertId, error: String(err) });
+  }
+}
+
+// Deletes the persistent flag outright - called once the reference-photo
+// check (functions/src/rekognition.ts) sees a good pfp again, or sees the
+// pfp removed entirely. delete() on an id that was never created (no
+// flag was ever raised) is a harmless no-op, so callers never need to
+// check existence first.
+export async function resolveFaceBadReferenceAlert(companyId: string, employeeId: string): Promise<void> {
+  const alertId = buildFaceBadReferenceAlertId(employeeId);
+  await db
+    .collection("companies")
+    .doc(companyId)
+    .collection("alerts")
+    .doc(alertId)
+    .delete()
+    .catch((err) => {
+      console.warn("Failed to resolve faceBadReference alert", { companyId, alertId, error: String(err) });
+    });
+}
+
+// Update Employee (mobile) - called from updateEmployeeProfile (functions/
+// src/updateEmployee.ts) after it writes the employee doc + employeeUpdates
+// record. Bypasses createAlertIfNew/ALERT_SEVERITY entirely (same reason
+// createOrKeepFaceBadReferenceAlert does): severity here is per-instance
+// (computed by the caller from the old-vs-new photo compare), not a fixed
+// per-type lookup. id = `empupdate-${updateId}` - already globally unique
+// (updateId is a client-generated Firestore auto-id), so unlike every
+// dateKey-scoped type above, no employeeId/dateKey composition is needed -
+// ref.create() still gives idempotency against a retried callable.
+function buildEmployeeUpdatedAlertId(updateId: string): string {
+  return `${ALERT_ID_PREFIX.employeeUpdated}-${updateId}`;
+}
+
+function employeeUpdatedMessage(changedFields: ("name" | "photo")[]): string {
+  const changedName = changedFields.includes("name");
+  const changedPhoto = changedFields.includes("photo");
+  if (changedName && changedPhoto) return "Name and photo were updated from the app.";
+  if (changedPhoto) return "Profile photo was updated from the app.";
+  return "Name was updated from the app.";
+}
+
+export async function createEmployeeUpdatedAlert(
+  companyId: string,
+  employeeId: string,
+  employeeName: string,
+  updateId: string,
+  changedFields: ("name" | "photo")[],
+  severity: "warning" | "urgent",
+  timestamp: admin.firestore.Timestamp
+): Promise<void> {
+  if (!ALERTS_FEED_ENABLED.value()) return;
+  if (!isCompanyInTestScope(companyId)) return;
+
+  const alertId = buildEmployeeUpdatedAlertId(updateId);
+  const input: AlertInput = {
+    companyId,
+    alertType: "employeeUpdated",
+    employeeId,
+    employeeName,
+    siteId: null,
+    siteName: null,
+    message: employeeUpdatedMessage(changedFields),
+    eventId: null,
+    employeeUpdateId: updateId,
+    dateKey: localDateKey(timestamp.toDate()),
+  };
+  const parsed = alertInputSchema.safeParse(input);
+  if (!parsed.success) {
+    console.warn("Skipping malformed employeeUpdated alert input", { input, issues: parsed.error.issues });
+    return;
+  }
+
+  const ref = db.collection("companies").doc(companyId).collection("alerts").doc(alertId);
+  const docData = {
+    ...parsed.data,
+    severity,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    occurredAt: timestamp,
+    readByDeviceIds: [] as string[],
+  };
+
+  let created: AlertDoc;
+  try {
+    await ref.create(docData);
+    created = { id: alertId, ...parsed.data, severity, createdAt: timestamp, occurredAt: timestamp, readByDeviceIds: [] };
+  } catch (err) {
+    const code = (err as { code?: number | string })?.code;
+    if (code !== 6 && code !== "already-exists") {
+      console.warn("employeeUpdated alert write failed", { companyId, alertId, error: String(err) });
+    }
+    return;
+  }
+
+  try {
+    await sendPushForAlert(created);
+  } catch (err) {
+    console.warn("Push send failed", { companyId, alertId, error: String(err) });
+  }
+}
+
+// Update Employee (mobile) - deletes the retained old reference photo from
+// Storage. Shared by the scheduled sweep (30-day expiry) and the
+// dismiss-triggered early delete below - both just need "delete this path
+// if it's still there and mark it gone," so the actual Storage call and
+// the employeeUpdates write live here once.
+async function deleteRetainedPhoto(
+  companyId: string,
+  updateId: string,
+  oldPhotoPath: string
+): Promise<void> {
+  const ref = db.collection("companies").doc(companyId).collection("employeeUpdates").doc(updateId);
+  try {
+    await admin.storage().bucket().file(oldPhotoPath).delete();
+  } catch (err) {
+    console.warn("Failed to delete retained employee photo", { companyId, updateId, oldPhotoPath, error: String(err) });
+  }
+  await ref.update({ retainedPhotoDeletedAt: admin.firestore.Timestamp.now() }).catch((err) => {
+    console.warn("Failed to mark retained photo deleted", { companyId, updateId, error: String(err) });
+  });
+}
+
+// Update Employee (mobile) - daily sweep, same per-company-isolated shape
+// as checkPeriodicAlerts below. Only ever deletes the Storage blob - the
+// employeeUpdates doc itself is a permanent audit record, same as
+// clockEvents history.
+export const cleanupRetainedEmployeePhotos = onSchedule("every 24 hours", async () => {
+  const now = admin.firestore.Timestamp.now();
+  const companiesSnap = await db.collection("companies").get();
+  for (const companyDoc of companiesSnap.docs) {
+    try {
+      const dueSnap = await companyDoc.ref
+        .collection("employeeUpdates")
+        .where("retainedPhotoExpiresAt", "<=", now)
+        .where("retainedPhotoDeletedAt", "==", null)
+        .get();
+      for (const doc of dueSnap.docs) {
+        const data = doc.data() as { oldPhotoPath?: string | null };
+        if (!data.oldPhotoPath) continue;
+        await deleteRetainedPhoto(companyDoc.id, doc.id, data.oldPhotoPath);
+      }
+    } catch (err) {
+      console.warn("Retained photo cleanup failed for company", { companyId: companyDoc.id, error: String(err) });
+    }
+  }
+});
+
+// Update Employee (mobile) - dismissing an employeeUpdated alert (the
+// client's existing Ignore button, same alertActions write every other
+// type already uses - see useAlertActions.ts) is what triggers deleting
+// the retained old photo early, instead of waiting for the 30-day sweep
+// above. Isolated in its own try/catch - never blocks or undoes the
+// alertAction write that already succeeded.
+export const onEmployeeUpdateAlertDismissed = onDocumentCreated(
+  "companies/{companyId}/alertActions/{actionId}",
+  async (event) => {
+    const companyId = event.params.companyId;
+    try {
+      const data = event.data?.data() as
+        | { alertType?: string; status?: string; alertKey?: string }
+        | undefined;
+      if (!data || data.alertType !== "employeeUpdated" || data.status !== "ignored" || !data.alertKey) return;
+
+      const alertSnap = await db
+        .collection("companies")
+        .doc(companyId)
+        .collection("alerts")
+        .doc(data.alertKey)
+        .get();
+      const employeeUpdateId = (alertSnap.data() as { employeeUpdateId?: string | null } | undefined)
+        ?.employeeUpdateId;
+      if (!employeeUpdateId) return;
+
+      const updateSnap = await db
+        .collection("companies")
+        .doc(companyId)
+        .collection("employeeUpdates")
+        .doc(employeeUpdateId)
+        .get();
+      const update = updateSnap.data() as
+        | { oldPhotoPath?: string | null; retainedPhotoDeletedAt?: unknown }
+        | undefined;
+      if (!update?.oldPhotoPath || update.retainedPhotoDeletedAt) return;
+
+      await deleteRetainedPhoto(companyId, employeeUpdateId, update.oldPhotoPath);
+    } catch (err) {
+      console.warn("employeeUpdated dismiss cleanup failed", { companyId, error: String(err) });
+    }
+  }
+);
 
 function getWeekStart(date: Date): Date {
   const d = new Date(date);
@@ -320,8 +832,8 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
   const now = new Date();
   const eventsRef = companyDoc.ref.collection("clockEvents");
 
-  // Same 3-day lookback autoClockOutStaleSessions already uses - enough
-  // to find every employee's latest event without scanning full history.
+  // 3-day lookback - enough to find every employee's latest event without
+  // scanning full history.
   const lookbackStart = admin.firestore.Timestamp.fromMillis(now.getTime() - 3 * 24 * 60 * 60 * 1000);
   const recentSnap = await eventsRef.where("timestamp", ">=", lookbackStart).orderBy("timestamp", "desc").get();
   const recentEvents = recentSnap.docs.map(toMinimalEvent).filter((e): e is MinimalClockEvent => e !== null);
@@ -376,6 +888,7 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
           siteName: site?.siteName ?? null,
           message: "Break ran too long",
           eventId: event.id,
+          employeeUpdateId: null,
           dateKey: localDateKey(d),
         },
         admin.firestore.Timestamp.now()
@@ -403,6 +916,7 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
           siteName: site?.siteName ?? null,
           message: "Worked too many hours today",
           eventId: event.id,
+          employeeUpdateId: null,
           dateKey: localDateKey(d),
         },
         admin.firestore.Timestamp.now()
@@ -410,10 +924,8 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
     }
   }
 
-  // Missed Clock Out - only meaningful when auto clock-out is off (if
-  // it's on, the nightly autoClockOutStaleSessions sweep already closes
-  // these silently, same guard dashboardOverviewUtils.ts uses).
-  if (alerts.missedClockOutAlert && !ctx.autoClockOut) {
+  // Missed Clock Out
+  if (alerts.missedClockOutAlert) {
     for (const event of currentlyActive) {
       const d = effectiveDate(event);
       if (!d || localDateKey(d) === localDateKey(now)) continue;
@@ -429,6 +941,7 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
           siteName: site?.siteName ?? null,
           message: "Missed clock-out",
           eventId: event.id,
+          employeeUpdateId: null,
           dateKey: localDateKey(d),
         },
         admin.firestore.Timestamp.now()
@@ -481,6 +994,7 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
           siteName: null,
           message: "Over weekly hour limit",
           eventId: null,
+          employeeUpdateId: null,
           dateKey: weekKey,
         },
         admin.firestore.Timestamp.now()

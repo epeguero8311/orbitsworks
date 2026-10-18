@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Camera, LayoutDashboard, Tablet, FileSpreadsheet, WifiOff, ClipboardCheck } from "lucide-react";
+import { Camera, LayoutDashboard, Tablet, FileSpreadsheet, WifiOff, ClipboardCheck, ScanFace, MapPin } from "lucide-react";
 import LandingNav from "@/components/landing/LandingNav";
 import LandingFooter from "@/components/landing/LandingFooter";
 
@@ -39,6 +39,21 @@ const FEATURES = [
     title: "Payroll-ready Excel reports",
     description:
       "Export approved hours to Excel with a daily breakdown per employee, ready-to-use payroll formulas, and totals by job site - so payroll is a hand-off, not a rebuild.",
+  },
+];
+
+const PRO_FEATURES = [
+  {
+    icon: ScanFace,
+    title: "Face verification",
+    description:
+      "Each clock-in and clock-out photo is automatically compared against the employee's profile photo to confirm who's really clocking in.",
+  },
+  {
+    icon: MapPin,
+    title: "GPS and geofencing",
+    description:
+      "See where each clock-in happened, and get flagged if someone clocks in outside an assigned job site's radius.",
   },
 ];
 
@@ -199,6 +214,41 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* Pro features */}
+        <section id="pro-features" className="bg-gray-50">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-24">
+            <h2 className="text-2xl font-semibold text-gray-950 sm:text-3xl">
+              On Pro, catch problems before they cost you.
+            </h2>
+            <div className="mt-10 grid gap-6 sm:grid-cols-2">
+              {PRO_FEATURES.map((feature) => {
+                const Icon = feature.icon;
+                return (
+                  <div
+                    key={feature.title}
+                    className="rounded-xl border border-gray-200 bg-white p-6"
+                  >
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent/10">
+                      <Icon className="h-5 w-5 text-accent" />
+                    </div>
+                    <h3 className="mt-4 text-base font-semibold text-gray-950">
+                      {feature.title}
+                    </h3>
+                    <p className="mt-1.5 text-sm text-gray-600">
+                      {feature.description}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-6 text-sm text-gray-500">
+              Both features only generate alerts for your admins and
+              supervisors to review - a mismatch or an out-of-geofence
+              clock-in is never blocked or auto-corrected.
+            </p>
+          </div>
+        </section>
+
         {/* How it works */}
         <section id="how-it-works" className="bg-gray-50">
           <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-24">
@@ -274,10 +324,13 @@ export default function LandingPage() {
                 A photo is captured each time an employee clocks in or out
                 with their PIN.
               </li>
-              <li>Photos are deleted every 2 weeks.</li>
               <li>
                 Only the employee's own company - their admins and
                 supervisors - can view them.
+              </li>
+              <li>
+                Face-matching photos are never sold, leased, or used to
+                train AI models.
               </li>
               <li>
                 If an employee can't enter their PIN, a supervisor can clock
@@ -285,15 +338,65 @@ export default function LandingPage() {
               </li>
               <li>
                 It's the employer's responsibility to notify employees and
-                obtain any legally required consent before enrollment.
+                obtain any legally required consent before enabling face
+                verification or location features - we provide a free
+                notice and consent template to help.
               </li>
             </ul>
-            <Link
-              href="/privacy"
-              className="mt-6 inline-block text-sm font-medium text-accent hover:underline"
-            >
-              Read the full Privacy Policy -&gt;
-            </Link>
+            <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2">
+              <Link
+                href="/privacy"
+                className="inline-block text-sm font-medium text-accent hover:underline"
+              >
+                Read the full Privacy Policy -&gt;
+              </Link>
+              <Link
+                href="/employee-notice"
+                className="inline-block text-sm font-medium text-accent hover:underline"
+              >
+                Get the employee notice template -&gt;
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section id="faq" className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:py-24">
+          <h2 className="text-2xl font-semibold text-gray-950 sm:text-3xl">
+            Common questions
+          </h2>
+          <div className="mt-10 grid gap-6 sm:grid-cols-2">
+            <div className="rounded-xl border border-gray-200 bg-white p-6">
+              <h3 className="text-base font-semibold text-gray-950">
+                Do my employees need to consent to face verification or
+                location tracking?
+              </h3>
+              <p className="mt-1.5 text-sm text-gray-600">
+                Yes. As the employer, you're responsible for giving your
+                employees notice of what's collected and obtaining any
+                consent required under laws like Illinois' BIPA, Texas'
+                CUBI, or your state's biometric or electronic-monitoring
+                laws before enabling these features. We provide a free{" "}
+                <Link
+                  href="/employee-notice"
+                  className="font-medium text-accent underline"
+                >
+                  notice and consent template
+                </Link>{" "}
+                (English and Spanish) to help.
+              </p>
+            </div>
+            <div className="rounded-xl border border-gray-200 bg-white p-6">
+              <h3 className="text-base font-semibold text-gray-950">
+                Is face data sold or used to train AI models?
+              </h3>
+              <p className="mt-1.5 text-sm text-gray-600">
+                No. Face-verification photos are used only to confirm who's
+                clocking in and out. We never sell, lease, or trade
+                biometric data, and we never use it for advertising or to
+                train AI or machine-learning models.
+              </p>
+            </div>
           </div>
         </section>
 

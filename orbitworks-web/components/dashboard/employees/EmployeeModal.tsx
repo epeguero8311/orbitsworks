@@ -53,6 +53,10 @@ export function EmployeeModal({
           employeeName={employee.name}
           photoPreview={m.photoPreview}
           photoUrl={employee.photoUrl}
+          faceReferenceBad={
+            employee.faceReference?.status === "bad" &&
+            employee.faceReference.photoUrl === employee.photoUrl
+          }
           onPhotoChange={m.handlePhotoChange}
           currentPin={m.currentPin}
           editingPin={m.editingPin}
@@ -73,6 +77,10 @@ export function EmployeeModal({
           onCustomJobTitleChange={m.setCustomJobTitle}
           customHourlyRate={m.customHourlyRate}
           onCustomHourlyRateChange={m.setCustomHourlyRate}
+          confirmingRateChange={m.confirmingRateChange}
+          rateEffectiveFrom={m.rateEffectiveFrom}
+          onRateEffectiveFromChange={m.setRateEffectiveFrom}
+          onCancelRateChange={() => m.setConfirmingRateChange(false)}
           phone={m.phone}
           onPhoneChange={m.setPhone}
           isLinked={m.isLinked}

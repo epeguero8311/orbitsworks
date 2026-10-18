@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useSites } from "@/lib/hooks/useSites";
@@ -25,6 +26,22 @@ export default function EmployeesPage() {
     ? employees.find((e) => e.id === selectedEmployee.id) ?? selectedEmployee
     : null;
   const employeeLimit: number | undefined = undefined;
+
+  // Deep link from the faceBadReference alert card ("Update photo") -
+  // ?openEmployee={id} auto-opens that employee's edit modal once the
+  // list has loaded, then clears the param so a refresh/back-nav doesn't
+  // keep reopening it.
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const openEmployeeId = searchParams.get("openEmployee");
+  useEffect(() => {
+    if (!openEmployeeId || loading) return;
+    const match = employees.find((e) => e.id === openEmployeeId);
+    if (match) {
+      setSelectedEmployee(match);
+      router.replace("/dashboard/employees");
+    }
+  }, [openEmployeeId, loading, employees, router]);
   return (
     <div>
       <h1 className="text-2xl font-semibold text-gray-950">Employees</h1>

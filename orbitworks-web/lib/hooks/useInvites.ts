@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import { inviteConverter } from "@/lib/firebase/converters";
 import type { Invite } from "@/lib/types";
 
 export function useInvites() {
@@ -21,18 +22,13 @@ export function useInvites() {
   useEffect(() => {
     if (!userData?.companyId) return;
 
-    const invitesRef = collection(db, "invites");
+    const invitesRef = collection(db, "invites").withConverter(inviteConverter);
     const q = query(invitesRef, where("companyId", "==", userData.companyId));
 
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        setInvites(
-          snapshot.docs.map((d) => ({
-            id: d.id,
-            ...(d.data() as Omit<Invite, "id">),
-          }))
-        );
+        setInvites(snapshot.docs.map((d) => d.data()));
         setLoading(false);
       },
       (err) => {

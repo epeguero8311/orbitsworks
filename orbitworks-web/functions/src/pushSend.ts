@@ -12,6 +12,12 @@ const ALERT_TITLE: Record<AlertDoc["alertType"], string> = {
   maxHours: "Max Hours",
   overtime: "Overtime",
   missedClockOut: "Missed Clock-Out",
+  clockedInOutsideGeofence: "Outside Geofence",
+  siteMismatch: "Wrong Site",
+  faceMismatch: "Face Mismatch",
+  faceNoFace: "No Face Detected",
+  faceBadReference: "Bad Reference Photo",
+  employeeUpdated: "Employee Updated",
 };
 
 // Sends one alert to every registered, notification-enabled device on the

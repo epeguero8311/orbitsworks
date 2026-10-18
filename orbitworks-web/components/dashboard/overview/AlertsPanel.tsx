@@ -1,27 +1,50 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import Link from "next/link";
 import { useAlertActions } from "@/lib/hooks/useAlertActions";
 import { useServerAlerts } from "@/lib/hooks/useServerAlerts";
+import { useEmployeeUpdates } from "@/lib/hooks/useEmployeeUpdates";
 import type { ClockEvent } from "@/lib/types";
-import { AlertItem, effectiveDate, toDatetimeLocalValue } from "@/lib/dashboardOverviewUtils";
+import {
+  ALERT_SEVERITY,
+  AlertItem,
+  AlertSeverity,
+  alertTitle,
+  effectiveDate,
+  toDatetimeLocalValue,
+} from "@/lib/dashboardOverviewUtils";
+
+const SEVERITY_DOT_CLASSES: Record<AlertSeverity, string> = {
+  urgent: "bg-red-500",
+  warning: "bg-amber-500",
+  info: "bg-blue-500",
+};
 
 export default function AlertsPanel({
   loading,
   currentlyActive,
+  recentEvents,
 }: {
   loading: boolean;
   currentlyActive: ClockEvent[];
+  // clockedInOutsideGeofence/siteMismatch are both about a specific past
+  // clock-in moment, not current status - this is what lets their event
+  // be resolved precisely by eventId below, instead of just whichever
+  // event currentlyActive happens to have for that employee right now.
+  recentEvents: ClockEvent[];
 }) {
   const { alerts: serverAlerts, loading: alertsLoading } = useServerAlerts();
+  const { employeeUpdates } = useEmployeeUpdates();
   const {
     resolvedKeys,
     ignoreAlert,
     ignoreAll,
+    confirmFaceMatchFromAlert,
     clockOutFromAlert,
     endBreakFromAlert,
     submitEditTimeFromAlert,
+    editClockInTimeFromAlert,
   } = useAlertActions();
 
   const [editingAlertKey, setEditingAlertKey] = useState<string | null>(null);
@@ -37,9 +60,40 @@ export default function AlertsPanel({
   const eventByEmployee = new Map<string, ClockEvent>();
   currentlyActive.forEach((e) => eventByEmployee.set(e.employeeId, e));
 
+  // clockedInOutsideGeofence/siteMismatch are both about a specific past
+  // clock-in, not an employee's current session - eventByEmployee would
+  // attach the wrong event (or none) once that employee has since
+  // clocked out or started a new session elsewhere, so these two resolve
+  // their event by the eventId the server alert carries instead, falling
+  // back to eventByEmployee only if that event has aged out of
+  // recentEvents.
+  const eventById = new Map<string, ClockEvent>();
+  recentEvents.forEach((e) => eventById.set(e.id, e));
+
+  // faceMismatch/faceNoFace join these for the same reason - both are
+  // about a specific past clock-in, not current status. faceBadReference
+  // is never event-scoped at all (no clock event caused it), so it's
+  // deliberately left out - eventByEmployee would attach a wrong/stale
+  // event to it otherwise.
+  const EVENT_SCOPED_ALERT_TYPES = new Set([
+    "clockedInOutsideGeofence",
+    "siteMismatch",
+    "faceMismatch",
+    "faceNoFace",
+  ]);
+
+  // Update Employee (mobile) - every employeeUpdated alert has exactly one
+  // specific update it's about (no "current status" ambiguity the way
+  // clock-event-scoped alerts have), so this is a plain id->doc lookup.
+  const employeeUpdateById = new Map(employeeUpdates.map((u) => [u.id, u]));
+
   const alertItems: AlertItem[] = serverAlerts.map((a) => ({
     ...a,
-    event: eventByEmployee.get(a.employeeId),
+    event:
+      EVENT_SCOPED_ALERT_TYPES.has(a.alertType) && a.eventId
+        ? eventById.get(a.eventId) ?? eventByEmployee.get(a.employeeId)
+        : eventByEmployee.get(a.employeeId),
+    employeeUpdate: a.employeeUpdateId ? employeeUpdateById.get(a.employeeUpdateId) : undefined,
   }));
   const visibleAlertItems = alertItems.filter((a) => !resolvedKeys.has(a.key));
   const isLoading = loading || alertsLoading;
@@ -48,7 +102,9 @@ export default function AlertsPanel({
     setIgnoringAll(true);
     setAlertActionError(null);
     try {
-      await ignoreAll(visibleAlertItems);
+      // faceBadReference has no Ignore (individually or in bulk) - it
+      // auto-resolves server-side, never via alertActions.
+      await ignoreAll(visibleAlertItems.filter((a) => a.alertType !== "faceBadReference"));
     } catch (err) {
       console.error("Ignore all alerts error:", err);
       setAlertActionError("Couldn't ignore all alerts. Try again.");
@@ -78,6 +134,19 @@ export default function AlertsPanel({
     } catch (err) {
       console.error("Clock out from alert error:", err);
       setAlertActionError("Couldn't clock out. Try again.");
+    } finally {
+      setAlertActionSubmitting(null);
+    }
+  }
+
+  async function handleConfirmFaceMatch(alert: AlertItem) {
+    setAlertActionSubmitting(alert.key);
+    setAlertActionError(null);
+    try {
+      await confirmFaceMatchFromAlert(alert);
+    } catch (err) {
+      console.error("Confirm face match error:", err);
+      setAlertActionError("Couldn't confirm. Try again.");
     } finally {
       setAlertActionSubmitting(null);
     }
@@ -115,7 +184,11 @@ export default function AlertsPanel({
     setAlertActionError(null);
     try {
       const chosenMs = new Date(editTimeValue).getTime();
-      await submitEditTimeFromAlert(alert, chosenMs);
+      if (alert.alertType === "clockedInOutsideGeofence") {
+        await editClockInTimeFromAlert(alert, chosenMs);
+      } else {
+        await submitEditTimeFromAlert(alert, chosenMs);
+      }
       setEditingAlertKey(null);
       setEditTimeValue("");
     } catch (err) {
@@ -161,17 +234,114 @@ export default function AlertsPanel({
             return (
               <div key={alert.key} className="rounded-lg bg-amber-50 p-3.5">
                 <div className="flex items-start gap-3">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
+                  <span
+                    className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${SEVERITY_DOT_CLASSES[alert.severity ?? ALERT_SEVERITY[alert.alertType]]}`}
+                    aria-hidden="true"
+                  />
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-950">
-                      {alert.label}
+                      {alertTitle(alert)}
                     </p>
                     <p className="text-xs text-gray-600">{alert.detail}</p>
+
+                    {(alert.alertType === "faceMismatch" || alert.alertType === "faceNoFace") &&
+                      alert.event && (
+                        <div className="mt-3 grid max-w-xs grid-cols-2 gap-2">
+                          <div>
+                            <p className="mb-1 text-center text-xs text-gray-500">Clock photo</p>
+                            <div className="aspect-square overflow-hidden rounded-md bg-gray-100">
+                              {alert.event.photoUrl ? (
+                                <img
+                                  src={alert.event.photoUrl}
+                                  alt="Clock photo"
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full items-center justify-center text-xs text-gray-600">
+                                  No photo
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="mb-1 text-center text-xs text-gray-500">Profile photo</p>
+                            <div className="aspect-square overflow-hidden rounded-md bg-gray-100">
+                              {alert.event.faceCheck?.referencePhotoUrl ? (
+                                <img
+                                  src={alert.event.faceCheck.referencePhotoUrl}
+                                  alt="Employee profile photo"
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full items-center justify-center text-xs text-gray-600">
+                                  No photo
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                    {alert.alertType === "employeeUpdated" && alert.employeeUpdate && (
+                      <div className="mt-3">
+                        {alert.employeeUpdate.changedFields.includes("name") && (
+                          <p className="text-xs text-gray-600">
+                            Name: {alert.employeeUpdate.oldName} -&gt; {alert.employeeUpdate.newName}
+                          </p>
+                        )}
+                        {alert.employeeUpdate.changedFields.includes("photo") && (
+                          <div className="mt-2 grid max-w-xs grid-cols-2 gap-2">
+                            <div>
+                              <p className="mb-1 text-center text-xs text-gray-500">Previous photo</p>
+                              <div className="aspect-square overflow-hidden rounded-md bg-gray-100">
+                                {alert.employeeUpdate.oldPhotoUrl ? (
+                                  <img
+                                    src={alert.employeeUpdate.oldPhotoUrl}
+                                    alt="Previous photo"
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-full items-center justify-center text-xs text-gray-600">
+                                    No photo
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="mb-1 text-center text-xs text-gray-500">New photo</p>
+                              <div className="aspect-square overflow-hidden rounded-md bg-gray-100">
+                                {alert.employeeUpdate.newPhotoUrl ? (
+                                  <img
+                                    src={alert.employeeUpdate.newPhotoUrl}
+                                    alt="New photo"
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-full items-center justify-center text-xs text-gray-600">
+                                    No photo
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        <p className="mt-2 text-xs text-gray-500">
+                          {alert.employeeUpdate.updatedByName}
+                          {alert.employeeUpdate.updatedByDeviceName
+                            ? ` - ${alert.employeeUpdate.updatedByDeviceName}`
+                            : ""}
+                          {" - "}
+                          {alert.employeeUpdate.createdAt?.toDate().toLocaleString()}
+                        </p>
+                      </div>
+                    )}
 
                     {isEditing ? (
                       <div className="mt-3 space-y-2 rounded-md border border-amber-200 bg-white p-3">
                         <label className="block text-xs font-medium text-gray-600">
-                          Clock-out time
+                          {alert.alertType === "clockedInOutsideGeofence"
+                            ? "Clock-in time"
+                            : "Clock-out time"}
                         </label>
                         <input
                           type="datetime-local"
@@ -239,14 +409,47 @@ export default function AlertsPanel({
                             </button>
                           </>
                         )}
-                        <button
-                          type="button"
-                          disabled={isSubmitting}
-                          onClick={() => handleIgnoreAlert(alert)}
-                          className="text-xs font-medium text-gray-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {isSubmitting ? "Working..." : "Ignore"}
-                        </button>
+                        {alert.alertType === "clockedInOutsideGeofence" && (
+                          <button
+                            type="button"
+                            disabled={isSubmitting}
+                            onClick={() => handleStartEditTime(alert)}
+                            className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Edit Time
+                          </button>
+                        )}
+                        {(alert.alertType === "faceMismatch" || alert.alertType === "faceNoFace") && (
+                          <button
+                            type="button"
+                            disabled={isSubmitting}
+                            onClick={() => handleConfirmFaceMatch(alert)}
+                            className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Confirmed it&apos;s them
+                          </button>
+                        )}
+                        {alert.alertType === "faceBadReference" && (
+                          <Link
+                            href={`/dashboard/employees?openEmployee=${alert.employeeId}`}
+                            className="text-xs font-medium text-accent hover:underline"
+                          >
+                            Update photo
+                          </Link>
+                        )}
+                        {/* faceBadReference has no Ignore - it auto-resolves
+                            server-side once the pfp passes again, there's
+                            nothing to dismiss in the meantime. */}
+                        {alert.alertType !== "faceBadReference" && (
+                          <button
+                            type="button"
+                            disabled={isSubmitting}
+                            onClick={() => handleIgnoreAlert(alert)}
+                            className="text-xs font-medium text-gray-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isSubmitting ? "Working..." : "Ignore"}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

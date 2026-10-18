@@ -13,6 +13,10 @@ export function EmployeeDetailsFields({
   onCustomJobTitleChange,
   customHourlyRate,
   onCustomHourlyRateChange,
+  confirmingRateChange,
+  rateEffectiveFrom,
+  onRateEffectiveFromChange,
+  onCancelRateChange,
   phone,
   onPhoneChange,
   isLinked,
@@ -37,6 +41,10 @@ export function EmployeeDetailsFields({
   onCustomJobTitleChange: (value: string) => void;
   customHourlyRate: string;
   onCustomHourlyRateChange: (value: string) => void;
+  confirmingRateChange: boolean;
+  rateEffectiveFrom: string;
+  onRateEffectiveFromChange: (value: string) => void;
+  onCancelRateChange: () => void;
   phone: string;
   onPhoneChange: (value: string) => void;
   isLinked: boolean;
@@ -115,6 +123,30 @@ export function EmployeeDetailsFields({
           <p className="mt-1 text-xs text-gray-600">
             Rate is set by the job title. Choose Custom to edit manually.
           </p>
+        )}
+        {confirmingRateChange && (
+          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <label className="mb-1.5 block text-xs font-medium text-amber-900">
+              Effective from
+            </label>
+            <input
+              type="date"
+              value={rateEffectiveFrom}
+              onChange={(e) => onRateEffectiveFromChange(e.target.value)}
+              className="w-full rounded-md border border-amber-200 px-2.5 py-1.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            />
+            <p className="mt-1.5 text-xs text-amber-800">
+              Hours before this date keep costing at the old rate in
+              Analytics. Click Save changes again to confirm.
+            </p>
+            <button
+              type="button"
+              onClick={onCancelRateChange}
+              className="mt-1.5 text-xs font-medium text-amber-900 hover:underline"
+            >
+              Cancel rate change
+            </button>
+          </div>
         )}
       </div>
       <div>

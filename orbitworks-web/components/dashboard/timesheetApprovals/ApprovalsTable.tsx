@@ -4,9 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { Pencil, Trash2, Plus, ShieldAlert } from "lucide-react";
 import type { ApprovalRow } from "@/lib/hooks/useTimesheetApprovals";
 import type { ClockEvent, Job } from "@/lib/types";
+import { useSites } from "@/lib/hooks/useSites";
+import { worstSeverity } from "@/lib/sessionWarnings";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import ConfirmDeleteSessionModal from "@/components/dashboard/timesheetApprovals/ConfirmDeleteSessionModal";
-import OverrideDetailsModal from "@/components/dashboard/timesheetApprovals/OverrideDetailsModal";
+import SessionWarningsModal from "@/components/dashboard/timesheetApprovals/SessionWarningsModal";
 
 function formatHours(hours: number | null) {
   if (hours == null) return "-";
@@ -133,6 +135,7 @@ export function ApprovalsTable({
   onSetStatus,
   onSetStatusBulk,
   onDeleteSession,
+  onAssignSite,
   onAddTimestamp,
 }: {
   rows: ApprovalRow[];
@@ -151,11 +154,13 @@ export function ApprovalsTable({
     jobIdByEventId?: Record<string, string | null>
   ) => Promise<void>;
   onDeleteSession: (approvalId: string, eventIds: string[]) => Promise<void>;
+  onAssignSite: (approvalId: string, eventIds: string[], siteId: string) => Promise<void>;
   onAddTimestamp: () => void;
 }) {
+  const { sites } = useSites();
   const [editingRow, setEditingRow] = useState<ApprovalRow | null>(null);
   const [deletingRow, setDeletingRow] = useState<ApprovalRow | null>(null);
-  const [viewingOverrideEventId, setViewingOverrideEventId] = useState<string | null>(null);
+  const [viewingWarningsRow, setViewingWarningsRow] = useState<ApprovalRow | null>(null);
   // setApprovalStatus is a Cloud Function - the first call after it's been
   // idle pays a cold-start delay (several seconds, sometimes more), which
   // otherwise leaves the dropdown looking stuck since it only reflects
@@ -325,15 +330,14 @@ export function ApprovalsTable({
   const columnWidths = buildColumnWidths(mode);
 
   function renderRow(row: ApprovalRow) {
-    const overrideFlag = row.flags.find((f) => f.type === "SUPERVISOR_OVERRIDE");
+    const worst = worstSeverity(row.warnings);
     const displayStatus = optimisticStatus.get(row.key) ?? row.status;
-    const highlightOverride = !!overrideFlag && displayStatus === "pending";
+    const highlightWarning = worst != null && displayStatus === "pending";
+    const highlightClass = highlightWarning ? (worst === "red" ? "bg-red-50" : "bg-amber-50") : "bg-white";
     return (
       <tr
         key={row.key}
-        className={`border-b border-gray-200 last:border-0 ${
-          highlightOverride ? "bg-amber-50" : "bg-white"
-        }`}
+        className={`border-b border-gray-200 last:border-0 ${highlightClass}`}
       >
         <td className="px-6 py-5">
           <input
@@ -355,15 +359,19 @@ export function ApprovalsTable({
                 Clocked In
               </span>
             )}
-            {overrideFlag && (
+            {worst != null && (
               <button
                 type="button"
-                onClick={() => setViewingOverrideEventId(overrideFlag.overrideEventId)}
-                className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-200"
-                title="View supervisor override details"
+                onClick={() => setViewingWarningsRow(row)}
+                className={`inline-flex items-center justify-center rounded-full p-1 transition-transform hover:scale-110 ${
+                  worst === "red"
+                    ? "bg-red-100 text-red-700 hover:bg-red-200"
+                    : "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                }`}
+                title="Click to see warnings"
+                aria-label="Click to see warnings"
               >
-                <ShieldAlert className="h-3 w-3" />
-                Override
+                <ShieldAlert className="h-3.5 w-3.5" />
               </button>
             )}
           </span>
@@ -553,10 +561,16 @@ export function ApprovalsTable({
         />
       )}
 
-      {viewingOverrideEventId && (
-        <OverrideDetailsModal
-          overrideEventId={viewingOverrideEventId}
-          onClose={() => setViewingOverrideEventId(null)}
+      {viewingWarningsRow && (
+        <SessionWarningsModal
+          employeeName={viewingWarningsRow.employeeName}
+          siteName={viewingWarningsRow.siteName}
+          warnings={viewingWarningsRow.warnings}
+          sites={sites}
+          onAssignSite={(siteId) =>
+            onAssignSite(viewingWarningsRow.key, viewingWarningsRow.sessionEventIds, siteId)
+          }
+          onClose={() => setViewingWarningsRow(null)}
         />
       )}
 

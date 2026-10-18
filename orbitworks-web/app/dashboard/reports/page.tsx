@@ -49,8 +49,8 @@ export default function ReportsPage() {
   const [startDate, setStartDate] = useState(weekStart);
   const [endDate, setEndDate] = useState(today);
 
-  // Report-time-only job overrides used by the in-app Daily breakdown view,
-  // keyed "employeeId__yyyy-mm-dd" -> jobId. Never touches clock sessions.
+  // Report-time-only job overrides, keyed "employeeId__yyyy-mm-dd" -> jobId.
+  // Never touches clock sessions.
   const [overrides, setOverrides] = useState<Record<string, string>>({});
 
   const {
@@ -58,7 +58,7 @@ export default function ReportsPage() {
     error,
     summaries,
     attendance,
-    hoursPerWeek,
+    hoursPerDay,
     employeesPerDay,
     avgHoursPerEmployee,
     sessions,
@@ -226,6 +226,13 @@ export default function ReportsPage() {
           </div>
         </div>
       </div>
+      <p className="mt-2 text-xs text-gray-600">
+        Unapproved time entries won&apos;t appear in these reports or exports.{" "}
+        <Link href="/dashboard/timesheet-approvals" className="font-medium text-accent hover:underline">
+          Approve hours
+        </Link>{" "}
+        to include them.
+      </p>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
       {summaries && (
@@ -250,7 +257,7 @@ export default function ReportsPage() {
           />
           <AttendanceCards attendance={attendance} />
           <TimeTrendsCharts
-            hoursPerWeek={hoursPerWeek}
+            hoursPerDay={hoursPerDay}
             employeesPerDay={employeesPerDay}
             avgHoursPerEmployee={avgHoursPerEmployee}
           />

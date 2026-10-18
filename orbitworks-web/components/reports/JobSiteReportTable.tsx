@@ -1,5 +1,6 @@
-﻿"use client";
+"use client";
 
+import Link from "next/link";
 import {
   BarChart,
   Bar,
@@ -11,20 +12,42 @@ import {
 } from "recharts";
 import type { JobSiteReport } from "@/lib/types";
 
+function formatCurrency(value: number): string {
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+}
+
 export default function JobSiteReportTable({
   jobSiteReports,
   activeJobSiteCount,
+  isPro,
 }: {
   jobSiteReports: JobSiteReport[];
   activeJobSiteCount: number;
+  isPro: boolean;
 }) {
+  const totalCost = jobSiteReports.reduce((sum, s) => sum + s.totalCost, 0);
+
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-base font-semibold text-gray-950">Job Site Reports</h2>
-        <div className="rounded-lg border border-gray-200 bg-white px-4 py-2">
-          <p className="text-xs font-medium text-gray-600">Active job sites</p>
-          <p className="text-lg font-semibold text-gray-950">{activeJobSiteCount}</p>
+        <div className="flex gap-3">
+          <div className="rounded-lg border border-gray-200 bg-white px-4 py-2">
+            <p className="text-xs font-medium text-gray-600">Active job sites</p>
+            <p className="text-lg font-semibold text-gray-950">{activeJobSiteCount}</p>
+          </div>
+          {isPro && (
+            <div className="rounded-lg border border-gray-200 bg-white px-4 py-2">
+              <p className="text-xs font-medium text-gray-600">Total labor cost</p>
+              <p className="text-lg font-semibold text-gray-950">
+                {formatCurrency(totalCost)}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -58,6 +81,7 @@ export default function JobSiteReportTable({
                 <th className="px-4 py-2 font-medium">Employees</th>
                 <th className="px-4 py-2 font-medium">Avg hours</th>
                 <th className="px-4 py-2 font-medium">On-time %</th>
+                {isPro && <th className="px-4 py-2 font-medium">Labor cost</th>}
               </tr>
             </thead>
             <tbody>
@@ -71,10 +95,29 @@ export default function JobSiteReportTable({
                   <td className="px-4 py-2.5 text-gray-600">
                     {s.onTimePercent.toFixed(0)}%
                   </td>
+                  {isPro && (
+                    <td className="px-4 py-2.5 font-mono text-gray-950">
+                      {formatCurrency(s.totalCost)}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {!isPro && jobSiteReports.length > 0 && (
+        <div className="mt-3 flex items-center justify-between rounded-lg border border-accent/20 bg-accent/5 px-4 py-3">
+          <p className="text-xs font-medium text-accent">
+            See labor cost per job site with Pro.
+          </p>
+          <Link
+            href="/dashboard/billing"
+            className="text-xs font-semibold text-accent hover:underline"
+          >
+            Upgrade to Pro
+          </Link>
         </div>
       )}
     </div>

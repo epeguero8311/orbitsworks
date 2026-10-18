@@ -5,7 +5,6 @@ import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useSites } from "@/lib/hooks/useSites";
 import {
   useClockEvents,
-  ClockValidationError,
   type ClockDirection,
 } from "@/lib/hooks/useClockEvents";
 
@@ -142,11 +141,7 @@ export default function ManualClockForm() {
       setNote("");
     } catch (err) {
       console.error("Manual clock event error:", err);
-      setError(
-        err instanceof ClockValidationError
-          ? err.message
-          : "Couldn't record the clock event. Try again."
-      );
+      setError("Couldn't record the clock event. Try again.");
     } finally {
       setIsSubmitting(false);
     }

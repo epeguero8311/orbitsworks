@@ -14,6 +14,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import { appendRateHistory } from "@/lib/rateHistory";
 import type { Job } from "@/lib/types";
 
 export function useJobs() {
@@ -58,13 +59,27 @@ export function useJobs() {
     });
   }
 
-  async function updateJob(jobId: string, name: string, hourlyRate: number) {
+  async function updateJob(
+    jobId: string,
+    name: string,
+    hourlyRate: number,
+    rateChange?: { previousRate: number; previousHistory?: Job["rateHistory"]; effectiveFrom: string }
+  ) {
     if (!userData?.companyId) return;
     const jobRef = doc(db, "companies", userData.companyId, "jobs", jobId);
-    await updateDoc(jobRef, {
+    const updates: Record<string, unknown> = {
       name: name.trim(),
       hourlyRate,
-    });
+    };
+    if (rateChange) {
+      updates.rateHistory = appendRateHistory(
+        rateChange.previousHistory,
+        rateChange.previousRate,
+        hourlyRate,
+        rateChange.effectiveFrom
+      );
+    }
+    await updateDoc(jobRef, updates);
   }
 
   async function toggleJobActive(job: Job) {

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import LandingNav from "@/components/landing/LandingNav";
 import LandingFooter from "@/components/landing/LandingFooter";
-import { Users, Clock, NotebookPen, Mail, Trash2 } from "lucide-react";
+import { Users, Clock, NotebookPen, Mail, Trash2, ScanFace } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Support",
@@ -84,6 +84,34 @@ export default function SupportPage() {
                     Supervisors can leave a note for a job site or shift -
                     useful for flagging anything an admin should know about
                     when reviewing the day's activity later.
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-xl border border-gray-200 bg-white p-6">
+              <div className="flex items-start gap-4">
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-accent/10">
+                  <ScanFace className="h-5 w-5 text-accent" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-gray-950">
+                    Face verification and location (Pro)
+                  </h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-gray-600">
+                    On Pro plans, clock-in and clock-out photos are
+                    automatically compared against an employee's profile
+                    photo, and a one-time location fix may be captured at
+                    each clock event. See our{" "}
+                    <Link href="/biometric-policy" className="font-medium text-accent hover:underline">Biometric Data Policy</Link>{" "}
+                    for details on what's collected and how long it's kept.
+                  </p>
+                  <p className="mt-3 text-sm leading-relaxed text-gray-600">
+                    As the employer, you're responsible for notifying your
+                    employees and obtaining any consent required by law
+                    before enabling these features. Use our free{" "}
+                    <Link href="/employee-notice" className="font-medium text-accent hover:underline">Employee Biometric and Location Notice and Consent template</Link>{" "}
+                    (English and Spanish) to help.
                   </p>
                 </div>
               </div>

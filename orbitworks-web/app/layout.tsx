@@ -15,12 +15,13 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://orbitsworks.com"),
+  manifest: "/manifest.webmanifest",
   title: {
     default: "Orbitsworks - Job Site Workforce Tracking",
     template: "%s | Orbitsworks",
   },
   description:
-    "PIN clock-in time tracking for job-site crews. Clock employees in and out with photo proof, manage job sites, approve hours, and get payroll-ready reports.",
+    "PIN clock-in time tracking for job-site crews. Clock employees in and out with photo proof, manage job sites, approve hours, and get payroll-ready reports. Pro plans add face verification and GPS geofencing.",
   keywords: [
     "job site time tracking",
     "construction time clock app",
@@ -29,20 +30,22 @@ export const metadata: Metadata = {
     "field service workforce management",
     "payroll timesheet software",
     "construction payroll app",
+    "face verification time clock",
+    "GPS geofencing time clock",
   ],
   openGraph: {
     title: "Orbitsworks - Job Site Workforce Tracking",
     description:
-      "PIN clock-in time tracking for job-site crews. Clock employees in and out with photo proof, manage job sites, approve hours, and get payroll-ready reports.",
+      "PIN clock-in time tracking for job-site crews. Clock employees in and out with photo proof, manage job sites, approve hours, and get payroll-ready reports. Pro plans add face verification and GPS geofencing.",
     url: "https://orbitsworks.com",
     siteName: "Orbitsworks",
     type: "website",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "Orbitsworks - Job Site Workforce Tracking",
     description:
-      "PIN clock-in time tracking for job-site crews. Clock employees in and out with photo proof, manage job sites, approve hours, and get payroll-ready reports.",
+      "PIN clock-in time tracking for job-site crews. Clock employees in and out with photo proof, manage job sites, approve hours, and get payroll-ready reports. Pro plans add face verification and GPS geofencing.",
   },
 };
 
@@ -53,7 +56,7 @@ const jsonLd = {
   applicationCategory: "BusinessApplication",
   operatingSystem: "Web, Android, iOS",
   description:
-    "PIN clock-in time tracking for job-site crews. Clock employees in and out with photo proof, manage job sites, approve hours, and get payroll-ready reports.",
+    "PIN clock-in time tracking for job-site crews. Clock employees in and out with photo proof, manage job sites, approve hours, and get payroll-ready reports. Pro plans add face verification and GPS geofencing.",
   url: "https://orbitsworks.com",
   offers: {
     "@type": "Offer",

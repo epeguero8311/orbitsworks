@@ -1,11 +1,10 @@
 "use client";
 
 import { ClockEvent } from "@/lib/types";
-import {
-  effectiveDate,
-  locationDisplay,
-  sourceLabel,
-} from "@/lib/clockEventDetailUtils";
+import { effectiveDate, sourceLabel } from "@/lib/clockEventDetailUtils";
+import { faceCheckLabel } from "@/lib/clockStatus";
+import { EventLocation } from "@/components/time/EventLocation";
+import { GeofenceDetail } from "@/components/time/GeofenceDetail";
 
 export function EventSide({
   label,
@@ -41,20 +40,27 @@ export function EventSide({
   onToggleHistory: (id: string | null) => void;
 }) {
   if (!event) {
+    const emptyMessage =
+      label === "Clock out" ? "Still clocked in" : "No matching clock in";
     return (
       <div className="flex-1 rounded-lg border border-dashed border-gray-200 p-4">
         <p className="text-xs font-medium uppercase tracking-wide text-gray-600">
           {label}
         </p>
-        <p className="mt-3 text-sm text-gray-600">
-          No matching event found for this day.
-        </p>
+        <p className="mt-3 text-sm text-gray-600">{emptyMessage}</p>
       </div>
     );
   }
 
   const badge = sourceLabel(event.source);
-  const loc = locationDisplay(event.location);
+  const faceBadge = faceCheckLabel(event.faceCheck);
+  // Admin/supervisor only, per spec - the whole Time Tracking page this
+  // modal opens from is already admin/owner-only (supervisors are
+  // redirected to /mobile-only), so `isAdmin` covers it; this check is
+  // belt-and-suspenders if that ever changes.
+  const showReferenceCompare =
+    isAdmin &&
+    (event.faceCheck?.status === "mismatch" || event.faceCheck?.status === "noFace");
   const isAdjusted = !!event.adjustedTimestamp;
   const hasHistory = !!event.adjustmentHistory && event.adjustmentHistory.length > 0;
   const displayDate = effectiveDate(event);
@@ -78,43 +84,68 @@ export function EventSide({
         )}
       </div>
 
-      <div className="mt-3 aspect-square w-full overflow-hidden rounded-md bg-gray-100">
-        {event.photoUrl ? (
-          <img
-            src={event.photoUrl}
-            alt={`${label} proof photo`}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-xs text-gray-600">
-            No photo recorded
+      {showReferenceCompare ? (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <div>
+            <p className="mb-1 text-center text-xs text-gray-500">Clock photo</p>
+            <div className="aspect-square w-full overflow-hidden rounded-md bg-gray-100">
+              {event.photoUrl ? (
+                <img src={event.photoUrl} alt={`${label} proof photo`} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-xs text-gray-600">
+                  No photo recorded
+                </div>
+              )}
+            </div>
           </div>
-        )}
-      </div>
+          <div>
+            <p className="mb-1 text-center text-xs text-gray-500">Profile photo</p>
+            <div className="aspect-square w-full overflow-hidden rounded-md bg-gray-100">
+              <img
+                src={event.faceCheck!.referencePhotoUrl}
+                alt="Employee profile photo"
+                className="h-full w-full object-cover"
+              />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 aspect-square w-full overflow-hidden rounded-md bg-gray-100">
+          {event.photoUrl ? (
+            <img
+              src={event.photoUrl}
+              alt={`${label} proof photo`}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-xs text-gray-600">
+              No photo recorded
+            </div>
+          )}
+        </div>
+      )}
 
       <p className="mt-3 font-mono text-sm text-gray-950">
         {displayDate ? displayDate.toLocaleString() : "-"}
       </p>
 
-      <span
-        className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
-      >
-        {badge.text}
-      </span>
-
-      <p className="mt-2 text-xs text-gray-600">
-        {loc.mapUrl ? (
-          <button
-            type="button"
-            onClick={() => window.open(loc.mapUrl as string, "_blank")}
-            className="text-accent hover:underline"
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <span
+          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
+        >
+          {badge.text}
+        </span>
+        {event.faceCheck && (
+          <span
+            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${faceBadge.className}`}
           >
-            {loc.text}
-          </button>
-        ) : (
-          loc.text
+            {faceBadge.text}
+          </span>
         )}
-      </p>
+      </div>
+
+      <EventLocation event={event} />
+      <GeofenceDetail event={event} />
 
       {event.note && (
         <p className="mt-2 text-xs text-gray-600">Note: {event.note}</p>

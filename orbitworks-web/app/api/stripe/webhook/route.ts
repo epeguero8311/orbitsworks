@@ -134,8 +134,14 @@ async function autoRevertToFree(companyId: string) {
   await companyRef.update({
     planTier: "free",
     employeeCap: FREE_EMPLOYEE_CAP,
+    totalEmployeeCap: null,
     subscriptionStatus: "active",
     stripeSubscriptionId: null,
+    // Drives functions/src/biometricRetention.ts's cleanupCanceledCompanyPhotos
+    // (wipes every biometric photo 90 days after this). Cleared below in
+    // syncSubscriptionToFirestore if the company resubscribes first.
+    planCanceledAt: Timestamp.now(),
+    biometricPhotosWipedAt: null,
   });
 }
 
@@ -220,6 +226,12 @@ async function syncSubscriptionToFirestore(subscription: Stripe.Subscription) {
   if (tier && (subscription.status === "active" || subscription.status === "trialing")) {
     update.planTier = tier.key;
     update.employeeCap = tier.employeeCap;
+    update.totalEmployeeCap = tier.totalCap;
+    // Resubscribing before cleanupCanceledCompanyPhotos ran cancels that
+    // sweep - a company with a live subscription again should never have
+    // its biometric photos wiped out from under it.
+    update.planCanceledAt = FieldValue.delete();
+    update.biometricPhotosWipedAt = FieldValue.delete();
   }
 
   await adminDb.collection("companies").doc(companyId).update(update);

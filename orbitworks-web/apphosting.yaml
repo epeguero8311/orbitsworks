@@ -57,6 +57,56 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_CORE2_TIER1
+    value: "price_1UO241LSMIEeUJkgONbuMrBq"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_CORE2_TIER2
+    value: "price_1UO242LSMIEeUJkgl55UTBFH"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_CORE2_TIER3
+    value: "price_1UO242LSMIEeUJkgghGjm5ql"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_CORE2_TIER4
+    value: "price_1UO242LSMIEeUJkgeW9G7oxb"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_CORE2_TIER5
+    value: "price_1UO243LSMIEeUJkgoCtqnJeY"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER1
+    value: "price_1UO244LSMIEeUJkgnJay3DY0"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER2
+    value: "price_1UO244LSMIEeUJkg0cyCG9a4"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER3
+    value: "price_1UO245LSMIEeUJkgvdaHOnTY"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER4
+    value: "price_1UO245LSMIEeUJkgSGEGcHcq"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER5
+    value: "price_1UO246LSMIEeUJkgOGsgJ35B"
+    availability:
+      - BUILD
+      - RUNTIME
   - variable: FIREBASE_ADMIN_PROJECT_ID
     secret: FIREBASE_ADMIN_PROJECT_ID
   - variable: FIREBASE_ADMIN_CLIENT_EMAIL
@@ -71,3 +121,5 @@ env:
     secret: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   - variable: ANTHROPIC_API_KEY
     secret: ANTHROPIC_API_KEY
+  - variable: GOOGLE_PLACES_API_KEY
+    secret: GOOGLE_PLACES_API_KEY

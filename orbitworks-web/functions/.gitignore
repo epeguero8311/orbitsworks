@@ -8,3 +8,10 @@ typings/
 # Node.js dependency directory
 node_modules/
 *.local
+
+# .env.<project-id> files are caught by the parent orbitworks-web/
+# .gitignore's blanket .env* rule (so .env.orbitworks-7ef59 - prod - has
+# never actually been committed, it only exists locally on whoever last
+# deployed). Flags only, no secrets (defineBoolean/defineString params,
+# never defineSecret), so this one dev file is deliberately tracked.
+!.env.orbitworks-dev-ew

@@ -10,12 +10,13 @@ import {
   serverTimestamp,
   Timestamp,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { AlertActionRecord } from "@/lib/types";
-import type { AlertItem } from "@/lib/dashboardOverviewUtils";
+import { ALERT_ACTION_LOOKBACK_DAYS, type AlertItem } from "@/lib/dashboardOverviewUtils";
 
-const LOOKBACK_DAYS = 30;
+const LOOKBACK_DAYS = ALERT_ACTION_LOOKBACK_DAYS;
 
 export function useAlertActions() {
   const { userData, currentUser } = useAuth();
@@ -59,7 +60,7 @@ export function useAlertActions() {
   async function recordAlertAction(
     alert: AlertItem,
     status: "ignored" | "resolved",
-    actionTaken?: "clockOut" | "editTime" | "endBreak"
+    actionTaken?: "clockOut" | "editTime" | "endBreak" | "confirmedMatch"
   ) {
     if (!userData?.companyId || !currentUser) return;
     const actionsRef = collection(
@@ -82,6 +83,15 @@ export function useAlertActions() {
 
   async function ignoreAlert(alert: AlertItem) {
     await recordAlertAction(alert, "ignored");
+  }
+
+  // Face Verification (Pro) "Confirmed it's them" - a resolve with no
+  // underlying clock event write (unlike clockOut/editTime/endBreak,
+  // which all create or adjust one). Shared by faceMismatch and
+  // faceNoFace - both are "someone should confirm this was really them"
+  // flags, not a time-correction need.
+  async function confirmFaceMatchFromAlert(alert: AlertItem) {
+    await recordAlertAction(alert, "resolved", "confirmedMatch");
   }
 
   // Dismisses every alert currently visible in one go. Reuses the same
@@ -111,6 +121,8 @@ export function useAlertActions() {
       source: "adminManual",
       note: "Clocked out from alert",
       createdByUid: currentUser?.uid,
+      authorizedById: currentUser?.uid,
+      authorizedByName: currentUser?.displayName || currentUser?.email || "Admin",
       timestamp: Timestamp.fromDate(new Date()),
       createdAt: serverTimestamp(),
     });
@@ -136,6 +148,8 @@ export function useAlertActions() {
       source: "adminManual",
       note: "Break ended from alert",
       createdByUid: currentUser?.uid,
+      authorizedById: currentUser?.uid,
+      authorizedByName: currentUser?.displayName || currentUser?.email || "Admin",
       timestamp: Timestamp.fromDate(new Date()),
       createdAt: serverTimestamp(),
     });
@@ -164,8 +178,32 @@ export function useAlertActions() {
       source: "adminManual",
       note: "Clock-out time set from alert",
       createdByUid: currentUser?.uid,
+      authorizedById: currentUser?.uid,
+      authorizedByName: currentUser?.displayName || currentUser?.email || "Admin",
       timestamp: Timestamp.fromDate(new Date(chosenMs)),
       createdAt: serverTimestamp(),
+    });
+    await recordAlertAction(alert, "resolved", "editTime");
+  }
+
+  // Geofencing (Pro) Part 4 - unlike submitEditTimeFromAlert above (which
+  // always creates a fresh clock-OUT to close an open session), this
+  // alert's underlying event is the clock-IN itself, and that clock-in may
+  // already be closed out normally. Creating another "out" event would be
+  // wrong here - sometimes flatly incorrect (duplicating/overriding an
+  // already-correct clock-out), sometimes nonsensical (the employee may
+  // have clocked out hours ago for an unrelated reason). Corrects the
+  // flagged event's own timestamp instead, via the same admin-only
+  // mechanism EventSide.tsx's "Adjust time" already uses.
+  async function editClockInTimeFromAlert(alert: AlertItem, chosenMs: number) {
+    if (!alert.event) return;
+    if (!Number.isFinite(chosenMs)) {
+      throw new Error("Invalid date/time.");
+    }
+    const correctClockEventFn = httpsCallable(functions, "correctClockEvent");
+    await correctClockEventFn({
+      eventId: alert.event.id,
+      newTimestamp: chosenMs,
     });
     await recordAlertAction(alert, "resolved", "editTime");
   }
@@ -175,8 +213,10 @@ export function useAlertActions() {
     loading,
     ignoreAlert,
     ignoreAll,
+    confirmFaceMatchFromAlert,
     clockOutFromAlert,
     endBreakFromAlert,
     submitEditTimeFromAlert,
+    editClockInTimeFromAlert,
   };
 }

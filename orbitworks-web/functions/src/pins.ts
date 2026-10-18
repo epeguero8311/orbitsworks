@@ -268,12 +268,28 @@ export const verifyPin = onCall(async (request) => {
   };
 });
 
+// Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
+// why this can't just be imported.
+function isProPlan(planTier: string | undefined | null): boolean {
+  return !!planTier && planTier.startsWith("pro_");
+}
+
 // Returns the full PIN table (plaintext, over TLS) for the caller's
 // company so the mobile app can hash it on-device and cache it for
 // offline PIN validation. Also returns each employee's lastEventType
 // (denormalized by onClockEventCreated in clockEvents.ts) so the app can
 // determine current status (in/out/break) offline without a live
 // Firestore query.
+//
+// Geofencing (Pro) Part 3: also returns each job site's geofence config
+// and the company's enforcement mode, so the mobile app can cache them
+// (lib/pinSync.js -> sites_cache) and run its own best-effort
+// classification for the immediate clock-in UX with no signal at all.
+// This is deliberately the same sync trigger as the PIN table (login,
+// foreground, reconnect, 20-minute timer) rather than a second one - see
+// usePinTableSync.js. It's advisory only: the authoritative
+// classification is always recomputed server-side (onClockEventCreated /
+// redeemTempClockLink), never trusted from what a client cached here.
 export const getPinSyncTable = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -284,10 +300,14 @@ export const getPinSyncTable = onCall(async (request) => {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
-  const employeesRef = db.collection("companies").doc(companyId).collection("employees");
-  const snap = await employeesRef.get();
+  const companyRef = db.collection("companies").doc(companyId);
+  const [employeesSnap, sitesSnap, companySnap] = await Promise.all([
+    companyRef.collection("employees").get(),
+    companyRef.collection("jobSites").get(),
+    companyRef.get(),
+  ]);
 
-  const employees = snap.docs
+  const employees = employeesSnap.docs
     .map((doc) => {
       const data = doc.data();
       return {
@@ -300,11 +320,47 @@ export const getPinSyncTable = onCall(async (request) => {
         isSupervisor: data.isSupervisor ?? false,
         active: data.active === true,
         lastEventType: data.lastEventType ?? null,
+        // When this last-known event actually happened server-side - lets
+        // the device compare its OWN latest local action for this
+        // employee against this one and keep whichever is actually newer
+        // (see clockStatusLocal.js's getCurrentLocalStatus), instead of
+        // always trusting its own queue just because it exists.
+        lastEventTimestamp:
+          data.lastEventTimestamp && typeof data.lastEventTimestamp.toMillis === "function"
+            ? data.lastEventTimestamp.toMillis()
+            : null,
+        // Geofencing (Pro) auto-detection: the site the employee's last
+        // clock event resolved to, so the app can hand a clock-out the
+        // same site its matching clock-in landed on even after that
+        // event's local queue row has been purged.
+        lastEventSiteId: data.lastEventSiteId ?? null,
+        lastEventSiteName: data.lastEventSiteName ?? null,
         subcontractorId: data.subcontractorId ?? null,
         subcontractorName: data.subcontractorName ?? null,
       };
     })
     .filter((e) => !!e.pin);
 
-  return { employees };
+  const isPro = isProPlan(companySnap.data()?.planTier as string | undefined);
+
+  const sites = sitesSnap.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      name: data.name ?? "",
+      active: data.active === true,
+      requireGeofence: isPro && data.requireGeofence === true,
+      lat: data.lat ?? null,
+      lng: data.lng ?? null,
+      radiusMeters: data.radiusMeters ?? null,
+    };
+  });
+
+  // hasLocatedSites gates whether the app skips its manual site picker at
+  // all and attempts on-device ATTRIBUTION instead - matches detectSite's
+  // own candidate pool in functions/src/geofencing.ts (any active site
+  // with saved coordinates, geofenced or not).
+  const hasLocatedSites = isPro && sites.some((s) => s.active && s.lat != null && s.lng != null);
+
+  return { employees, sites, isPro, hasLocatedSites };
 });

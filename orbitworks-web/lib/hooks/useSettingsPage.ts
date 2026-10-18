@@ -5,14 +5,17 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import { isProPlan } from "@/lib/stripe/tiers";
 import {
   AttendanceRules,
   Alerts,
   AppSettings,
+  FaceVerificationSettings,
   DEFAULT_ATTENDANCE_RULES,
   DEFAULT_ALERTS,
   DEFAULT_APP_SETTINGS,
   DEFAULT_EXPORT_SETTINGS,
+  DEFAULT_FACE_VERIFICATION_SETTINGS,
 } from "@/lib/hooks/useCompanySettings";
 import type { ExportSettings } from "@/lib/types";
 
@@ -30,6 +33,7 @@ export function useSettingsPage() {
   const [businessOpen, setBusinessOpen] = useState("08:00");
   const [businessClose, setBusinessClose] = useState("17:00");
   const [otThreshold, setOtThreshold] = useState("40");
+  const [otMultiplier, setOtMultiplier] = useState("1.5");
   const [attendanceRules, setAttendanceRules] = useState<AttendanceRules>(
     DEFAULT_ATTENDANCE_RULES
   );
@@ -37,8 +41,12 @@ export function useSettingsPage() {
   const [appSettings, setAppSettings] = useState<AppSettings>(
     DEFAULT_APP_SETTINGS
   );
+  const [isPro, setIsPro] = useState(false);
   const [exportSettings, setExportSettings] = useState<ExportSettings>(
     DEFAULT_EXPORT_SETTINGS
+  );
+  const [faceVerification, setFaceVerification] = useState<FaceVerificationSettings>(
+    DEFAULT_FACE_VERIFICATION_SETTINGS
   );
 
   const [isSaving, setIsSaving] = useState(false);
@@ -64,6 +72,9 @@ export function useSettingsPage() {
               ? String(data.weeklyOvertimeThreshold)
               : "40"
           );
+          setOtMultiplier(
+            data.overtimeMultiplier != null ? String(data.overtimeMultiplier) : "1.5"
+          );
           setAttendanceRules({
             ...DEFAULT_ATTENDANCE_RULES,
             ...(data.attendanceRules ?? {}),
@@ -76,9 +87,14 @@ export function useSettingsPage() {
             ...DEFAULT_APP_SETTINGS,
             ...(data.appSettings ?? {}),
           });
+          setIsPro(isProPlan(data.planTier));
           setExportSettings({
             ...DEFAULT_EXPORT_SETTINGS,
             ...(data.exportSettings ?? {}),
+          });
+          setFaceVerification({
+            ...DEFAULT_FACE_VERIFICATION_SETTINGS,
+            ...(data.faceVerification ?? {}),
           });
         }
       } catch (err) {
@@ -127,10 +143,12 @@ export function useSettingsPage() {
         weeklyOvertimeThreshold: otThreshold.trim()
           ? parseFloat(otThreshold.trim())
           : 40,
+        overtimeMultiplier: otMultiplier.trim() ? parseFloat(otMultiplier.trim()) : 1.5,
         attendanceRules,
         alerts,
         appSettings,
         exportSettings,
+        faceVerification,
       });
 
       setLogoUrl(newLogoUrl);
@@ -158,14 +176,19 @@ export function useSettingsPage() {
     setBusinessClose,
     otThreshold,
     setOtThreshold,
+    otMultiplier,
+    setOtMultiplier,
     attendanceRules,
     setAttendanceRules,
     alerts,
     setAlerts,
     appSettings,
     setAppSettings,
+    isPro,
     exportSettings,
     setExportSettings,
+    faceVerification,
+    setFaceVerification,
     isSaving,
     error,
     success,

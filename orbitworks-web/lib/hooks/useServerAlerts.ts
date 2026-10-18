@@ -44,6 +44,13 @@ export function useServerAlerts() {
             label: data.employeeName ?? data.siteName ?? "All Sites",
             detail: data.message,
             employeeId: data.employeeId ?? "",
+            eventId: data.eventId,
+            // employeeUpdated's severity is per-instance (set by
+            // createEmployeeUpdatedAlert), not the fixed ALERT_SEVERITY[type]
+            // lookup every other type still uses - AlertsPanel.tsx prefers
+            // this field, falling back to that lookup if it's ever missing.
+            severity: data.severity,
+            employeeUpdateId: data.employeeUpdateId,
           };
         });
         setAlerts(items);

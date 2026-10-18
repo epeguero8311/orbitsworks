@@ -3,6 +3,8 @@
 import { useBillingPage, formatTierLabel } from "@/lib/hooks/useBillingPage";
 import CheckoutModal from "@/components/dashboard/billing/CheckoutModal";
 import DowngradeModal from "@/components/dashboard/billing/DowngradeModal";
+import DeleteModal from "@/components/dashboard/billing/DeleteModal";
+import { LoadingOverlay } from "@/components/dashboard/billing/LoadingOverlay";
 import ConfirmModal from "@/components/dashboard/billing/ConfirmModal";
 import UpdatePaymentModal from "@/components/dashboard/billing/UpdatePaymentModal";
 import PaymentMethodCard from "@/components/dashboard/billing/PaymentMethodCard";
@@ -28,7 +30,7 @@ export default function BillingPage() {
           {b.loadError || "Couldn't load billing info."}
         </p>
       ) : (
-        <div className="mt-8 max-w-2xl space-y-6">
+        <div className="mx-auto mt-8 max-w-2xl space-y-6">
           <CurrentPlanCard
             company={b.company}
             isFreePlan={b.isFreePlan}
@@ -129,6 +131,18 @@ export default function BillingPage() {
           onConfirm={b.handleConfirmDowngrade}
         />
       )}
+
+      {b.pendingDeletion && (
+        <DeleteModal
+          requiredCount={b.pendingDeletion.requiredCount}
+          employees={b.pendingDeletion.employees}
+          isSubmitting={b.isDeleting}
+          onCancel={b.handleCancelDeletion}
+          onConfirm={b.handleConfirmDeletion}
+        />
+      )}
+
+      {b.overlayMessage && <LoadingOverlay message={b.overlayMessage} />}
 
       <Toast
         visible={!!b.toast}

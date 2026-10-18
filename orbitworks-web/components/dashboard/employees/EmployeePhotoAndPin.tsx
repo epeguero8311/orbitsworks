@@ -6,6 +6,7 @@ export function EmployeePhotoAndPin({
   employeeName,
   photoPreview,
   photoUrl,
+  faceReferenceBad,
   onPhotoChange,
   currentPin,
   editingPin,
@@ -17,6 +18,13 @@ export function EmployeePhotoAndPin({
   employeeName: string;
   photoPreview: string | null;
   photoUrl: string | undefined;
+  // Face Verification (Pro) - true when employee.faceReference.status is
+  // "bad" for the CURRENTLY SAVED photoUrl. A fresh, not-yet-saved
+  // photoPreview clears the warning optimistically - the real flag only
+  // updates once the new photo is actually saved and re-checked server-side
+  // (onEmployeePhotoWrite), but showing a stale warning over a photo the
+  // admin just picked to fix it would be confusing.
+  faceReferenceBad?: boolean;
   onPhotoChange: (file: File | null) => void;
   currentPin: string;
   editingPin: boolean;
@@ -25,19 +33,29 @@ export function EmployeePhotoAndPin({
   onTogglePinEdit: () => void;
   onPinInputChange: (value: string) => void;
 }) {
+  const showBadReferenceWarning = !!faceReferenceBad && !photoPreview;
   return (
     <div className="mb-5 flex items-center gap-4">
-      {photoPreview || photoUrl ? (
-        <img
-          src={photoPreview ?? photoUrl}
-          alt={employeeName}
-          className="h-16 w-16 rounded-full object-cover"
-        />
-      ) : (
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-xs text-gray-600">
-          No photo
-        </div>
-      )}
+      <div>
+        {photoPreview || photoUrl ? (
+          <img
+            src={photoPreview ?? photoUrl}
+            alt={employeeName}
+            className={`h-16 w-16 rounded-full object-cover ${
+              showBadReferenceWarning ? "ring-2 ring-amber-400" : ""
+            }`}
+          />
+        ) : (
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-xs text-gray-600">
+            No photo
+          </div>
+        )}
+        {showBadReferenceWarning && (
+          <p className="mt-1 max-w-[6.5rem] text-center text-[11px] leading-tight text-amber-700">
+            No usable face - face verification paused until replaced
+          </p>
+        )}
+      </div>
       <div>
         <label
           htmlFor="editPhoto"

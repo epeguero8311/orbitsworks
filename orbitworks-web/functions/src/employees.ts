@@ -1,8 +1,16 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
-import { db, deactivateEmployeeAuth, closeOpenSessionForDeactivation } from "./shared";
+import {
+  db,
+  deactivateEmployeeAuth,
+  closeOpenSessionForDeactivation,
+  isOverActiveCap,
+  isOverTotalCap,
+  EmployeeCapFields,
+} from "./shared";
 import { reserveNewPin } from "./pins";
+import { storagePathFromDownloadUrl } from "./rekognition";
 
 // Creates the employee doc and reserves its PIN entirely server-side
 // (Admin SDK transaction via reserveNewPin, same primitive acceptInvite
@@ -38,15 +46,19 @@ export const addEmployee = onCall(async (request) => {
 
   const companySnap = await db.collection("companies").doc(callerCompanyId).get();
   const company = companySnap.data() as
-    | { employeeCap?: number | null; activeEmployeeCount?: number; subscriptionStatus?: string }
+    | (EmployeeCapFields & { subscriptionStatus?: string })
     | undefined;
-  const cap = company?.employeeCap ?? null;
-  const currentCount = company?.activeEmployeeCount ?? 0;
   if (company?.subscriptionStatus === "past_due") {
     throw new HttpsError("failed-precondition", "Subscription is past due.");
   }
-  if (cap !== null && currentCount >= cap) {
+  if (isOverActiveCap(company)) {
     throw new HttpsError("resource-exhausted", "This company has reached its employee limit.");
+  }
+  if (isOverTotalCap(company)) {
+    throw new HttpsError(
+      "resource-exhausted",
+      "This company has reached its total employee record limit. Delete some old employee records to add more."
+    );
   }
 
   const companyRef = db.collection("companies").doc(callerCompanyId);
@@ -111,19 +123,26 @@ export const setEmployeeActive = onCall(async (request) => {
   if (active && employee.active !== true) {
     const companySnap = await db.collection("companies").doc(callerCompanyId).get();
     const company = companySnap.data() as
-      | { employeeCap?: number | null; activeEmployeeCount?: number; subscriptionStatus?: string }
+      | (EmployeeCapFields & { subscriptionStatus?: string })
       | undefined;
-    const cap = company?.employeeCap ?? null;
-    const currentCount = company?.activeEmployeeCount ?? 0;
     if (company?.subscriptionStatus === "past_due") {
       throw new HttpsError("failed-precondition", "Subscription is past due.");
     }
-    if (cap !== null && currentCount >= cap) {
+    // Total cap isn't checked here - reactivating an existing doc doesn't
+    // grow totalEmployeeCount, only the active-cap dimension applies.
+    if (isOverActiveCap(company)) {
       throw new HttpsError("resource-exhausted", "This company has reached its employee limit.");
     }
   }
 
-  await employeeRef.update({ active: active });
+  // deactivatedAt feeds biometricRetention.ts's cleanupDeactivatedEmployeePhotos
+  // (1 year after deactivation, or 3 years after the last clock event,
+  // whichever is sooner). Cleared on reactivation so a re-deactivation
+  // later restarts the clock from the new date, not a stale one.
+  await employeeRef.update({
+    active: active,
+    deactivatedAt: active ? admin.firestore.FieldValue.delete() : admin.firestore.FieldValue.serverTimestamp(),
+  });
 
   if (!active) {
     await closeOpenSessionForDeactivation(callerCompanyId, employeeId, request.auth.uid);
@@ -166,7 +185,10 @@ export const deactivateEmployeesBulk = onCall(async (request) => {
     const employeeSnap = await employeesRef.doc(employeeId).get();
     if (!employeeSnap.exists) continue;
     const employee = employeeSnap.data() as { linkedUserId?: string };
-    batch.update(employeesRef.doc(employeeId), { active: false });
+    batch.update(employeesRef.doc(employeeId), {
+      active: false,
+      deactivatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
     if (employee.linkedUserId) {
       linkedUserIds.push(employee.linkedUserId);
     }
@@ -322,17 +344,58 @@ export const onEmployeeWrite = onDocumentWritten(
     const before = event.data?.before?.data();
     const after = event.data?.after?.data();
 
+    // totalEmployeeCount tracks doc existence (create -> +1, delete -> -1),
+    // independent of active/inactive - it's the "total" half of the
+    // active/total employee cap pair (see lib/stripe/tiers.ts PriceTier.
+    // totalCap), capping how many employee records a company can keep
+    // around at all rather than how many can be active at once.
+    const existedBefore = before !== undefined;
+    const existsAfter = after !== undefined;
+
+    const update: Record<string, unknown> = {};
+
+    if (existedBefore !== existsAfter) {
+      update.totalEmployeeCount = admin.firestore.FieldValue.increment(existsAfter ? 1 : -1);
+    }
+
     const wasActive = before ? before.active === true : false;
     const isActive = after ? after.active === true : false;
 
-    if (wasActive === isActive) return;
+    if (wasActive !== isActive) {
+      update.activeEmployeeCount = admin.firestore.FieldValue.increment(isActive ? 1 : -1);
+    }
 
-    const delta = isActive ? 1 : -1;
-    await db.collection("companies").doc(companyId).update({
-      activeEmployeeCount: admin.firestore.FieldValue.increment(delta),
-    });
+    if (Object.keys(update).length === 0) return;
+
+    await db.collection("companies").doc(companyId).update(update);
   }
 );
+
+// One-time (but idempotent - safe to run more than once, same convention
+// as backfillEmployeePins in pins.ts) repair for companies that had
+// employee docs before totalEmployeeCount started being tracked by
+// onEmployeeWrite above: it only ever applies +1/-1 deltas going forward,
+// so a company's existing doc count at the moment this deployed would
+// otherwise never be reflected. Recounts the employees subcollection
+// directly and overwrites totalEmployeeCount with the true count.
+export const backfillTotalEmployeeCount = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const employeesRef = db.collection("companies").doc(callerCompanyId).collection("employees");
+  const countSnap = await employeesRef.count().get();
+  const totalEmployeeCount = countSnap.data().count;
+
+  await db.collection("companies").doc(callerCompanyId).update({ totalEmployeeCount });
+
+  return { success: true, totalEmployeeCount };
+});
 
 export const reassignEmployeeSubcontractor = onCall(async (request) => {
   if (!request.auth) {
@@ -442,21 +505,15 @@ export const reassignEmployeeSubcontractor = onCall(async (request) => {
 // fresh later - Firebase Auth enforces unique emails per project), any
 // pending invite for that email is cleared, and the employee's PIN
 // reservation is released so a future employee can reuse it.
-export const deleteEmployee = onCall(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "You must be signed in.");
-  }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
-
-  const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
-  if (!employeeId) {
-    throw new HttpsError("invalid-argument", "employeeId is required.");
-  }
-
+//
+// Shared by deleteEmployee and deleteEmployeesBulk below so the
+// close-session -> delete-auth -> release-pin/invites/doc sequence (and
+// its failure-window ordering, see the comment inline) only lives once.
+async function deleteEmployeeRecord(
+  callerCompanyId: string,
+  employeeId: string,
+  callerUid: string
+): Promise<void> {
   const employeeRef = db
     .collection("companies")
     .doc(callerCompanyId)
@@ -466,8 +523,27 @@ export const deleteEmployee = onCall(async (request) => {
   if (!employeeSnap.exists) {
     throw new HttpsError("not-found", "Employee not found.");
   }
-  const employee = employeeSnap.data() as { linkedUserId?: string; pin?: string };
+  const employee = employeeSnap.data() as { linkedUserId?: string; pin?: string; photoUrl?: string };
   const linkedUserId = employee.linkedUserId;
+
+  // Fixes the orphaned-Storage-file bug: a reference photo used to
+  // outlive the employee doc that pointed to it indefinitely, since
+  // deleting the doc never touched Storage. The photo is biometric data
+  // (see components/legal/BiometricPolicyContent.tsx), so it's deleted
+  // here instead of waiting on any time-based sweep.
+  if (employee.photoUrl) {
+    const path = storagePathFromDownloadUrl(employee.photoUrl);
+    if (path) {
+      try {
+        await admin.storage().bucket().file(path).delete();
+      } catch (err) {
+        const code = (err as { code?: number } | undefined)?.code;
+        if (code !== 404) {
+          console.warn("Failed to delete employee reference photo on delete", { callerCompanyId, employeeId, path, error: String(err) });
+        }
+      }
+    }
+  }
 
   let email: string | null = null;
 
@@ -491,7 +567,7 @@ export const deleteEmployee = onCall(async (request) => {
   // itself: if this threw after the Auth account were already gone, the
   // employee doc would survive pointing at a dead linkedUserId, making
   // the Edit Employee modal claim a login still works when it doesn't.
-  await closeOpenSessionForDeactivation(callerCompanyId, employeeId, request.auth.uid);
+  await closeOpenSessionForDeactivation(callerCompanyId, employeeId, callerUid);
 
   if (linkedUserId) {
     const userRef = db.collection("users").doc(linkedUserId);
@@ -521,6 +597,62 @@ export const deleteEmployee = onCall(async (request) => {
   }
   batch.delete(employeeRef);
   await batch.commit();
+}
+
+export const deleteEmployee = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
+  if (!employeeId) {
+    throw new HttpsError("invalid-argument", "employeeId is required.");
+  }
+
+  await deleteEmployeeRecord(callerCompanyId, employeeId, request.auth.uid);
 
   return { success: true };
+});
+
+// Bulk counterpart used by the billing downgrade flow: when switching to a
+// plan whose totalCap is below the company's current total employee record
+// count, deactivating alone can't fix it (inactive records still count
+// toward totalEmployeeCount), so the client has the admin pick records to
+// permanently delete instead. Processes ids sequentially (deleteEmployeeRecord
+// does Auth + Firestore work per employee, not a single batch) and skips
+// ids that no longer exist, same tolerance as deactivateEmployeesBulk.
+export const deleteEmployeesBulk = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const employeeIds: string[] = Array.isArray(request.data?.employeeIds)
+    ? request.data.employeeIds.map((id: unknown) => String(id))
+    : [];
+  if (employeeIds.length === 0) {
+    throw new HttpsError("invalid-argument", "employeeIds is required.");
+  }
+
+  let deletedCount = 0;
+  for (const employeeId of employeeIds) {
+    try {
+      await deleteEmployeeRecord(callerCompanyId, employeeId, request.auth.uid);
+      deletedCount++;
+    } catch (err: any) {
+      if (err instanceof HttpsError && err.code === "not-found") continue;
+      throw err;
+    }
+  }
+
+  return { success: true, deletedCount };
 });

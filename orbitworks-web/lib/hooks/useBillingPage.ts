@@ -14,7 +14,7 @@ import { httpsCallable } from "firebase/functions";
 import { db, auth, functions } from "@/lib/firebase";
 import { authedFetch } from "@/lib/authedFetch";
 import { useAuth } from "@/lib/AuthContext";
-import { PRICE_TIERS } from "@/lib/stripe/tiers";
+import { PRICE_TIERS, getTierByKey } from "@/lib/stripe/tiers";
 import { usePaymentMethod } from "@/lib/hooks/usePaymentMethod";
 import { ToastVariant } from "@/components/Toast";
 
@@ -24,6 +24,8 @@ export type CompanyBilling = {
   planTier: string;
   employeeCap: number | null;
   activeEmployeeCount: number;
+  totalEmployeeCap: number | null;
+  totalEmployeeCount: number;
   subscriptionStatus: string;
   pendingPromotionCodeLabel?: string | null;
 };
@@ -32,11 +34,18 @@ type EmployeeLite = {
   id: string;
   name: string;
   isSupervisor?: boolean;
+  active?: boolean;
 };
 
 type PendingDowngrade = {
   action: "tier" | "cancel";
   tierKey: string | null;
+  requiredCount: number;
+  employees: EmployeeLite[];
+};
+
+type PendingDeletion = {
+  tierKey: string;
   requiredCount: number;
   employees: EmployeeLite[];
 };
@@ -49,8 +58,10 @@ type ConfirmAction =
 export function formatTierLabel(planTier: string): string {
   if (planTier === "free") return "Free plan (up to 8 employees)";
   if (planTier === "custom") return "Custom plan";
-  const tier = PRICE_TIERS.find((t) => t.key === planTier);
-  return tier ? tier.label : planTier;
+  const tier = getTierByKey(planTier);
+  if (!tier) return planTier;
+  const productLabel = tier.product === "pro" ? "Pro" : "Core";
+  return `${productLabel} - ${tier.label}`;
 }
 
 export function useBillingPage() {
@@ -63,9 +74,17 @@ export function useBillingPage() {
   const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
   const [pendingDowngrade, setPendingDowngrade] = useState<PendingDowngrade | null>(null);
   const [isDeactivating, setIsDeactivating] = useState(false);
+  const [pendingDeletion, setPendingDeletion] = useState<PendingDeletion | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [confirmStep, setConfirmStep] = useState<0 | 1 | 2>(0);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
   const [toast, setToast] = useState<{ message: string; variant: ToastVariant } | null>(null);
+  // Drives the full-screen dimmed overlay shown while a plan change is
+  // actually being committed (Stripe call + the webhook-driven Firestore
+  // update that follows it) - not shown while a modal needs the admin's
+  // input (picking who to deactivate/delete), only during the "just wait"
+  // stretches either side of that.
+  const [overlayMessage, setOverlayMessage] = useState<string | null>(null);
 
   function showToast(message: string, variant: ToastVariant = "error") {
     setToast({ message, variant });
@@ -82,16 +101,20 @@ export function useBillingPage() {
     reload: reloadPaymentMethod,
   } = usePaymentMethod(userData?.companyId);
 
-  async function loadCompany() {
-    if (!userData?.companyId) return;
+  async function loadCompany(): Promise<CompanyBilling | null> {
+    if (!userData?.companyId) return null;
     try {
       const snap = await getDoc(doc(db, "companies", userData.companyId));
       if (snap.exists()) {
-        setCompany(snap.data() as CompanyBilling);
+        const data = snap.data() as CompanyBilling;
+        setCompany(data);
+        return data;
       }
+      return null;
     } catch (err) {
       console.error("Load billing error:", err);
       setLoadError("Couldn't load billing info.");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -101,6 +124,9 @@ export function useBillingPage() {
     loadCompany();
   }, [userData?.companyId]);
 
+  // Fire-and-forget refresh for things with no specific predicate to wait
+  // on (e.g. payment method changes) - unlike waitForCompanyUpdate below,
+  // nothing blocks on this finishing.
   function pollForUpdate() {
     let attempts = 0;
     const maxAttempts = 6;
@@ -111,9 +137,35 @@ export function useBillingPage() {
     }, 1500);
   }
 
+  // Stripe's subscription webhook lands asynchronously after the API call
+  // that triggers it returns, so the Firestore doc doesn't reflect a plan
+  // change the instant checkout/cancel succeeds. This polls until the
+  // predicate is true (or gives up after ~30s) so the loading overlay
+  // stays up for exactly as long as that real wait takes, instead of the
+  // UI flashing stale plan data while a fixed-delay poll catches up.
+  // Returns whether the predicate was actually satisfied - callers must
+  // check this instead of assuming success, since Stripe's webhook not
+  // landing (wrong API key mode, misconfigured endpoint, etc.) looks
+  // identical to "still processing" until this gives up.
+  async function waitForCompanyUpdate(
+    predicate: (c: CompanyBilling) => boolean,
+    maxAttempts = 15,
+    intervalMs = 2000
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const data = await loadCompany();
+      if (data && predicate(data)) return true;
+      if (attempt < maxAttempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    }
+    return false;
+  }
+
   async function startCheckout(tierKey: string) {
     if (!auth.currentUser) return;
     setBusy(tierKey);
+    setOverlayMessage("Updating your plan...");
 
     try {
       const res = await authedFetch("/api/stripe/create-subscription", {
@@ -128,22 +180,36 @@ export function useBillingPage() {
       }
 
       if (data.clientSecret) {
+        // Hands off to CheckoutModal's own UI (3D Secure confirmation) -
+        // busy stays set (cleared by handleCheckoutClose/Success) so the
+        // plan button stays disabled while that modal is open.
+        setOverlayMessage(null);
         setClientSecret(data.clientSecret);
       } else {
+        const landed = await waitForCompanyUpdate((c) => c.planTier === tierKey);
         setBusy(null);
-        showToast("Plan updated.", "success");
-        pollForUpdate();
+        setOverlayMessage(null);
+        if (landed) {
+          showToast("Plan updated.", "success");
+        } else {
+          showToast(
+            "Your plan change is still processing. Refresh in a moment to confirm it went through.",
+            "error"
+          );
+        }
       }
     } catch (err: any) {
       console.error("Checkout error:", err);
       showToast(err.message || "Couldn't start checkout. Try again.", "error");
       setBusy(null);
+      setOverlayMessage(null);
     }
   }
 
   async function startCancel() {
     if (!auth.currentUser) return;
     setBusy("cancel");
+    setOverlayMessage("Canceling your subscription...");
 
     try {
       const res = await authedFetch("/api/stripe/cancel-subscription", {
@@ -154,13 +220,22 @@ export function useBillingPage() {
       if (!res.ok) {
         throw new Error(data.error || "Something went wrong.");
       }
+      const landed = await waitForCompanyUpdate((c) => c.planTier === "free");
       setBusy(null);
-      showToast("Subscription canceled.", "success");
-      pollForUpdate();
+      setOverlayMessage(null);
+      if (landed) {
+        showToast("Subscription canceled.", "success");
+      } else {
+        showToast(
+          "Your cancellation is still processing. Refresh in a moment to confirm it went through.",
+          "error"
+        );
+      }
     } catch (err: any) {
       console.error("Cancel error:", err);
       showToast(err.message || "Couldn't cancel your subscription. Try again.", "error");
       setBusy(null);
+      setOverlayMessage(null);
     }
   }
 
@@ -175,34 +250,99 @@ export function useBillingPage() {
         id: d.id,
         name: (data.name as string) ?? "Unnamed",
         isSupervisor: !!data.isSupervisor,
+        active: true,
       };
     });
   }
 
-  async function proceedWithTierChange(tierKey: string) {
-    if (!company) return;
+  // Deletion is always the last step, after any deactivation already ran -
+  // restricted to inactive records only, since by this point whichever
+  // employees needed deactivating to fix the active-cap overage already
+  // are inactive and are fair game to delete to fix the total-cap overage.
+  async function loadEmployeesForDeletion(): Promise<EmployeeLite[]> {
+    if (!userData?.companyId) return [];
+    const employeesRef = collection(db, "companies", userData.companyId, "employees");
+    const q = query(employeesRef, where("active", "==", false), orderBy("createdAt", "desc"));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        name: (data.name as string) ?? "Unnamed",
+        isSupervisor: !!data.isSupervisor,
+        active: false,
+      };
+    });
+  }
 
-    const tier = PRICE_TIERS.find((t) => t.key === tierKey);
-    const isDowngradeBelowCap =
-      tier && tier.employeeCap !== null && tier.employeeCap < company.activeEmployeeCount;
-
-    if (isDowngradeBelowCap && tier) {
+  // Second gate, run once the active-cap dimension (if any) is already
+  // satisfied - deactivating never changes totalEmployeeCount, so this
+  // only ever needs to ask the admin to delete records, never deactivate.
+  async function checkTotalCapAndProceed(
+    tierKey: string,
+    tier: ReturnType<typeof PRICE_TIERS.find>,
+    totalCount: number
+  ) {
+    if (tier && tier.totalCap !== null && tier.totalCap < totalCount) {
+      const totalCap = tier.totalCap;
+      setOverlayMessage("Checking your employee records...");
       try {
-        const employees = await loadEmployeesForDowngrade();
-        setPendingDowngrade({
-          action: "tier",
+        const employees = await loadEmployeesForDeletion();
+        setPendingDeletion({
           tierKey,
-          requiredCount: company.activeEmployeeCount - tier.employeeCap,
+          requiredCount: totalCount - totalCap,
           employees,
         });
       } catch (err) {
-        console.error("Load employees for downgrade error:", err);
+        console.error("Load employees for deletion error:", err);
         showToast("Couldn't load your employee list. Try again.", "error");
+      } finally {
+        setOverlayMessage(null);
       }
       return;
     }
 
     await startCheckout(tierKey);
+  }
+
+  // First gate: active-cap overage, fixed by deactivating employees. Runs
+  // before checkTotalCapAndProceed since deactivating can free up records
+  // for the delete step to target (deactivated employees becoming
+  // eligible to delete), not the other way around.
+  async function checkActiveCapAndProceed(
+    tierKey: string,
+    tier: ReturnType<typeof PRICE_TIERS.find>,
+    activeCount: number
+  ) {
+    const isDowngradeBelowCap =
+      tier && tier.employeeCap !== null && tier.employeeCap < activeCount;
+
+    if (isDowngradeBelowCap && tier) {
+      setOverlayMessage("Checking your employees...");
+      try {
+        const employees = await loadEmployeesForDowngrade();
+        setPendingDowngrade({
+          action: "tier",
+          tierKey,
+          requiredCount: activeCount - tier.employeeCap,
+          employees,
+        });
+      } catch (err) {
+        console.error("Load employees for downgrade error:", err);
+        showToast("Couldn't load your employee list. Try again.", "error");
+      } finally {
+        setOverlayMessage(null);
+      }
+      return;
+    }
+
+    await checkTotalCapAndProceed(tierKey, tier, company?.totalEmployeeCount ?? 0);
+  }
+
+  async function proceedWithTierChange(tierKey: string) {
+    if (!company) return;
+    const tier = PRICE_TIERS.find((t) => t.key === tierKey);
+    await checkActiveCapAndProceed(tierKey, tier, company.activeEmployeeCount);
   }
 
   async function proceedWithCancel() {
@@ -255,7 +395,8 @@ export function useBillingPage() {
       if (action === "cancel") {
         await startCancel();
       } else if (tierKey) {
-        await startCheckout(tierKey);
+        const tier = PRICE_TIERS.find((t) => t.key === tierKey);
+        await checkTotalCapAndProceed(tierKey, tier, company?.totalEmployeeCount ?? 0);
       }
     } catch (err) {
       console.error("Deactivate employees error:", err);
@@ -269,16 +410,64 @@ export function useBillingPage() {
     setPendingDowngrade(null);
   }
 
+  async function handleConfirmDeletion(selectedIds: string[]) {
+    if (!pendingDeletion) return;
+    setIsDeleting(true);
+
+    try {
+      const deleteEmployeesBulk = httpsCallable(functions, "deleteEmployeesBulk");
+      await deleteEmployeesBulk({ employeeIds: selectedIds });
+
+      const { tierKey } = pendingDeletion;
+      setPendingDeletion(null);
+
+      // deleteEmployeesBulk only deletes the docs - totalEmployeeCount is
+      // decremented by the separate onEmployeeWrite trigger, which can lag
+      // behind. Wait for it to land before checkout, otherwise
+      // create-subscription's server-side totalCap backstop can read the
+      // pre-delete count and reject a switch that should now be valid.
+      const tier = PRICE_TIERS.find((t) => t.key === tierKey);
+      if (tier && tier.totalCap !== null) {
+        const totalCap = tier.totalCap;
+        setOverlayMessage("Finishing up...");
+        await waitForCompanyUpdate((c) => c.totalEmployeeCount <= totalCap, 10, 1000);
+      }
+
+      await startCheckout(tierKey);
+    } catch (err) {
+      console.error("Delete employees error:", err);
+      showToast("Couldn't delete employee records. Try again.", "error");
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  function handleCancelDeletion() {
+    setPendingDeletion(null);
+  }
+
   function handleCheckoutClose() {
     setClientSecret(null);
     setBusy(null);
   }
 
   async function handleCheckoutSuccess() {
+    const tierKey = busy;
     setClientSecret(null);
+    setOverlayMessage("Updating your plan...");
+    const landed = tierKey
+      ? await waitForCompanyUpdate((c) => c.planTier === tierKey)
+      : true;
     setBusy(null);
-    showToast("Plan updated.", "success");
-    pollForUpdate();
+    setOverlayMessage(null);
+    if (landed) {
+      showToast("Plan updated.", "success");
+    } else {
+      showToast(
+        "Your plan change is still processing. Refresh in a moment to confirm it went through.",
+        "error"
+      );
+    }
   }
 
   async function handleUpdatePaymentClick() {
@@ -344,6 +533,9 @@ export function useBillingPage() {
     setupClientSecret,
     pendingDowngrade,
     isDeactivating,
+    pendingDeletion,
+    isDeleting,
+    overlayMessage,
     confirmStep,
     confirmAction,
     confirmTier,
@@ -362,6 +554,8 @@ export function useBillingPage() {
     handleCancelConfirm,
     handleConfirmDowngrade,
     handleCancelDowngrade,
+    handleConfirmDeletion,
+    handleCancelDeletion,
     handleCheckoutClose,
     handleCheckoutSuccess,
     handleUpdatePaymentClick,

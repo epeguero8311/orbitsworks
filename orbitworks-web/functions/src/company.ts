@@ -1,6 +1,6 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { db, FREE_EMPLOYEE_CAP } from "./shared";
+import { db, FREE_EMPLOYEE_CAP, isOverActiveCap, isOverTotalCap, EmployeeCapFields } from "./shared";
 import { reserveNewPin } from "./pins";
 
 export const createCompany = onCall(async (request) => {
@@ -47,11 +47,7 @@ export const createCompany = onCall(async (request) => {
     authMode: "individual",
     businessHours: { open: "08:00", close: "17:00" },
     weeklyOvertimeThreshold: 40,
-    attendanceRules: {
-      allowEarlyClockIn: true,
-      allowLateClockOut: true,
-      autoClockOut: false,
-    },
+    overtimeMultiplier: 1.5,
     alerts: {
       maxHoursWarning: true,
       overtimeWarning: true,
@@ -63,9 +59,14 @@ export const createCompany = onCall(async (request) => {
     planTier: "free",
     employeeCap: FREE_EMPLOYEE_CAP,
     activeEmployeeCount: 0,
+    totalEmployeeCap: null,
+    totalEmployeeCount: 0,
     subscriptionStatus: "active",
     stripeCustomerId: null,
     stripeSubscriptionId: null,
+
+    agreedToTermsAt: admin.firestore.FieldValue.serverTimestamp(),
+    termsVersion: termsVersion,
   });
 
   const userRef = db.collection("users").doc(uid);
@@ -86,6 +87,45 @@ export const createCompany = onCall(async (request) => {
   return { companyId: companyId };
 });
 
+// Terms re-accept for existing companies (Terms Section 19, Privacy
+// Policy Section 12). Owner-only - the owner is the one with authority to
+// bind the company (see createCompany/TermsContent.tsx Section 1), so
+// they're the only one who can accept on the company's behalf; admins and
+// supervisors are never blocked by a stale termsVersion (see
+// DashboardLayout.tsx, which only renders the re-accept modal for the
+// owner). Writes the same two fields createCompany does, on both docs, so
+// a re-accept looks identical to an original acceptance to anything that
+// reads them later.
+export const acceptUpdatedTerms = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const role = request.auth.token.role as string | undefined;
+  const companyId = request.auth.token.companyId as string | undefined;
+  if (role !== "owner" || !companyId) {
+    throw new HttpsError("permission-denied", "Only the company owner can accept updated terms.");
+  }
+
+  const termsVersion = (request.data && request.data.termsVersion ? String(request.data.termsVersion) : "").trim();
+  if (!termsVersion || termsVersion.length > 50) {
+    throw new HttpsError("invalid-argument", "Missing terms version.");
+  }
+
+  const uid = request.auth.uid;
+  const batch = db.batch();
+  batch.update(db.collection("companies").doc(companyId), {
+    agreedToTermsAt: admin.firestore.FieldValue.serverTimestamp(),
+    termsVersion,
+  });
+  batch.update(db.collection("users").doc(uid), {
+    agreedToTermsAt: admin.firestore.FieldValue.serverTimestamp(),
+    termsVersion,
+  });
+  await batch.commit();
+
+  return { success: true };
+});
+
 export const acceptInvite = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -94,11 +134,6 @@ export const acceptInvite = onCall(async (request) => {
   const email = (request.auth.token.email || "").toLowerCase();
   if (!email) {
     throw new HttpsError("failed-precondition", "Account has no email.");
-  }
-
-  const name = (request.data && request.data.name ? String(request.data.name) : "").trim();
-  if (!name || name.length > 200) {
-    throw new HttpsError("invalid-argument", "A valid name is required.");
   }
 
   const existingUserDoc = await db.collection("users").doc(uid).get();
@@ -124,6 +159,7 @@ export const acceptInvite = onCall(async (request) => {
     role?: "supervisor" | "admin";
     assignedSiteIds?: string[];
     linkExistingEmployeeId?: string;
+    name?: string;
   };
   const role: "supervisor" | "admin" = invite.role === "admin" ? "admin" : "supervisor";
 
@@ -142,10 +178,20 @@ export const acceptInvite = onCall(async (request) => {
       await admin.auth().deleteUser(uid);
       throw new HttpsError("not-found", "The employee record for this invite no longer exists.");
     }
-    const employee = employeeSnap.data() as { linkedUserId?: string; assignedSiteIds?: string[] };
+    const employee = employeeSnap.data() as { name?: string; linkedUserId?: string; assignedSiteIds?: string[] };
     if (employee.linkedUserId) {
       await admin.auth().deleteUser(uid);
       throw new HttpsError("failed-precondition", "This employee already has a linked account.");
+    }
+
+    // Never the client-typed name here, even though /join collects one -
+    // whatever the invitee types is discarded for a promotion invite.
+    // invite.name is the snapshot taken when the promotion was sent;
+    // employee.name covers an invite created before that field existed.
+    const linkedName = (invite.name || employee.name || "").trim();
+    if (!linkedName) {
+      await admin.auth().deleteUser(uid);
+      throw new HttpsError("failed-precondition", "This employee record has no name on file.");
     }
 
     const batch = db.batch();
@@ -155,7 +201,7 @@ export const acceptInvite = onCall(async (request) => {
       role,
       companyId: invite.companyId,
       assignedSiteIds: employee.assignedSiteIds || [],
-      name: name,
+      name: linkedName,
       email: email,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -190,20 +236,36 @@ export const acceptInvite = onCall(async (request) => {
 
   // --- Fresh invite: no employee history, create a brand new doc with
   // an auto-generated ID (never assumed to equal uid - see linkedUserId
-  // as the join instead).
+  // as the join instead). Unlike the link branch above, there's no
+  // existing name to fall back to, so the client-typed name is the only
+  // source and still has to be validated here.
+  const name = (request.data && request.data.name ? String(request.data.name) : "").trim();
+  if (!name || name.length > 200) {
+    await admin.auth().deleteUser(uid);
+    throw new HttpsError("invalid-argument", "A valid name is required.");
+  }
+
   const companySnap = await companyRef.get();
   const companyData = companySnap.data() as
-    | { employeeCap?: number | null; activeEmployeeCount?: number }
+    | (EmployeeCapFields & { subscriptionStatus?: string })
     | undefined;
 
-  const cap = companyData?.employeeCap ?? null;
-  const currentCount = companyData?.activeEmployeeCount ?? 0;
-
-  if (cap !== null && currentCount >= cap) {
+  if (companyData?.subscriptionStatus === "past_due") {
+    await admin.auth().deleteUser(uid);
+    throw new HttpsError("failed-precondition", "Subscription is past due.");
+  }
+  if (isOverActiveCap(companyData)) {
     await admin.auth().deleteUser(uid);
     throw new HttpsError(
       "resource-exhausted",
       "This company has reached its employee limit. Ask an admin to upgrade the plan before accepting this invite."
+    );
+  }
+  if (isOverTotalCap(companyData)) {
+    await admin.auth().deleteUser(uid);
+    throw new HttpsError(
+      "resource-exhausted",
+      "This company has reached its total employee record limit. Ask an admin to delete some old employee records before accepting this invite."
     );
   }
 

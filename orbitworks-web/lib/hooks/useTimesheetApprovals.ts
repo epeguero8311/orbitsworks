@@ -13,8 +13,10 @@ import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
-import { localDateKey } from "@/lib/reportUtils";
+import { useSites } from "@/lib/hooks/useSites";
+import { localDateKey, dateKey, startOfWeek } from "@/lib/reportUtils";
 import { applyAutoBreak } from "@/lib/autoBreak";
+import { evaluateSessionWarnings, type SessionWarning } from "@/lib/sessionWarnings";
 import type { ClockEvent, Flag, TimesheetApproval } from "@/lib/types";
 
 export type ApprovalRow = {
@@ -40,6 +42,11 @@ export type ApprovalRow = {
   // "(Default)" label - not necessarily what jobId above was saved with,
   // since the employee's assignment can change after a day was approved.
   defaultJobId: string | null;
+  // Every Settings > Alerts warning type that fired on this session,
+  // already carrying its evidence (see lib/sessionWarnings.ts) - replaces
+  // the old hasGeofenceWarning/hasSiteMismatchWarning/hasNoSiteDetectedWarning
+  // booleans, which only covered 3 of the ~13 warning types this now does.
+  warnings: SessionWarning[];
 };
 
 type EventWithId = Omit<ClockEvent, "id"> & { id: string };
@@ -61,7 +68,8 @@ export type ManualTimestampParams = {
 export function useTimesheetApprovals(startDate: string, endDate: string = startDate) {
   const { userData } = useAuth();
   const { employees } = useEmployees();
-  const { settings } = useCompanySettings();
+  const { settings, isPro } = useCompanySettings();
+  const { sites } = useSites();
   const [events, setEvents] = useState<EventWithId[]>([]);
   const [approvals, setApprovals] = useState<Map<string, TimesheetApproval>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -71,17 +79,29 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     if (!userData?.companyId) return;
     setLoading(true);
 
-    const start = new Date(`${startDate}T00:00:00`);
-    // A session that clocks in on the last displayed day can clock out
+    // Widened to the full calendar week(s) spanning startDate..endDate -
+    // the overtime check below needs each employee's whole week of
+    // sessions to know whether a given one pushed them over
+    // weeklyOvertimeThreshold, even in Day mode where the display range is
+    // a single day. visibleRows (below) still filters back down to
+    // exactly startDate..endDate, same as before this widening.
+    const fetchStartKey = dateKey(startOfWeek(new Date(`${startDate}T00:00:00`)));
+    const fetchEndWeekStart = startOfWeek(new Date(`${endDate}T00:00:00`));
+    const fetchEndDate = new Date(fetchEndWeekStart);
+    fetchEndDate.setDate(fetchEndDate.getDate() + 6);
+    const fetchEndKey = dateKey(fetchEndDate);
+
+    const start = new Date(`${fetchStartKey}T00:00:00`);
+    // A session that clocks in on the last fetched day can clock out
     // after midnight, into the next calendar day. The query has to
     // range-filter on the raw `timestamp` field (never adjustedTimestamp -
     // an admin correction must never move a session in or out of the
-    // fetched window), so it fetches one extra day past endDate to make
-    // sure that clock-out event is pulled in too. Sessions are bucketed by
-    // their clock-in day below, so this buffer day's own sessions get
-    // filtered back out of the final rows - it only exists to complete
-    // sessions that started inside the requested range.
-    const end = new Date(`${endDate}T23:59:59`);
+    // fetched window), so it fetches one extra day past fetchEndKey to
+    // make sure that clock-out event is pulled in too. Sessions are
+    // bucketed by their clock-in day below, so this buffer day's own
+    // sessions get filtered back out of the final rows - it only exists to
+    // complete sessions that started inside the fetched window.
+    const end = new Date(`${fetchEndKey}T23:59:59`);
     end.setDate(end.getDate() + 1);
 
     const eventsRef = collection(db, "companies", userData.companyId, "clockEvents");
@@ -139,6 +159,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
   const rows = useMemo<ApprovalRow[]>(() => {
     const mainCompanyName = settings?.name || "Main company";
     const activeEmployeesById = new Map(employees.filter((e) => e.active).map((e) => [e.id, e]));
+    const siteNameById = new Map(sites.map((s) => [s.id, s.name]));
 
     const byEmployee = new Map<string, EventWithId[]>();
     for (const ev of events) {
@@ -171,11 +192,21 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
         ? employee.subcontractorName || "Subcontractor"
         : mainCompanyName;
       const isSubcontractor = !!employee.subcontractorId;
+      const assignedSiteNames = (employee.assignedSiteIds ?? [])
+        .map((id) => siteNameById.get(id))
+        .filter((name): name is string => !!name);
 
       let pendingIn: EventWithId | null = null;
       let breakMs = 0;
       let openBreakStart: EventWithId | null = null;
       let sessionIds: string[] = [];
+      // Cumulative NET worked hours (breaks excluded) for this employee
+      // across the fetched week, through and including each session in
+      // turn - feeds the overtime check the same way
+      // functions/src/alerts.ts's weekly sweep does (accumulateWorkedMs).
+      // The widened fetch query above guarantees `empEvents` always spans
+      // one full calendar week, in both Day and Week mode.
+      let cumulativeWeekHours = 0;
 
       for (const ev of empEvents) {
         const ts = (ev.adjustedTimestamp ?? ev.timestamp)?.toDate();
@@ -226,6 +257,21 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
               autoBreakMinutes,
               minShiftHours
             );
+            // Warnings/overtime below are computed against the same
+            // effective (post-Auto-Break) hours as the row itself and
+            // Reports/Excel - never the raw pre-deduction duration, or a
+            // session that trips maxHours/overtime here could disagree
+            // with what actually got approved/exported.
+            const hours = durationMs / (1000 * 60 * 60);
+            const breakHours = effectiveBreakMs / (1000 * 60 * 60);
+            cumulativeWeekHours += hours - breakHours;
+            const overrideEventId = approval?.flags?.find(
+              (f) => f.type === "SUPERVISOR_OVERRIDE"
+            )?.overrideEventId;
+
+            const clockInEvent: ClockEvent = { ...pendingIn };
+            const clockOutEvent: ClockEvent = { ...ev };
+
             allRows.push({
               key: pendingIn.id,
               employeeId: employee.id,
@@ -235,15 +281,30 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
               date: approval?.date ?? localDateKey(inTs),
               siteName: pendingIn.siteName || "Not specified",
               siteId: pendingIn.siteId ?? null,
-              hours: durationMs / (1000 * 60 * 60),
-              breakHours: effectiveBreakMs / (1000 * 60 * 60),
+              hours,
+              breakHours,
               status: approval?.status ?? "pending",
               eventId: pendingIn.id,
-              clockInEvent: { ...pendingIn },
-              clockOutEvent: { ...ev },
+              clockInEvent,
+              clockOutEvent,
               sessionEventIds: sessionIds,
               isClockedInNow,
               flags: approval?.flags ?? [],
+              warnings: evaluateSessionWarnings({
+                clockInEvent,
+                clockOutEvent,
+                hours,
+                breakHours,
+                weekHoursThroughSession: cumulativeWeekHours,
+                assignedSiteNames,
+                overrideEventId,
+                alerts: settings.alerts,
+                businessHours: settings.businessHours,
+                gracePeriodMinutes: settings.attendanceRules.gracePeriodMinutes,
+                weeklyOvertimeThreshold: settings.weeklyOvertimeThreshold,
+                faceVerification: settings.faceVerification,
+                isPro,
+              }),
               jobId: approval?.jobId ?? null,
               defaultJobId: employee.jobId ?? null,
             });
@@ -272,11 +333,18 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     employees,
     events,
     approvals,
+    sites,
     startDate,
     endDate,
     settings?.name,
     settings.exportSettings.automaticBreakMinutes,
     settings.exportSettings.minimumShiftHours,
+    settings.alerts,
+    settings.businessHours,
+    settings.attendanceRules.gracePeriodMinutes,
+    settings.weeklyOvertimeThreshold,
+    settings.faceVerification,
+    isPro,
   ]);
 
   const pendingCount = useMemo(
@@ -312,6 +380,11 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     await fn({ approvalId, eventIds });
   };
 
+  const assignSessionSite = async (approvalId: string, eventIds: string[], siteId: string) => {
+    const fn = httpsCallable(functions, "assignSessionSite");
+    await fn({ approvalId, eventIds, siteId });
+  };
+
   return {
     rows,
     pendingCount,
@@ -321,5 +394,6 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     setApprovalStatus,
     setApprovalStatusBulk,
     deleteTimesheetSession,
+    assignSessionSite,
   };
 }

@@ -294,7 +294,9 @@ export default function SignupPage() {
                   >
                     Terms and Conditions
                   </Link>{" "}
-                  and{" "}
+                  (including Section 4, Biometric Data and Face
+                  Verification, and Section 5, Location Information) and
+                  the{" "}
                   <Link
                     href="/privacy"
                     target="_blank"
@@ -302,6 +304,10 @@ export default function SignupPage() {
                   >
                     Privacy Policy
                   </Link>
+                  . I understand that if I enable face verification or
+                  location features, I am responsible for notifying my
+                  employees and obtaining any consent required by law
+                  before doing so.
                 </span>
               </label>
             </div>

@@ -12,19 +12,24 @@ import {
   Clock,
   ClipboardCheck,
   FileText,
+  BarChart3,
   CreditCard,
   Settings as SettingsIcon,
   LogOut,
   Orbit,
   Menu,
   X,
+  Link2,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import { isProPlan } from "@/lib/stripe/tiers";
 import { PastDueBanner } from "@/components/PastDueBanner";
 import { HelpChat } from "@/components/help-chat/HelpChat";
+import { TermsReacceptModal } from "@/components/dashboard/TermsReacceptModal";
+import { TERMS_VERSION } from "@/components/legal/TermsContent";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutGrid },
@@ -33,6 +38,8 @@ const NAV_ITEMS = [
   { href: "/dashboard/time", label: "Time Tracking", icon: Clock },
   { href: "/dashboard/timesheet-approvals", label: "Approvals", icon: ClipboardCheck },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
+  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, pro: true },
+  { href: "/dashboard/temp-link", label: "Temp Link", icon: Link2, pro: true },
   // Billing is filtered out below for non-owners - only the owner has
   // Stripe access.
   { href: "/dashboard/billing", label: "Billing", icon: CreditCard, ownerOnly: true },
@@ -47,6 +54,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [planTier, setPlanTier] = useState<string | null>(null);
+  const [companyTermsVersion, setCompanyTermsVersion] = useState<string | null | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -80,6 +88,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       setLogoUrl(data?.logoUrl ?? null);
       setSubscriptionStatus(data?.subscriptionStatus ?? null);
       setPlanTier(data?.planTier ?? null);
+      setCompanyTermsVersion(data?.termsVersion ?? null);
     });
     return unsubscribe;
   }, [userData?.companyId]);
@@ -105,6 +114,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     router.push("/login");
   }
 
+  const isPro = isProPlan(planTier);
+
   return (
     <div className="flex min-h-full flex-1 bg-gray-50">
       {sidebarOpen && (
@@ -121,14 +132,26 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       >
         <div
           className={`flex items-center gap-2 border-b border-gray-200 px-6 py-5 ${
-            sidebarCollapsed ? "lg:justify-center lg:px-3" : "justify-between"
+            sidebarCollapsed ? "lg:justify-center lg:px-2" : "justify-between"
           }`}
         >
           <div className={`flex items-center gap-2 ${sidebarCollapsed ? "lg:hidden" : ""}`}>
-            <Orbit className="h-5 w-5 text-accent shrink-0" />
+            <Orbit className="h-5 w-5 shrink-0 text-accent" />
             <span className="text-base font-semibold text-gray-950">Orbitsworks</span>
+            {isPro && (
+              <span className="rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+                PRO
+              </span>
+            )}
           </div>
-          <Orbit className={`hidden h-5 w-5 shrink-0 text-accent ${sidebarCollapsed ? "lg:block" : ""}`} />
+          <div className={`hidden items-center gap-1 ${sidebarCollapsed ? "lg:flex" : ""}`}>
+            <Orbit className="h-5 w-5 shrink-0 text-accent" />
+            {isPro && (
+              <span className="rounded-full bg-accent/10 px-1 py-0.5 text-[8px] font-semibold text-accent">
+                PRO
+              </span>
+            )}
+          </div>
           <button
             onClick={() => setSidebarOpen(false)}
             className="rounded-md p-1 text-gray-600 hover:bg-gray-50 lg:hidden"
@@ -161,6 +184,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               >
                 <Icon className="h-[18px] w-[18px] shrink-0" />
                 <span className={sidebarCollapsed ? "lg:hidden" : ""}>{item.label}</span>
+                {item.pro && !isPro && (
+                  <span
+                    className={`ml-auto rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold text-accent ${
+                      sidebarCollapsed ? "lg:hidden" : ""
+                    }`}
+                  >
+                    PRO
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -222,6 +254,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
         <HelpChat isSubscribed={subscriptionStatus === "active" && planTier !== "free"} />
       </main>
+
+      {userData?.role === "owner" &&
+        companyTermsVersion !== undefined &&
+        companyTermsVersion !== TERMS_VERSION && (
+          <TermsReacceptModal termsVersion={TERMS_VERSION} />
+        )}
     </div>
   );
 }

@@ -56,6 +56,7 @@ export function EmployeesTable({
   employeeLimit?: number;
 }) {
   const [showUpgradeToast, setShowUpgradeToast] = useState(false);
+  const [showPastDueToast, setShowPastDueToast] = useState(false);
   const [companyFilter, setCompanyFilter] = useState("");
   const [showInactive, setShowInactive] = useState(false);
 
@@ -98,6 +99,8 @@ export function EmployeesTable({
       console.error("Toggle employee active error:", err);
       if (err?.code === "functions/resource-exhausted") {
         setShowUpgradeToast(true);
+      } else if (err?.code === "functions/failed-precondition") {
+        setShowPastDueToast(true);
       }
     }
   }
@@ -220,6 +223,18 @@ export function EmployeesTable({
                           Supervisor
                         </span>
                       ) : null}
+                      {/* Face Verification (Pro) - "bad" takes priority
+                          over "no pfp" since a bad pfp usually still has
+                          a photoUrl set (it's bad because DetectFaces
+                          couldn't find/confirm a face in it, not because
+                          it's missing). */}
+                      {employee.faceReference?.status === "bad" ? (
+                        <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                          Photo needs update
+                        </span>
+                      ) : !employee.photoUrl ? (
+                        <span className="text-xs font-normal text-gray-500">No face check</span>
+                      ) : null}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-gray-600">
@@ -283,6 +298,12 @@ export function EmployeesTable({
         visible={showUpgradeToast}
         onClose={() => setShowUpgradeToast(false)}
         message="You've reached your employee limit."
+      />
+      <UpgradeToast
+        visible={showPastDueToast}
+        onClose={() => setShowPastDueToast(false)}
+        message="Your last payment failed. Reactivating employees is paused until it's resolved."
+        actionLabel={"Fix billing →"}
       />
     </div>
   );

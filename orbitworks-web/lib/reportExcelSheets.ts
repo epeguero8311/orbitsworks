@@ -18,6 +18,18 @@ import {
   styleHeaderRow,
   styleDataRows,
 } from "@/lib/excelHelpers";
+import { formatGeofenceDistance } from "@/lib/geo";
+
+// Geofencing (Pro) Part 4. Core companies can never produce a
+// geofenceStatus (Part 1/3 both gate it on Pro), so these two columns are
+// always blank for them - same as any other inapplicable column already
+// in this sheet - rather than threading isPro through the whole export
+// pipeline just to hide two headers.
+function formatGeofenceColumn(status: "inside" | "outside" | undefined, distanceM: number | null | undefined): string {
+  if (!status) return "";
+  if (status === "inside") return "Inside";
+  return distanceM != null ? `Outside (${formatGeofenceDistance(distanceM)})` : "Outside";
+}
 
 // ---- Reusable sheet builders, each adds one (or more) sheets to a given workbook ----
 
@@ -40,14 +52,25 @@ export function addDetailSheet(
     { key: "clockOutTime", width: 18 },
     { key: "hoursDisplay", width: 12 },
     { key: "breakDisplay", width: 12 },
+    { key: "geofence", width: 18 },
+    { key: "geofenceReason", width: 28 },
   ];
 
-  addTitleRow(detailSheet, `Detail: ${rangeLabel}`, 8);
+  addTitleRow(detailSheet, `Detail: ${rangeLabel}`, 10);
 
   const headerRow = detailSheet.getRow(2);
-  ["Employee", "Job Site", "Company", "Date", "Clock In", "Clock Out", "Hours", "Break"].forEach(
-    (h, i) => (headerRow.getCell(i + 1).value = h)
-  );
+  [
+    "Employee",
+    "Job Site",
+    "Company",
+    "Date",
+    "Clock In",
+    "Clock Out",
+    "Hours",
+    "Break",
+    "Geofence",
+    "Reason",
+  ].forEach((h, i) => (headerRow.getCell(i + 1).value = h));
   styleHeaderRow(headerRow);
 
   const sorted = sortByCompanyThen(
@@ -85,6 +108,8 @@ export function addDetailSheet(
     row.getCell(6).value = clockOutLabel;
     row.getCell(7).value = formatHoursMinutes(s.hours);
     row.getCell(8).value = formatHoursMinutes(s.breakHours);
+    row.getCell(9).value = formatGeofenceColumn(s.geofenceStatus, s.geofenceDistanceM);
+    row.getCell(10).value = s.geofenceReason ?? "";
     r += 1;
   });
 

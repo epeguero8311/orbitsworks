@@ -3,10 +3,10 @@
 import { useSettingsPage } from "@/lib/hooks/useSettingsPage";
 import { CompanyProfileCard } from "@/components/dashboard/settings/CompanyProfileCard";
 import { BusinessHoursCard } from "@/components/dashboard/settings/BusinessHoursCard";
-import { AttendanceRulesCard } from "@/components/dashboard/settings/AttendanceRulesCard";
 import { ExportSettingsCard } from "@/components/dashboard/settings/ExportSettingsCard";
 import { AlertsCard } from "@/components/dashboard/settings/AlertsCard";
 import { AppSettingsCard } from "@/components/dashboard/settings/AppSettingsCard";
+import { DevicesCard } from "@/components/dashboard/settings/DevicesCard";
 
 export default function SettingsPage() {
   const s = useSettingsPage();
@@ -35,23 +35,30 @@ export default function SettingsPage() {
             onBusinessOpenChange={s.setBusinessOpen}
             businessClose={s.businessClose}
             onBusinessCloseChange={s.setBusinessClose}
+            gracePeriodMinutes={s.attendanceRules.gracePeriodMinutes}
+            onGracePeriodMinutesChange={(v) =>
+              s.setAttendanceRules((prev) => ({ ...prev, gracePeriodMinutes: v }))
+            }
           />
 
-          <AttendanceRulesCard
-            attendanceRules={s.attendanceRules}
-            setAttendanceRules={s.setAttendanceRules}
-          />
+          <DevicesCard isPro={s.isPro} />
 
           <ExportSettingsCard
             exportSettings={s.exportSettings}
             setExportSettings={s.setExportSettings}
           />
 
+
           <AlertsCard
             alerts={s.alerts}
             setAlerts={s.setAlerts}
             otThreshold={s.otThreshold}
             setOtThreshold={s.setOtThreshold}
+            otMultiplier={s.otMultiplier}
+            setOtMultiplier={s.setOtMultiplier}
+            isPro={s.isPro}
+            faceVerification={s.faceVerification}
+            onFaceVerificationChange={s.setFaceVerification}
           />
 
           <AppSettingsCard

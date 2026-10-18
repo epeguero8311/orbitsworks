@@ -57,7 +57,10 @@ export default function OnBreakTable({
                     {d ? timeAgo(d) : "-"}
                   </td>
                   <td className="px-6 py-4 text-gray-600">
-                    {event.authorizedByName || "-"}
+                    {event.authorizedByName ||
+                      (event.deviceNameSnapshot
+                        ? `${event.deviceNameSnapshot} (device)`
+                        : "-")}
                   </td>
                 </tr>
               );

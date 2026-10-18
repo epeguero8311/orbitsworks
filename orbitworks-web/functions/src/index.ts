@@ -1,4 +1,4 @@
-export { createCompany, acceptInvite } from "./company";
+export { createCompany, acceptInvite, acceptUpdatedTerms } from "./company";
 
 export { sendInviteEmail, resendInviteEmail } from "./invites";
 
@@ -11,7 +11,13 @@ export {
   onEmployeeWrite,
   reassignEmployeeSubcontractor,
   deleteEmployee,
+  deleteEmployeesBulk,
+  backfillTotalEmployeeCount,
 } from "./employees";
+
+export { createEmployee } from "./createEmployee";
+
+export { updateEmployeeProfile } from "./updateEmployee";
 
 export {
   setEmployeePin,
@@ -22,9 +28,9 @@ export {
 
 export {
   onClockEventCreated,
-  autoClockOutStaleSessions,
   correctClockEvent,
   reassignClockEvent,
+  assignSessionSite,
   addManualTimestamp,
 } from "./clockEvents";
 
@@ -34,4 +40,27 @@ export {
   deleteTimesheetSession,
 } from "./timesheetApprovals";
 
-export { checkPeriodicAlerts } from "./alerts";
+export {
+  generateTempClockLink,
+  listActiveTempClockLinks,
+  listTempClockLinkHistory,
+  revokeTempClockLink,
+  getTempClockLinkInfo,
+  redeemTempClockLink,
+} from "./tempClockLinks";
+
+export { geocodeJobSiteAddress } from "./geocoding";
+
+export {
+  checkPeriodicAlerts,
+  cleanupRetainedEmployeePhotos,
+  onEmployeeUpdateAlertDismissed,
+} from "./alerts";
+
+export { onEmployeePhotoWrite } from "./rekognition";
+
+export {
+  cleanupClockEventPhotos,
+  cleanupDeactivatedEmployeePhotos,
+  cleanupCanceledCompanyPhotos,
+} from "./biometricRetention";

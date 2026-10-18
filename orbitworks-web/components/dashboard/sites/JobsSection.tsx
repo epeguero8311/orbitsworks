@@ -2,6 +2,7 @@
 
 import { useState, FormEvent } from "react";
 import { useJobs } from "@/lib/hooks/useJobs";
+import { dateKey } from "@/lib/reportUtils";
 import type { Job } from "@/lib/types";
 
 export default function JobsSection() {
@@ -27,6 +28,7 @@ export default function JobsSection() {
   const [editName, setEditName] = useState("");
   const [editRate, setEditRate] = useState("");
   const [confirmingRateChange, setConfirmingRateChange] = useState(false);
+  const [rateEffectiveFrom, setRateEffectiveFrom] = useState(dateKey(new Date()));
   const [confirmingDeleteJob, setConfirmingDeleteJob] = useState(false);
 
   async function handleAddJob(e: FormEvent) {
@@ -57,6 +59,7 @@ export default function JobsSection() {
     setEditName(job.name);
     setEditRate(String(job.hourlyRate));
     setConfirmingRateChange(false);
+    setRateEffectiveFrom(dateKey(new Date()));
     setConfirmingDeleteJob(false);
   }
 
@@ -76,7 +79,14 @@ export default function JobsSection() {
       return;
     }
 
-    await updateJob(job.id, editName, newRate);
+    await updateJob(
+      job.id,
+      editName,
+      newRate,
+      rateChanged
+        ? { previousRate: job.hourlyRate, previousHistory: job.rateHistory, effectiveFrom: rateEffectiveFrom }
+        : undefined
+    );
     setEditingJobId(null);
     setConfirmingRateChange(false);
   }
@@ -210,8 +220,19 @@ export default function JobsSection() {
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="text-xs text-amber-700">
                                 This updates pay for every employee currently
-                                assigned to this title. Continue?
+                                assigned to this title. Hours before the
+                                effective date keep costing at the old rate
+                                in Analytics.
                               </span>
+                              <label className="flex items-center gap-1.5 text-xs text-amber-700">
+                                Effective from
+                                <input
+                                  type="date"
+                                  value={rateEffectiveFrom}
+                                  onChange={(e) => setRateEffectiveFrom(e.target.value)}
+                                  className="rounded-md border border-amber-200 px-2 py-1 text-xs text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                                />
+                              </label>
                               <button
                                 onClick={() => saveEditJob(job)}
                                 className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover"

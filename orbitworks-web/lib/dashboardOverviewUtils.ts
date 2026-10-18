@@ -1,4 +1,8 @@
-import type { ClockEvent } from "@/lib/types";
+import type { ClockEvent, EmployeeUpdate } from "@/lib/types";
+
+// How far back an ignored/resolved alertAction stays remembered - see
+// useAlertActions.ts's resolvedAt query.
+export const ALERT_ACTION_LOOKBACK_DAYS = 30;
 
 export type DayAttendance = {
   label: string;
@@ -12,12 +16,94 @@ export type DayAttendance = {
 // file and alertActions' resolved/ignored records key off AlertItem.key.
 export type AlertItem = {
   key: string;
-  alertType: "lateClockIn" | "earlyClockOut" | "breakTooLong" | "maxHours" | "overtime" | "missedClockOut";
+  // Every alert type is server-generated now (functions/src/alerts.ts,
+  // via useServerAlerts.ts).
+  alertType:
+    | "lateClockIn"
+    | "earlyClockOut"
+    | "breakTooLong"
+    | "maxHours"
+    | "overtime"
+    | "missedClockOut"
+    | "clockedInOutsideGeofence"
+    | "siteMismatch"
+    // Face Verification (Pro) - see functions/src/alerts.ts.
+    | "faceMismatch"
+    | "faceNoFace"
+    | "faceBadReference"
+    // Update Employee (mobile) - see functions/src/alerts.ts.
+    | "employeeUpdated";
+  // Who/what this alert is about - an employee name for every alert type
+  // today. A future site-level alert (no single employee involved) should
+  // put the site name (or "All Sites") here instead - alertTitle() below
+  // just formats whatever ends up in this field, no special-casing needed.
   label: string;
   detail: string;
   employeeId: string;
   event?: ClockEvent;
+  // Set for server-generated alerts (useServerAlerts.ts). clockedInOutsideGeofence/
+  // siteMismatch are both about a specific past clock-in, not an
+  // employee's current session, so AlertsPanel.tsx resolves `event` by
+  // this id instead of by employeeId for those two - a since-clocked-out
+  // or re-clocked-in employee must not attach the wrong session to an
+  // "Edit Time" action.
+  eventId?: string | null;
+  // Update Employee (mobile). employeeUpdated's own per-instance severity
+  // (red for a different-person photo swap, yellow otherwise) - read off
+  // the alert doc itself (useServerAlerts.ts), unlike every other type
+  // whose severity is the fixed ALERT_SEVERITY[alertType] below.
+  severity?: AlertSeverity;
+  employeeUpdateId?: string | null;
+  employeeUpdate?: EmployeeUpdate;
 };
+
+// Short tag shown after the "-" in an alert's title, e.g. "Ryan Mitchell -
+// Overtime". Keep these short - they render inline next to a name/site.
+export const ALERT_SHORT_TAGS: Record<AlertItem["alertType"], string> = {
+  maxHours: "Max Hours",
+  missedClockOut: "Missed Clock Out",
+  overtime: "Overtime",
+  breakTooLong: "Long Break",
+  lateClockIn: "Late Clock In",
+  earlyClockOut: "Early Clock Out",
+  clockedInOutsideGeofence: "Outside Geofence",
+  siteMismatch: "Wrong Site",
+  faceMismatch: "Face Mismatch",
+  faceNoFace: "No Face Detected",
+  faceBadReference: "Bad Reference Photo",
+  employeeUpdated: "Employee Updated",
+};
+
+// Drives the severity dot in AlertsPanel - urgent (red) for alerts that need
+// attention right away, warning (amber) for threshold breaches that should
+// be reviewed, and info (blue) for alerts that never block anything and are
+// purely a "someone should take a look" flag (see siteMismatch's comment
+// below).
+export type AlertSeverity = "urgent" | "warning" | "info";
+
+export const ALERT_SEVERITY: Record<AlertItem["alertType"], AlertSeverity> = {
+  maxHours: "urgent",
+  missedClockOut: "urgent",
+  overtime: "warning",
+  breakTooLong: "warning",
+  lateClockIn: "warning",
+  earlyClockOut: "warning",
+  clockedInOutsideGeofence: "warning",
+  siteMismatch: "info",
+  // Never block a clock event, same reasoning as clockedInOutsideGeofence -
+  // "someone should take a look," one notch below urgent.
+  faceMismatch: "warning",
+  faceNoFace: "warning",
+  faceBadReference: "warning",
+  // Static fallback only - AlertsPanel.tsx prefers the per-doc `severity`
+  // field for this type (set per-instance by createEmployeeUpdatedAlert),
+  // falling back to this only if that field is somehow missing.
+  employeeUpdated: "warning",
+};
+
+export function alertTitle(alert: AlertItem) {
+  return `${alert.label} - ${ALERT_SHORT_TAGS[alert.alertType]}`;
+}
 
 // A correction (correctClockEvent) intentionally never touches the raw
 // `timestamp` field - only `adjustedTimestamp`. Anything on this page that
@@ -82,7 +168,3 @@ export function toDatetimeLocalValue(date: Date) {
   )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-// buildAlertItems (client-side computation of maxHours/missedClockOut/
-// overtime/breakTooLong) was removed here - useServerAlerts.ts now reads
-// the same server-generated alerts the mobile Alerts tab uses
-// (functions/src/alerts.ts) instead of recomputing them in the browser.
