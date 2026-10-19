@@ -255,7 +255,15 @@ export function useSettingsPage() {
         alerts,
         appSettings,
         exportSettings,
-        faceVerification,
+        // Face Verification is Pro-only, and firestore.rules enforces that:
+        // it denies the WHOLE update if faceVerification is among the
+        // affected keys on a non-Pro company's doc. A non-Pro company has
+        // never had this field saved at all, so writing even its unchanged
+        // default would "add" the key and trip that denial - blocking
+        // every other field in this same save, not just this one. Omitting
+        // it entirely for non-Pro companies is what keeps every other
+        // Settings tab saveable on every plan, Free included.
+        ...(isPro ? { faceVerification } : {}),
         autoClockOut,
       });
 
