@@ -11,11 +11,13 @@ export const PUSH_NOTIFICATIONS_ENABLED = defineBoolean("PUSH_NOTIFICATIONS_ENAB
 // Auto Clock-Out (functions/src/autoClockOut.ts) - its own kill switch,
 // independent of ALERTS_FEED_ENABLED (that one only gates the informational
 // alerts/push system; this one gates writing real clock events on real
-// shifts, so it gets its own rollout safety rail). Default OFF - flip on
-// only after verifying on the ShipMate test company. Each company also has
+// shifts, so it gets its own rollout safety rail). Each company also has
 // its own autoClockOut.enabled toggle (Settings > Automations); the sweep
-// requires both to be true before touching anything.
-export const AUTO_CLOCK_OUT_ENABLED = defineBoolean("AUTO_CLOCK_OUT_ENABLED", { default: false });
+// requires both to be true before touching anything, so flipping this on
+// is still safe with every company's own toggle left off. On prod this
+// param is actually controlled by functions/.env.orbitworks-7ef59 (gitignored,
+// not this `default`) - see that file for the live value.
+export const AUTO_CLOCK_OUT_ENABLED = defineBoolean("AUTO_CLOCK_OUT_ENABLED", { default: true });
 
 // Optional testing scope, applied on top of ALERTS_FEED_ENABLED. Empty
 // (the default) means no restriction - every company gets alerts once the

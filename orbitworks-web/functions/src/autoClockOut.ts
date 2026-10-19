@@ -1,7 +1,7 @@
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 import { db, localDateKey } from "./shared";
-import { AUTO_CLOCK_OUT_ENABLED } from "./flags";
+import { AUTO_CLOCK_OUT_ENABLED, isCompanyInTestScope } from "./flags";
 import { createAlertIfNew, type AlertInput } from "./alerts";
 
 // Settings > Automations > Auto clock-out. Available on every plan, off by
@@ -239,6 +239,12 @@ async function maybeAutoClockOutEmployee(
 
 async function sweepCompanyAutoClockOut(companyDoc: FirebaseFirestore.QueryDocumentSnapshot): Promise<void> {
   const companyId = companyDoc.id;
+  // Same optional test-scope restriction every other alert-generation path
+  // in functions/src/alerts.ts already applies (TEST_COMPANY_IDS). Auto
+  // Clock-Out's real gate is the per-company autoClockOut.enabled toggle,
+  // but this is extra insurance while the Settings UI isn't deployed yet
+  // and the only way to flip that toggle is a direct Firestore edit.
+  if (!isCompanyInTestScope(companyId)) return;
   const data = companyDoc.data();
   // Belt-and-suspenders - the query below already filters on
   // autoClockOut.enabled == true, but a malformed/missing maxWorkedHours
