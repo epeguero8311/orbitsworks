@@ -19,7 +19,7 @@ export function CompanyProfileCard({
         Company profile
       </h2>
 
-      <div className="mt-5 flex items-center gap-4">
+      <div id="company-logo" className="mt-5 flex items-center gap-4">
         {logoPreview || logoUrl ? (
           <img
             src={logoPreview ?? logoUrl ?? undefined}
@@ -48,7 +48,7 @@ export function CompanyProfileCard({
         </div>
       </div>
 
-      <div className="mt-5">
+      <div id="company-name" className="mt-5">
         <label
           htmlFor="companyName"
           className="mb-2 block text-sm font-medium text-gray-950"

@@ -101,7 +101,7 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
 
   if (!isPro) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-6">
+      <div id="devices" className="rounded-xl border border-gray-200 bg-white p-6">
         <h2 className="text-base font-semibold text-gray-950">Devices</h2>
         <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-6 text-center">
           <p className="text-sm text-gray-600">Device recognition is a Pro feature.</p>
@@ -218,7 +218,7 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-6">
+    <div id="devices" className="rounded-xl border border-gray-200 bg-white p-6">
       <h2 className="text-base font-semibold text-gray-950">Devices</h2>
       <p className="mt-1 text-xs text-gray-600">
         Devices seen clocking in for this company. Rename them so Time Tracking shows who used

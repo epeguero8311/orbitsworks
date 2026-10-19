@@ -24,46 +24,56 @@ export function AppSettingsCard({
         Controls behavior in the mobile app.
       </p>
       <div className="mt-2 divide-y divide-gray-100">
-        <Toggle
-          label="Allow supervisor override"
-          description="Supervisors can override normal clock-in rules on mobile."
-          checked={appSettings.allowSupervisorOverride}
-          onChange={(v) =>
-            setAppSettings((prev) => ({ ...prev, allowSupervisorOverride: v }))
-          }
-        />
-        <Toggle
-          label="Require Reason for Supervisor Overrides"
-          description="Require supervisors to provide a reason when overriding an employee's time action."
-          checked={attendanceRules.requireOverrideReason}
-          onChange={(v) =>
-            setAttendanceRules((prev) => ({ ...prev, requireOverrideReason: v }))
-          }
-        />
-        <Toggle
-          label="Allow creating employees from the app"
-          description="Supervisors and admins can add a new employee from the mobile app, with a photo and PIN."
-          checked={appSettings.allowAppEmployeeCreate}
-          onChange={(v) =>
-            setAppSettings((prev) => ({ ...prev, allowAppEmployeeCreate: v }))
-          }
-        />
-        <Toggle
-          label="Allow updating employees from the app"
-          description="Supervisors and admins can update an employee's name or photo from the mobile app."
-          checked={appSettings.allowAppEmployeeUpdate}
-          onChange={(v) =>
-            setAppSettings((prev) => ({ ...prev, allowAppEmployeeUpdate: v }))
-          }
-        />
-        <Toggle
-          label="Ask for job site each time"
-          description="At clock-in, pick the employee's assigned job site instead of using whatever site is selected on the device."
-          checked={appSettings.askJobSiteEachTime}
-          onChange={(v) =>
-            setAppSettings((prev) => ({ ...prev, askJobSiteEachTime: v }))
-          }
-        />
+        <div id="allow-supervisor-override">
+          <Toggle
+            label="Allow supervisor override"
+            description="Supervisors can override normal clock-in rules on mobile."
+            checked={appSettings.allowSupervisorOverride}
+            onChange={(v) =>
+              setAppSettings((prev) => ({ ...prev, allowSupervisorOverride: v }))
+            }
+          />
+        </div>
+        <div id="require-override-reason">
+          <Toggle
+            label="Require Reason for Supervisor Overrides"
+            description="Require supervisors to provide a reason when overriding an employee's time action."
+            checked={attendanceRules.requireOverrideReason}
+            onChange={(v) =>
+              setAttendanceRules((prev) => ({ ...prev, requireOverrideReason: v }))
+            }
+          />
+        </div>
+        <div id="allow-app-employee-create">
+          <Toggle
+            label="Allow creating employees from the app"
+            description="Supervisors and admins can add a new employee from the mobile app, with a photo and PIN."
+            checked={appSettings.allowAppEmployeeCreate}
+            onChange={(v) =>
+              setAppSettings((prev) => ({ ...prev, allowAppEmployeeCreate: v }))
+            }
+          />
+        </div>
+        <div id="allow-app-employee-update">
+          <Toggle
+            label="Allow updating employees from the app"
+            description="Supervisors and admins can update an employee's name or photo from the mobile app."
+            checked={appSettings.allowAppEmployeeUpdate}
+            onChange={(v) =>
+              setAppSettings((prev) => ({ ...prev, allowAppEmployeeUpdate: v }))
+            }
+          />
+        </div>
+        <div id="ask-job-site-each-time">
+          <Toggle
+            label="Ask for job site each time"
+            description="At clock-in, pick the employee's assigned job site instead of using whatever site is selected on the device."
+            checked={appSettings.askJobSiteEachTime}
+            onChange={(v) =>
+              setAppSettings((prev) => ({ ...prev, askJobSiteEachTime: v }))
+            }
+          />
+        </div>
       </div>
     </div>
   );

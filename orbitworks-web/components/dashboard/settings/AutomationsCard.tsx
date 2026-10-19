@@ -23,7 +23,7 @@ export function AutomationsCard({
         Rules that run automatically on your employees&apos; time.
       </p>
 
-      <div className="mt-5">
+      <div id="automatic-break-minutes" className="mt-5">
         <label
           htmlFor="automaticBreakMinutes"
           className="mb-2 block text-sm font-medium text-gray-950"
@@ -54,7 +54,7 @@ export function AutomationsCard({
         </p>
       </div>
 
-      <div className="mt-5">
+      <div id="minimum-shift-hours" className="mt-5">
         <label
           htmlFor="minimumShiftHours"
           className="mb-2 block text-sm font-medium text-gray-950"
@@ -81,7 +81,7 @@ export function AutomationsCard({
         </p>
       </div>
 
-      <div className="mt-5 border-t border-gray-100 pt-5">
+      <div id="auto-clock-out" className="mt-5 border-t border-gray-100 pt-5">
         <Toggle
           label="Auto clock-out"
           description="Automatically clocks an employee out once they've worked this many hours in a shift. Breaks are not counted. Admins get an alert so they can review and correct the time."

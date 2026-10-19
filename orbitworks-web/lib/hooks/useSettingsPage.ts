@@ -19,9 +19,88 @@ import {
   DEFAULT_FACE_VERIFICATION_SETTINGS,
   DEFAULT_AUTO_CLOCK_OUT,
 } from "@/lib/hooks/useCompanySettings";
+import type { SettingsTabId } from "@/lib/hooks/useSettingsTabs";
 import type { ExportSettings } from "@/lib/types";
 
 export type AuthMode = "individual" | "shared";
+
+// The subset of useSettingsPage's state that the Save button actually
+// persists and that the tabbed Settings UI needs to diff against, to know
+// which tabs have unsaved edits. Captured once right after load (and again
+// right after a successful save) - see originalSnapshotRef below.
+type SettingsSnapshot = {
+  companyName: string;
+  businessOpen: string;
+  businessClose: string;
+  otThreshold: string;
+  otMultiplier: string;
+  attendanceRules: AttendanceRules;
+  alerts: Alerts;
+  appSettings: AppSettings;
+  exportSettings: ExportSettings;
+  faceVerification: FaceVerificationSettings;
+  autoClockOut: AutoClockOutSettings;
+};
+
+// Field-to-tab mapping for the dirty dot on each tab (SettingsTabBar.tsx).
+// attendanceRules and exportSettings are each a single saved object whose
+// individual fields are split across two tabs (gracePeriodMinutes lives on
+// General, requireOverrideReason on Mobile App; the rounding fields are
+// Export Settings, the break/shift fields are Automations) - diffed at the
+// field level for that reason, not the object level. alerts/appSettings
+// are flat objects of booleans/numbers, safe to diff with JSON.stringify.
+function computeDirtyTabs(
+  current: SettingsSnapshot,
+  original: SettingsSnapshot | null,
+  hasLogoChange: boolean
+): Set<SettingsTabId> {
+  const dirty = new Set<SettingsTabId>();
+  if (!original) return dirty;
+
+  if (
+    current.companyName !== original.companyName ||
+    hasLogoChange ||
+    current.businessOpen !== original.businessOpen ||
+    current.businessClose !== original.businessClose ||
+    current.attendanceRules.gracePeriodMinutes !== original.attendanceRules.gracePeriodMinutes
+  ) {
+    dirty.add("general");
+  }
+
+  if (
+    current.exportSettings.roundDailyMinutes !== original.exportSettings.roundDailyMinutes ||
+    current.exportSettings.roundTotalMinutes !== original.exportSettings.roundTotalMinutes
+  ) {
+    dirty.add("export");
+  }
+
+  if (
+    current.exportSettings.automaticBreakMinutes !== original.exportSettings.automaticBreakMinutes ||
+    current.exportSettings.minimumShiftHours !== original.exportSettings.minimumShiftHours ||
+    current.autoClockOut.enabled !== original.autoClockOut.enabled ||
+    current.autoClockOut.maxWorkedHours !== original.autoClockOut.maxWorkedHours
+  ) {
+    dirty.add("automations");
+  }
+
+  if (
+    JSON.stringify(current.alerts) !== JSON.stringify(original.alerts) ||
+    current.otThreshold !== original.otThreshold ||
+    current.otMultiplier !== original.otMultiplier ||
+    current.faceVerification.alertsEnabled !== original.faceVerification.alertsEnabled
+  ) {
+    dirty.add("alerts");
+  }
+
+  if (
+    JSON.stringify(current.appSettings) !== JSON.stringify(original.appSettings) ||
+    current.attendanceRules.requireOverrideReason !== original.attendanceRules.requireOverrideReason
+  ) {
+    dirty.add("mobile");
+  }
+
+  return dirty;
+}
 
 export function useSettingsPage() {
   const { userData } = useAuth();
@@ -58,6 +137,11 @@ export function useSettingsPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Captured once right after load, and again right after a successful
+  // save - the "clean" baseline computeDirtyTabs diffs the live state
+  // against below.
+  const [originalSnapshot, setOriginalSnapshot] = useState<SettingsSnapshot | null>(null);
+
   useEffect(() => {
     if (!userData?.companyId) return;
 
@@ -67,44 +151,58 @@ export function useSettingsPage() {
         const snapshot = await getDoc(companyRef);
         if (snapshot.exists()) {
           const data = snapshot.data();
-          setCompanyName(data.name ?? "");
+          const resolved: SettingsSnapshot = {
+            companyName: data.name ?? "",
+            businessOpen: data.businessHours?.open ?? "08:00",
+            businessClose: data.businessHours?.close ?? "17:00",
+            otThreshold:
+              data.weeklyOvertimeThreshold != null
+                ? String(data.weeklyOvertimeThreshold)
+                : "40",
+            otMultiplier:
+              data.overtimeMultiplier != null ? String(data.overtimeMultiplier) : "1.5",
+            attendanceRules: {
+              ...DEFAULT_ATTENDANCE_RULES,
+              ...(data.attendanceRules ?? {}),
+            },
+            alerts: {
+              ...DEFAULT_ALERTS,
+              ...(data.alerts ?? {}),
+            },
+            appSettings: {
+              ...DEFAULT_APP_SETTINGS,
+              ...(data.appSettings ?? {}),
+            },
+            exportSettings: {
+              ...DEFAULT_EXPORT_SETTINGS,
+              ...(data.exportSettings ?? {}),
+            },
+            faceVerification: {
+              ...DEFAULT_FACE_VERIFICATION_SETTINGS,
+              ...(data.faceVerification ?? {}),
+            },
+            autoClockOut: {
+              ...DEFAULT_AUTO_CLOCK_OUT,
+              ...(data.autoClockOut ?? {}),
+            },
+          };
+
+          setCompanyName(resolved.companyName);
           setAuthMode((data.authMode as AuthMode) ?? "individual");
           setLogoUrl(data.logoUrl ?? null);
-          setBusinessOpen(data.businessHours?.open ?? "08:00");
-          setBusinessClose(data.businessHours?.close ?? "17:00");
-          setOtThreshold(
-            data.weeklyOvertimeThreshold != null
-              ? String(data.weeklyOvertimeThreshold)
-              : "40"
-          );
-          setOtMultiplier(
-            data.overtimeMultiplier != null ? String(data.overtimeMultiplier) : "1.5"
-          );
-          setAttendanceRules({
-            ...DEFAULT_ATTENDANCE_RULES,
-            ...(data.attendanceRules ?? {}),
-          });
-          setAlerts({
-            ...DEFAULT_ALERTS,
-            ...(data.alerts ?? {}),
-          });
-          setAppSettings({
-            ...DEFAULT_APP_SETTINGS,
-            ...(data.appSettings ?? {}),
-          });
+          setBusinessOpen(resolved.businessOpen);
+          setBusinessClose(resolved.businessClose);
+          setOtThreshold(resolved.otThreshold);
+          setOtMultiplier(resolved.otMultiplier);
+          setAttendanceRules(resolved.attendanceRules);
+          setAlerts(resolved.alerts);
+          setAppSettings(resolved.appSettings);
           setIsPro(isProPlan(data.planTier));
-          setExportSettings({
-            ...DEFAULT_EXPORT_SETTINGS,
-            ...(data.exportSettings ?? {}),
-          });
-          setFaceVerification({
-            ...DEFAULT_FACE_VERIFICATION_SETTINGS,
-            ...(data.faceVerification ?? {}),
-          });
-          setAutoClockOut({
-            ...DEFAULT_AUTO_CLOCK_OUT,
-            ...(data.autoClockOut ?? {}),
-          });
+          setExportSettings(resolved.exportSettings);
+          setFaceVerification(resolved.faceVerification);
+          setAutoClockOut(resolved.autoClockOut);
+
+          setOriginalSnapshot(resolved);
         }
       } catch (err) {
         console.error("Load company error:", err);
@@ -165,6 +263,22 @@ export function useSettingsPage() {
       setLogoFile(null);
       setLogoPreview(null);
       setSuccess("Saved.");
+
+      // Clears every tab's dirty dot - this save just persisted exactly
+      // this snapshot, so it's the new "clean" baseline to diff against.
+      setOriginalSnapshot({
+        companyName,
+        businessOpen,
+        businessClose,
+        otThreshold,
+        otMultiplier,
+        attendanceRules,
+        alerts,
+        appSettings,
+        exportSettings,
+        faceVerification,
+        autoClockOut,
+      });
     } catch (err) {
       console.error("Save company error:", err);
       setError("Couldn't save changes. Try again.");
@@ -173,8 +287,29 @@ export function useSettingsPage() {
     }
   }
 
+  const dirtyTabs = computeDirtyTabs(
+    {
+      companyName,
+      businessOpen,
+      businessClose,
+      otThreshold,
+      otMultiplier,
+      attendanceRules,
+      alerts,
+      appSettings,
+      exportSettings,
+      faceVerification,
+      autoClockOut,
+    },
+    originalSnapshot,
+    logoFile !== null
+  );
+  const isDirty = dirtyTabs.size > 0;
+
   return {
     loading,
+    dirtyTabs,
+    isDirty,
     companyName,
     setCompanyName,
     logoUrl,

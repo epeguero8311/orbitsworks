@@ -23,7 +23,7 @@ export function BusinessHoursCard({
       <p className="mt-1 text-xs text-gray-600">
         Applies company-wide for now.
       </p>
-      <div className="mt-4 flex items-center gap-2">
+      <div id="business-hours" className="mt-4 flex items-center gap-2">
         <input
           type="time"
           value={businessOpen}
@@ -39,7 +39,7 @@ export function BusinessHoursCard({
         />
       </div>
 
-      <div className="mt-5">
+      <div id="grace-period" className="mt-5">
         <label
           htmlFor="gracePeriod"
           className="mb-2 block text-sm font-medium text-gray-950"

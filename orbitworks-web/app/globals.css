@@ -28,3 +28,22 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }
+
+/* Settings search - briefly flashes the row a picked search result
+   scrolled to. Applied/removed via direct DOM class toggling (see
+   lib/hooks/useScrollToSettingsAnchor.ts), not React state, so no card
+   component needs a highlight-related prop. */
+@keyframes settings-highlight-pulse {
+  0%,
+  100% {
+    background-color: transparent;
+  }
+  20% {
+    background-color: rgba(59, 111, 224, 0.12);
+  }
+}
+
+.settings-highlight {
+  animation: settings-highlight-pulse 1.6s ease-out;
+  border-radius: 0.5rem;
+}

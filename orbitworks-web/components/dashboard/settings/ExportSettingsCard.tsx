@@ -24,7 +24,7 @@ export function ExportSettingsCard({
         Rounding for payroll hours. Always rounds up.
       </p>
 
-      <div className="mt-5">
+      <div id="round-daily-minutes" className="mt-5">
         <label
           htmlFor="roundDailyMinutes"
           className="mb-2 block text-sm font-medium text-gray-950"
@@ -53,7 +53,7 @@ export function ExportSettingsCard({
         </p>
       </div>
 
-      <div className="mt-5">
+      <div id="round-total-minutes" className="mt-5">
         <label
           htmlFor="roundTotalMinutes"
           className="mb-2 block text-sm font-medium text-gray-950"

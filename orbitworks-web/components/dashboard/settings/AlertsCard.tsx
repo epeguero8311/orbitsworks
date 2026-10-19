@@ -31,11 +31,11 @@ export function AlertsCard({
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-6">
       <h2 className="text-base font-semibold text-gray-950">Alerts</h2>
-      <p className="mt-1 text-xs text-gray-600">
+      <p className="mt-1 text-sm text-gray-600">
         Choose which alerts you want to see on the Overview dashboard.
       </p>
       <div className="mt-2 divide-y divide-gray-100">
-        <div className="py-1">
+        <div id="late-clockin-alert" className="py-1">
           <Toggle
             label="Late clock-in alert"
             checked={alerts.lateClockInAlert}
@@ -43,7 +43,7 @@ export function AlertsCard({
           />
         </div>
 
-        <div className="py-1">
+        <div id="early-clockout-alert" className="py-1">
           <Toggle
             label="Early clock-out alert"
             checked={alerts.earlyClockOutAlert}
@@ -51,7 +51,7 @@ export function AlertsCard({
           />
         </div>
 
-        <div className="py-1">
+        <div id="max-hours-warning" className="py-1">
           <Toggle
             label="Max hours warning"
             checked={alerts.maxHoursWarning}
@@ -65,7 +65,7 @@ export function AlertsCard({
           />
         </div>
 
-        <div className="py-1">
+        <div id="overtime-warning" className="py-1">
           <Toggle
             label="Overtime warning"
             checked={alerts.overtimeWarning}
@@ -91,7 +91,7 @@ export function AlertsCard({
           </div>
         </div>
 
-        <div className="py-1">
+        <div id="missed-clockout-alert" className="py-1">
           <Toggle
             label="Missed clock out alert"
             checked={alerts.missedClockOutAlert}
@@ -105,7 +105,7 @@ export function AlertsCard({
           />
         </div>
 
-        <div className="py-1">
+        <div id="max-break-warning" className="py-1">
           <Toggle
             label="Max break time warning"
             checked={alerts.maxBreakWarning}
@@ -119,7 +119,7 @@ export function AlertsCard({
           />
         </div>
 
-        <div className="py-1">
+        <div id="outside-geofence-alert" className="py-1">
           <Toggle
             label="Clocked in outside geofence"
             checked={alerts.clockedInOutsideGeofence}
@@ -127,7 +127,7 @@ export function AlertsCard({
           />
         </div>
 
-        <div className="py-1">
+        <div id="site-mismatch-alert" className="py-1">
           <Toggle
             label="Clocked in at unassigned site"
             checked={alerts.siteMismatchWarning}
@@ -135,7 +135,7 @@ export function AlertsCard({
           />
         </div>
 
-        <div className="py-1">
+        <div id="face-recognition-alerts" className="py-1">
           <Toggle
             label="Face recognition alerts"
             description="Checks always run on every clock-in for Pro - this only controls whether mismatch and no-face alerts fire. Badges in Time Tracking still show either way."
