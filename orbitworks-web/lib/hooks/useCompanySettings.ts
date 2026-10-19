@@ -63,6 +63,22 @@ export type CompanySettings = {
   appSettings: AppSettings;
   exportSettings: ExportSettings;
   faceVerification: FaceVerificationSettings;
+  autoClockOut: AutoClockOutSettings;
+};
+
+// Automations > Auto clock-out. Available on every plan, off by default.
+// Read server-side by the scheduled auto-clock-out sweep (functions/src/
+// autoClockOut.ts) directly off the company doc - not through this hook,
+// which is client-only - so keep the field names in sync manually if
+// either side changes.
+export type AutoClockOutSettings = {
+  enabled: boolean;
+  maxWorkedHours: number;
+};
+
+export const DEFAULT_AUTO_CLOCK_OUT: AutoClockOutSettings = {
+  enabled: false,
+  maxWorkedHours: 12,
 };
 
 export const DEFAULT_ATTENDANCE_RULES: AttendanceRules = {
@@ -124,6 +140,7 @@ const DEFAULT_SETTINGS: CompanySettings = {
   appSettings: DEFAULT_APP_SETTINGS,
   exportSettings: DEFAULT_EXPORT_SETTINGS,
   faceVerification: DEFAULT_FACE_VERIFICATION_SETTINGS,
+  autoClockOut: DEFAULT_AUTO_CLOCK_OUT,
 };
 
 export function useCompanySettings() {
@@ -166,6 +183,10 @@ export function useCompanySettings() {
         faceVerification: {
           ...DEFAULT_FACE_VERIFICATION_SETTINGS,
           ...(data.faceVerification ?? {}),
+        },
+        autoClockOut: {
+          ...DEFAULT_AUTO_CLOCK_OUT,
+          ...(data.autoClockOut ?? {}),
         },
       });
       setLoading(false);

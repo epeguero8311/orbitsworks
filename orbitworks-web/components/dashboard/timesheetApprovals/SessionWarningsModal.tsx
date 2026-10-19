@@ -259,6 +259,8 @@ function warningTitle(warning: SessionWarning): string {
       return "Face mismatch";
     case "faceNoFace":
       return "No face detected";
+    case "autoClockOut":
+      return "Auto clocked out";
     default:
       return "";
   }
@@ -446,6 +448,17 @@ export default function SessionWarningsModal({
                   <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
                     <p className="text-gray-600">
                       Break was {Math.round(warning.breakMinutes)} min, limit {warning.thresholdMinutes} min
+                    </p>
+                  </WarningCard>
+                );
+              case "autoClockOut":
+                return (
+                  <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
+                    <p className="text-gray-600">Clocked in at {formatTime(warning.clockInTime)}</p>
+                    <p className="text-gray-600">Cap: {warning.capHours}h</p>
+                    <p className="text-gray-600">Auto clocked out at {formatTime(warning.autoOutTime)}</p>
+                    <p className="text-gray-600">
+                      Break deducted: {Math.round(warning.realBreakMinutes)} min
                     </p>
                   </WarningCard>
                 );

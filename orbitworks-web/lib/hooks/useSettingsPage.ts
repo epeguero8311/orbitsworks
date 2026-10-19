@@ -11,11 +11,13 @@ import {
   Alerts,
   AppSettings,
   FaceVerificationSettings,
+  AutoClockOutSettings,
   DEFAULT_ATTENDANCE_RULES,
   DEFAULT_ALERTS,
   DEFAULT_APP_SETTINGS,
   DEFAULT_EXPORT_SETTINGS,
   DEFAULT_FACE_VERIFICATION_SETTINGS,
+  DEFAULT_AUTO_CLOCK_OUT,
 } from "@/lib/hooks/useCompanySettings";
 import type { ExportSettings } from "@/lib/types";
 
@@ -47,6 +49,9 @@ export function useSettingsPage() {
   );
   const [faceVerification, setFaceVerification] = useState<FaceVerificationSettings>(
     DEFAULT_FACE_VERIFICATION_SETTINGS
+  );
+  const [autoClockOut, setAutoClockOut] = useState<AutoClockOutSettings>(
+    DEFAULT_AUTO_CLOCK_OUT
   );
 
   const [isSaving, setIsSaving] = useState(false);
@@ -95,6 +100,10 @@ export function useSettingsPage() {
           setFaceVerification({
             ...DEFAULT_FACE_VERIFICATION_SETTINGS,
             ...(data.faceVerification ?? {}),
+          });
+          setAutoClockOut({
+            ...DEFAULT_AUTO_CLOCK_OUT,
+            ...(data.autoClockOut ?? {}),
           });
         }
       } catch (err) {
@@ -149,6 +158,7 @@ export function useSettingsPage() {
         appSettings,
         exportSettings,
         faceVerification,
+        autoClockOut,
       });
 
       setLogoUrl(newLogoUrl);
@@ -189,6 +199,8 @@ export function useSettingsPage() {
     setExportSettings,
     faceVerification,
     setFaceVerification,
+    autoClockOut,
+    setAutoClockOut,
     isSaving,
     error,
     success,

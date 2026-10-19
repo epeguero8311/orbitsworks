@@ -32,7 +32,9 @@ export type AlertItem = {
     | "faceNoFace"
     | "faceBadReference"
     // Update Employee (mobile) - see functions/src/alerts.ts.
-    | "employeeUpdated";
+    | "employeeUpdated"
+    // Auto Clock-Out - see functions/src/autoClockOut.ts.
+    | "autoClockOut";
   // Who/what this alert is about - an employee name for every alert type
   // today. A future site-level alert (no single employee involved) should
   // put the site name (or "All Sites") here instead - alertTitle() below
@@ -72,6 +74,7 @@ export const ALERT_SHORT_TAGS: Record<AlertItem["alertType"], string> = {
   faceNoFace: "No Face Detected",
   faceBadReference: "Bad Reference Photo",
   employeeUpdated: "Employee Updated",
+  autoClockOut: "Auto Clocked Out",
 };
 
 // Drives the severity dot in AlertsPanel - urgent (red) for alerts that need
@@ -99,6 +102,10 @@ export const ALERT_SEVERITY: Record<AlertItem["alertType"], AlertSeverity> = {
   // field for this type (set per-instance by createEmployeeUpdatedAlert),
   // falling back to this only if that field is somehow missing.
   employeeUpdated: "warning",
+  // Yellow per spec - informational, never blocks anything, same tier as
+  // clockedInOutsideGeofence/siteMismatch's own "someone should take a
+  // look" framing.
+  autoClockOut: "warning",
 };
 
 export function alertTitle(alert: AlertItem) {

@@ -4,6 +4,7 @@ import { useSettingsPage } from "@/lib/hooks/useSettingsPage";
 import { CompanyProfileCard } from "@/components/dashboard/settings/CompanyProfileCard";
 import { BusinessHoursCard } from "@/components/dashboard/settings/BusinessHoursCard";
 import { ExportSettingsCard } from "@/components/dashboard/settings/ExportSettingsCard";
+import { AutomationsCard } from "@/components/dashboard/settings/AutomationsCard";
 import { AlertsCard } from "@/components/dashboard/settings/AlertsCard";
 import { AppSettingsCard } from "@/components/dashboard/settings/AppSettingsCard";
 import { DevicesCard } from "@/components/dashboard/settings/DevicesCard";
@@ -48,6 +49,12 @@ export default function SettingsPage() {
             setExportSettings={s.setExportSettings}
           />
 
+          <AutomationsCard
+            exportSettings={s.exportSettings}
+            setExportSettings={s.setExportSettings}
+            autoClockOut={s.autoClockOut}
+            setAutoClockOut={s.setAutoClockOut}
+          />
 
           <AlertsCard
             alerts={s.alerts}

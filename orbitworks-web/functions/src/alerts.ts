@@ -37,6 +37,11 @@ export const ALERT_TYPES = [
   // update (not per employee/day), per-instance severity (not the fixed
   // lookup below) - see createEmployeeUpdatedAlert's own comment.
   "employeeUpdated",
+  // Auto Clock-Out - see functions/src/autoClockOut.ts. Admin/owner web
+  // Overview only; written via createAlertIfNew directly (not
+  // maybeCreateAndPush) so it never pushes, and excluded client-side from
+  // the mobile Alerts tab (useAlertsFeed.js).
+  "autoClockOut",
 ] as const;
 
 export type AlertType = (typeof ALERT_TYPES)[number];
@@ -64,6 +69,8 @@ export const ALERT_SEVERITY: Record<AlertType, "urgent" | "warning" | "info"> = 
   // swap), bypassing this lookup the same way faceBadReference's bespoke
   // writer bypasses createAlertIfNew below.
   employeeUpdated: "warning",
+  // Yellow per spec - informational, never blocks anything.
+  autoClockOut: "warning",
 };
 
 // The untrusted-input boundary for alert generation: validates every id
@@ -193,6 +200,10 @@ const ALERT_ID_PREFIX: Record<AlertType, string> = {
   // Only used directly by buildEmployeeUpdatedAlertId below - keyed by
   // updateId instead of a dateKey, same reason as faceBadReference.
   employeeUpdated: "empupdate",
+  // Keyed by the shift's clock-in event id (see the eventId-keyed subjectId
+  // branch in createAlertIfNew below) - same convention as
+  // clockedInOutsideGeofence/siteMismatch.
+  autoClockOut: "autoout",
 };
 
 function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string): string {
@@ -208,7 +219,10 @@ function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string):
 // condition. Never throws - malformed input or a write failure both
 // resolve to null, so a bad alert can never affect the clock event or
 // sweep it ran alongside.
-async function createAlertIfNew(input: AlertInput, occurredAt: Timestamp): Promise<AlertDoc | null> {
+// Exported for functions/src/autoClockOut.ts, which calls this directly
+// (skipping maybeCreateAndPush below) so an auto clock-out alert is written
+// without ever sending a push, per spec.
+export async function createAlertIfNew(input: AlertInput, occurredAt: Timestamp): Promise<AlertDoc | null> {
   const parsed = alertInputSchema.safeParse(input);
   if (!parsed.success) {
     console.warn("Skipping malformed alert input", { input, issues: parsed.error.issues });
@@ -220,9 +234,15 @@ async function createAlertIfNew(input: AlertInput, occurredAt: Timestamp): Promi
   // clock in outside the geofence, or at the wrong site, more than once
   // in the same day, and each one is its own underlying condition
   // (mirrors the old client-computed buildGeofenceAlertItems, which
-  // keyed its items by event id too).
+  // keyed its items by event id too). autoClockOut joins them for the
+  // same reason, per spec: "Key the alert to the specific shift
+  // (clockInEventId), so dismissing one never hides future ones" - here
+  // `eventId` is always the CLOCK-IN event's id, not the auto-written
+  // "out" event's id (see functions/src/autoClockOut.ts).
   const subjectId =
-    data.alertType === "clockedInOutsideGeofence" || data.alertType === "siteMismatch"
+    data.alertType === "clockedInOutsideGeofence" ||
+    data.alertType === "siteMismatch" ||
+    data.alertType === "autoClockOut"
       ? data.eventId ?? data.employeeId ?? "company"
       : data.employeeId ?? data.siteId ?? "company";
   const alertId = buildAlertId(data.alertType, subjectId, data.dateKey);
@@ -319,6 +339,11 @@ export async function checkEarlyClockOut(
 ): Promise<void> {
   if (!ALERTS_FEED_ENABLED.value()) return;
   if (data?.type !== "out") return;
+  // Auto Clock-Out writes its own "out" event, often well before business
+  // close with a short test cap - that is never a real early-clock-out,
+  // and it already gets its own dedicated alert (functions/src/
+  // autoClockOut.ts), so this must not fire a second one.
+  if (data?.source === "autoClockOut") return;
   if (typeof companyId !== "string" || !companyId) return;
   if (!isCompanyInTestScope(companyId)) return;
   if (typeof data.employeeId !== "string" || !data.employeeId) return;

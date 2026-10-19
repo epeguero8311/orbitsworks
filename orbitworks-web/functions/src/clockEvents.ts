@@ -506,6 +506,84 @@ export const onClockEventCreated = onDocumentCreated(
     // that function accidentally removing its internal guard.
     await handleDeviceTracking(event).catch(() => {});
 
+    // Phone sync always wins (Auto Clock-Out) - fully isolated from
+    // everything above: never blocks or rejects the real punch that just
+    // landed, since that write already succeeded before this trigger ever
+    // ran. Only a non-auto "out" event can close out an auto clock-out, so
+    // this returns immediately for every other event (including the auto
+    // event's own create, which must never try to override itself).
+    // "That shift" is matched by the latest clock-in whose own effective
+    // time is <= this out event's effective time - not "the employee's
+    // most recent clock-in" - so a late-arriving offline punch for an
+    // earlier shift can never be matched against a newer shift that
+    // already started (e.g. the auto-out fired Monday, the employee got
+    // clocked in again Tuesday before Monday's real punch finally synced).
+    if (data.type === "out" && data.source !== "autoClockOut") {
+      try {
+        const outTs: admin.firestore.Timestamp = data.timestamp ?? admin.firestore.Timestamp.now();
+        const matchSnap = await db
+          .collection("companies")
+          .doc(companyId)
+          .collection("clockEvents")
+          .where("employeeId", "==", employeeId)
+          .where("type", "==", "in")
+          .where("timestamp", "<=", outTs)
+          .orderBy("timestamp", "desc")
+          .limit(1)
+          .get();
+
+        if (!matchSnap.empty) {
+          const clockInDoc = matchSnap.docs[0];
+          const autoOutRef = db
+            .collection("companies")
+            .doc(companyId)
+            .collection("clockEvents")
+            .doc(`auto-${clockInDoc.id}`);
+          const autoOutSnap = await autoOutRef.get();
+
+          if (autoOutSnap.exists) {
+            const batch = db.batch();
+            batch.delete(autoOutRef);
+            batch.delete(
+              db
+                .collection("companies")
+                .doc(companyId)
+                .collection("clockEvents")
+                .doc(`auto-break-${clockInDoc.id}`)
+            );
+            await batch.commit();
+
+            // Mirrors functions/src/autoClockOut.ts's own alert id exactly
+            // (buildAlertId's `autoout-<clockInEventId>-<dateKey>`, where
+            // dateKey is the clock-in's own effective date) - there's no
+            // other way to look this alert up, since it isn't keyed by the
+            // auto-out event's id at all.
+            const clockInData = clockInDoc.data() as {
+              timestamp?: admin.firestore.Timestamp;
+              adjustedTimestamp?: admin.firestore.Timestamp;
+            };
+            const clockInTs = clockInData.adjustedTimestamp ?? clockInData.timestamp ?? outTs;
+            const dateKey = localDateKey(clockInTs.toDate());
+            await db
+              .collection("companies")
+              .doc(companyId)
+              .collection("alerts")
+              .doc(`autoout-${clockInDoc.id}-${dateKey}`)
+              .delete()
+              .catch((err) => {
+                console.warn("Failed to clear autoClockOut alert after real punch synced", {
+                  companyId,
+                  clockInEventId: clockInDoc.id,
+                  error: String(err),
+                });
+              });
+          }
+        }
+      } catch (err) {
+        console.warn("Phone-sync-wins check failed", { eventId: event.params.eventId, companyId, error: String(err) });
+      }
+    }
+
     // Alert generation - fully isolated from everything above: runs AFTER
     // the real clock-event logic, each check in its own try/catch, and
     // never declines/flags/modifies the clock event itself. A failure

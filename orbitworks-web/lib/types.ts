@@ -264,6 +264,16 @@ export interface ClockEvent {
   // fourth status to render alongside match/mismatch/noFace. Server-
   // written only (functions/src/rekognition.ts).
   faceCheck?: FaceCheck;
+  // Auto Clock-Out. Set only on the "out" (and synthetic "breakEnd", if
+  // one was needed) event the scheduled sweep writes (functions/src/
+  // autoClockOut.ts) - a snapshot of the Settings > Automations cap in
+  // effect at the moment it fired, so a later change to that setting can
+  // never retroactively change what an already-written auto clock-out
+  // "used". This is also what distinguishes a NEW auto clock-out from a
+  // legacy source:"autoClockOut" event written by the old, removed
+  // nightly stale-session sweep (see lib/sessionWarnings.ts) - those
+  // never had this field and must keep displaying exactly as before.
+  autoClockOutCapHours?: number;
 }
 
 // Device Recognition Pro. Doc only exists once a supervisor/admin names the
@@ -356,7 +366,14 @@ export type MobileAlertType =
   // every type above except faceBadReference) - see employeeUpdateId below.
   // Severity is per-instance (red for a different-person photo swap, yellow
   // otherwise), not the fixed per-type value every other alert uses.
-  | "employeeUpdated";
+  | "employeeUpdated"
+  // Auto Clock-Out. Admin/owner web Overview only - never shown in the
+  // mobile Alerts tab (useAlertsFeed.js filters it out explicitly) and
+  // never pushed (functions/src/autoClockOut.ts writes it directly via
+  // createAlertIfNew, bypassing maybeCreateAndPush). Keyed per shift
+  // (eventId = the clock-in event's id), same convention as
+  // clockedInOutsideGeofence/siteMismatch above.
+  | "autoClockOut";
 
 export interface MobileAlert {
   id: string;

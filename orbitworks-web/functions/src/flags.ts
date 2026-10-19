@@ -8,6 +8,15 @@ import { defineBoolean, defineString } from "firebase-functions/params";
 export const ALERTS_FEED_ENABLED = defineBoolean("ALERTS_FEED_ENABLED", { default: false });
 export const PUSH_NOTIFICATIONS_ENABLED = defineBoolean("PUSH_NOTIFICATIONS_ENABLED", { default: false });
 
+// Auto Clock-Out (functions/src/autoClockOut.ts) - its own kill switch,
+// independent of ALERTS_FEED_ENABLED (that one only gates the informational
+// alerts/push system; this one gates writing real clock events on real
+// shifts, so it gets its own rollout safety rail). Default OFF - flip on
+// only after verifying on the ShipMate test company. Each company also has
+// its own autoClockOut.enabled toggle (Settings > Automations); the sweep
+// requires both to be true before touching anything.
+export const AUTO_CLOCK_OUT_ENABLED = defineBoolean("AUTO_CLOCK_OUT_ENABLED", { default: false });
+
 // Optional testing scope, applied on top of ALERTS_FEED_ENABLED. Empty
 // (the default) means no restriction - every company gets alerts once the
 // master switch is on, same as if this didn't exist. Set to a

@@ -59,6 +59,8 @@ export {
 
 export { onEmployeePhotoWrite } from "./rekognition";
 
+export { runAutoClockOut } from "./autoClockOut";
+
 export {
   cleanupClockEventPhotos,
   cleanupDeactivatedEmployeePhotos,

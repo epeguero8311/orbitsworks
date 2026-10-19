@@ -41,7 +41,15 @@ export function useAlertsFeed() {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        setAlerts(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+        // Auto Clock-Out is admin/owner web-only per spec - never shown in
+        // the mobile Alerts tab and never pushed. The alerts collection
+        // itself is shared/generic (no per-type filter server-side), so
+        // this is the one place that has to know to drop it.
+        setAlerts(
+          snapshot.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .filter((a) => a.alertType !== "autoClockOut")
+        );
         setLoading(false);
       },
       (err) => {

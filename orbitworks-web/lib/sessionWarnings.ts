@@ -26,7 +26,8 @@ export type SessionWarningType =
   | "faceLowConfidence"
   | "faceMismatch"
   | "faceNoFace"
-  | "supervisorOverride";
+  | "supervisorOverride"
+  | "autoClockOut";
 
 // Single source of truth for severity - evaluateSessionWarnings below reads
 // this rather than hardcoding a severity per warning, so a type's color can
@@ -48,6 +49,8 @@ export const WARNING_SEVERITY: Record<SessionWarningType, WarningSeverity> = {
   // regardless of settings, and already treated as the top-priority item
   // in the pre-existing modal, so it stays red here.
   supervisorOverride: "red",
+  // Yellow per spec - informational, never blocks anything.
+  autoClockOut: "yellow",
 };
 
 // Below FACE_MATCH_THRESHOLD (90, functions/src/rekognition.ts) but at or
@@ -70,7 +73,15 @@ export type SessionWarning =
   | { type: "faceLowConfidence"; severity: WarningSeverity; direction: Direction; event: ClockEvent }
   | { type: "faceMismatch"; severity: WarningSeverity; direction: Direction; event: ClockEvent }
   | { type: "faceNoFace"; severity: WarningSeverity; direction: Direction; event: ClockEvent }
-  | { type: "supervisorOverride"; severity: WarningSeverity; overrideEventId: string };
+  | { type: "supervisorOverride"; severity: WarningSeverity; overrideEventId: string }
+  | {
+      type: "autoClockOut";
+      severity: WarningSeverity;
+      capHours: number;
+      clockInTime: Timestamp;
+      autoOutTime: Timestamp;
+      realBreakMinutes: number;
+    };
 
 function withSeverity<T extends SessionWarningType>(
   type: T,
@@ -101,6 +112,13 @@ export interface EvaluateSessionWarningsInput {
   clockOutEvent: ClockEvent;
   hours: number; // raw shift duration (clock-in to clock-out), hours
   breakHours: number;
+  // The REAL tracked break only (breakStart->breakEnd spans), before any
+  // Automatic Break padding is stacked on top - unlike breakHours above,
+  // which already includes that padding (see useTimesheetApprovals.ts's
+  // applyAutoBreak call). This is what the new autoClockOut warning shows
+  // as "break deducted", per spec - Auto Clock-Out's own worked-time math
+  // never counts Automatic Break either.
+  realBreakHours: number;
   // Cumulative NET worked hours (breaks excluded) for the employee's
   // calendar week, through and including this session - mirrors
   // functions/src/alerts.ts's weekly overtime sweep, which also excludes
@@ -159,14 +177,33 @@ export function evaluateSessionWarnings(input: EvaluateSessionWarningsInput): Se
     );
   }
 
-  // The only signal a CLOSED session carries of a missed clock-out: a
-  // legacy "autoClockOut"-sourced event, written by the old nightly
-  // stale-session sweep (now removed - see git history) back when a
-  // company had that setting on. Historical events only; nothing creates
-  // this source anymore. The "still open" missed-clock-out case is a
-  // different, already-working system (the Overview alerts feed) and
-  // can't apply to a closed row.
-  if (alerts.missedClockOutAlert && clockOutEvent.source === "autoClockOut") {
+  // Auto Clock-Out (current feature, functions/src/autoClockOut.ts) is
+  // distinguished from the legacy branch below by autoClockOutCapHours -
+  // only the new sweep ever sets that field. Not gated by any Settings >
+  // Alerts toggle: per spec it's "always on when auto clock-out is
+  // enabled," with no separate switch.
+  if (clockOutEvent.autoClockOutCapHours != null) {
+    const inTs = effectiveTimestamp(clockInEvent);
+    const outTs = effectiveTimestamp(clockOutEvent);
+    if (inTs && outTs) {
+      warnings.push(
+        withSeverity("autoClockOut", {
+          capHours: clockOutEvent.autoClockOutCapHours,
+          clockInTime: inTs,
+          autoOutTime: outTs,
+          realBreakMinutes: input.realBreakHours * 60,
+        })
+      );
+    }
+  } else if (alerts.missedClockOutAlert && clockOutEvent.source === "autoClockOut") {
+    // The only signal a CLOSED session carries of a missed clock-out: a
+    // legacy "autoClockOut"-sourced event, written by the old nightly
+    // stale-session sweep (now removed - see git history) back when a
+    // company had that setting on. These never have autoClockOutCapHours
+    // (the field didn't exist yet), so the branch above never touches
+    // them - they keep displaying exactly as they always have. The
+    // "still open" missed-clock-out case is a different, already-working
+    // system (the Overview alerts feed) and can't apply to a closed row.
     const outTs = effectiveTimestamp(clockOutEvent);
     if (outTs) {
       warnings.push(withSeverity("missedClockOut", { note: clockOutEvent.note, actualTime: outTs }));

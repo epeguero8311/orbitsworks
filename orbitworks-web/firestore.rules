@@ -338,6 +338,14 @@ service cloud.firestore {
           ) &&
           request.resource.data.createdByUid == request.auth.uid &&
           isValidOverride(companyId, request.resource.data) &&
+          // Auto Clock-Out (functions/src/autoClockOut.ts) - only the
+          // Admin SDK (bypasses rules entirely) may ever write source
+          // "autoClockOut" or a doc id in its reserved "auto-" id space
+          // (auto-<clockInEventId>, auto-break-<clockInEventId>). Mobile's
+          // own offline-queue ids (makeLocalId(), lib/clockQueue.js) are
+          // always "<epoch ms>-<random>" and can never collide with this.
+          request.resource.data.get('source', null) != 'autoClockOut' &&
+          !eventId.matches('^auto-.*') &&
           // No client ever sends these (onClockEventCreated fills them in
           // after the fact - see the update rule below) - denying them at
           // create time too closes even the brief window before that
@@ -359,6 +367,11 @@ service cloud.firestore {
             .hasAny([
               'type', 'timestamp', 'adjustedTimestamp', 'adjustmentHistory', 'employeeId',
               'employeeName', 'subcontractorId', 'subcontractorName', 'reason',
+              // Auto Clock-Out - no client path legitimately changes an
+              // existing event's source today; denying it here closes even
+              // a hypothetical future write path from forging/erasing
+              // "autoClockOut" after the fact.
+              'source',
               // Only ever written by onClockEventCreated (Admin SDK, bypasses
               // rules entirely) - never trust a client-supplied classification
               // or distance, same reasoning as reason/etc above (Geofencing

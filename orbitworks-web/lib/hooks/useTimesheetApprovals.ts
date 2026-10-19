@@ -295,6 +295,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
                 clockOutEvent,
                 hours,
                 breakHours,
+                realBreakHours: breakMs / (1000 * 60 * 60),
                 weekHoursThroughSession: cumulativeWeekHours,
                 assignedSiteNames,
                 overrideEventId,

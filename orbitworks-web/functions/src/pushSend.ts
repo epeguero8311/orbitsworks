@@ -18,6 +18,10 @@ const ALERT_TITLE: Record<AlertDoc["alertType"], string> = {
   faceNoFace: "No Face Detected",
   faceBadReference: "Bad Reference Photo",
   employeeUpdated: "Employee Updated",
+  // Never actually sent - functions/src/autoClockOut.ts writes this alert
+  // via createAlertIfNew directly, never through sendPushForAlert. Present
+  // only so this Record stays exhaustive over AlertDoc["alertType"].
+  autoClockOut: "Auto Clocked Out",
 };
 
 // Sends one alert to every registered, notification-enabled device on the
