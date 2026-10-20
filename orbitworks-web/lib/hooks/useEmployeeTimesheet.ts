@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import * as Sentry from "@sentry/nextjs";
 import {
   collection,
   doc,
@@ -230,6 +231,19 @@ export function useEmployeeTimesheet() {
         };
       } catch (err) {
         console.error("Employee timesheet error:", err);
+        // Caught errors never reach Sentry on their own. IDs and dates only:
+        // no names, wages, or other PII on the event.
+        Sentry.captureException(err, {
+          tags: {
+            feature: "employee-timesheet-report",
+            step: "load-timesheet",
+            companyId: userData.companyId,
+            employeeId,
+            startDate,
+            endDate,
+            firebaseCode: (err as { code?: string })?.code ?? "none",
+          },
+        });
         setError("Couldn't build this employee's timesheet. Try again.");
         return null;
       } finally {

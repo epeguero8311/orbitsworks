@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useCallback, useState, FormEvent } from "react";
+import * as Sentry from "@sentry/nextjs";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
@@ -17,6 +18,7 @@ import ClockEventsDayView from "@/components/dashboard/ClockEventsDayView";
 import { GeofenceBadge } from "@/components/time/GeofenceBadge";
 import { FaceCheckBadge } from "@/components/time/FaceCheckBadge";
 import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
+import { Toast } from "@/components/Toast";
 
 export default function ClockEventLookup() {
   const { userData } = useAuth();
@@ -47,7 +49,8 @@ export default function ClockEventLookup() {
     : lookupResults ?? [];
 
   const [exportingTimesheet, setExportingTimesheet] = useState(false);
-  const [exportError, setExportError] = useState("");
+  const [timesheetToast, setTimesheetToast] = useState("");
+  const dismissTimesheetToast = useCallback(() => setTimesheetToast(""), []);
 
   const [selectedEvent, setSelectedEvent] = useState<ClockEvent | null>(null);
 
@@ -96,16 +99,16 @@ export default function ClockEventLookup() {
   async function handleExportEmployeeExcel() {
     if (!lookupEmployeeId || !userData?.companyId) return;
     setExportingTimesheet(true);
-    setExportError("");
     const todayLocal = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+    const startDate = lookupFromDate || "2000-01-01";
+    const endDate = lookupToDate || todayLocal;
     try {
-      const result = await runTimesheet(
-        lookupEmployeeId,
-        lookupFromDate || "2000-01-01",
-        lookupToDate || todayLocal
-      );
+      const result = await runTimesheet(lookupEmployeeId, startDate, endDate);
       if (!result) {
-        setExportError("Couldn't build this employee's timesheet. Try again.");
+        // runTimesheet already reported the underlying error to Sentry.
+        setTimesheetToast(
+          "We couldn't build this employee's report. Please try again, or contact support if it keeps happening."
+        );
         return;
       }
       const companySnap = await getDoc(doc(db, "companies", userData.companyId));
@@ -121,12 +124,26 @@ export default function ClockEventLookup() {
         result.weeklyTotals,
         timesheetSettings.weeklyOvertimeThreshold,
         companyName,
-        lookupFromDate || "2000-01-01",
-        lookupToDate || todayLocal
+        startDate,
+        endDate
       );
     } catch (err) {
       console.error("Employee Excel export error:", err);
-      setExportError("Couldn't export this employee's timesheet. Try again.");
+      // Same pattern as runTimesheet: IDs and dates only, no PII.
+      Sentry.captureException(err, {
+        tags: {
+          feature: "employee-timesheet-report",
+          step: "excel-export",
+          companyId: userData.companyId,
+          employeeId: lookupEmployeeId,
+          startDate,
+          endDate,
+          firebaseCode: (err as { code?: string })?.code ?? "none",
+        },
+      });
+      setTimesheetToast(
+        "We couldn't export this employee's report. Please try again, or contact support if it keeps happening."
+      );
     } finally {
       setExportingTimesheet(false);
     }
@@ -279,11 +296,6 @@ export default function ClockEventLookup() {
               </label>
             </div>
           )}
-          {exportError && (
-            <p className="border-b border-gray-200 bg-red-50 px-4 py-2 text-xs text-red-600">
-              {exportError}
-            </p>
-          )}
           {displayedResults.length === 0 ? (
             <p className="p-4 text-sm text-gray-600">
               {outsideGeofenceOnly
@@ -392,6 +404,13 @@ export default function ClockEventLookup() {
           onClose={() => setSelectedEvent(null)}
         />
       )}
+
+      <Toast
+        visible={!!timesheetToast}
+        message={timesheetToast}
+        variant="error"
+        onClose={dismissTimesheetToast}
+      />
     </>
   );
 }
