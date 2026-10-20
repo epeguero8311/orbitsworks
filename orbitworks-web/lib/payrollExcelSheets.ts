@@ -376,22 +376,42 @@ export function addEmployeeHistorySheet(
   const sheet = workbook.addWorksheet("Time History");
   const rangeLabel = formatDateRangeLabel(startDate, endDate);
 
+  // Columns are shared by the weekly summary and daily breakdown blocks.
+  // Header rows wrap (see wrapHeaderRow below), so a long header like
+  // "Estimated Pay (Excluding Break)" splits over two lines instead of
+  // forcing a very wide column. Columns whose content varies (Job Site,
+  // Job, Notes) are sized to their longest value, within limits.
+  const longest = (values: (string | null | undefined)[]) =>
+    values.reduce((max, v) => Math.max(max, (v ?? "").length), 0);
+  const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+  const siteWidth = clamp(longest(dayRows.map((d) => d.siteName)) + 2, 16, 40);
+  // +4 leaves room for the Job dropdown arrow.
+  const jobWidth = clamp(longest([...jobs.map((j) => j.name), "(Default)"]) + 4, 16, 32);
+  const notesWidth = clamp(longest(dayRows.map((d) => d.note)) + 2, 30, 50);
+
   sheet.columns = [
     { width: 14 }, // A Date / Week Of
-    { width: 26 }, // B Job Site / Hours
-    { width: 16 }, // C Job / Worked Hours
-    { width: 13 }, // D Hourly Rate / Overtime Hours
-    { width: 16 }, // E Clock In / Estimated Pay (Excluding Break)
-    { width: 11 }, // F Clock Out
+    { width: siteWidth }, // B Job Site / Hours
+    { width: jobWidth }, // C Job / Worked Hours
+    { width: 15 }, // D Hourly Rate / Overtime Hours
+    { width: 19 }, // E Clock In / Estimated Pay (Excluding Break)
+    { width: 12 }, // F Clock Out
     { width: 9 },  // G Hours
     { width: 9 },  // H Break
-    { width: 12 }, // I Worked Hours
-    { width: 24 }, // J Estimated Pay (Excluding Break)
-    { width: 30 }, // K Notes
-    { width: 10 }, // L Adjusted
+    { width: 15 }, // I Worked Hours
+    { width: 19 }, // J Estimated Pay (Excluding Break)
+    { width: notesWidth }, // K Notes
+    { width: 11 }, // L Adjusted
     { width: 12 }, // M Default Rate (hidden)
     { width: 14 }, // N Week Of (hidden)
   ];
+
+  const wrapHeaderRow = (row: any) => {
+    row.eachCell((cell: any) => {
+      cell.alignment = { ...cell.alignment, wrapText: true };
+    });
+    row.height = 32; // two lines
+  };
 
   addTitleRow(sheet, `${employeeName} - Time History: ${rangeLabel}`, 12);
 
@@ -409,6 +429,7 @@ export function addEmployeeHistorySheet(
     (h, i) => (summaryHeader.getCell(i + 1).value = h)
   );
   styleHeaderRow(summaryHeader);
+  wrapHeaderRow(summaryHeader);
 
   const summaryFirstRow = summaryHeaderRowNum + 1;
   const dailyHeaderRowNum = summaryFirstRow + weeklyTotals.length + 2;
@@ -427,20 +448,25 @@ export function addEmployeeHistorySheet(
       row.getCell(3).value = {
         formula: `SUMIF(N${dailyFirstDataRow}:N${dailyLastRow},A${rowNum},I${dailyFirstDataRow}:I${dailyLastRow})`,
       };
-      row.getCell(9).value = {
-        formula: `SUMIF(N${dailyFirstDataRow}:N${dailyLastRow},A${rowNum},J${dailyFirstDataRow}:J${dailyLastRow})`,
-      };
     } else {
       row.getCell(2).value = w.hours;
       row.getCell(3).value = w.hours;
-      row.getCell(9).value = 0;
     }
     row.getCell(2).numFmt = "0.00";
     row.getCell(3).numFmt = "0.00";
     row.getCell(4).value = { formula: `MAX(0,C${rowNum}-${overtimeThreshold})` };
     row.getCell(4).numFmt = "0.00";
+    // Week's straight-time pay: sum of the daily Estimated Pay (J) rows in
+    // this week. Inlined here rather than kept in a visible helper cell, so
+    // it still recalculates when a Job is picked on a daily row.
+    const regularPay =
+      dayRows.length > 0
+        ? `SUMIF(N${dailyFirstDataRow}:N${dailyLastRow},A${rowNum},J${dailyFirstDataRow}:J${dailyLastRow})`
+        : "0";
+    // Regular pay plus the half-time overtime premium at the week's
+    // average rate (regular pay / worked hours).
     row.getCell(5).value = {
-      formula: `I${rowNum}+IF(C${rowNum}=0,0,(I${rowNum}/C${rowNum})*D${rowNum}*0.5)`,
+      formula: `${regularPay}+IF(C${rowNum}=0,0,(${regularPay}/C${rowNum})*D${rowNum}*0.5)`,
     };
     row.getCell(5).numFmt = '"$"#,##0.00';
   });
@@ -486,6 +512,7 @@ export function addEmployeeHistorySheet(
     "Adjusted",
   ].forEach((h, i) => (dailyHeader.getCell(i + 1).value = h));
   styleHeaderRow(dailyHeader);
+  wrapHeaderRow(dailyHeader);
   // Worked Hours (I) used to be a hidden helper - it's now the requested
   // visible column between Break and Estimated Pay, so it stays shown.
   sheet.getColumn(13).hidden = true; // Default Rate (helper)
@@ -535,5 +562,21 @@ export function addEmployeeHistorySheet(
   });
 
   styleDataRows(sheet, dailyHeaderRowNum);
+
+  // styleDataRows resets alignment on every cell, so the per-cell
+  // alignment for this sheet has to be applied after it.
+  dayRows.forEach((d, idx) => {
+    const row = sheet.getRow(dailyFirstDataRow + idx);
+    // Indent Clock In / Clock Out so they don't run into the right-aligned
+    // Hourly Rate next to them.
+    row.getCell(5).alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+    row.getCell(6).alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+    row.getCell(11).alignment = { vertical: "middle", wrapText: true };
+    // Excel won't grow a row to fit wrapped text if the row has a fixed
+    // height, so size it from the note length (~15pt per line).
+    const lines = Math.max(1, Math.ceil((d.note || "-").length / (notesWidth - 2)));
+    row.height = Math.max(20, lines * 15 + 4);
+  });
+
   sheet.views = [{ state: "frozen", ySplit: dailyHeaderRowNum }];
 }
