@@ -11,6 +11,7 @@ import {
 } from "./shared";
 import { reserveNewPin } from "./pins";
 import { storagePathFromDownloadUrl } from "./rekognition";
+import { loginRoleFor } from "./employeeAccess";
 
 // Creates the employee doc and reserves its PIN entirely server-side
 // (Admin SDK transaction via reserveNewPin, same primitive acceptInvite
@@ -252,7 +253,7 @@ export const setEmployeeRole = onCall(async (request) => {
   if (!employeeSnap.exists) {
     throw new HttpsError("not-found", "Employee not found.");
   }
-  const employee = employeeSnap.data() as { linkedUserId?: string };
+  const employee = employeeSnap.data() as { linkedUserId?: string; appAccess?: boolean };
   const linkedUserId = employee.linkedUserId;
   if (!linkedUserId) {
     throw new HttpsError(
@@ -275,7 +276,11 @@ export const setEmployeeRole = onCall(async (request) => {
     throw new HttpsError("failed-precondition", "The company owner's role can't be changed here.");
   }
 
-  const dashboardRole = isAdmin ? "admin" : "supervisor";
+  // Employee App: a login that came from the employee app (appAccess)
+  // drops back to the "employee" role when both toggles are turned off,
+  // instead of the legacy "supervisor" floor below. Every employee doc
+  // without appAccess resolves exactly as before (admin, else supervisor).
+  const dashboardRole = loginRoleFor({ isAdmin, isSupervisor, appAccess: employee.appAccess });
 
   await employeeRef.update({ isSupervisor, isAdmin });
   await userRef.update({ role: dashboardRole });
