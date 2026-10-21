@@ -171,6 +171,118 @@ service cloud.firestore {
     // separate per-device auth) - this bounds the blast radius of a bad
     // actor to "mark alerts read for a device id of their choosing," never
     // to editing an alert's actual content or another device's read state.
+    // ---- Employee App (self-service) ----
+    //
+    // A fourth login type next to owner/admin/supervisor: an employee who
+    // clocks only themselves in/out from their own phone. Same storage as
+    // every other role - users/{uid}.role plus the role/companyId/
+    // employeeId custom claims, both written only by the Admin SDK (see
+    // functions/src/employeeAccess.ts) - so rules only ever trust the
+    // claims, exactly like the other roles.
+    //
+    // Almost every pre-existing rule below grants "anyone signed in to
+    // this company". Those now also require notEmployee(), which is true
+    // for every existing token (owner/admin/supervisor, or no role at
+    // all), so admin and supervisor access is unchanged. Employee access
+    // is then granted only through the explicit isSelfEmployee() rules.
+    function isEmployeeRole() {
+      return request.auth.token.get('role', '') == 'employee';
+    }
+
+    function notEmployee() {
+      return !isEmployeeRole();
+    }
+
+    function myEmployeeId() {
+      return request.auth.token.get('employeeId', '');
+    }
+
+    // No uid fallback here (unlike isActiveEmployee above) - the employee
+    // role has always been issued together with the employeeId claim.
+    function isSelfEmployee(companyId) {
+      return request.auth != null &&
+        isEmployeeRole() &&
+        request.auth.token.get('companyId', '') == companyId &&
+        myEmployeeId() != '';
+    }
+
+    function myEmployeeDoc(companyId) {
+      return get(/databases/$(database)/documents/companies/$(companyId)/employees/$(myEmployeeId())).data;
+    }
+
+    // Defense against a stale claim: the employee doc the claim points at
+    // must still be linked to this exact login.
+    function isLinkedSelf(companyId) {
+      return myEmployeeDoc(companyId).get('linkedUserId', '') == request.auth.uid;
+    }
+
+    // Employee App clock/break event. Only for the caller's own employeeId
+    // and company, only source "employeeApp", and never any of the
+    // override/adjustment/server-computed fields. The mobile offline queue
+    // always sends authorizedById/reason/overrideEventId as explicit nulls
+    // (lib/queueSync.js), so those must be allowed when null.
+    function isValidEmployeeClockEventCreate(companyId, eventId) {
+      let data = request.resource.data;
+      return isSelfEmployee(companyId) &&
+        data.employeeId == myEmployeeId() &&
+        data.get('source', null) == 'employeeApp' &&
+        data.createdByUid == request.auth.uid &&
+        isValidClockEventType(data) &&
+        isLinkedSelf(companyId) &&
+        isActiveOrClosingOpenSession(companyId, data.employeeId, data) &&
+        data.get('subcontractorId', null) == myEmployeeDoc(companyId).get('subcontractorId', null) &&
+        data.get('authorizedById', null) == null &&
+        data.get('authorizedByName', null) == null &&
+        data.get('reason', null) == null &&
+        data.get('overrideEventId', null) == null &&
+        !eventId.matches('^auto-.*') &&
+        !data.keys().hasAny([
+          'adjustedTimestamp', 'adjustmentHistory',
+          'geofenceStatus', 'distanceFromSiteM', 'locationAddress',
+          'siteCorrected', 'siteMismatch', 'siteAutoDetected', 'faceCheck'
+        ]);
+    }
+
+    // Employee App version of isIdempotentReplay - an offline-queue retry
+    // (setDoc merge on the same localId doc id) of the employee's own
+    // employeeApp event. Stricter than the supervisor version: only the
+    // fields a retry can legitimately change (a re-uploaded photo gets a
+    // new URL) may differ; every identity field must be byte-identical.
+    function isEmployeeIdempotentReplay(companyId) {
+      return isSelfEmployee(companyId) &&
+        isLinkedSelf(companyId) &&
+        resource.data.createdByUid == request.auth.uid &&
+        resource.data.employeeId == myEmployeeId() &&
+        resource.data.get('source', null) == 'employeeApp' &&
+        isActiveOrClosingOpenSession(companyId, myEmployeeId(), resource.data) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['photoUrl', 'note', 'location', 'locationAccuracyM']);
+    }
+
+    // Employee App comment on one of the employee's own shifts. Reuses
+    // shiftNotes (site-level supervisor notes) with three extra fields;
+    // clockEventId must be the employee's own clock-in event. Bounds match
+    // lib/validators/shiftNote.ts.
+    function isValidEmployeeShiftNoteCreate(companyId) {
+      let data = request.resource.data;
+      return isSelfEmployee(companyId) &&
+        isLinkedSelf(companyId) &&
+        data.keys().hasOnly([
+          'note', 'siteId', 'siteName', 'createdByUid', 'createdByName',
+          'timestamp', 'employeeId', 'clockEventId', 'source'
+        ]) &&
+        data.employeeId == myEmployeeId() &&
+        data.createdByUid == request.auth.uid &&
+        data.source == 'employeeApp' &&
+        data.note is string &&
+        data.note.size() >= 1 &&
+        data.note.size() <= 1000 &&
+        data.timestamp == request.time &&
+        data.clockEventId is string &&
+        get(/databases/$(database)/documents/companies/$(companyId)/clockEvents/$(data.clockEventId)).data.get('employeeId', '') == myEmployeeId() &&
+        get(/databases/$(database)/documents/companies/$(companyId)/clockEvents/$(data.clockEventId)).data.get('type', '') == 'in';
+    }
+
     function isOwnReadStateUpdate() {
       let before = resource.data.get('readByDeviceIds', []);
       let after = request.resource.data.readByDeviceIds;
@@ -190,7 +302,8 @@ service cloud.firestore {
 
     match /companies/{companyId} {
       allow read: if request.auth != null &&
-        request.auth.token.companyId == companyId;
+        request.auth.token.companyId == companyId &&
+        notEmployee();
       allow create: if false;
       allow update: if request.auth != null &&
         isAdminOrOwner() &&
@@ -229,9 +342,24 @@ service cloud.firestore {
         );
       allow delete: if false;
 
-      match /jobSites/{siteId} {
+      // Employee App: the company settings the app needs, mirrored here
+      // server-side (functions/src/employeeAppConfig.ts) because employees
+      // can't read the company doc itself (billing/Stripe/plan fields).
+      // Readable by every role in the company; never client-written.
+      match /employeeAppConfig/{docId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId;
+        allow write: if false;
+      }
+
+      match /jobSites/{siteId} {
+        allow read: if request.auth != null &&
+          request.auth.token.companyId == companyId &&
+          notEmployee();
+        // Employee App: single-doc get of a site assigned to the employee
+        // only (no list - the app fetches each assigned site by id).
+        allow get: if isSelfEmployee(companyId) &&
+          siteId in myEmployeeDoc(companyId).get('assignedSiteIds', []);
         allow write: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId;
@@ -239,7 +367,8 @@ service cloud.firestore {
 
       match /jobs/{jobId} {
         allow read: if request.auth != null &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          notEmployee();
         allow write: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId;
@@ -247,7 +376,8 @@ service cloud.firestore {
 
       match /subcontractors/{subcontractorId} {
         allow read: if request.auth != null &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          notEmployee();
         allow write: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId;
@@ -255,7 +385,20 @@ service cloud.firestore {
 
       match /employees/{employeeId} {
         allow read: if request.auth != null &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          notEmployee();
+
+        // Employee App: an employee reads only their own doc - by id (the
+        // employeeId claim) or via the mobile AuthContext's
+        // where('linkedUserId', '==', uid) query. The list rule uses direct
+        // field access (not .get()) on purpose: Firestore can only prove a
+        // query is safe against a plain field comparison that the query
+        // itself filters on.
+        allow get: if isSelfEmployee(companyId) &&
+          employeeId == myEmployeeId() &&
+          resource.data.get('linkedUserId', '') == request.auth.uid;
+        allow list: if isSelfEmployee(companyId) &&
+          resource.data.linkedUserId == request.auth.uid;
 
         // faceStatus/faceReference are both server-written-only fields
         // (see the update rule's comment below) - denied here too, not
@@ -265,7 +408,7 @@ service cloud.firestore {
         allow create: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
-          !request.resource.data.keys().hasAny(['faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt']) &&
+          !request.resource.data.keys().hasAny(['faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId']) &&
           underTotalCap(companyId) &&
           (request.resource.data.active != true || (underCap(companyId) && notPastDue(companyId)));
 
@@ -285,7 +428,7 @@ service cloud.firestore {
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt']) &&
+            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId']) &&
           (
             request.resource.data.active != true ||
             resource.data.active == true ||
@@ -320,13 +463,24 @@ service cloud.firestore {
       // directly, same deny-by-default shape as pins/{pinId} above.
       match /employeeUpdates/{updateId} {
         allow read: if request.auth != null &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          notEmployee();
         allow write: if false;
       }
 
       match /clockEvents/{eventId} {
         allow read: if request.auth != null &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          notEmployee();
+        // Employee App: own events only. Direct field access for the same
+        // query-proof reason as the employees list rule above. The
+        // pre-existing create/update rules below can't match an employee
+        // token (they require admin/owner or supervisor), so these are the
+        // only employee write paths.
+        allow get, list: if isSelfEmployee(companyId) &&
+          resource.data.employeeId == myEmployeeId();
+        allow create: if isValidEmployeeClockEventCreate(companyId, eventId);
+        allow update: if isEmployeeIdempotentReplay(companyId);
         allow create: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           isValidClockEventType(request.resource.data) &&
@@ -447,7 +601,8 @@ service cloud.firestore {
 
       match /alertActions/{actionId} {
         allow read: if request.auth != null &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          notEmployee();
         allow create: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           (
@@ -467,11 +622,23 @@ service cloud.firestore {
       // own device's read state - see isOwnReadStateUpdate() above.
       match /alerts/{alertId} {
         allow read: if request.auth != null &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          notEmployee();
         allow create, delete: if false;
         allow update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
+          notEmployee() &&
           isOwnReadStateUpdate();
+      }
+
+      // Employee App: an employee's own saved push notifications.
+      // Server-written only (Cloud Functions, Admin SDK); the employee can
+      // read only their own. Direct field access for the list-query reason
+      // explained on the employees list rule.
+      match /employeeAlerts/{alertId} {
+        allow get, list: if isSelfEmployee(companyId) &&
+          resource.data.employeeId == myEmployeeId();
+        allow write: if false;
       }
 
       // A device reads its own token doc before writing (to preserve its
@@ -497,11 +664,15 @@ service cloud.firestore {
         // pushes - a real confidentiality issue, not just a theoretical
         // one, since alert content includes employee/site names.
         allow get: if request.auth != null &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          notEmployee();
         allow list: if false;
         allow delete: if false;
+        // notEmployee(): every token here receives company-wide supervisor
+        // alert pushes, so an Employee App login must never register one.
         allow create, update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
+          notEmployee() &&
           request.resource.data.deviceId == deviceId &&
           request.resource.data.token is string &&
           request.resource.data.token.matches('^Expo(nent)?PushToken\\[[A-Za-z0-9_-]+\\]$') &&
@@ -510,7 +681,15 @@ service cloud.firestore {
 
       match /shiftNotes/{noteId} {
         allow read: if request.auth != null &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          notEmployee();
+        // Employee App: own shift comments only - read and create, never
+        // update or delete. Direct field access for the list-query reason
+        // explained on the employees list rule. The write rule below can't
+        // match an employee token (admin/owner or supervisor only).
+        allow get, list: if isSelfEmployee(companyId) &&
+          resource.data.employeeId == myEmployeeId();
+        allow create: if isValidEmployeeShiftNoteCreate(companyId);
         allow write: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           (isAdminOrOwner() || request.auth.token.role == 'supervisor');
@@ -560,8 +739,22 @@ service cloud.firestore {
           isAdminOrOwner();
         allow create, update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
+          notEmployee() &&
           request.resource.data.localId == localId &&
           request.resource.data.backedUpByUid == request.auth.uid;
+        // Employee App: same safety net for the employee's own queue, but
+        // only ever for their own employeeId, and never overwriting a
+        // backup someone else wrote.
+        allow create: if isSelfEmployee(companyId) &&
+          request.resource.data.localId == localId &&
+          request.resource.data.backedUpByUid == request.auth.uid &&
+          request.resource.data.get('employeeId', null) == myEmployeeId();
+        allow update: if isSelfEmployee(companyId) &&
+          resource.data.get('backedUpByUid', null) == request.auth.uid &&
+          resource.data.get('employeeId', null) == myEmployeeId() &&
+          request.resource.data.localId == localId &&
+          request.resource.data.backedUpByUid == request.auth.uid &&
+          request.resource.data.get('employeeId', null) == myEmployeeId();
         allow delete: if false;
       }
     }
@@ -590,6 +783,14 @@ service cloud.firestore {
     // as /helpChatLimits above: no client, including admins, ever needs to
     // read or write it.
     match /placesApiLimits/{docId} {
+      allow read, write: if false;
+    }
+
+    // Employee App join codes (the company QR). Server-only: created,
+    // listed, redeemed and revoked through Cloud Functions (Admin SDK).
+    // No client, including admins, reads or writes these directly - the
+    // token is the doc id, so a readable collection would leak live codes.
+    match /joinCodes/{token} {
       allow read, write: if false;
     }
 

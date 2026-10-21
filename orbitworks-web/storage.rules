@@ -1,10 +1,48 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // Employee App (self-service) login - see firestore.rules for the role
+    // model. Every other role keeps the company-wide access below exactly
+    // as before; an employee only gets the two paths further down.
+    function isEmployeeRole() {
+      return request.auth.token.get('role', '') == 'employee';
+    }
+
+    function isSelfEmployee(companyId, employeeId) {
+      return request.auth != null &&
+        isEmployeeRole() &&
+        request.auth.token.get('companyId', '') == companyId &&
+        request.auth.token.get('employeeId', '') == employeeId;
+    }
+
+    function isImageUnder10Mb() {
+      return request.resource.size < 10 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+    }
+
     match /companies/{companyId}/{allPaths=**} {
       allow read, write: if request.auth != null &&
-        request.auth.token.companyId == companyId;
+        request.auth.token.companyId == companyId &&
+        !isEmployeeRole();
     }
+
+    // Employee App: the employee's own clock photos - same path the mobile
+    // offline queue already uploads to (lib/queueSync.js uploadPhoto).
+    match /companies/{companyId}/clockEvents/{employeeId}/{fileName} {
+      allow read: if isSelfEmployee(companyId, employeeId);
+      allow create, update: if isSelfEmployee(companyId, employeeId) && isImageUnder10Mb();
+    }
+
+    // Employee App: the employee's own selfie. Deliberately NOT
+    // employees/{employeeId}/reference.jpg - that file is the Face
+    // Verification reference photo and an employee must never be able to
+    // write it. (Phase 2: the server copies the signup selfie over to
+    // reference.jpg itself.)
+    match /companies/{companyId}/employees/{employeeId}/selfie/{fileName} {
+      allow read: if isSelfEmployee(companyId, employeeId);
+      allow create, update: if isSelfEmployee(companyId, employeeId) && isImageUnder10Mb();
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

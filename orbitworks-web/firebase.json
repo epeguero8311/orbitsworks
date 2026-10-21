@@ -26,6 +26,7 @@
   "emulators": {
     "firestore": { "port": 8090 },
     "functions": { "port": 5091 },
+    "storage": { "port": 9199 },
     "ui": { "enabled": false }
   },
   "apphosting": {
