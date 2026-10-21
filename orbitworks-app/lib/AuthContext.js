@@ -15,21 +15,17 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
-
       if (user) {
+        let data = null;
         try {
           const userDocRef = doc(db, "users", user.uid);
           const userDocSnap = await getDoc(userDocRef);
 
           if (userDocSnap.exists()) {
-            const data = userDocSnap.data();
-            setUserData(data);
+            data = userDocSnap.data();
             Sentry.setUser({ id: user.uid, email: user.email ?? undefined });
             Sentry.setTag("companyId", data.companyId ?? "unknown");
             Sentry.setTag("role", data.role ?? "unknown");
-          } else {
-            setUserData(null);
           }
         } catch (error) {
           console.log("Error fetching user data:", error);
@@ -37,9 +33,15 @@ export function AuthProvider({ children }) {
             tags: { area: "auth-fetch-user-doc" },
             contexts: { auth: { uid: user.uid } },
           });
-          setUserData(null);
         }
+        // Set together, after the role is known, so no render ever sees a
+        // signed-in user without their role - App.js picks the employee vs
+        // supervisor navigator from userData.role, and an Employee App
+        // login must never mount a supervisor screen even for one frame.
+        setUserData(data);
+        setCurrentUser(user);
       } else {
+        setCurrentUser(null);
         setUserData(null);
         setAccountDisabled(false);
         setLinkedEmployeeId(null);
@@ -52,16 +54,17 @@ export function AuthProvider({ children }) {
     return unsubscribe;
   }, []);
 
-  // Live-watch the linked employee record for supervisors and admins (both
-  // can have a linked employee doc and clock in on mobile - see join
-  // page copy) so a deactivation done on the web takes effect
-  // immediately, instead of waiting on the next Firebase Auth token
-  // refresh.
+  // Live-watch the linked employee record for supervisors, admins, and
+  // Employee App logins (all can have a linked employee doc and clock in on
+  // mobile - see join page copy) so a deactivation done on the web takes
+  // effect immediately, instead of waiting on the next Firebase Auth token
+  // refresh. firestore.rules lets an employee run this exact query on their
+  // own doc only.
   useEffect(() => {
     if (
       !currentUser ||
       !userData ||
-      (userData.role !== "supervisor" && userData.role !== "admin") ||
+      (userData.role !== "supervisor" && userData.role !== "admin" && userData.role !== "employee") ||
       !userData.companyId
     ) {
       return;

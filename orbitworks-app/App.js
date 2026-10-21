@@ -42,6 +42,7 @@ import CreateEmployeeScreen from "./screens/CreateEmployeeScreen";
 import UpdateEmployeeScreen from "./screens/UpdateEmployeeScreen";
 import EditEmployeeScreen from "./screens/EditEmployeeScreen";
 import EmployeeSyncAlertsScreen from "./screens/EmployeeSyncAlertsScreen";
+import EmployeeHomePlaceholderScreen from "./screens/EmployeeHomePlaceholderScreen";
 import * as Sentry from '@sentry/react-native';
 
 Sentry.init({
@@ -92,15 +93,27 @@ function MainTabs() {
   );
 }
 
-function RootNavigator() {
-  const { currentUser, loading, accountDisabled } = useAuth();
-  const { isDark } = useTheme();
-  const [splashAnimationDone, setSplashAnimationDone] = useState(false);
+// Supervisor/admin background work (PIN table, offline clock/employee
+// queues, push registration). Never mounted for an Employee App login -
+// those calls are supervisor-only server-side and would just fail, and an
+// employee must never register a push token for company-wide alerts. Each
+// hook already no-ops until userData.companyId is known, same as when it
+// lived directly in RootNavigator.
+function SupervisorBackgroundSync() {
   usePinTableSync();
   useQueueSync();
   useEmployeeQueueSync();
   useEmployeeUpdateQueueSync();
   usePushRegistration();
+  return null;
+}
+
+function RootNavigator() {
+  const { currentUser, userData, loading, accountDisabled } = useAuth();
+  const { isDark } = useTheme();
+  const [splashAnimationDone, setSplashAnimationDone] = useState(false);
+  const isEmployeeLogin = userData?.role === "employee";
+  const backgroundSync = isEmployeeLogin ? null : <SupervisorBackgroundSync />;
 
   const onNativeSplashHandoff = useCallback(() => {
     // Native splash and our JS splash are the same solid blue, so
@@ -114,15 +127,24 @@ function RootNavigator() {
   }, [onNativeSplashHandoff]);
 
   if (!splashAnimationDone) {
-    return <LoadingScreen ready={!loading} onFinish={() => setSplashAnimationDone(true)} />;
+    return (
+      <>
+        {backgroundSync}
+        <LoadingScreen ready={!loading} onFinish={() => setSplashAnimationDone(true)} />
+      </>
+    );
   }
 
   return (
     <NavigationContainer ref={navigationRef}>
+      {backgroundSync}
       <StatusBar style={isDark ? "light" : "dark"} />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {currentUser && accountDisabled ? (
           <Stack.Screen name="AccountDisabled" component={AccountDisabledScreen} />
+        ) : currentUser && isEmployeeLogin ? (
+          // Employee App (Phase 0): placeholder only, no supervisor screens.
+          <Stack.Screen name="EmployeeHome" component={EmployeeHomePlaceholderScreen} />
         ) : currentUser ? (
           <>
             <Stack.Screen name="MainTabs" component={MainTabs} options={{ freezeOnBlur: false }} />
