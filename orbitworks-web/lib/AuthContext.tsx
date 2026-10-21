@@ -11,7 +11,10 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
-export type UserRole = "owner" | "admin" | "supervisor";
+// "employee" = Employee App login (self-service clock in/out on mobile).
+// Never allowed into the web dashboard - see app/use-app and the
+// dashboard layout guard.
+export type UserRole = "owner" | "admin" | "supervisor" | "employee";
 
 type UserData = {
   role: UserRole;

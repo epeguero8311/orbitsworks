@@ -152,7 +152,24 @@ export interface Employee {
   updatedAt?: Timestamp;
   updatedByDeviceId?: string | null;
   lastUpdateId?: string;
+  // ---- Employee App (self-service) ----
+  // All three are server-written only (functions/src/employeeAccess.ts,
+  // Admin SDK) - firestore.rules denies them to every client write,
+  // including admins. appAccess is the single source of truth for "this
+  // employee has an employee-app login" - the gray Employee tag is derived
+  // as appAccess && !isSupervisor && !isAdmin. It stays true after a
+  // promotion (same login, role changes), which is also what lets
+  // setEmployeeRole demote back to the "employee" role instead of the
+  // legacy "supervisor" floor. linkedUserId/email are reused as-is for the
+  // login link, same as supervisors.
+  appAccess?: boolean;
+  // Absent means "admin" - every employee created before this feature.
+  joinedVia?: EmployeeJoinedVia;
+  // Set only when joinedVia is "qr" - the JoinCode doc id (= its token).
+  joinCodeId?: string | null;
 }
+
+export type EmployeeJoinedVia = "admin" | "qr";
 
 export interface Invite {
   id: string;
@@ -206,7 +223,11 @@ export interface ClockEvent {
     | "supervisorPin"
     | "autoBreakEnd"
     | "employeeDeactivated"
-    | "tempLink";
+    | "tempLink"
+    // Employee App - an employee clocking themselves in/out/break from
+    // their own phone. firestore.rules only lets the "employee" role write
+    // this source, and only for its own employeeId.
+    | "employeeApp";
   note?: string;
   photoUrl?: string;
   // Raw device coordinates, captured client-side (mobile app / temp link
@@ -611,6 +632,80 @@ export interface ShiftNote {
   createdByUid: string;
   createdByName: string;
   timestamp?: Timestamp;
+  // Employee App - set only on comments an employee leaves on one of their
+  // own shifts. Supervisor/admin notes never have these (site-level notes,
+  // not tied to a shift). clockEventId is the shift's clock-in event id;
+  // firestore.rules checks that event belongs to the same employeeId.
+  employeeId?: string;
+  clockEventId?: string;
+  source?: "employeeApp";
+}
+
+// ---- Employee App (self-service) ----
+
+// Top-level joinCodes/{token} - the token in the company QR code IS the doc
+// id (same pattern as tempClockLinks/{token}: the join page only ever has
+// the token, never a companyId). Server-only: created, listed, redeemed and
+// revoked through Cloud Functions (Admin SDK) - firestore.rules denies every
+// client read and write, so there is no client converter for this type.
+export interface JoinCode {
+  id: string; // the token itself
+  companyId: string;
+  siteId: string;
+  siteName: string;
+  // null = employee may pick any active subcontractor (or none);
+  // [] = in-house only (no subcontractor choice offered);
+  // [ids] = employee picks one of these.
+  allowedSubcontractorIds: string[] | null;
+  locationRequirement: "required" | "optional";
+  userLimit: number | null; // null = unlimited
+  expiresAt: Timestamp | null; // null = never expires
+  joinedCount: number;
+  status: "active" | "revoked";
+  createdByUid: string;
+  createdByName: string;
+  createdAt: Timestamp;
+  revokedByUid?: string | null;
+  revokedAt?: Timestamp | null;
+}
+
+// companies/{companyId}/employeeAlerts/{alertId} - an employee's own saved
+// push notifications. Server-written only (Cloud Functions); the employee
+// can read only docs whose employeeId matches their own claim, never write.
+// Separate from the company-wide alerts collection (MobileAlert), which is
+// supervisor/admin-only.
+export interface EmployeeAlert {
+  id: string;
+  employeeId: string;
+  alertType: string;
+  message: string;
+  reason: string; // why it fired, in plain words
+  shiftId: string | null; // clock-in event id of the related shift
+  createdAt: Timestamp;
+}
+
+// companies/{companyId}/employeeAppConfig/current - a server-maintained,
+// employee-readable copy of only the company settings the employee app
+// needs. Employees can't read the company doc itself (it holds billing/
+// Stripe/plan fields). Rewritten by syncEmployeeAppConfig (functions/src/
+// employeeAppConfig.ts) whenever any of these source fields change.
+export interface EmployeeAppConfig {
+  name: string | null;
+  logoUrl: string | null;
+  isPro: boolean;
+  timezone: string;
+  businessHours: { open: string; close: string };
+  gracePeriodMinutes: number;
+  weeklyOvertimeThreshold: number;
+  breaks: {
+    maxBreakWarning: boolean;
+    maxBreakMinutes: number;
+    automaticBreakMinutes: number;
+    minimumShiftHours: number;
+  };
+  alerts: Record<string, boolean | number>;
+  autoClockOut: { enabled: boolean; maxWorkedHours: number };
+  updatedAt: Timestamp;
 }
 
 // ---- Temp Clock-In Links (Pro) ----

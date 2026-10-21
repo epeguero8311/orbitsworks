@@ -4,7 +4,14 @@ import type {
   SnapshotOptions,
   WithFieldValue,
 } from "firebase/firestore";
-import type { Device, Invite } from "@/lib/types";
+import type {
+  Device,
+  EmployeeAlert,
+  EmployeeAppConfig,
+  Invite,
+  ShiftNote,
+  Subcontractor,
+} from "@/lib/types";
 
 // Generic client-side Firestore converter factory. Entities are defined
 // once in lib/types.ts as { id: string; ...fields }; toFirestore() strips
@@ -27,3 +34,7 @@ function makeConverter<T extends { id: string }>(): FirestoreDataConverter<T> {
 
 export const deviceConverter = makeConverter<Device>();
 export const inviteConverter = makeConverter<Invite>();
+export const subcontractorConverter = makeConverter<Subcontractor>();
+export const shiftNoteConverter = makeConverter<ShiftNote>();
+export const employeeAlertConverter = makeConverter<EmployeeAlert>();
+export const employeeAppConfigConverter = makeConverter<EmployeeAppConfig & { id: string }>();
