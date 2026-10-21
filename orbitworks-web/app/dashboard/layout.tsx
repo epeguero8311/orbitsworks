@@ -74,13 +74,19 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       router.push("/mobile-only");
       return;
     }
+    if (!loading && userData?.role === "employee") {
+      router.push("/use-app");
+      return;
+    }
     if (!loading && userData && userData.role !== "owner" && pathname.startsWith("/dashboard/billing")) {
       router.push("/403");
     }
   }, [loading, currentUser, userData, pathname, router]);
 
   useEffect(() => {
-    if (!userData?.companyId) return;
+    // Employee App logins can't read the company doc (firestore.rules) and
+    // are being redirected to /use-app anyway.
+    if (!userData?.companyId || userData.role === "employee") return;
     const companyRef = doc(db, "companies", userData.companyId);
     const unsubscribe = onSnapshot(companyRef, (snapshot) => {
       const data = snapshot.exists() ? snapshot.data() : null;
@@ -91,7 +97,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       setCompanyTermsVersion(data?.termsVersion ?? null);
     });
     return unsubscribe;
-  }, [userData?.companyId]);
+  }, [userData?.companyId, userData?.role]);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -105,7 +111,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!currentUser || userData?.role === "supervisor") {
+  if (!currentUser || userData?.role === "supervisor" || userData?.role === "employee") {
     return null;
   }
 

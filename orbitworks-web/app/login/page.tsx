@@ -43,6 +43,12 @@ export default function LoginPage() {
         return;
       }
 
+      // Employee App logins stay signed in - /use-app has its own Log out.
+      if (role === "employee") {
+        router.push("/use-app");
+        return;
+      }
+
       router.push("/dashboard");
     } catch (err) {
       console.error("Login error:", err);
