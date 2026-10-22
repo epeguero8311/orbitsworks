@@ -2,7 +2,10 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  logging: {
+    // Dev-only request log: don't print join code tokens (/j/{token}).
+    incomingRequests: { ignore: [/^\/j\//] },
+  },
 };
 
 export default withSentryConfig(nextConfig, {

@@ -11,6 +11,11 @@ export const subcontractorSchema = z.object({
 
 export type SubcontractorInput = z.infer<typeof subcontractorSchema>;
 
+// Add/rename form on the Jobs page - active is set by the hook, not the form.
+export const subcontractorFormSchema = subcontractorSchema.omit({ active: true });
+
+export type SubcontractorFormInput = z.infer<typeof subcontractorFormSchema>;
+
 export const reassignSubcontractorSchema = z.object({
   employeeId: z.string().trim().min(1),
   newSubcontractorId: z.string().trim().min(1).nullable(),

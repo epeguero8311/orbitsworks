@@ -645,28 +645,60 @@ export interface ShiftNote {
 
 // Top-level joinCodes/{token} - the token in the company QR code IS the doc
 // id (same pattern as tempClockLinks/{token}: the join page only ever has
-// the token, never a companyId). Server-only: created, listed, redeemed and
-// revoked through Cloud Functions (Admin SDK) - firestore.rules denies every
-// client read and write, so there is no client converter for this type.
+// the token, never a companyId). Server-only: created, listed, edited,
+// regenerated and revoked through app/api/join-codes/* (Admin SDK, see
+// lib/joinCodes/server.ts) - firestore.rules denies every client read and
+// write, so there is no client converter for this type. Pro only.
 export interface JoinCode {
   id: string; // the token itself
+  // Stable across regenerate - every token doc for the same QR shares it.
+  codeId: string;
+  name: string;
   companyId: string;
   siteId: string;
-  siteName: string;
-  // null = employee may pick any active subcontractor (or none);
-  // [] = in-house only (no subcontractor choice offered);
-  // [ids] = employee picks one of these.
-  allowedSubcontractorIds: string[] | null;
-  locationRequirement: "required" | "optional";
-  userLimit: number | null; // null = unlimited
+  // [] = in-house only; [ids] = in-house or one of these subcontractors.
+  subcontractorIds: string[];
+  locationRequired: boolean;
+  userLimit: number | null; // null = no code limit (still capped by seats)
   expiresAt: Timestamp | null; // null = never expires
   joinedCount: number;
+  // Only what's stored. Expired / Full / No seats left are computed when
+  // read (computeJoinCodeStatus in lib/joinCodes/server.ts).
   status: "active" | "revoked";
   createdByUid: string;
-  createdByName: string;
   createdAt: Timestamp;
-  revokedByUid?: string | null;
-  revokedAt?: Timestamp | null;
+  updatedAt: Timestamp;
+  revokedAt: Timestamp | null;
+  // Set on the old doc when regenerate replaces it.
+  replacedByToken: string | null;
+}
+
+// Status shown in the list. Anything other than "active" is dead.
+export type JoinCodeStatus = "active" | "expired" | "revoked" | "full" | "noSeats";
+
+// One row of GET /api/join-codes - dates as epoch millis (JSON-safe).
+export interface JoinCodeListItem {
+  token: string;
+  codeId: string;
+  name: string;
+  siteId: string;
+  siteName: string;
+  subcontractorIds: string[];
+  subcontractorNames: string[];
+  locationRequired: boolean;
+  userLimit: number | null;
+  expiresAt: number | null;
+  joinedCount: number;
+  status: JoinCodeStatus;
+  createdAt: number | null;
+}
+
+export interface JoinCodeListResponse {
+  // Company's active employee cap (null = no cap) and seats left under it.
+  activeCap: number | null;
+  activeCount: number;
+  seatsLeft: number | null;
+  codes: JoinCodeListItem[];
 }
 
 // companies/{companyId}/employeeAlerts/{alertId} - an employee's own saved

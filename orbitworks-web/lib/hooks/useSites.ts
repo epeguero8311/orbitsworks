@@ -46,6 +46,9 @@ export function useSites() {
   const [sites, setSites] = useState<JobSite[]>([]);
   const [loading, setLoading] = useState(true);
   const [planTier, setPlanTier] = useState<string | null>(null);
+  // False until the company doc's planTier has loaded once, so Pro-only UI
+  // doesn't flash its locked state on first render.
+  const [planLoaded, setPlanLoaded] = useState(false);
 
   useEffect(() => {
     if (!userData?.companyId) return;
@@ -83,13 +86,16 @@ export function useSites() {
     const companyRef = doc(db, "companies", userData.companyId);
     const unsubscribe = onSnapshot(companyRef, (snapshot) => {
       setPlanTier(snapshot.exists() ? snapshot.data().planTier ?? null : null);
+      setPlanLoaded(true);
     });
     return unsubscribe;
   }, [userData?.companyId]);
 
   const isPro = isProPlan(planTier);
 
-  async function addSite(input: JobSiteInput, location: PickedLocation | null) {
+  // Returns the new site's id (the Create QR code modal selects it right
+  // after creating it inline).
+  async function addSite(input: JobSiteInput, location: PickedLocation | null): Promise<string | undefined> {
     if (!userData?.companyId) return;
     const trimmedAddress = (input.address ?? "").trim();
     const requireGeofence = input.requireGeofence && isPro;
@@ -104,7 +110,7 @@ export function useSites() {
       userData.companyId,
       "jobSites"
     );
-    await addDoc(sitesRef, {
+    const created = await addDoc(sitesRef, {
       name: input.name.trim(),
       address: trimmedAddress,
       active: true,
@@ -118,6 +124,7 @@ export function useSites() {
         ? { radiusMeters: radiusMetersFrom(input), radiusUnit: input.radiusUnit }
         : {}),
     });
+    return created.id;
   }
 
   async function updateSite(
@@ -186,6 +193,7 @@ export function useSites() {
     sites,
     loading,
     isPro,
+    planLoaded,
     addSite,
     updateSite,
     toggleSiteActive,

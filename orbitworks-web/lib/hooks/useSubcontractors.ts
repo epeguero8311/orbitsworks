@@ -6,21 +6,36 @@ import {
   addDoc,
   doc,
   updateDoc,
-  deleteDoc,
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import { subcontractorFormSchema, type SubcontractorFormInput } from "@/lib/validators/subcontractor";
 import type { Subcontractor } from "@/lib/types";
 
-export interface SubcontractorInput {
-  name: string;
-  contactName: string;
-  email: string;
-  phone: string;
-  address: string;
+export type SubcontractorInput = SubcontractorFormInput;
+
+// Throws the first validation message, so callers can show err.message.
+export class SubcontractorInputError extends Error {}
+
+function parseInput(input: SubcontractorFormInput) {
+  const parsed = subcontractorFormSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new SubcontractorInputError(parsed.error.issues[0]?.message ?? "Invalid input.");
+  }
+  const d = parsed.data;
+  return {
+    name: d.name,
+    contactName: d.contactName ?? "",
+    email: d.email ?? "",
+    phone: d.phone ?? "",
+    address: d.address ?? "",
+  };
 }
 
+// Subcontractors are never hard-deleted (firestore.rules denies delete):
+// removing one is active: false, so old employee records, clock events and
+// exports keep resolving the name.
 export function useSubcontractors() {
   const { userData } = useAuth();
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
@@ -61,11 +76,7 @@ export function useSubcontractors() {
       "subcontractors"
     );
     await addDoc(subcontractorsRef, {
-      name: input.name.trim(),
-      contactName: input.contactName.trim(),
-      email: input.email.trim(),
-      phone: input.phone.trim(),
-      address: input.address.trim(),
+      ...parseInput(input),
       active: true,
       createdAt: serverTimestamp(),
     });
@@ -83,13 +94,7 @@ export function useSubcontractors() {
       "subcontractors",
       subcontractorId
     );
-    await updateDoc(subRef, {
-      name: input.name.trim(),
-      contactName: input.contactName.trim(),
-      email: input.email.trim(),
-      phone: input.phone.trim(),
-      address: input.address.trim(),
-    });
+    await updateDoc(subRef, parseInput(input));
   }
 
   async function toggleSubcontractorActive(subcontractor: Subcontractor) {
@@ -104,24 +109,11 @@ export function useSubcontractors() {
     await updateDoc(subRef, { active: !subcontractor.active });
   }
 
-  async function deleteSubcontractor(subcontractorId: string) {
-    if (!userData?.companyId) return;
-    const subRef = doc(
-      db,
-      "companies",
-      userData.companyId,
-      "subcontractors",
-      subcontractorId
-    );
-    await deleteDoc(subRef);
-  }
-
   return {
     subcontractors,
     loading,
     addSubcontractor,
     updateSubcontractor,
     toggleSubcontractorActive,
-    deleteSubcontractor,
   };
 }

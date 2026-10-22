@@ -374,13 +374,17 @@ service cloud.firestore {
           request.auth.token.companyId == companyId;
       }
 
+      // Admin/owner of the same company may add, rename and deactivate.
+      // Never hard-deleted: removing one is active: false, so old employee
+      // records and exports still resolve the name.
       match /subcontractors/{subcontractorId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           notEmployee();
-        allow write: if request.auth != null &&
+        allow create, update: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId;
+        allow delete: if false;
       }
 
       match /employees/{employeeId} {
@@ -786,8 +790,9 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Employee App join codes (the company QR). Server-only: created,
-    // listed, redeemed and revoked through Cloud Functions (Admin SDK).
+    // Employee App join codes (the Pro company QR). Server-only: created,
+    // listed, edited, regenerated and revoked through app/api/join-codes/*
+    // (Admin SDK, lib/joinCodes/server.ts); redeemed by joinCompany later.
     // No client, including admins, reads or writes these directly - the
     // token is the doc id, so a readable collection would leak live codes.
     match /joinCodes/{token} {
