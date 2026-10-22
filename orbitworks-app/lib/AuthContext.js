@@ -101,10 +101,8 @@ export function AuthProvider({ children }) {
 
         if (activeUid !== user.uid) return;
         tagSentryUser(user, data);
-        // Set together, after the role is known, so no render ever sees a
-        // signed-in user without their role - App.js picks the employee vs
-        // supervisor navigator from userData.role, and an Employee App
-        // login must never mount a supervisor screen even for one frame.
+        // Set together, after userData is known, so no render ever sees a
+        // signed-in user without their role and companyId.
         setUserData(data);
         setCurrentUser(user);
         setLoading(false);

@@ -112,6 +112,8 @@ function RootNavigator() {
   const { currentUser, userData, loading, accountDisabled } = useAuth();
   const { isDark } = useTheme();
   const [splashAnimationDone, setSplashAnimationDone] = useState(false);
+  // AuthContext sets currentUser and userData in the same render, so an
+  // Employee App login never mounts a supervisor screen even for one frame.
   const isEmployeeLogin = userData?.role === "employee";
   const backgroundSync = isEmployeeLogin ? null : <SupervisorBackgroundSync />;
 
