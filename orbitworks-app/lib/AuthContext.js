@@ -53,6 +53,19 @@ async function cachedClaimsUserData(user) {
   };
 }
 
+// Reads the linked-employee query result. disabled is true/false only when
+// the result came from the server; a cached result (offline cold start,
+// where the memory cache is empty, or before the server answers) returns
+// disabled: null = unknown, which must never show Account deactivated.
+// From the server: no linked record or active === false -> deactivated.
+function linkedEmployeeStatus(snap) {
+  const first = snap.empty ? null : snap.docs[0];
+  const employeeId = first ? first.id : null;
+  if (snap.metadata.fromCache) return { employeeId, disabled: null };
+  if (!first) return { employeeId: null, disabled: true };
+  return { employeeId, disabled: first.data().active === false };
+}
+
 function tagSentryUser(user, data) {
   if (!data) return;
   Sentry.setUser({ id: user.uid, email: user.email ?? undefined });
@@ -159,14 +172,16 @@ export function AuthProvider({ children }) {
 
     const unsubscribe = onSnapshot(
       employeeQuery,
+      // Metadata changes too, so the cache -> server switch always fires
+      // (an empty cached result followed by an identical empty server
+      // result would otherwise raise no second event).
+      { includeMetadataChanges: true },
       (snap) => {
-        if (snap.empty) {
-          setAccountDisabled(true);
-          setLinkedEmployeeId(null);
-          return;
-        }
-        setLinkedEmployeeId(snap.docs[0].id);
-        setAccountDisabled(snap.docs[0].data().active === false);
+        const status = linkedEmployeeStatus(snap);
+        if (status.employeeId) setLinkedEmployeeId(status.employeeId);
+        if (status.disabled === null) return;
+        if (!status.employeeId) setLinkedEmployeeId(null);
+        setAccountDisabled(status.disabled);
       },
       (error) => {
         console.log("Employee status listener error:", error);
