@@ -55,6 +55,10 @@ try {
   }
 
   $Src = Join-Path $Stage "orbitworks-web"
+  # Cloud Functions aren't part of the website (firebase.json's apphosting
+  # ignore list already skips "functions"); drop the folder from the copy.
+  Remove-Item (Join-Path $Src "functions") -Recurse -Force -ErrorAction SilentlyContinue
+
   Step "6. No .env files in the upload" {
     $envFiles = Get-ChildItem $Src -Recurse -Force -File -Filter ".env*" | Where-Object { $_.Name -ne ".env.example" }
     if ($envFiles) { throw ($envFiles.FullName -join ", ") }
