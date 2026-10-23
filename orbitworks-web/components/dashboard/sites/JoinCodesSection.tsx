@@ -37,9 +37,9 @@ export default function JoinCodesSection() {
     <section className="mt-10">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-gray-950">QR codes</h2>
+          <h2 className="text-base font-semibold text-gray-950">Crew onboarding</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Employees scan a QR code to join your company in the OrbitsWorks app.
+            Crew members scan a crew code to sign up and join your company in the OrbitsWorks app. This is not the temporary clock-in link.
           </p>
         </div>
         {showPro && (
@@ -47,7 +47,7 @@ export default function JoinCodesSection() {
             onClick={() => setModal({ code: null })}
             className="shrink-0 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
           >
-            Create QR code
+            Create crew code
           </button>
         )}
       </div>
@@ -68,7 +68,7 @@ export default function JoinCodesSection() {
           ) : error ? (
             <p className="p-4 text-sm text-red-600">{error}</p>
           ) : !data || data.codes.length === 0 ? (
-            <p className="p-4 text-sm text-gray-600">No QR codes yet. Create one to get started.</p>
+            <p className="p-4 text-sm text-gray-600">No crew codes yet. Create one to get started.</p>
           ) : (
             <JoinCodesTable codes={data.codes} onAction={handleAction} />
           )}
@@ -90,7 +90,7 @@ export default function JoinCodesSection() {
 
       {confirm && (
         <ConfirmDialog
-          title={confirm.action === "revoke" ? "Revoke this QR code?" : "Regenerate this QR code?"}
+          title={confirm.action === "revoke" ? "Revoke this crew code?" : "Regenerate this crew code?"}
           message={
             confirm.action === "revoke"
               ? `"${confirm.code.name}" will stop working right away. This can't be undone.`

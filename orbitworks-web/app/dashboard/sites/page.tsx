@@ -11,7 +11,7 @@ export default function JobsPage() {
       <h1 className="text-xl font-semibold text-gray-950">Jobs</h1>
       <p className="mt-1 text-sm text-gray-600">
         Manage job sites, the job titles and pay rates employees can be
-        assigned to, the QR codes employees join with, and subcontractor
+        assigned to, the crew codes employees sign up with, and subcontractor
         companies.
       </p>
 

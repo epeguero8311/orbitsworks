@@ -28,7 +28,7 @@ export function useJoinCodes(enabled: boolean) {
       setData(await load());
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't load QR codes.");
+      setError(err instanceof Error ? err.message : "Couldn't load crew codes.");
     }
   }, [load]);
 
@@ -41,7 +41,7 @@ export function useJoinCodes(enabled: boolean) {
         setData(d);
         setError("");
       })
-      .catch((err) => alive && setError(err instanceof Error ? err.message : "Couldn't load QR codes."));
+      .catch((err) => alive && setError(err instanceof Error ? err.message : "Couldn't load crew codes."));
     return () => {
       alive = false;
     };

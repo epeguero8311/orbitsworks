@@ -39,7 +39,7 @@ export function requireCreatorAuth(request: { auth?: { uid: string; token: Recor
 // but tries the caller's own on-device guess first (so the PIN already shown
 // to the person offline usually survives sync unchanged), and skips the
 // junk list entirely for both that guess and every fallback candidate.
-async function reserveNonJunkPin(companyId: string, clientPin: string | null): Promise<string> {
+export async function reserveNonJunkPin(companyId: string, clientPin: string | null): Promise<string> {
   const pinsRef = db.collection("companies").doc(companyId).collection("pins");
   const maxAttempts = 20;
 

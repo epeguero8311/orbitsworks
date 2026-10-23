@@ -165,8 +165,31 @@ export interface Employee {
   appAccess?: boolean;
   // Absent means "admin" - every employee created before this feature.
   joinedVia?: EmployeeJoinedVia;
-  // Set only when joinedVia is "qr" - the JoinCode doc id (= its token).
+  // Set only when joinedVia is "qr" - the JoinCode's stable codeId (kept
+  // across regenerate), never its token: the employee can read this doc.
   joinCodeId?: string | null;
+  // QR sign-up only (functions/src/joinCompany.ts, server-written): ids of
+  // existing employees in this company with the same name + dob. A flag
+  // for the Employees page - sign-up is never blocked by it.
+  possibleDuplicateOf?: string[];
+  duplicateFlaggedAt?: Timestamp;
+}
+
+// companies/{companyId}/employeeConsents/{employeeId} - server-only (no
+// client access in firestore.rules). Proof of consent; never holds face
+// data, and is kept after face data is deleted (faceDataDeletedAt).
+export interface EmployeeConsentRecord {
+  uid: string;
+  employeeId: string;
+  companyId: string;
+  joinCodeId: string;
+  privacyPolicyVersion: string;
+  privacyAcceptedAt: Timestamp;
+  biometricConsentVersion: string;
+  biometricConsentAt: Timestamp;
+  source: "qrSignup";
+  faceDataDeletedAt: Timestamp | null;
+  faceDataDeletedReason?: "employeeDeleted" | "signupRolledBack" | "coreDowngrade";
 }
 
 export type EmployeeJoinedVia = "admin" | "qr";

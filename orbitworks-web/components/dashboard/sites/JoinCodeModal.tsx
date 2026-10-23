@@ -90,7 +90,7 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
       await onSave({ ...draft, siteId: finalSiteId }, code?.token ?? null);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save the QR code. Try again.");
+      setError(err instanceof Error ? err.message : "Couldn't save the crew code. Try again.");
     } finally {
       setSaving(false);
     }
@@ -104,7 +104,7 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
         className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-gray-200 bg-white p-6 shadow-lg"
       >
         <div className="mb-5 flex items-start justify-between">
-          <h2 className="text-xl font-semibold text-gray-950">{code ? "Edit QR code" : "Create QR code"}</h2>
+          <h2 className="text-xl font-semibold text-gray-950">{code ? "Edit crew code" : "Create crew code"}</h2>
           <button type="button" onClick={onClose} className="text-sm text-gray-600 hover:text-gray-950" aria-label="Close">
             Close
           </button>
@@ -214,7 +214,7 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
             Cancel
           </button>
           <button type="submit" disabled={saving} className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60">
-            {saving ? "Saving..." : code ? "Save changes" : "Create QR code"}
+            {saving ? "Saving..." : code ? "Save changes" : "Create crew code"}
           </button>
         </div>
       </form>

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { QrCode } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 
-// Core/free view of the QR codes section: no list, no button, no API call.
+// Core/free view of the Crew onboarding section: no list, no button, no API call.
 // Billing is owner-only, so admins get a plain hint instead of a link.
 export function JoinCodesLocked() {
   const { userData } = useAuth();
@@ -19,8 +19,8 @@ export function JoinCodesLocked() {
         PRO
       </span>
       <p className="max-w-md text-sm text-gray-600">
-        Let employees join your company from the OrbitsWorks app by scanning a QR code at the job site.
-        {isOwner ? " Upgrade to Pro to create QR codes." : " Ask your account owner to upgrade to Pro."}
+        Let employees join your company from the OrbitsWorks app by scanning a crew code at the job site.
+        {isOwner ? " Upgrade to Pro to create crew codes." : " Ask your account owner to upgrade to Pro."}
       </p>
       {isOwner && (
         <Link

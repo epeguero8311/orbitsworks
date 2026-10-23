@@ -514,6 +514,36 @@ export const reassignEmployeeSubcontractor = onCall(async (request) => {
 // Shared by deleteEmployee and deleteEmployeesBulk below so the
 // close-session -> delete-auth -> release-pin/invites/doc sequence (and
 // its failure-window ordering, see the comment inline) only lives once.
+// Right-to-delete for Employee App sign-ups: the fixed reference.jpg path
+// and the whole selfie/ folder (the photoUrl delete above only covers the
+// file that URL points at). The employeeConsents record is NOT deleted -
+// it holds no biometric data and is the proof of consent and destruction,
+// so it only gets faceDataDeletedAt. Best-effort per file, like above.
+async function deleteEmployeeFaceData(companyId: string, employeeId: string): Promise<void> {
+  const bucket = admin.storage().bucket();
+  const base = `companies/${companyId}/employees/${employeeId}`;
+  try {
+    await bucket.file(`${base}/reference.jpg`).delete();
+  } catch (err) {
+    if ((err as { code?: number }).code !== 404) {
+      console.warn("Failed to delete reference.jpg on delete", { companyId, employeeId, error: String(err) });
+    }
+  }
+  try {
+    await bucket.deleteFiles({ prefix: `${base}/selfie/` });
+  } catch (err) {
+    console.warn("Failed to delete selfie folder on delete", { companyId, employeeId, error: String(err) });
+  }
+  const consentRef = db.collection("companies").doc(companyId).collection("employeeConsents").doc(employeeId);
+  const consent = await consentRef.get();
+  if (consent.exists) {
+    await consentRef.update({
+      faceDataDeletedAt: admin.firestore.FieldValue.serverTimestamp(),
+      faceDataDeletedReason: "employeeDeleted",
+    });
+  }
+}
+
 async function deleteEmployeeRecord(
   callerCompanyId: string,
   employeeId: string,
@@ -549,6 +579,7 @@ async function deleteEmployeeRecord(
       }
     }
   }
+  await deleteEmployeeFaceData(callerCompanyId, employeeId);
 
   let email: string | null = null;
 

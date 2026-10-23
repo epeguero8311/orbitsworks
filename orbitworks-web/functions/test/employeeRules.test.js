@@ -584,3 +584,101 @@ test("STORAGE PASS: admin and supervisor keep company-wide access", async () => 
   await assertSucceeds(upload(supervisorA(), `companies/${A}/clockEvents/emp1/9.jpg`));
   await assertSucceeds(getBytes(ref(supervisorA().storage(), `companies/${A}/employees/empA/reference.jpg`)));
 });
+
+// ===================== Phase 2: QR sign-up (joinCompany) =====================
+// The shape joinCompany (functions/src/joinCompany.ts) writes. Everything
+// here is server-written; the employee can't change any of it.
+
+async function seedQrEmployee() {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, "companies", A, "employees", "empQ"), {
+      name: "Quinn Qr",
+      dob: "2000-01-15",
+      active: true,
+      faceStatus: "not_enrolled",
+      assignedSiteIds: ["site1"],
+      pin: "5678",
+      subcontractorId: "sub1",
+      subcontractorName: "Sub Co",
+      joinedVia: "qr",
+      joinCodeId: "code-1",
+      appAccess: true,
+      linkedUserId: "uidQ",
+      email: "quinn@example.com",
+      photoUrl: "https://example.invalid/reference.jpg",
+      possibleDuplicateOf: ["empA"],
+    });
+    await setDoc(doc(db, "users", "uidQ"), { role: "employee", companyId: A, name: "Quinn Qr" });
+    await setDoc(doc(db, "companies", A, "employeeConsents", "empQ"), {
+      uid: "uidQ",
+      employeeId: "empQ",
+      companyId: A,
+      joinCodeId: "code-1",
+      privacyPolicyVersion: "v",
+      biometricConsentVersion: "v",
+      source: "qrSignup",
+      faceDataDeletedAt: null,
+    });
+  });
+}
+
+function employeeQ() {
+  return testEnv.authenticatedContext("uidQ", { role: "employee", companyId: A, employeeId: "empQ" });
+}
+
+test("QR PASS: QR-joined employee reads their own doc", async () => {
+  await seedQrEmployee();
+  await assertSucceeds(getDoc(doc(employeeQ().firestore(), "companies", A, "employees", "empQ")));
+});
+
+test("QR FAIL: QR-joined employee can't change PIN, rate, sites, role, subcontractor, photo, dob or flags", async () => {
+  await seedQrEmployee();
+  const r = doc(employeeQ().firestore(), "companies", A, "employees", "empQ");
+  for (const change of [
+    { pin: "0001" },
+    { hourlyRate: 99 },
+    { assignedSiteIds: ["site1", "site2"] },
+    { isAdmin: true },
+    { isSupervisor: true },
+    { appAccess: false },
+    { joinedVia: "admin" },
+    { joinCodeId: "other" },
+    { subcontractorId: null },
+    { photoUrl: "https://example.invalid/other.jpg" },
+    { faceStatus: "enrolled" },
+    { dob: "1990-01-01" },
+    { possibleDuplicateOf: [] },
+  ]) {
+    await assertFails(updateDoc(r, change));
+  }
+  await assertFails(updateDoc(doc(employeeQ().firestore(), "users", "uidQ"), { role: "admin" }));
+});
+
+test("QR FAIL: nobody on a client reads or writes consent records", async () => {
+  await seedQrEmployee();
+  for (const ctx of [employeeQ(), employeeA(), adminA(), supervisorA()]) {
+    const r = doc(ctx.firestore(), "companies", A, "employeeConsents", "empQ");
+    await assertFails(getDoc(r));
+    await assertFails(updateDoc(r, { faceDataDeletedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(r));
+    await assertFails(setDoc(doc(ctx.firestore(), "companies", A, "employeeConsents", "new1"), { uid: "x" }));
+    await assertFails(getDocs(collection(ctx.firestore(), "companies", A, "employeeConsents")));
+  }
+});
+
+test("QR FAIL: admin can't forge the duplicate flag on create", async () => {
+  const db = adminA().firestore();
+  const base = { name: "F", active: false, assignedSiteIds: [] };
+  await assertFails(setDoc(doc(db, "companies", A, "employees", "forged"), { ...base, possibleDuplicateOf: ["empA"] }));
+  await assertSucceeds(setDoc(doc(db, "companies", A, "employees", "plain2"), base));
+});
+
+test("STORAGE FAIL: QR-joined employee can't write or overwrite their own reference.jpg", async () => {
+  await seedQrEmployee();
+  await assertSucceeds(upload(adminA(), `companies/${A}/employees/empQ/reference.jpg`));
+  const ctx = employeeQ();
+  await assertFails(upload(ctx, `companies/${A}/employees/empQ/reference.jpg`));
+  await assertFails(getBytes(ref(ctx.storage(), `companies/${A}/employees/empQ/reference.jpg`)));
+  await assertSucceeds(upload(ctx, `companies/${A}/employees/empQ/selfie/retake.jpg`));
+});

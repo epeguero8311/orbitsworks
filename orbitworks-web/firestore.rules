@@ -412,7 +412,7 @@ service cloud.firestore {
         allow create: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
-          !request.resource.data.keys().hasAny(['faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId']) &&
+          !request.resource.data.keys().hasAny(['faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'possibleDuplicateOf']) &&
           underTotalCap(companyId) &&
           (request.resource.data.active != true || (underCap(companyId) && notPastDue(companyId)));
 
@@ -447,6 +447,15 @@ service cloud.firestore {
         // siteName/etc at write time, so historical timesheets and
         // reports still read correctly after this doc is gone.
         allow delete: if false;
+      }
+
+      // Employee App sign-up consent records (functions/src/joinCompany.ts):
+      // who agreed, when, and to which privacy + biometric consent versions.
+      // Written by the Admin SDK only, before any face data exists, and kept
+      // (with faceDataDeletedAt) after the face data is deleted, as proof of
+      // consent and destruction. Holds no biometric data. No client access.
+      match /employeeConsents/{employeeId} {
+        allow read, write: if false;
       }
 
       match /pins/{pinId} {
