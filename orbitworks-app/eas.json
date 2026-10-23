@@ -52,6 +52,11 @@
       "android": {
         "track": "production"
       }
+    },
+    "employeeDev": {
+      "ios": {
+        "ascAppId": "6826363680"
+      }
     }
   }
 }
