@@ -107,7 +107,7 @@ export default function JobsSection() {
       <h2 className="text-base font-semibold text-gray-950">Titles & Pay</h2>
       <p className="mt-1 text-sm text-gray-600">
         Create titles with an hourly rate. Assign employees to a title
-        instead of typing a rate by hand - editing a title's rate here
+        instead of typing a rate by hand - editing a title&apos;s rate here
         updates pay for everyone currently assigned to it.
       </p>
 
