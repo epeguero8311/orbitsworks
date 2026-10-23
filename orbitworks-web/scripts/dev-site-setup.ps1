@@ -35,8 +35,11 @@ function Read-DotEnv($path) {
 
 # Every firebase command below runs from an empty folder, so the CLI has no
 # firebase.json / apphosting.yaml (both used by prod) it could edit.
-$Empty = Join-Path ([IO.Path]::GetTempPath()) ("orbitworks-setup-" + [Guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $Empty | Out-Null
+# Not under %TEMP%: the CLI looks through parent folders for apphosting.yaml,
+# and a huge Temp folder ran it out of memory. C:\orbitworks-tmp has only
+# small parents.
+$Empty = Join-Path "C:\orbitworks-tmp" ("setup-" + [Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $Empty -Force | Out-Null
 Push-Location $Empty
 
 $BackendUrl = "https://firebaseapphosting.googleapis.com/v1beta/projects/$Project/locations/$Region/backends/$Backend"
@@ -81,16 +84,24 @@ Step "3a. Local secret values are dev/test only" {
   if ($envVals["FIREBASE_ADMIN_PROJECT_ID"] -ne $Project) { throw "FIREBASE_ADMIN_PROJECT_ID is not $Project" }
 }
 
-# secrets:set can offer to add the secret to apphosting.yaml (the PROD
-# file) - we're still in the empty folder, so there is no yaml to edit.
+# Secret values go in with gcloud (firebase apphosting:secrets:set ran out
+# of memory creating new secrets on Windows, and it also offers to edit
+# apphosting.yaml). Firebase CLI is only used to grant the backend access.
 try {
+  $existing = @(cmd /c "gcloud secrets list --project=$Project --format=value(name) 2>nul")
   foreach ($name in $Secrets) {
     Step "3b. Secret $name -> $Project" {
       $tmp = New-TemporaryFile
       try {
         [IO.File]::WriteAllText($tmp.FullName, $envVals[$name])
-        & $Firebase apphosting:secrets:set $name --data-file $tmp.FullName --project $Project --non-interactive | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "secrets:set exit $LASTEXITCODE" }
+        # Through cmd so gcloud's normal stderr status lines don't count as errors.
+        if ($existing -contains $name) {
+          cmd /c "gcloud secrets versions add $name --data-file=`"$($tmp.FullName)`" --project=$Project --quiet >nul 2>nul"
+        }
+        else {
+          cmd /c "gcloud secrets create $name --replication-policy=automatic --data-file=`"$($tmp.FullName)`" --project=$Project --quiet >nul 2>nul"
+        }
+        if ($LASTEXITCODE -ne 0) { throw "gcloud secrets exit $LASTEXITCODE" }
         & $Firebase apphosting:secrets:grantaccess $name --backend $Backend --location $Region --project $Project --non-interactive | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "grantaccess exit $LASTEXITCODE" }
       }
