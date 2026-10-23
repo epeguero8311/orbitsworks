@@ -12,6 +12,7 @@
     "@sentry/react-native": "~7.11.0",
     "expo": "~57.0.27",
     "expo-camera": "~57.0.6",
+    "expo-constants": "57.0.21",
     "expo-crypto": "~57.0.3",
     "expo-dev-client": "~57.0.19",
     "expo-device": "~57.0.2",
@@ -38,7 +39,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "generate:icons": "node scripts/generate-icons.mjs"
+    "generate:icons": "node scripts/generate-icons.mjs",
+    "test": "node --test test/envRules.test.js test/joinLink.test.js"
   },
   "private": true
 }

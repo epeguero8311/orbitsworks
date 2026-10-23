@@ -13,6 +13,7 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import Logo from "../components/Logo";
 import Spinner from "../components/Spinner";
+import JoinCodeButton from "../components/JoinCodeButton";
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState("");
@@ -98,6 +99,8 @@ export default function LoginScreen({ navigation }) {
         >
           <Text style={styles.linkText}>Forgot password?</Text>
         </TouchableOpacity>
+
+        <JoinCodeButton onPress={() => navigation.navigate("JoinScan")} />
       </View>
     </KeyboardAvoidingView>
   );

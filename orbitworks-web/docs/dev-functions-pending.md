@@ -63,3 +63,22 @@ deployed:
   `autoClockOut.ts`.
 - Fix (not done yet): pin "now" in the test to midday Central (or clock in a
   few hours ago with a lower `maxHoursThreshold`), so it passes at any hour.
+
+## Employee App to-dos (added 2026-10-23, Phase 2 Part B)
+
+- **Move the old dev/test EAS profiles to the dev app ID.** `development`,
+  `dev` and `preview` in `orbitworks-app/eas.json` still build the REAL
+  bundle ID (`com.orbitworks.app`) against dev Firebase. The build guard
+  (`orbitworks-app/config/envRules.js`) now FAILS those builds on EAS on
+  purpose. Move each to `APP_VARIANT=dev` (`com.orbitworks.app.dev`) with
+  its own non-production channel before building them again. Local
+  `expo start` of the real app against dev still works (not a build).
+  `previewStore` was removed (it uploaded dev builds to the real app's
+  TestFlight).
+- **"Join with crew code" MUST ship in the real app before the Phase 10
+  release.** Today it only shows in OrbitsWorks Dev, because only that
+  variant has `extra.joinLinks` (app.config.js) and a hosted domain serving
+  the app link files. For the real app: add a prod `joinLinks` (prod URL +
+  `orbitsworks://` scheme) in `config/envRules.js`, associated domains /
+  intent filters for the prod domain, and set `APP_LINKS_IOS_APP_IDS`,
+  `APP_LINKS_ANDROID_*` and `JOIN_APP_*` in `apphosting.yaml`.

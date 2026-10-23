@@ -43,10 +43,34 @@ import UpdateEmployeeScreen from "./screens/UpdateEmployeeScreen";
 import EditEmployeeScreen from "./screens/EditEmployeeScreen";
 import EmployeeSyncAlertsScreen from "./screens/EmployeeSyncAlertsScreen";
 import EmployeeHomePlaceholderScreen from "./screens/EmployeeHomePlaceholderScreen";
+import JoinScanScreen from "./screens/JoinScanScreen";
+import JoinStartScreen from "./screens/JoinStartScreen";
+import { useJoinLink } from "./lib/hooks/useJoinLink";
+import { redactJoinTokens } from "./lib/joinLink";
+import { resolveFirebaseEnv } from "./config/envRules";
 import * as Sentry from '@sentry/react-native';
+
+// Sentry "environment": "production" only when this bundle talks to the
+// real Firebase project; the dev app (and any dev-Firebase build) is "dev".
+const SENTRY_ENVIRONMENT = resolveFirebaseEnv(process.env.EXPO_PUBLIC_FIREBASE_ENV) === "prod" ? "production" : "dev";
+
+// Crew code tokens are secrets: blank any /j/{token} before anything
+// reaches Sentry (breadcrumbs, URLs, messages, exceptions).
+function scrubJoinTokens(item) {
+  try {
+    return JSON.parse(redactJoinTokens(JSON.stringify(item)));
+  } catch {
+    return item;
+  }
+}
 
 Sentry.init({
   dsn: 'https://f796828c3aaf68527b01e471a0aa9404@o4512133013176320.ingest.us.sentry.io/4512133093261312',
+
+  environment: SENTRY_ENVIRONMENT,
+
+  beforeBreadcrumb: (breadcrumb) => scrubJoinTokens(breadcrumb),
+  beforeSend: (event) => scrubJoinTokens(event),
 
   // Adds more context data to events (IP address, cookies, user, etc.)
   // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
@@ -112,10 +136,12 @@ function RootNavigator() {
   const { currentUser, userData, loading, accountDisabled } = useAuth();
   const { isDark } = useTheme();
   const [splashAnimationDone, setSplashAnimationDone] = useState(false);
+  const [navReady, setNavReady] = useState(false);
   // AuthContext sets currentUser and userData in the same render, so an
   // Employee App login never mounts a supervisor screen even for one frame.
   const isEmployeeLogin = userData?.role === "employee";
   const backgroundSync = isEmployeeLogin ? null : <SupervisorBackgroundSync />;
+  useJoinLink({ loggedIn: !!currentUser, navReady: navReady && splashAnimationDone });
 
   const onNativeSplashHandoff = useCallback(() => {
     // Native splash and our JS splash are the same solid blue, so
@@ -138,7 +164,7 @@ function RootNavigator() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer ref={navigationRef} onReady={() => setNavReady(true)}>
       {backgroundSync}
       <StatusBar style={isDark ? "light" : "dark"} />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -172,6 +198,8 @@ function RootNavigator() {
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+            <Stack.Screen name="JoinScan" component={JoinScanScreen} />
+            <Stack.Screen name="JoinStart" component={JoinStartScreen} />
           </>
         )}
       </Stack.Navigator>

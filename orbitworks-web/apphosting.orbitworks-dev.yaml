@@ -1,0 +1,157 @@
+# DEV ONLY - orbitworks-dev-ew App Hosting backend (environment name
+# "orbitworks-dev"). App Hosting merges this OVER apphosting.yaml, so every
+# variable in apphosting.yaml must be redefined here with a dev value;
+# scripts/check-apphosting-dev.mjs fails the deploy if one is missing or
+# still has a prod value. Never used by the prod backend.
+runConfig:
+  minInstances: 0
+  maxInstances: 1
+env:
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: "AIzaSyCmxM7S1kTHVwC6YJlQcDYebBayFhLX8jQ"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: "orbitworks-dev-ew.firebaseapp.com"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: "orbitworks-dev-ew"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: "orbitworks-dev-ew.firebasestorage.app"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "797101077485"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: "1:797101077485:web:319119d9bf71be32336de4"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_TIER1
+    value: "price_1U2zwLPsetz2ehJiFOQnfjM3"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_TIER2
+    value: "price_1U2zwLPsetz2ehJinm6gpv86"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_TIER3
+    value: "price_1U2zwLPsetz2ehJiFMhzdYFL"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_TIER4
+    value: "price_1U2zwMPsetz2ehJiYRSZFzf7"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_TIER5
+    value: "price_1U2zwMPsetz2ehJiBdO7S6DJ"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_CORE2_TIER1
+    value: "price_1UO1UCPsetz2ehJizHL47fA0"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_CORE2_TIER2
+    value: "price_1UO1UDPsetz2ehJiAIrJl2o0"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_CORE2_TIER3
+    value: "price_1UO1UDPsetz2ehJihZATjcHY"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_CORE2_TIER4
+    value: "price_1UO1UDPsetz2ehJiYQ3MwS7L"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_CORE2_TIER5
+    value: "price_1UO1UDPsetz2ehJipPm9Nti6"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER1
+    value: "price_1UIKnAPsetz2ehJidn9nkXfO"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER2
+    value: "price_1UIKnFPsetz2ehJi9O6YUuOb"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER3
+    value: "price_1UIKnLPsetz2ehJiyHEmtkzw"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER4
+    value: "price_1UIKnQPsetz2ehJiu2cCGSPS"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_STRIPE_PRICE_PRO_TIER5
+    value: "price_1UIKnVPsetz2ehJiiWAlseO2"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Secrets: same names, resolved in the DEV project's Secret Manager only.
+  - variable: FIREBASE_ADMIN_PROJECT_ID
+    secret: FIREBASE_ADMIN_PROJECT_ID
+  - variable: FIREBASE_ADMIN_CLIENT_EMAIL
+    secret: FIREBASE_ADMIN_CLIENT_EMAIL
+  - variable: FIREBASE_ADMIN_PRIVATE_KEY
+    secret: FIREBASE_ADMIN_PRIVATE_KEY
+  - variable: STRIPE_SECRET_KEY
+    secret: STRIPE_SECRET_KEY
+  - variable: STRIPE_WEBHOOK_SECRET
+    secret: STRIPE_WEBHOOK_SECRET
+  - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    secret: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+  - variable: ANTHROPIC_API_KEY
+    secret: ANTHROPIC_API_KEY
+  - variable: GOOGLE_PLACES_API_KEY
+    secret: GOOGLE_PLACES_API_KEY
+  # Employee App crew code links (dev app only).
+  - variable: NEXT_PUBLIC_APP_URL
+    value: "https://orbitsworks-backend--orbitworks-dev-ew.us-central1.hosted.app"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: JOIN_APP_SCHEME
+    value: "orbitsworks-dev"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: JOIN_APP_NAME
+    value: "OrbitsWorks Dev"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: JOIN_APP_INSTALL_FROM
+    value: "TestFlight"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: APP_LINKS_IOS_APP_IDS
+    value: "6ZU7MHT284.com.orbitworks.app.dev"
+    availability:
+      - BUILD
+      - RUNTIME

@@ -28,23 +28,24 @@
       "distribution": "internal",
       "channel": "preview"
     },
-    "previewStore": {
-      "distribution": "store",
-      "autoIncrement": true,
-      "environment": "preview"
-    },
     "production": {
       "autoIncrement": true,
       "channel": "production"
+    },
+    "employeeDev": {
+      "distribution": "store",
+      "channel": "employee-dev",
+      "environment": "preview",
+      "autoIncrement": true,
+      "env": {
+        "APP_VARIANT": "dev",
+        "ORBITS_STRICT_ENV": "1",
+        "EXPO_PUBLIC_FIREBASE_ENV": "dev"
+      }
     }
   },
   "submit": {
     "production": {
-      "ios": {
-        "ascAppId": "6801155800"
-      }
-    },
-    "previewStore": {
       "ios": {
         "ascAppId": "6801155800"
       }
