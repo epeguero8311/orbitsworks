@@ -10,10 +10,12 @@ $ErrorActionPreference = "Stop"
 $Project = "orbitworks-dev-ew"
 $Backend = "orbitsworks-backend"
 $Region = "us-central1"
-$EnvName = "orbitworks-dev"
+$EnvName = "orbitworks_dev"
 $Web = Split-Path -Parent $PSScriptRoot
 $Repo = Split-Path -Parent $Web
+# firebase-tools: local install if present, else the global one.
 $Firebase = Join-Path $Web "node_modules\.bin\firebase.cmd"
+if (-not (Test-Path $Firebase)) { $Firebase = (Get-Command firebase.cmd -ErrorAction Stop).Source }
 
 function Step($label, [scriptblock]$body) {
   try { & $body; Write-Output "$label : OK" }
@@ -37,7 +39,7 @@ Step "3. Dev App Hosting config check" {
 
 Step "4. Backend environment is '$EnvName' (else prod values would be used)" {
   $token = (gcloud auth print-access-token).Trim()
-  $b = Invoke-RestMethod -Method Get -Uri "https://firebaseapphosting.googleapis.com/v1beta/projects/$Project/locations/$Region/backends/$Backend" -Headers @{ Authorization = "Bearer $token" }
+  $b = Invoke-RestMethod -Method Get -Uri "https://firebaseapphosting.googleapis.com/v1beta/projects/$Project/locations/$Region/backends/$Backend" -Headers @{ Authorization = "Bearer $token"; "x-goog-user-project" = $Project }
   if ($b.environment -ne $EnvName) { throw "environment is '$($b.environment)'" }
 }
 

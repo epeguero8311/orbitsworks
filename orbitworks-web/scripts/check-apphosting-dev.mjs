@@ -1,5 +1,5 @@
 // Guard for the DEV website deploy (orbitworks-dev-ew App Hosting).
-// apphosting.orbitworks-dev.yaml is merged over apphosting.yaml (prod), so
+// apphosting.orbitworks_dev.yaml is merged over apphosting.yaml (prod), so
 // any variable it forgets would silently keep its PROD value on the dev
 // site. This fails (exit 1) unless every variable is redefined with a dev
 // value. Run: node scripts/check-apphosting-dev.mjs
@@ -33,7 +33,7 @@ function readVars(file) {
 
 const prod = readVars("apphosting.yaml");
 // Optional path argument is only for testing the checker itself.
-const dev = readVars(process.argv[2] ?? "apphosting.orbitworks-dev.yaml");
+const dev = readVars(process.argv[2] ?? "apphosting.orbitworks_dev.yaml");
 let failed = 0;
 function check(label, ok, detail) {
   console.log(`${label}: ${ok ? "OK" : "FAILED"}${!ok && detail ? " - " + detail : ""}`);
@@ -65,7 +65,7 @@ check(
   iosIds.join(",") + " (needs the real Apple Team ID)"
 );
 
-check("apphosting.orbitworks-dev.yaml is ASCII only", /^[\x00-\x7F]*$/.test(dev.text));
+check("apphosting.orbitworks_dev.yaml is ASCII only", /^[\x00-\x7F]*$/.test(dev.text));
 
 console.log(failed === 0 ? "APPHOSTING DEV CHECK: OK" : `APPHOSTING DEV CHECK: FAILED (${failed})`);
 process.exit(failed === 0 ? 0 : 1);

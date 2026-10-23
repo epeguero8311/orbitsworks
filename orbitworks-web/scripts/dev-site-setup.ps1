@@ -1,6 +1,6 @@
 # ONE-TIME setup of the DEV website on Firebase App Hosting (orbitworks-dev-ew).
-# Creates the backend, names its environment "orbitworks-dev" (so
-# apphosting.orbitworks-dev.yaml is used), and copies the dev/test secrets
+# Creates the backend, names its environment "orbitworks_dev" (so
+# apphosting.orbitworks_dev.yaml is used), and copies the dev/test secrets
 # from your local .env files into the DEV project's Secret Manager.
 # Never touches orbitworks-7ef59 (prod): the project is fixed below.
 #
@@ -10,10 +10,12 @@ $ErrorActionPreference = "Stop"
 $Project = "orbitworks-dev-ew"
 $Backend = "orbitsworks-backend"
 $Region = "us-central1"
-$EnvName = "orbitworks-dev"
+$EnvName = "orbitworks_dev"
 $WebAppId = "1:797101077485:web:319119d9bf71be32336de4"
 $Web = Split-Path -Parent $PSScriptRoot
+# firebase-tools: local install if present, else the global one.
 $Firebase = Join-Path $Web "node_modules\.bin\firebase.cmd"
+if (-not (Test-Path $Firebase)) { $Firebase = (Get-Command firebase.cmd -ErrorAction Stop).Source }
 $ProdMarkers = @("orbitworks-7ef59", "248478616055", "sk_live", "pk_live", "rk_live")
 
 function Step($label, [scriptblock]$body) {
@@ -37,18 +39,28 @@ $Empty = Join-Path ([IO.Path]::GetTempPath()) ("orbitworks-setup-" + [Guid]::New
 New-Item -ItemType Directory -Path $Empty | Out-Null
 Push-Location $Empty
 
-# 1. Backend (no GitHub connection - deployed from local source only)
-Step "1. Create backend $Backend in $Project" {
-  & $Firebase apphosting:backends:create --backend $Backend --primary-region $Region --root-dir "/" --app $WebAppId --project $Project --non-interactive
-  if ($LASTEXITCODE -ne 0) { throw "backends:create exit $LASTEXITCODE" }
+$BackendUrl = "https://firebaseapphosting.googleapis.com/v1beta/projects/$Project/locations/$Region/backends/$Backend"
+function Api-Headers {
+  $token = (gcloud auth print-access-token).Trim()
+  return @{ Authorization = "Bearer $token"; "x-goog-user-project" = $Project; "Content-Type" = "application/json" }
 }
 
-# 2. Environment name -> apphosting.orbitworks-dev.yaml is merged over apphosting.yaml
-$BackendUrl = "https://firebaseapphosting.googleapis.com/v1beta/projects/$Project/locations/$Region/backends/$Backend"
+# 1. Backend (no GitHub connection - deployed from local source only).
+# Safe to re-run: skipped if it already exists.
+Step "1. Backend $Backend exists in $Project" {
+  $exists = $true
+  try { Invoke-RestMethod -Method Get -Uri $BackendUrl -Headers (Api-Headers) | Out-Null } catch { $exists = $false }
+  if (-not $exists) {
+    & $Firebase apphosting:backends:create --backend $Backend --primary-region $Region --root-dir "/" --app $WebAppId --project $Project --non-interactive
+    if ($LASTEXITCODE -ne 0) { throw "backends:create exit $LASTEXITCODE" }
+  }
+}
+
+# 2. Environment name -> apphosting.orbitworks_dev.yaml is merged over
+# apphosting.yaml. Letters, digits and underscores only (API rule).
 Step "2. Set environment name '$EnvName'" {
-  $token = (gcloud auth print-access-token).Trim()
-  $headers = @{ Authorization = "Bearer $token"; "Content-Type" = "application/json" }
-  Invoke-RestMethod -Method Patch -Uri "$($BackendUrl)?updateMask=environment" -Headers $headers -Body '{"environment":"orbitworks-dev"}' | Out-Null
+  $headers = Api-Headers
+  Invoke-RestMethod -Method Patch -Uri "$($BackendUrl)?updateMask=environment" -Headers $headers -Body ('{"environment":"' + $EnvName + '"}') | Out-Null
   Start-Sleep -Seconds 5
   $b = Invoke-RestMethod -Method Get -Uri $BackendUrl -Headers $headers
   if ($b.environment -ne $EnvName) { throw "environment is '$($b.environment)'" }

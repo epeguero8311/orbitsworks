@@ -1,5 +1,5 @@
 # DEV ONLY - orbitworks-dev-ew App Hosting backend (environment name
-# "orbitworks-dev"). App Hosting merges this OVER apphosting.yaml, so every
+# "orbitworks_dev"). App Hosting merges this OVER apphosting.yaml, so every
 # variable in apphosting.yaml must be redefined here with a dev value;
 # scripts/check-apphosting-dev.mjs fails the deploy if one is missing or
 # still has a prod value. Never used by the prod backend.
