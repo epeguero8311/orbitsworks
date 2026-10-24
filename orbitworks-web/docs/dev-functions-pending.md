@@ -95,3 +95,23 @@ deployed:
   logic files plus a dev-site click-through instead.
 - **"Join with crew code" in the real app** - see the Employee App to-dos
   above.
+- **"Open in the app" on /j must not dead-end when the app isn't
+  installed** (found 2026-10-24 on an iPhone). Today the button is a plain
+  `orbitsworks-dev://j/{token}` link (components/join/JoinCodeLanding.tsx),
+  so with no app Safari shows "cannot open the page because the address is
+  invalid". It must fall back to the App Store / Google Play buttons and the
+  install-then-rescan steps instead (for example: try the scheme, and if the
+  page is still visible after a short wait, show the store options; or drop
+  the button on iOS, where the universal link already opens the app).
+- **Legal review of the sign-up consent text** (decided 2026-10-24, for
+  Employee App Phase 2 Part C). The privacy notice and the biometric
+  (face photo) consent shown in the app sign-up flow must be reviewed by a
+  lawyer before release. The versions live in
+  `functions/src/consentVersions.ts`; any wording change after review means
+  a version bump there.
+
+## Phase 9 to-do
+
+- **Duplicate sign-up flag** (decided 2026-10-24, Phase 2 Part C). Flagging
+  a crew code sign-up that may duplicate an existing employee is NOT
+  built in Part C. It waits for Phase 9.
