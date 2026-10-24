@@ -28,7 +28,8 @@ async function api(key, method, path, body) {
 async function jPage(token) {
   const r = await fetch(`${BASE}/j/${token}`);
   const html = await r.text();
-  if (html.includes("Get the OrbitsWorks app")) return "live";
+  // Only a live code shows the install-then-rescan steps (JoinCodeLanding).
+  if (html.includes("Scan this QR code again.")) return "live";
   if (html.includes("no longer active")) return "inactive";
   if (html.includes("problem with this company")) return "accountProblem";
   return "unknown(" + r.status + ")";
