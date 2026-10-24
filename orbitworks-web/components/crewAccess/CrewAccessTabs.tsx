@@ -23,9 +23,11 @@ export default function CrewAccessTabs() {
     router.replace(`${pathname}?tab=${tab}`, { scroll: false });
   }
 
+  // The gray line is an inset shadow, not a border: a -mb-px overlap made
+  // the bar overflow vertically and Windows showed a scroll arrow.
   return (
     <div className="mt-6">
-      <div role="tablist" aria-label="Crew Access" className="flex gap-1 overflow-x-auto border-b border-gray-200">
+      <div role="tablist" aria-label="Crew Access" className="flex gap-1 overflow-x-auto shadow-[inset_0_-1px_0_var(--gray-200)]">
         {TABS.map((tab) => {
           const selected = tab.id === active;
           return (
@@ -36,7 +38,7 @@ export default function CrewAccessTabs() {
               aria-selected={selected}
               aria-controls={`crew-access-panel-${tab.id}`}
               onClick={() => select(tab.id)}
-              className={`-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+              className={`shrink-0 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
                 selected ? "border-accent text-accent" : "border-transparent text-gray-600 hover:text-gray-950"
               }`}
             >
