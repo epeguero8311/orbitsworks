@@ -82,3 +82,16 @@ deployed:
   `orbitsworks://` scheme) in `config/envRules.js`, associated domains /
   intent filters for the prod domain, and set `APP_LINKS_IOS_APP_IDS`,
   `APP_LINKS_ANDROID_*` and `JOIN_APP_*` in `apphosting.yaml`.
+
+## Phase 10 to-do list (before the real release)
+
+- **Write temp link API tests** (added 2026-10-24). There are none today, in
+  `functions/test` or `test/dev-e2e`. Cover `generateTempClockLink`,
+  `listActiveTempClockLinks`, `listTempClockLinkHistory`,
+  `revokeTempClockLink` and the public clock-in call: Pro only (Core gets
+  403/permission-denied), expiry, revoke stops the link, 15 wrong PINs
+  auto-revokes, history can't be edited or deleted. When the temp link moved
+  under Crew Access (2026-10-24) it was checked by an empty `git diff` on its
+  logic files plus a dev-site click-through instead.
+- **"Join with crew code" in the real app** - see the Employee App to-dos
+  above.

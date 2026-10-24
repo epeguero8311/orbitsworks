@@ -34,12 +34,11 @@ export default function JoinCodesSection() {
   const showPro = planLoaded && isPro;
 
   return (
-    <section className="mt-10">
+    <section>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-gray-950">Crew onboarding</h2>
-          <p className="mt-1 text-sm text-gray-600">
-            Crew members scan a crew code to sign up and join your company in the OrbitsWorks app. This is not the temporary clock-in link.
+          <p className="text-sm text-gray-600">
+            Crew members scan a crew code to sign up and join your company in the OrbitsWorks app. To clock someone in without the app, use Temporary clock-in link.
           </p>
         </div>
         {showPro && (

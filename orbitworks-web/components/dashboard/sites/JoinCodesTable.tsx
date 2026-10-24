@@ -52,7 +52,7 @@ function RowActions({ code, onAction }: { code: JoinCodeListItem; onAction: Join
   async function copy() {
     try {
       await navigator.clipboard.writeText(link);
-      setNote("Link copied");
+      setNote("Crew code link copied");
     } catch {
       setNote("Couldn't copy");
     }
@@ -74,7 +74,7 @@ function RowActions({ code, onAction }: { code: JoinCodeListItem; onAction: Join
     <div className="flex flex-col items-end gap-2">
       <div className="flex flex-wrap justify-end gap-3">
         <button onClick={() => setShowQr((v) => !v)} className={btn}>{showQr ? "Hide QR" : "QR"}</button>
-        <button onClick={copy} className={btn}>Copy link</button>
+        <button onClick={copy} className={btn}>Copy crew code link</button>
         <button onClick={download} className={btn}>Download</button>
         <button onClick={() => onAction("edit", code)} className={btn}>Edit</button>
         <button onClick={() => onAction("regenerate", code)} className={btn}>Regenerate</button>
