@@ -70,3 +70,15 @@ export function joinLink(token: string): string {
   const base = (process.env.NEXT_PUBLIC_APP_URL || (typeof window !== "undefined" ? window.location.origin : "")).replace(/\/$/, "");
   return `${base}/j/${token}`;
 }
+
+// A localhost link only opens on this computer, so a QR of it is useless
+// on a phone. The dev site never builds one of these.
+export const LOCAL_QR_WARNING = "QR codes only work from the dev site";
+export function isLocalLink(link: string): boolean {
+  try {
+    const host = new URL(link).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost");
+  } catch {
+    return false;
+  }
+}

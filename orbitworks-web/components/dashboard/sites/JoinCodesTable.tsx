@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { joinLink } from "@/lib/hooks/useJoinCodes";
+import { isLocalLink, joinLink, LOCAL_QR_WARNING } from "@/lib/hooks/useJoinCodes";
 import { downloadLabeledQr, qrPreviewDataUrl } from "@/lib/qrPng";
 import { formatCompanyDateTime } from "@/lib/joinCodes/time";
 import type { JoinCodeListItem, JoinCodeStatus } from "@/lib/types";
@@ -48,6 +48,7 @@ function RowActions({ code, onAction }: { code: JoinCodeListItem; onAction: Join
   const [showQr, setShowQr] = useState(false);
   const link = joinLink(code.token);
   const revoked = code.status === "revoked";
+  const local = isLocalLink(link);
 
   async function copy() {
     try {
@@ -60,6 +61,11 @@ function RowActions({ code, onAction }: { code: JoinCodeListItem; onAction: Join
   }
 
   async function download() {
+    if (local) {
+      setNote(LOCAL_QR_WARNING);
+      setTimeout(() => setNote(""), 3000);
+      return;
+    }
     try {
       await downloadLabeledQr(link, code.name, code.siteName);
     } catch {
@@ -81,7 +87,7 @@ function RowActions({ code, onAction }: { code: JoinCodeListItem; onAction: Join
         <button onClick={() => onAction("revoke", code)} className="text-sm font-medium text-red-600 hover:underline">Revoke</button>
       </div>
       {note && <span className="text-xs text-gray-600">{note}</span>}
-      {showQr && <QrPreview link={link} />}
+      {showQr && (local ? <span className="text-xs text-amber-700">{LOCAL_QR_WARNING}</span> : <QrPreview link={link} />)}
     </div>
   );
 }
