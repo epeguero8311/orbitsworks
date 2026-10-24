@@ -64,6 +64,15 @@ deployed:
 - Fix (not done yet): pin "now" in the test to midday Central (or clock in a
   few hours ago with a lower `maxHoursThreshold`), so it passes at any hour.
 
+## Phase 3 to-do: employeeApp in the clock-event trigger (found in Phase 1)
+
+- `onClockEventCreated` in `functions/src/clockEvents.ts` only runs the face
+  check, device tracking and site detection for sources `faceMatch`,
+  `supervisorOverride` and `pin` (the early return near the top of the
+  handler). Clock events with source `employeeApp` skip all three today.
+- Fix: add `employeeApp` to those source checks, and confirm auto clock-out
+  covers `employeeApp` shifts when the 5 held functions are deployed.
+
 ## Employee App to-dos (added 2026-10-23, Phase 2 Part B)
 
 - **Move the old dev/test EAS profiles to the dev app ID.** `development`,
@@ -103,15 +112,23 @@ deployed:
   install-then-rescan steps instead (for example: try the scheme, and if the
   page is still visible after a short wait, show the store options; or drop
   the button on iOS, where the universal link already opens the app).
-- **Legal review of the sign-up consent text** (decided 2026-10-24, for
-  Employee App Phase 2 Part C). The privacy notice and the biometric
-  (face photo) consent shown in the app sign-up flow must be reviewed by a
-  lawyer before release. The versions live in
+- **Legal review of the sign-up consent text and the privacy policy**
+  (decided 2026-10-24, for Employee App Phase 2 Part C). The privacy
+  notice and the biometric (face photo) consent shown in the app sign-up
+  flow, and the privacy policy they point to, must be reviewed by a lawyer
+  before release. The versions live in
   `functions/src/consentVersions.ts`; any wording change after review means
   a version bump there.
+
+- **Move the development/dev/preview EAS profiles to the dev app ID** -
+  see the Employee App to-dos above.
+- **Rate limit `joinCompany` and `getJoinInfo`.** Both are unauthenticated
+  (`joinCompany` creates Auth users). `joinCompany` has a
+  `TODO(Phase 10): RATE LIMIT` marker at the top of
+  `functions/src/joinCompany.ts`; `getJoinInfo` (Part C) gets the same.
 
 ## Phase 9 to-do
 
 - **Duplicate sign-up flag** (decided 2026-10-24, Phase 2 Part C). Flagging
-  a crew code sign-up that may duplicate an existing employee is NOT
-  built in Part C. It waits for Phase 9.
+  a crew code sign-up that may duplicate an existing employee, shown on
+  the Employees page, is NOT built in Part C. It waits for Phase 9.
