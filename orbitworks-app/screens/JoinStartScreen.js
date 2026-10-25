@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, BackHandler } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
+import { signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { auth } from "../lib/firebase";
 import { clearPendingJoinToken, getPendingJoinToken, subscribePendingJoin } from "../lib/pendingJoin";
 import { useJoinInfo } from "../lib/hooks/useJoinInfo";
 import { useJoinSubmit } from "../lib/hooks/useJoinSubmit";
 import { validateEmail, validateFullName } from "../lib/validators/joinSignup";
 import { setScrubValue, clearScrubValues } from "../lib/sentryScrub";
+import { finishJoinSignIn, watchForHomeSwitch, setLoginPrefill, SIGN_IN_MESSAGES } from "../lib/joinSignIn";
+import Spinner from "../components/Spinner";
 import SelfieCamera from "../components/join/SelfieCamera";
 import JoinStatusView from "./join/JoinStatusView";
 import JoinAccountStep from "./join/JoinAccountStep";
@@ -25,8 +29,13 @@ import { joinStyles as s, BLUE } from "./join/joinStyles";
 //   "account"   Screen 1: name, email, password, two consents
 //   "details"   Screen 2: subcontractor, birthday, selfie, Submit
 //   "camera"    full-screen live selfie
-//   "welcome"   PIN, Done -> Login
-const SCRUB_KEYS = ["email", "password", "birthday"];
+//   "welcome"   PIN; Done signs in with the email/password from the form
+//   "switching" signed in, waiting for the app to switch to EmployeeHome
+//
+// Nothing signs in before Done: joinCompany creates the login on the
+// server, so currentUser stays null and this logged-out stack (with the
+// Welcome screen) stays mounted until Done's sign-in.
+const SCRUB_KEYS = ["email", "password", "birthday", "doneEmail", "donePassword"];
 
 const EMPTY_FORM = {
   fullName: "",
@@ -56,6 +65,12 @@ export default function JoinStartScreen({ navigation }) {
   const [emailError, setEmailError] = useState(null);
   const [submitError, setSubmitError] = useState(null);
   const [result, setResult] = useState(null); // { pin, companyName }
+  // Email/password kept for Done only (memory, no re-render, never in
+  // state, nav params or storage). Cleared the moment Done starts.
+  const credsRef = useRef(null);
+  const doneLock = useRef(false);
+  const cancelHomeWatch = useRef(null);
+  const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => subscribePendingJoin(setToken), []);
 
@@ -71,7 +86,14 @@ export default function JoinStartScreen({ navigation }) {
     const b = form.birthday;
     setScrubValue("birthday", b.yyyy.length === 4 && b.mm && b.dd ? `${b.yyyy}-${b.mm.padStart(2, "0")}-${b.dd.padStart(2, "0")}` : null);
   }, [form.email, form.password, form.birthday]);
-  useEffect(() => () => clearScrubValues(SCRUB_KEYS), []);
+  useEffect(
+    () => () => {
+      credsRef.current = null;
+      if (cancelHomeWatch.current) cancelHomeWatch.current();
+      clearScrubValues(SCRUB_KEYS);
+    },
+    []
+  );
 
   const privacyChecked = !!info && form.privacyVersion === info.privacyPolicyVersion;
   const biometricChecked = !!info && form.biometricVersion === info.biometricConsentVersion;
@@ -92,7 +114,7 @@ export default function JoinStartScreen({ navigation }) {
     if (sending) return true;
     if (step === "camera") setStep("details");
     else if (step === "details") setStep("account");
-    else if (step === "welcome") return true;
+    else if (step === "welcome" || step === "switching") return true;
     else exit();
     return true;
   }, [step, sending, exit]);
@@ -101,6 +123,52 @@ export default function JoinStartScreen({ navigation }) {
     const sub = BackHandler.addEventListener("hardwareBackPress", back);
     return () => sub.remove();
   }, [back]);
+
+  // Sign-in failed or never reached EmployeeHome: Login with the email
+  // filled in and a plain message. Drops the PIN and credentials first.
+  const goToLogin = useCallback(
+    (email, message) => {
+      credsRef.current = null;
+      clearScrubValues(["doneEmail", "donePassword"]);
+      setResult(null);
+      setLoginPrefill(email, message);
+      exit();
+    },
+    [exit]
+  );
+
+  const startHomeWatch = (email) => {
+    cancelHomeWatch.current = watchForHomeSwitch({
+      onTimeout: () => {
+        signOut(auth)
+          .catch(() => {})
+          .finally(() => goToLogin(email, SIGN_IN_MESSAGES.ready));
+      },
+    });
+  };
+
+  async function onDone() {
+    if (doneLock.current) return;
+    doneLock.current = true;
+    const creds = credsRef.current;
+    credsRef.current = null;
+    setSigningIn(true);
+    const res = await finishJoinSignIn({
+      email: creds ? creds.email : "",
+      password: creds ? creds.password : "",
+      signIn: (e, p) => signInWithEmailAndPassword(auth, e, p),
+    });
+    clearScrubValues(["donePassword"]);
+    if (!res.ok) {
+      goToLogin(res.email, res.message);
+      return;
+    }
+    // Signed in. AuthContext now switches the app to EmployeeHome, which
+    // unmounts this screen (and cancels the watch). Drop the PIN now.
+    setResult(null);
+    setStep("switching");
+    startHomeWatch(creds.email);
+  }
 
   const onCaptured = (photo) => {
     deleteLocalPhoto(form.selfie);
@@ -136,6 +204,9 @@ export default function JoinStartScreen({ navigation }) {
     });
     if (res.ok) {
       deleteLocalPhoto(form.selfie);
+      credsRef.current = { email: email.value, password: form.password };
+      setScrubValue("doneEmail", email.value);
+      setScrubValue("donePassword", form.password);
       setForm(EMPTY_FORM);
       setResult({ pin: res.pin, companyName: res.companyName || info.companyName });
       setStep("welcome");
@@ -174,14 +245,25 @@ export default function JoinStartScreen({ navigation }) {
     setSubmitError(res.message);
   }
 
-  if (!token) return <JoinStatusView phase="inactive" onExit={exit} />;
-  if (step === "welcome" && result) {
+  if (step === "switching") {
     return (
       <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <JoinWelcomeStep pin={result.pin} companyName={result.companyName} onDone={exit} />
+        <View style={s.center}>
+          <Spinner size={32} />
+          <Text style={[s.body, { marginTop: 16 }]}>Signing you in...</Text>
+        </View>
       </View>
     );
   }
+  if (step === "welcome") {
+    // result is null only for the moment between goToLogin and the reset.
+    return (
+      <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        {result ? <JoinWelcomeStep pin={result.pin} companyName={result.companyName} onDone={onDone} busy={signingIn} /> : null}
+      </View>
+    );
+  }
+  if (!token) return <JoinStatusView phase="inactive" onExit={exit} />;
   if (phase !== "active" || !info) return <JoinStatusView phase={phase} onRetry={reload} onExit={exit} />;
   if (step === "camera") return <SelfieCamera onCaptured={onCaptured} onCancel={() => setStep("details")} />;
 

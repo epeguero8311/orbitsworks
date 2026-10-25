@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -14,9 +14,16 @@ import { auth } from "../lib/firebase";
 import Logo from "../components/Logo";
 import Spinner from "../components/Spinner";
 import JoinCodeButton from "../components/JoinCodeButton";
+import { peekLoginPrefill, takeLoginPrefill } from "../lib/joinSignIn";
 
 export default function LoginScreen({ navigation }) {
-  const [email, setEmail] = useState("");
+  // After a crew code sign-up whose auto sign-in didn't finish: the email to
+  // fill in and a plain message (memory only, read once).
+  const [prefill] = useState(peekLoginPrefill);
+  useEffect(() => {
+    takeLoginPrefill();
+  }, []);
+  const [email, setEmail] = useState(prefill ? prefill.email : "");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -55,6 +62,12 @@ export default function LoginScreen({ navigation }) {
         </View>
 
         <Text style={styles.heading}>Login to your Account</Text>
+
+        {prefill && prefill.message ? (
+          <View style={styles.notice}>
+            <Text style={styles.noticeText}>{prefill.message}</Text>
+          </View>
+        ) : null}
 
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>Email</Text>
@@ -107,6 +120,8 @@ export default function LoginScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  notice: { backgroundColor: "#eff6ff", borderColor: "#bfdbfe", borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 16 },
+  noticeText: { color: "#1e3a8a", fontSize: 14, lineHeight: 20 },
   container: {
     flex: 1,
     paddingHorizontal: 28,
