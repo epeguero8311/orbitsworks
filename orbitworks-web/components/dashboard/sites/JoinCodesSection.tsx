@@ -5,7 +5,10 @@ import { useSites } from "@/lib/hooks/useSites";
 import { useSubcontractors } from "@/lib/hooks/useSubcontractors";
 import { useJoinCodes } from "@/lib/hooks/useJoinCodes";
 import { JoinCodeModal } from "@/components/dashboard/sites/JoinCodeModal";
-import { JoinCodesTable, type JoinCodeAction } from "@/components/dashboard/sites/JoinCodesTable";
+import { type JoinCodeAction } from "@/components/dashboard/sites/JoinCodeActionButtons";
+import { ActiveJoinCodes } from "@/components/dashboard/sites/ActiveJoinCodes";
+import { JoinCodeList } from "@/components/dashboard/sites/JoinCodeList";
+import { JoinCodeInfoModal } from "@/components/dashboard/sites/JoinCodeInfoModal";
 import { JoinCodesLocked } from "@/components/dashboard/sites/JoinCodesLocked";
 import { ConfirmDialog } from "@/components/dashboard/sites/ConfirmDialog";
 import type { JoinCodeListItem } from "@/lib/types";
@@ -20,10 +23,17 @@ export default function JoinCodesSection() {
 
   const [modal, setModal] = useState<{ code: JoinCodeListItem | null } | null>(null);
   const [confirm, setConfirm] = useState<{ action: "regenerate" | "revoke"; code: JoinCodeListItem } | null>(null);
+  // By codeId (stable across regenerate), so the modal follows the code
+  // after a regenerate or revoke refreshes the list.
+  const [infoCodeId, setInfoCodeId] = useState<string | null>(null);
+  const infoCode = data?.codes.find((c) => c.codeId === infoCodeId) ?? null;
+  const activeCodes = data ? data.codes.filter((c) => c.status === "active") : [];
 
   function handleAction(action: JoinCodeAction, code: JoinCodeListItem) {
-    if (action === "edit") setModal({ code });
-    else setConfirm({ action, code });
+    if (action === "edit") {
+      setInfoCodeId(null);
+      setModal({ code });
+    } else setConfirm({ action, code });
   }
 
   async function handleSave(input: JoinCodeCreateInput, token: string | null) {
@@ -56,23 +66,33 @@ export default function JoinCodesSection() {
       ) : !isPro ? (
         <JoinCodesLocked />
       ) : (
-        <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 bg-white">
-          {data && data.activeCap !== null && (
-            <p className="border-b border-gray-200 px-4 py-2 text-xs text-gray-600">
-              {data.seatsLeft} of {data.activeCap} active seats left ({data.activeCount} active employees)
-            </p>
+        <>
+          {data && (
+            <div className="mt-6">
+              <ActiveJoinCodes codes={activeCodes} onAction={handleAction} />
+            </div>
           )}
-          {loading && !data ? (
-            <p className="p-4 text-sm text-gray-600">Loading...</p>
-          ) : error ? (
-            <p className="p-4 text-sm text-red-600">{error}</p>
-          ) : !data || data.codes.length === 0 ? (
-            <p className="p-4 text-sm text-gray-600">No crew codes yet. Create one to get started.</p>
-          ) : (
-            <JoinCodesTable codes={data.codes} onAction={handleAction} />
-          )}
-        </div>
+          <h2 className="mt-8 text-sm font-semibold text-gray-950">All crew codes</h2>
+          <div className="mt-3 overflow-hidden rounded-xl border border-gray-200 bg-white">
+            {data && data.activeCap !== null && (
+              <p className="border-b border-gray-200 px-4 py-2 text-xs text-gray-600">
+                {data.seatsLeft} of {data.activeCap} active seats left ({data.activeCount} active employees)
+              </p>
+            )}
+            {loading && !data ? (
+              <p className="p-4 text-sm text-gray-600">Loading...</p>
+            ) : error ? (
+              <p className="p-4 text-sm text-red-600">{error}</p>
+            ) : !data || data.codes.length === 0 ? (
+              <p className="p-4 text-sm text-gray-600">No crew codes yet. Create one to get started.</p>
+            ) : (
+              <JoinCodeList codes={data.codes} onInfo={(c) => setInfoCodeId(c.codeId)} />
+            )}
+          </div>
+        </>
       )}
+
+      {infoCode && <JoinCodeInfoModal code={infoCode} onAction={handleAction} onClose={() => setInfoCodeId(null)} />}
 
       {modal && data && (
         <JoinCodeModal
