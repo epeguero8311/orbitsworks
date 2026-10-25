@@ -75,7 +75,7 @@ export interface JoinCompanyResult {
 
 // ---- code / plan / seat state (keep in sync with lib/joinCodes/server.ts) ----
 
-interface JoinCodeData {
+export interface JoinCodeData {
   codeId: string;
   companyId: string;
   siteId: string;
@@ -87,7 +87,7 @@ interface JoinCodeData {
   expiresAt: admin.firestore.Timestamp | null;
 }
 
-interface CompanyData {
+export interface CompanyData {
   name?: string;
   planTier?: string | null;
   employeeCap?: number | null;

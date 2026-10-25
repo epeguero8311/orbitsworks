@@ -68,7 +68,8 @@ function linkedEmployeeStatus(snap) {
 
 function tagSentryUser(user, data) {
   if (!data) return;
-  Sentry.setUser({ id: user.uid, email: user.email ?? undefined });
+  // id only: no email (or other personal data) in Sentry.
+  Sentry.setUser({ id: user.uid });
   Sentry.setTag("companyId", data.companyId ?? "unknown");
   Sentry.setTag("role", data.role ?? "unknown");
 }

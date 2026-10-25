@@ -47,6 +47,7 @@ import JoinScanScreen from "./screens/JoinScanScreen";
 import JoinStartScreen from "./screens/JoinStartScreen";
 import { useJoinLink } from "./lib/hooks/useJoinLink";
 import { redactJoinTokens } from "./lib/joinLink";
+import { scrubSensitive } from "./lib/sentryScrub";
 import { resolveFirebaseEnv } from "./config/envRules";
 import * as Sentry from '@sentry/react-native';
 
@@ -69,8 +70,10 @@ Sentry.init({
 
   environment: SENTRY_ENVIRONMENT,
 
-  beforeBreadcrumb: (breadcrumb) => scrubJoinTokens(breadcrumb),
-  beforeSend: (event) => scrubJoinTokens(event),
+  // Join tokens always; the sign-up email/password/birthday and the new
+  // PIN while the sign-up screen has them (lib/sentryScrub.js).
+  beforeBreadcrumb: (breadcrumb) => scrubSensitive(scrubJoinTokens(breadcrumb)),
+  beforeSend: (event) => scrubSensitive(scrubJoinTokens(event)),
 
   // Adds more context data to events (IP address, cookies, user, etc.)
   // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
@@ -199,7 +202,7 @@ function RootNavigator() {
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
             <Stack.Screen name="JoinScan" component={JoinScanScreen} />
-            <Stack.Screen name="JoinStart" component={JoinStartScreen} />
+            <Stack.Screen name="JoinStart" component={JoinStartScreen} options={{ gestureEnabled: false }} />
           </>
         )}
       </Stack.Navigator>

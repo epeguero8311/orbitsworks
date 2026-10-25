@@ -19,6 +19,9 @@ const SELFIE_MIN_BYTES = 5 * 1024;
 
 const ID_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
 
+// Crew code token, shared by joinCompany and getJoinInfo.
+const joinTokenField = z.string().regex(/^[A-Za-z0-9_-]{32,128}$/, "Invalid code");
+
 // Whole years between a YYYY-MM-DD birthday and today (UTC).
 export function ageOn(birthday: string, now: Date = new Date()): number {
   const [y, m, d] = birthday.split("-").map(Number);
@@ -50,7 +53,7 @@ const selfieField = z
   .regex(/^[A-Za-z0-9+/]+={0,2}$/, "That photo couldn't be read. Retake it.");
 
 export const joinCompanySchema = z.object({
-  token: z.string().regex(/^[A-Za-z0-9_-]{32,128}$/, "Invalid code"),
+  token: joinTokenField,
   fullName: z
     .string()
     .trim()
@@ -88,3 +91,7 @@ export function normalizeName(name: string): string {
     .replace(/\s+/g, " ")
     .toLowerCase();
 }
+
+// ---- getJoinInfo input (public, no auth) ----
+// Only the token. Anything that fails this is answered "no longer active".
+export const getJoinInfoSchema = z.object({ token: joinTokenField });

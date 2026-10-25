@@ -19,6 +19,8 @@ export { createEmployee } from "./createEmployee";
 
 export { joinCompany } from "./joinCompany";
 
+export { getJoinInfo } from "./getJoinInfo";
+
 export { updateEmployeeProfile } from "./updateEmployee";
 
 export {
