@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Employee, JobSite, Job, Subcontractor } from "@/lib/types";
 import { UpgradeToast } from "@/components/UpgradeToast";
+import { EmployeeRoleTag } from "@/components/dashboard/employees/EmployeeRoleTag";
 
 // Falls back to an initial instead of the browser's broken-image icon
 // when photoUrl points at a Storage object that is missing, empty, or
@@ -214,15 +215,7 @@ export function EmployeesTable({
                     <span className="flex items-center gap-2">
                       <EmployeeAvatar photoUrl={employee.photoUrl} name={employee.name} />
                       {employee.name}
-                      {employee.isAdmin ? (
-                        <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
-                          Admin
-                        </span>
-                      ) : employee.isSupervisor ? (
-                        <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
-                          Supervisor
-                        </span>
-                      ) : null}
+                      <EmployeeRoleTag employee={employee} />
                       {/* Face Verification (Pro) - "bad" takes priority
                           over "no pfp" since a bad pfp usually still has
                           a photoUrl set (it's bad because DetectFaces

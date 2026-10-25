@@ -34,6 +34,8 @@ type EmployeeLite = {
   id: string;
   name: string;
   isSupervisor?: boolean;
+  isAdmin?: boolean;
+  appAccess?: boolean;
   active?: boolean;
 };
 
@@ -250,6 +252,8 @@ export function useBillingPage() {
         id: d.id,
         name: (data.name as string) ?? "Unnamed",
         isSupervisor: !!data.isSupervisor,
+        isAdmin: !!data.isAdmin,
+        appAccess: data.appAccess === true,
         active: true,
       };
     });
@@ -270,6 +274,8 @@ export function useBillingPage() {
         id: d.id,
         name: (data.name as string) ?? "Unnamed",
         isSupervisor: !!data.isSupervisor,
+        isAdmin: !!data.isAdmin,
+        appAccess: data.appAccess === true,
         active: false,
       };
     });

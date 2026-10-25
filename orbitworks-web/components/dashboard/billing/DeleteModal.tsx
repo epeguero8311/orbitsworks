@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { EmployeeRoleTag } from "@/components/dashboard/employees/EmployeeRoleTag";
 
 type EmployeeLite = {
   id: string;
   name: string;
   isSupervisor?: boolean;
+  isAdmin?: boolean;
+  appAccess?: boolean;
 };
 
 export default function DeleteModal({
@@ -68,11 +71,7 @@ export default function DeleteModal({
                 className="h-4 w-4 rounded border-gray-300 text-accent focus:ring-accent"
               />
               <span className="text-gray-950">{emp.name}</span>
-              {emp.isSupervisor && (
-                <span className="ml-auto rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                  Supervisor
-                </span>
-              )}
+              <EmployeeRoleTag employee={emp} className="ml-auto" />
             </label>
           ))}
         </div>
