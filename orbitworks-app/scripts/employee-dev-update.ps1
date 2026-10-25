@@ -47,11 +47,22 @@ function Check([string]$Name, [bool]$Ok, [string]$Detail = "") {
   }
 }
 
-# Runs a native command, returns stdout as one string ($null on a non-zero exit).
-function Run([string]$Exe, [string[]]$CmdArgs) {
+# Runs a native command, returns its stdout lines ($null on a non-zero exit).
+# stderr is dropped (eas prints update notices there); only the exit code
+# decides pass/fail, so "Stop" must not turn stderr text into a crash.
+function RunLines([string]$Exe, [string[]]$CmdArgs) {
+  $ErrorActionPreference = "Continue"
   $out = & $Exe @CmdArgs 2>$null
   if ($LASTEXITCODE -ne 0) { return $null }
-  return ($out -join "`n")
+  # Leading comma: keep an empty result as an empty array, not $null.
+  return ,@($out | ForEach-Object { "$_" })
+}
+
+# Same, as one string.
+function Run([string]$Exe, [string[]]$CmdArgs) {
+  $lines = RunLines $Exe $CmdArgs
+  if ($null -eq $lines) { return $null }
+  return ($lines -join "`n")
 }
 
 Write-Host ""
@@ -64,9 +75,9 @@ Check "Branch is $BRANCH" ($branch -eq $BRANCH) "on '$branch'"
 
 # 1b. Clean tree: the update must match a commit exactly. Any uncommitted
 # or untracked file under orbitworks-app refuses the publish.
-$dirtyOut = & git status --porcelain --untracked-files=all -- . 2>$null
-$dirtyOk = ($LASTEXITCODE -eq 0) -and (-not $dirtyOut)
-Check "orbitworks-app has no uncommitted changes" $dirtyOk "commit or remove these first"
+$dirtyOut = RunLines "git" @("status", "--porcelain", "--untracked-files=all", "--", ".")
+$dirtyOk = ($null -ne $dirtyOut) -and ($dirtyOut.Count -eq 0)
+Check "orbitworks-app has no uncommitted changes" $dirtyOk $(if ($null -eq $dirtyOut) { "git status failed" } else { "commit or remove these first" })
 if (-not $dirtyOk -and $dirtyOut) { @($dirtyOut) | ForEach-Object { Write-Host ("         " + $_) -ForegroundColor Red } }
 $commit = Run "git" @("rev-parse", "--short", "HEAD")
 
@@ -121,14 +132,15 @@ Check "Runtime version is $RUNTIME" ($rt -eq $RUNTIME) "got '$rt'"
 # 6. The TestFlight build this update must reach
 $buildsRaw = Run "eas" @("build:list", "--platform", "ios", "--build-profile", $BUILD_PROFILE, "--status", "finished", "--limit", "20", "--json", "--non-interactive")
 $build = $null
-if ($buildsRaw) { try { $build = @($buildsRaw | ConvertFrom-Json) | Where-Object { $_.appBuildVersion -eq $TESTFLIGHT_BUILD } | Select-Object -First 1 } catch { $build = $null } }
-Check "TestFlight build $TESTFLIGHT_BUILD found ($BUILD_PROFILE, finished)" ($build -ne $null) "not found"
-Check "Build $TESTFLIGHT_BUILD runtime $RUNTIME matches this update" ($build -ne $null -and $build.runtimeVersion -eq $RUNTIME -and $build.runtimeVersion -eq $rt) $(if ($build) { $build.runtimeVersion } else { "" })
-Check "Build $TESTFLIGHT_BUILD channel is $CHANNEL" ($build -ne $null -and $build.channel -eq $CHANNEL) $(if ($build) { $build.channel } else { "" })
+# PS 5.1 ConvertFrom-Json returns a JSON array as ONE object; ForEach unrolls it.
+if ($buildsRaw) { try { $build = ($buildsRaw | ConvertFrom-Json) | ForEach-Object { $_ } | Where-Object { "$($_.appBuildVersion)" -eq $TESTFLIGHT_BUILD } | Select-Object -First 1 } catch { $build = $null } }
+Check "TestFlight build $TESTFLIGHT_BUILD found ($BUILD_PROFILE, finished)" ($null -ne $build) "not found"
+Check "Build $TESTFLIGHT_BUILD runtime $RUNTIME matches this update" ($null -ne $build -and $build.runtimeVersion -eq $RUNTIME -and $build.runtimeVersion -eq $rt) $(if ($build) { $build.runtimeVersion } else { "" })
+Check "Build $TESTFLIGHT_BUILD channel is $CHANNEL" ($null -ne $build -and $build.channel -eq $CHANNEL) $(if ($build) { $build.channel } else { "" })
 
 # 7. App unit tests
-$null = Run "npm" @("test", "--silent")
-Check "App tests pass (npm test)" ($LASTEXITCODE -eq 0) "see npm test"
+$testOut = Run "npm" @("test", "--silent")
+Check "App tests pass (npm test)" ($null -ne $testOut) "see npm test"
 
 Write-Host ""
 if ($script:failed) {
