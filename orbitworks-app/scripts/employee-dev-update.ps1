@@ -166,7 +166,7 @@ if ($CheckOnly) {
   exit 0
 }
 
-$question = "Publish this update to channel $CHANNEL? (y/n)"
+$question = "Publish this update to channel ${CHANNEL}? (y/n)"
 if ($Answer) {
   Write-Host ($question + " " + $Answer)
   $reply = $Answer
