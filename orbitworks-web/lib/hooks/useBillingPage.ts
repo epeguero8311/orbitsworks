@@ -123,6 +123,7 @@ export function useBillingPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loadCompany only sets state after await getDoc, never synchronously.
     loadCompany();
   }, [userData?.companyId]);
 
@@ -200,9 +201,9 @@ export function useBillingPage() {
           );
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Checkout error:", err);
-      showToast(err.message || "Couldn't start checkout. Try again.", "error");
+      showToast((err as { message?: string } | null)?.message || "Couldn't start checkout. Try again.", "error");
       setBusy(null);
       setOverlayMessage(null);
     }
@@ -233,9 +234,9 @@ export function useBillingPage() {
           "error"
         );
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Cancel error:", err);
-      showToast(err.message || "Couldn't cancel your subscription. Try again.", "error");
+      showToast((err as { message?: string } | null)?.message || "Couldn't cancel your subscription. Try again.", "error");
       setBusy(null);
       setOverlayMessage(null);
     }
@@ -490,9 +491,9 @@ export function useBillingPage() {
         throw new Error(data.error || "Something went wrong.");
       }
       setSetupClientSecret(data.clientSecret);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Create setup intent error:", err);
-      showToast(err.message || "Couldn't start payment update. Try again.", "error");
+      showToast((err as { message?: string } | null)?.message || "Couldn't start payment update. Try again.", "error");
     } finally {
       setBusy(null);
     }

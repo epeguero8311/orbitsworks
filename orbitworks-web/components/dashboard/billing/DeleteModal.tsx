@@ -53,7 +53,7 @@ export default function DeleteModal({
           delete before continuing.
         </p>
         <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-800">
-          This can't be undone. Deleted employees lose their login and clock
+          This can&apos;t be undone. Deleted employees lose their login and clock
           history record, though past timesheets stay intact.
         </p>
 

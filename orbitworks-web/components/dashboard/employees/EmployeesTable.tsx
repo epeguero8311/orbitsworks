@@ -96,11 +96,12 @@ export function EmployeesTable({
   async function toggleActive(employee: Employee) {
     try {
       await onToggleActive(employee.id, !employee.active);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Toggle employee active error:", err);
-      if (err?.code === "functions/resource-exhausted") {
+      const code = (err as { code?: string } | null)?.code;
+      if (code === "functions/resource-exhausted") {
         setShowUpgradeToast(true);
-      } else if (err?.code === "functions/failed-precondition") {
+      } else if (code === "functions/failed-precondition") {
         setShowPastDueToast(true);
       }
     }
