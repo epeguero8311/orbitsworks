@@ -296,7 +296,7 @@ export function EmployeesTable({
         visible={showPastDueToast}
         onClose={() => setShowPastDueToast(false)}
         message="Your last payment failed. Reactivating employees is paused until it's resolved."
-        actionLabel={"Fix billing →"}
+        actionLabel={"Fix billing \u2192"}
       />
     </div>
   );
