@@ -609,8 +609,8 @@ async function deleteEmployeeRecord(
     const userRef = db.collection("users").doc(linkedUserId);
     try {
       await admin.auth().deleteUser(linkedUserId);
-    } catch (err: any) {
-      if (err?.code !== "auth/user-not-found") throw err;
+    } catch (err) {
+      if ((err as { code?: string } | null)?.code !== "auth/user-not-found") throw err;
     }
     await userRef.delete();
   }
@@ -684,7 +684,7 @@ export const deleteEmployeesBulk = onCall(async (request) => {
     try {
       await deleteEmployeeRecord(callerCompanyId, employeeId, request.auth.uid);
       deletedCount++;
-    } catch (err: any) {
+    } catch (err) {
       if (err instanceof HttpsError && err.code === "not-found") continue;
       throw err;
     }

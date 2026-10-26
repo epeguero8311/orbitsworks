@@ -100,6 +100,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   }, [userData?.companyId, userData?.role]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: close the mobile sidebar after any route change.
     setSidebarOpen(false);
   }, [pathname]);
 
