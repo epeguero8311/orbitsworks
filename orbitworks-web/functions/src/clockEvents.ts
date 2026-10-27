@@ -60,6 +60,8 @@ async function handleDeviceTracking(
 
     // "pin" is the real app's normal PIN+photo clock-in source; faceMatch
     // is kept for forward compatibility even though nothing sends it today.
+    // "employeeApp" is left out on purpose: this tracks shared supervisor
+    // devices, and an employee's own phone is not one of them.
     const source = data.source;
     if (source !== "faceMatch" && source !== "supervisorOverride" && source !== "pin") return;
 
@@ -145,6 +147,10 @@ export const onClockEventCreated = onDocumentCreated(
     // client's siteId alone") whenever detection doesn't apply at all - a
     // Core company, a Pro company with zero fenced sites (both must "keep
     // today's flow exactly"), or a non-pin/non-in/out event.
+    // "employeeApp" is left out on purpose: its site is set when the punch
+    // is written (crew code site, else assigned site, else none), and
+    // detection here would overwrite it. Revisit in Employee App Phase 6
+    // (location).
     const isPinInOrOut =
       companyIsPro && data.source === "pin" && (data.type === "in" || data.type === "out");
 
@@ -630,6 +636,9 @@ export const onClockEventCreated = onDocumentCreated(
     // timesheetApproval/overrideEvent writes, or any alert check above
     // it. checkFaceMatch re-fetches the event itself and does its own
     // Pro/enabled/pfp guards - see functions/src/rekognition.ts.
+    // No source filter: every source with a clock photo goes through it,
+    // including "employeeApp" (Pro + clock photo + reference selfie = check;
+    // no selfie or Core = no check).
     try {
       await checkFaceMatch(companyId, event.params.eventId);
     } catch (err) {

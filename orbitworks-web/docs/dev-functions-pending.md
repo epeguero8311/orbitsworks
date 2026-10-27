@@ -84,12 +84,21 @@ Phase 3 Step 6 (shrunk to this):
 
 ## Phase 3 to-do: employeeApp in the clock-event trigger (found in Phase 1)
 
-- `onClockEventCreated` in `functions/src/clockEvents.ts` only runs the face
-  check, device tracking and site detection for sources `faceMatch`,
-  `supervisorOverride` and `pin` (the early return near the top of the
-  handler). Clock events with source `employeeApp` skip all three today.
-- Fix: add `employeeApp` to those source checks, and confirm auto clock-out
-  covers `employeeApp` shifts when the 5 held functions are deployed.
+- Resolved 2026-10-26 (Phase 3 Step 3). The Phase 1 note above overstated
+  it: the face check (`checkFaceMatch`) was never source-gated. It runs for
+  every source with a clock photo, so `employeeApp` already gets it: Pro +
+  clock photo + reference selfie = check; no selfie or Core = no check.
+  Covered by `functions/test/clockEventSources.test.js`.
+- Two branches ARE source-gated, and `employeeApp` stays out of both on
+  purpose (decided 2026-10-26):
+  - Auto site detection (Pro, source `pin` only). An `employeeApp` event's
+    site is set when the punch is written (crew code site, else assigned
+    site, else none), and detection would overwrite it. **Revisit in
+    Employee App Phase 6 (location).**
+  - Device tracking (`pin`/`faceMatch`/`supervisorOverride`). It tracks
+    shared supervisor devices; an employee's own phone is not one.
+- Auto clock-out (`runAutoClockOut`) and the periodic alert sweep do not
+  filter by source, so they cover `employeeApp` shifts.
 
 ## Employee App to-dos (added 2026-10-23, Phase 2 Part B)
 
