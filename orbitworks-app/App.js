@@ -42,7 +42,8 @@ import CreateEmployeeScreen from "./screens/CreateEmployeeScreen";
 import UpdateEmployeeScreen from "./screens/UpdateEmployeeScreen";
 import EditEmployeeScreen from "./screens/EditEmployeeScreen";
 import EmployeeSyncAlertsScreen from "./screens/EmployeeSyncAlertsScreen";
-import EmployeeHomePlaceholderScreen from "./screens/EmployeeHomePlaceholderScreen";
+import EmployeeHomeScreen from "./screens/EmployeeHomeScreen";
+import ClockPunchScreen from "./screens/ClockPunchScreen";
 import JoinScanScreen from "./screens/JoinScanScreen";
 import JoinStartScreen from "./screens/JoinStartScreen";
 import { useJoinLink } from "./lib/hooks/useJoinLink";
@@ -174,8 +175,11 @@ function RootNavigator() {
         {currentUser && accountDisabled ? (
           <Stack.Screen name="AccountDisabled" component={AccountDisabledScreen} />
         ) : currentUser && isEmployeeLogin ? (
-          // Employee App (Phase 0): placeholder only, no supervisor screens.
-          <Stack.Screen name="EmployeeHome" component={EmployeeHomePlaceholderScreen} />
+          // Employee App: Home + clock in/out only, no supervisor screens.
+          <>
+            <Stack.Screen name="EmployeeHome" component={EmployeeHomeScreen} />
+            <Stack.Screen name="ClockPunch" component={ClockPunchScreen} options={{ gestureEnabled: false }} />
+          </>
         ) : currentUser ? (
           <>
             <Stack.Screen name="MainTabs" component={MainTabs} options={{ freezeOnBlur: false }} />

@@ -67,7 +67,7 @@ export { syncEmployeeAppConfig, backfillEmployeeAppConfig } from "./employeeAppC
 
 export { syncEmployeeSelfView } from "./employeeSelfView";
 
-export { employeeClockPunch } from "./employeeClock";
+export { employeeClockPunch, getEmployeeHomeSite } from "./employeeClock";
 
 export { runAutoClockOut } from "./autoClockOut";
 

@@ -403,3 +403,25 @@ export const employeeClockPunch = onCall(async (request) => {
   }
   return resultFrom(eventRef.id, outcome.data, false);
 });
+
+// ---- Employee App Home: where the next clock-in would land ----
+//
+// Read-only. The phone can't read crew codes, so Home asks the server for
+// the site a clock-in would get right now - the SAME resolveEmployeeSite
+// the punch uses (crew code site if active, else the single assigned site,
+// else none). Home shows it top right while clocked out; while clocked in
+// it shows the shift's clock-in site from the employee's own events.
+export const getEmployeeHomeSite = onCall(async (request) => {
+  if (!request.auth) throw clockError("notSignedIn");
+  const role = request.auth.token.role as string | undefined;
+  const companyId = request.auth.token.companyId as string | undefined;
+  const employeeId = request.auth.token.employeeId as string | undefined;
+  if (role !== "employee" || !companyId || !employeeId) throw clockError("wrongAccount");
+
+  const employeeSnap = await db.collection("companies").doc(companyId).collection("employees").doc(employeeId).get();
+  const employee = employeeSnap.data() as EmployeeDoc | undefined;
+  if (!employee || employee.linkedUserId !== request.auth.uid) throw clockError("wrongAccount");
+
+  const site = await resolveEmployeeSite(companyId, employee);
+  return { siteId: site.siteId, siteName: site.siteId ? site.siteName : null };
+});

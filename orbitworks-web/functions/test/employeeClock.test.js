@@ -462,6 +462,39 @@ test("site: assigned sites changed mid-shift -> clock out keeps the clock-in sit
   assert.equal(ev.siteName, "Not specified");
 });
 
+// ===================== getEmployeeHomeSite =====================
+
+const homeSite = (c, auth = employeeAuth(c)) => funcs.getEmployeeHomeSite.run({ data: {}, auth, rawRequest: {} });
+
+test("home site: same rule as clock-in (crew code site, else single assigned, else none)", async () => {
+  const c = "ec-home-code";
+  await seed(c, { employee: { joinCodeId: "code-h", assignedSiteIds: ["site1"] } });
+  await db.collection("joinCodes").doc("tok" + c).set({ codeId: "code-h", companyId: c, siteId: "site2", createdAt: admin.firestore.Timestamp.fromMillis(1000) });
+  assert.deepEqual(await homeSite(c), { siteId: "site2", siteName: "Site Two" });
+  await db.doc(`companies/${c}/jobSites/site2`).update({ active: false });
+  assert.deepEqual(await homeSite(c), { siteId: "site1", siteName: "Site One" });
+  await db.doc(`companies/${c}/employees/emp1`).update({ assignedSiteIds: ["site1", "site2"] });
+  assert.deepEqual(await homeSite(c), { siteId: null, siteName: null });
+});
+
+test("home site: matches what the next clock-in gets", async () => {
+  const c = "ec-home-match";
+  await seed(c, { employee: { joinCodeId: "code-m" } });
+  await db.collection("joinCodes").doc("tok" + c).set({ codeId: "code-m", companyId: c, siteId: "site2", createdAt: admin.firestore.Timestamp.fromMillis(1000) });
+  const site = await homeSite(c);
+  const res = await punch(c, "in");
+  assert.equal(res.siteId, site.siteId);
+  assert.equal(res.siteName, site.siteName);
+});
+
+test("home site: rejects signed out, non-employee role and unlinked login", async () => {
+  const c = "ec-home-auth";
+  await seed(c, { employee: { linkedUserId: "someoneElse" } });
+  await assert.rejects(homeSite(c), reasonIs("wrongAccount"));
+  await assert.rejects(homeSite(c, employeeAuth(c, { role: "supervisor" })), reasonIs("wrongAccount"));
+  await assert.rejects(homeSite(c, null), reasonIs("notSignedIn"));
+});
+
 // ===================== face check (through the real trigger) =====================
 
 test("Pro + selfie: the employeeApp punch gets the face check", async () => {

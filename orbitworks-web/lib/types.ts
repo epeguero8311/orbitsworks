@@ -835,6 +835,14 @@ export interface EmployeeClockPunchResult {
   replayed: boolean;
 }
 
+// getEmployeeHomeSite (functions/src/employeeClock.ts) - where the next
+// clock-in would land, for the Home screen's top right. siteName is null
+// when there is no site (Home shows blank).
+export interface EmployeeHomeSiteResult {
+  siteId: string | null;
+  siteName: string | null;
+}
+
 // HttpsError details.reason values the app maps to its own messages.
 export type EmployeeClockErrorReason =
   | "invalid"

@@ -58,11 +58,15 @@ async function cachedClaimsUserData(user) {
 // where the memory cache is empty, or before the server answers) returns
 // disabled: null = unknown, which must never show Account deactivated.
 // From the server: no linked record or active === false -> deactivated.
-function linkedEmployeeStatus(snap) {
+// Employee App logins (inactiveStaysSignedIn): only "no linked record" is
+// deactivated - an inactive employee stays signed in and Employee Home
+// shows "Your account is inactive, speak to your admin" instead.
+function linkedEmployeeStatus(snap, inactiveStaysSignedIn = false) {
   const first = snap.empty ? null : snap.docs[0];
   const employeeId = first ? first.id : null;
   if (snap.metadata.fromCache) return { employeeId, disabled: null };
   if (!first) return { employeeId: null, disabled: true };
+  if (inactiveStaysSignedIn) return { employeeId, disabled: false };
   return { employeeId, disabled: first.data().active === false };
 }
 
@@ -182,7 +186,7 @@ export function AuthProvider({ children }) {
       // result would otherwise raise no second event).
       { includeMetadataChanges: true },
       (snap) => {
-        const status = linkedEmployeeStatus(snap);
+        const status = linkedEmployeeStatus(snap, userData.role === "employee");
         if (status.employeeId) setLinkedEmployeeId(status.employeeId);
         if (status.disabled === null) return;
         if (!status.employeeId) setLinkedEmployeeId(null);
