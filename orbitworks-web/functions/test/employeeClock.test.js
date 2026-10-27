@@ -427,6 +427,41 @@ test("site: no crew code and several (or zero) assigned sites -> none", async ()
   assert.equal((await punch(c2, "in")).siteId, null);
 });
 
+test("site: crew site deactivated mid-shift -> breaks and clock out keep the clock-in site", async () => {
+  const c = "ec-site-midshift";
+  await seed(c, { employee: { joinCodeId: "code-3", assignedSiteIds: ["site1"] } });
+  await db.collection("joinCodes").doc("tok" + c).set({ codeId: "code-3", companyId: c, siteId: "site2", createdAt: admin.firestore.Timestamp.fromMillis(1000) });
+  const inRes = await punch(c, "in");
+  assert.equal(inRes.siteId, "site2");
+  await db.doc(`companies/${c}/jobSites/site2`).update({ active: false });
+  const bs = await punch(c, "breakStart");
+  const be = await punch(c, "breakEnd");
+  const out = await punch(c, "out");
+  for (const r of [bs, be, out]) {
+    assert.equal(r.siteId, "site2");
+    assert.equal(r.siteName, "Site Two");
+  }
+  const byType = Object.fromEntries((await events(c)).map((e) => [e.type, e]));
+  for (const t of ["breakStart", "breakEnd", "out"]) assert.equal(byType[t].siteId, "site2", t);
+});
+
+test("site: assigned sites changed mid-shift -> clock out keeps the clock-in site; no-site shift stays no-site", async () => {
+  const c = "ec-site-reassign";
+  await seed(c, { employee: { assignedSiteIds: ["site1"] } });
+  await punch(c, "in");
+  await db.doc(`companies/${c}/employees/emp1`).update({ assignedSiteIds: ["site2"] });
+  assert.equal((await punch(c, "out")).siteId, "site1");
+
+  const c2 = "ec-site-none-shift";
+  await seed(c2, { employee: { assignedSiteIds: [] } });
+  await punch(c2, "in");
+  await db.doc(`companies/${c2}/employees/emp1`).update({ assignedSiteIds: ["site1"] });
+  const out = await punch(c2, "out");
+  assert.equal(out.siteId, null);
+  const ev = (await events(c2)).find((e) => e.type === "out");
+  assert.equal(ev.siteName, "Not specified");
+});
+
 // ===================== face check (through the real trigger) =====================
 
 test("Pro + selfie: the employeeApp punch gets the face check", async () => {

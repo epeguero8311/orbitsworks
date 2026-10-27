@@ -20,8 +20,11 @@ import { employeeClockPunchSchema, EmployeeClockAction } from "./employeeClockVa
 //   6. in/out only: the live clock photo must be this punch's own file
 //      (companies/{c}/clockEvents/{employeeId}/{requestId}.jpg), an image,
 //      uploaded in the last 10 minutes
-//   7. site: crew code site if that site is still active, else the one
-//      assigned site if exactly one is assigned, else none
+//   7. site, clock-in only: crew code site if that site is still active,
+//      else the one assigned site if exactly one is assigned, else none.
+//      Clock out and breaks copy the site of that shift's clock-in event
+//      (read in the transaction), so a site change mid-shift never splits
+//      one shift across two sites.
 //   8. ONE transaction: re-check active/linked, read the latest clock event,
 //      reject a wrong-state punch, write the event with server time. The
 //      employee doc is written in the same transaction (lastPunchRequestId)
@@ -330,13 +333,20 @@ export const employeeClockPunch = onCall(async (request) => {
     if (!photoUrl) return reject(clockError("photo"));
   }
 
-  // 7. site
-  const site = await resolveEmployeeSite(companyId, employee);
+  // 7. site (clock-in only - see the header)
+  const clockInSite = input.action === "in" ? await resolveEmployeeSite(companyId, employee) : null;
 
   // 8. state + write, atomically
   const latestQuery = companyRef
     .collection("clockEvents")
     .where("employeeId", "==", employeeId)
+    .orderBy("timestamp", "desc")
+    .limit(1);
+  // The open shift's clock-in, for out/breaks to copy its site.
+  const shiftInQuery = companyRef
+    .collection("clockEvents")
+    .where("employeeId", "==", employeeId)
+    .where("type", "==", "in")
     .orderBy("timestamp", "desc")
     .limit(1);
 
@@ -353,6 +363,13 @@ export const employeeClockPunch = onCall(async (request) => {
       const latestType = latestSnap.empty ? undefined : (latestSnap.docs[0].data() as EventData).type;
       const message = wrongStateMessage(input.action, statusAfter(latestType));
       if (message) return { kind: "rejected", err: clockError("wrongState", message, { status: statusAfter(latestType) }) };
+
+      let site: Site = clockInSite ?? { siteId: null, siteName: NO_SITE_NAME };
+      if (!clockInSite) {
+        const inSnap = await tx.get(shiftInQuery);
+        const shiftIn = inSnap.empty ? undefined : (inSnap.docs[0].data() as EventData);
+        if (shiftIn?.siteId) site = { siteId: shiftIn.siteId, siteName: shiftIn.siteName || NO_SITE_NAME };
+      }
 
       const timestamp = admin.firestore.Timestamp.fromMillis(Date.now());
       const data: Record<string, unknown> = {
