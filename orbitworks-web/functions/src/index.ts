@@ -65,6 +65,10 @@ export { onEmployeePhotoWrite } from "./rekognition";
 
 export { syncEmployeeAppConfig, backfillEmployeeAppConfig } from "./employeeAppConfig";
 
+export { syncEmployeeSelfView } from "./employeeSelfView";
+
+export { employeeClockPunch } from "./employeeClock";
+
 export { runAutoClockOut } from "./autoClockOut";
 
 export {

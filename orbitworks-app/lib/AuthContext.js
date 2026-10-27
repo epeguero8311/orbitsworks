@@ -168,7 +168,11 @@ export function AuthProvider({ children }) {
     // supervisor promoted-in-place keeps their original employee doc ID,
     // and a fresh invite gets an auto-generated one. linkedUserId is the
     // join, so this has to be a query, not a doc(uid) lookup.
-    const employeesRef = collection(db, "companies", userData.companyId, "employees");
+    // Employee App logins can't read the employee doc (it holds the PIN) -
+    // they watch the server-written employeeSelfViews copy instead, which
+    // has the same id, active and linkedUserId fields.
+    const collectionName = userData.role === "employee" ? "employeeSelfViews" : "employees";
+    const employeesRef = collection(db, "companies", userData.companyId, collectionName);
     const employeeQuery = query(employeesRef, where("linkedUserId", "==", currentUser.uid));
 
     const unsubscribe = onSnapshot(

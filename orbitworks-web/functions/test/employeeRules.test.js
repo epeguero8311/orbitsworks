@@ -141,6 +141,13 @@ test.beforeEach(async () => {
     await set(["companies", A, "pushTokens", "dev1"], { deviceId: "dev1", token: "ExponentPushToken[x]", platform: "ios" });
     await set(["companies", A, "pins", "1111"], { employeeId: "empA" });
 
+    // Employee App Phase 3: server-written safe copies (no PIN) and a PIN lock.
+    const selfView = (name, uid) => ({ name, active: true, assignedSiteIds: ["site1"], linkedUserId: uid });
+    await set(["companies", A, "employeeSelfViews", "empA"], selfView("Ana", "uidA"));
+    await set(["companies", A, "employeeSelfViews", "empB"], selfView("Ben", "uidB"));
+    await set(["companies", B, "employeeSelfViews", "empX"], selfView("Xena", "uidX"));
+    await set(["companies", A, "employeePinLocks", "empA"], { failedCount: 2, lockedUntil: null });
+
     await set(["joinCodes", "tok123"], { companyId: A, siteId: "site1", status: "active" });
     await set(["invites", "inv1"], { companyId: A, email: "x@example.com", role: "supervisor" });
   });
@@ -250,13 +257,58 @@ test("FAIL: employee creates a clock event with forged override/server fields", 
   await assertFails(setDoc(eventDoc(db, A, "auto-L-7"), employeeAppEvent({ localId: "auto-L-7" })));
 });
 
-test("FAIL: employee replay that changes an identity field", async () => {
-  const db = employeeA().firestore();
-  await assertSucceeds(setDoc(eventDoc(db, A, "L-8"), employeeAppEvent({ localId: "L-8" })));
-  await assertFails(setDoc(eventDoc(db, A, "L-8"), employeeAppEvent({ localId: "L-8", type: "out" }), { merge: true }));
-  await assertFails(
-    setDoc(eventDoc(db, A, "L-8"), employeeAppEvent({ localId: "L-8", timestamp: Timestamp.now() }), { merge: true })
+test("FAIL: employee updates their own clock event (no direct replay path)", async () => {
+  await testEnv.withSecurityRulesDisabled((c) =>
+    setDoc(eventDoc(c.firestore(), A, "L-8"), employeeAppEvent({ localId: "L-8" }))
   );
+  const db = employeeA().firestore();
+  const ev = employeeAppEvent({ localId: "L-8" });
+  await assertFails(setDoc(eventDoc(db, A, "L-8"), ev, { merge: true }));
+  await assertFails(setDoc(eventDoc(db, A, "L-8"), { ...ev, photoUrl: "https://example.com/new.jpg" }, { merge: true }));
+  await assertFails(setDoc(eventDoc(db, A, "L-8"), { ...ev, type: "out" }, { merge: true }));
+  await assertFails(deleteDoc(eventDoc(db, A, "L-8")));
+});
+
+test("FAIL: employee writes any clock event directly, even their own (callable only)", async () => {
+  const db = employeeA().firestore();
+  for (const type of ["in", "breakStart", "breakEnd", "out"]) {
+    await assertFails(setDoc(eventDoc(db, A, `L-${type}`), employeeAppEvent({ localId: `L-${type}`, type })));
+  }
+});
+
+test("FAIL: deactivated employee with an open session can't write a clock event directly either", async () => {
+  await testEnv.withSecurityRulesDisabled((c) =>
+    updateDoc(doc(c.firestore(), "companies", A, "employees", "empA"), { active: false, lastEventType: "in" })
+  );
+  const db = employeeA().firestore();
+  await assertFails(setDoc(eventDoc(db, A, "L-close"), employeeAppEvent({ localId: "L-close", type: "out" })));
+});
+
+test("FAIL: employee reads their own employee doc (it holds the PIN)", async () => {
+  const db = employeeA().firestore();
+  await assertFails(getDoc(doc(db, "companies", A, "employees", "empA")));
+  await assertFails(getDocs(query(collection(db, "companies", A, "employees"), where("linkedUserId", "==", "uidA"))));
+});
+
+test("FAIL: employee reads someone else's self view, lists them all, or writes a self view", async () => {
+  const db = employeeA().firestore();
+  await assertFails(getDoc(doc(db, "companies", A, "employeeSelfViews", "empB")));
+  await assertFails(getDocs(collection(db, "companies", A, "employeeSelfViews")));
+  await assertFails(getDoc(doc(db, "companies", B, "employeeSelfViews", "empX")));
+  await assertFails(updateDoc(doc(db, "companies", A, "employeeSelfViews", "empA"), { active: true }));
+  await assertFails(setDoc(doc(db, "companies", A, "employeeSelfViews", "empA"), { name: "x", linkedUserId: "uidA" }));
+  await assertFails(deleteDoc(doc(db, "companies", A, "employeeSelfViews", "empA")));
+});
+
+test("FAIL: nobody on a client reads or writes PIN locks", async () => {
+  for (const ctx of [employeeA(), adminA(), supervisorA()]) {
+    const r = doc(ctx.firestore(), "companies", A, "employeePinLocks", "empA");
+    await assertFails(getDoc(r));
+    await assertFails(getDocs(collection(ctx.firestore(), "companies", A, "employeePinLocks")));
+    await assertFails(setDoc(r, { failedCount: 0, lockedUntil: null }));
+    await assertFails(updateDoc(r, { failedCount: 0 }));
+    await assertFails(deleteDoc(r));
+  }
 });
 
 test("FAIL: deactivated employee clocks in", async () => {
@@ -376,40 +428,13 @@ test("FAIL: employee backs up a queue item for someone else", async () => {
 
 // ===================== Employee: must PASS =====================
 
-test("PASS: employee reads their own doc (by id and by linkedUserId query)", async () => {
+test("PASS: employee reads only their own self view (by id and by linkedUserId query) and users doc", async () => {
   const db = employeeA().firestore();
-  await assertSucceeds(getDoc(doc(db, "companies", A, "employees", "empA")));
+  await assertSucceeds(getDoc(doc(db, "companies", A, "employeeSelfViews", "empA")));
   await assertSucceeds(
-    getDocs(query(collection(db, "companies", A, "employees"), where("linkedUserId", "==", "uidA")))
+    getDocs(query(collection(db, "companies", A, "employeeSelfViews"), where("linkedUserId", "==", "uidA")))
   );
   await assertSucceeds(getDoc(doc(db, "users", "uidA")));
-});
-
-test("PASS: employee clocks themselves in, takes a break, and clocks out", async () => {
-  const db = employeeA().firestore();
-  await assertSucceeds(setDoc(eventDoc(db, A, "L-in"), employeeAppEvent({ localId: "L-in" })));
-  await assertSucceeds(setDoc(eventDoc(db, A, "L-bs"), employeeAppEvent({ localId: "L-bs", type: "breakStart" })));
-  await assertSucceeds(setDoc(eventDoc(db, A, "L-be"), employeeAppEvent({ localId: "L-be", type: "breakEnd" })));
-  await assertSucceeds(setDoc(eventDoc(db, A, "L-out"), employeeAppEvent({ localId: "L-out", type: "out" })));
-});
-
-test("PASS: employee offline replay of the same event (stable localId doc id)", async () => {
-  const db = employeeA().firestore();
-  const ev = employeeAppEvent({ localId: "L-r" });
-  await assertSucceeds(setDoc(eventDoc(db, A, "L-r"), ev, { merge: true }));
-  await assertSucceeds(setDoc(eventDoc(db, A, "L-r"), ev, { merge: true }));
-  // A retry that re-uploaded the photo gets a new URL - still allowed.
-  await assertSucceeds(
-    setDoc(eventDoc(db, A, "L-r"), { ...ev, photoUrl: "https://example.com/new.jpg" }, { merge: true })
-  );
-});
-
-test("PASS: deactivated employee with an open session can still clock out", async () => {
-  await testEnv.withSecurityRulesDisabled((c) =>
-    updateDoc(doc(c.firestore(), "companies", A, "employees", "empA"), { active: false, lastEventType: "in" })
-  );
-  const db = employeeA().firestore();
-  await assertSucceeds(setDoc(eventDoc(db, A, "L-close"), employeeAppEvent({ localId: "L-close", type: "out" })));
 });
 
 test("PASS: employee reads their own clock events, alerts, and shift notes", async () => {
@@ -627,9 +652,14 @@ function employeeQ() {
   return testEnv.authenticatedContext("uidQ", { role: "employee", companyId: A, employeeId: "empQ" });
 }
 
-test("QR PASS: QR-joined employee reads their own doc", async () => {
+test("QR: QR-joined employee can't read their own employee doc, only their self view", async () => {
   await seedQrEmployee();
-  await assertSucceeds(getDoc(doc(employeeQ().firestore(), "companies", A, "employees", "empQ")));
+  await testEnv.withSecurityRulesDisabled((c) =>
+    setDoc(doc(c.firestore(), "companies", A, "employeeSelfViews", "empQ"), { name: "Quinn Qr", active: true, linkedUserId: "uidQ" })
+  );
+  const db = employeeQ().firestore();
+  await assertFails(getDoc(doc(db, "companies", A, "employees", "empQ")));
+  await assertSucceeds(getDoc(doc(db, "companies", A, "employeeSelfViews", "empQ")));
 });
 
 test("QR FAIL: QR-joined employee can't change PIN, rate, sites, role, subcontractor, photo, dob or flags", async () => {

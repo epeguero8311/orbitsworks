@@ -173,6 +173,11 @@ export interface Employee {
   // for the Employees page - sign-up is never blocked by it.
   possibleDuplicateOf?: string[];
   duplicateFlaggedAt?: Timestamp;
+  // Server-written by employeeClockPunch (functions/src/employeeClock.ts)
+  // in the same transaction as each Employee App punch, so two punches for
+  // one employee can never both pass the state check. Not read by any UI.
+  lastPunchRequestId?: string;
+  lastPunchAt?: Timestamp;
 }
 
 // companies/{companyId}/employeeConsents/{employeeId} - server-only (no
@@ -318,6 +323,10 @@ export interface ClockEvent {
   // nightly stale-session sweep (see lib/sessionWarnings.ts) - those
   // never had this field and must keep displaying exactly as before.
   autoClockOutCapHours?: number;
+  // Employee App - the phone's one-per-tap id sent to employeeClockPunch
+  // (functions/src/employeeClock.ts). Also the event's doc id, so a repeated
+  // tap returns the first result instead of writing a second event.
+  requestId?: string;
 }
 
 // Device Recognition Pro. Doc only exists once a supervisor/admin names the
@@ -762,6 +771,81 @@ export interface EmployeeAppConfig {
   autoClockOut: { enabled: boolean; maxWorkedHours: number };
   updatedAt: Timestamp;
 }
+
+// companies/{companyId}/employeeSelfViews/{employeeId} - a server-maintained,
+// safe copy of one employee doc for that employee's own app login. The
+// employee doc itself holds the plain-text PIN, so employee logins can't
+// read it (firestore.rules); they read this instead. Written only by
+// syncEmployeeSelfView (functions/src/employeeSelfView.ts). NEVER add the
+// PIN, hourly rate, dob or email here.
+export interface EmployeeSelfView {
+  id: string; // the employeeId
+  name: string;
+  photoUrl: string | null;
+  active: boolean;
+  assignedSiteIds: string[];
+  joinCodeId: string | null;
+  subcontractorId: string | null;
+  subcontractorName: string | null;
+  linkedUserId: string | null;
+  lastEventType: "in" | "out" | "breakStart" | "breakEnd" | null;
+  lastEventTimestamp: Timestamp | null;
+  lastEventSiteId: string | null;
+  lastEventSiteName: string | null;
+  updatedAt: Timestamp;
+}
+
+// companies/{companyId}/employeePinLocks/{employeeId} - server-only (no
+// client access). Wrong-PIN count for employeeClockPunch: 3 wrong in a row
+// locks punches for 1 minute. Kept on the server so reopening or
+// reinstalling the app can't reset it.
+export interface EmployeePinLock {
+  id: string; // the employeeId
+  failedCount: number;
+  lockedUntil: Timestamp | null;
+  updatedAt: Timestamp;
+}
+
+// ---- Employee App: clock in / out / breaks (employeeClockPunch) ----
+
+export type EmployeeClockAction = "in" | "out" | "breakStart" | "breakEnd";
+
+// What the phone sends. companyId/employeeId are optional and only checked
+// against the login's claims - the server never trusts them. pin and
+// photoPath are required for in/out, never sent for breaks.
+export interface EmployeeClockPunchRequest {
+  action: EmployeeClockAction;
+  requestId: string;
+  pin?: string;
+  photoPath?: string;
+  companyId?: string;
+  employeeId?: string;
+}
+
+export interface EmployeeClockPunchResult {
+  eventId: string;
+  type: EmployeeClockAction;
+  timestampMs: number;
+  siteId: string | null;
+  siteName: string | null;
+  photoUrl: string | null;
+  status: "in" | "break" | "out";
+  // true when this requestId was already used - the first result is
+  // returned and nothing new was written.
+  replayed: boolean;
+}
+
+// HttpsError details.reason values the app maps to its own messages.
+export type EmployeeClockErrorReason =
+  | "invalid"
+  | "notSignedIn"
+  | "wrongAccount"
+  | "inactive"
+  | "wrongPin"
+  | "locked"
+  | "photo"
+  | "wrongState"
+  | "generic";
 
 // ---- Temp Clock-In Links (Pro) ----
 //

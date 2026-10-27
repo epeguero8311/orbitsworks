@@ -8,6 +8,8 @@ import type {
   Device,
   EmployeeAlert,
   EmployeeAppConfig,
+  EmployeePinLock,
+  EmployeeSelfView,
   Invite,
   ShiftNote,
   Subcontractor,
@@ -38,3 +40,5 @@ export const subcontractorConverter = makeConverter<Subcontractor>();
 export const shiftNoteConverter = makeConverter<ShiftNote>();
 export const employeeAlertConverter = makeConverter<EmployeeAlert>();
 export const employeeAppConfigConverter = makeConverter<EmployeeAppConfig & { id: string }>();
+export const employeeSelfViewConverter = makeConverter<EmployeeSelfView>();
+export const employeePinLockConverter = makeConverter<EmployeePinLock>();
