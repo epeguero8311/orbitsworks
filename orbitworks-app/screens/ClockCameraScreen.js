@@ -107,6 +107,8 @@ export default function ClockCameraScreen({ route, navigation }) {
   const handleCapture = async () => {
     if (!cameraRef.current || submitting) return;
     setSubmitting(true);
+    // Declared outside the try so the catch can include it in the Sentry report.
+    let siteId;
     try {
       // Runs concurrently with the photo capture (not before/after it) so
       // a slow GPS fix never adds to the time this button already takes -
@@ -131,7 +133,6 @@ export default function ClockCameraScreen({ route, navigation }) {
       const autoDetect = isPro && (await isAutoDetectionActive());
       const askJobSite = settings.appSettings.askJobSiteEachTime;
 
-      let siteId;
       let siteName;
       if (askJobSite) {
         // Same clock-out convention as the geofence branch below: keep
