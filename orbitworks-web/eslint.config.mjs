@@ -15,7 +15,29 @@ const eslintConfig = defineConfig([
     // Plain Node CommonJS test scripts (require), not part of the site build:
     "test/dev-e2e/**",
     "functions/test/**",
+    // Compiled functions output (tsc), gitignored:
+    "functions/lib/**",
   ]),
+  // Plain Node CommonJS dev scripts - still linted, but require() is allowed.
+  {
+    files: ["functions/scripts/**"],
+    languageOptions: {
+      sourceType: "commonjs",
+      globals: {
+        require: "readonly",
+        module: "writable",
+        exports: "writable",
+        __dirname: "readonly",
+        __filename: "readonly",
+        process: "readonly",
+        console: "readonly",
+        Buffer: "readonly",
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;
