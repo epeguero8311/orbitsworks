@@ -6,6 +6,9 @@ import { useAlertActions } from "@/lib/hooks/useAlertActions";
 import { useServerAlerts } from "@/lib/hooks/useServerAlerts";
 import { useEmployeeUpdates } from "@/lib/hooks/useEmployeeUpdates";
 import type { ClockEvent } from "@/lib/types";
+import { ClockPhoto } from "@/components/time/ClockPhoto";
+import { ReferencePhoto } from "@/components/time/ReferencePhoto";
+import { faceResultText } from "@/lib/clockPhoto";
 import {
   ALERT_SEVERITY,
   AlertItem,
@@ -250,35 +253,23 @@ export default function AlertsPanel({
                           <div>
                             <p className="mb-1 text-center text-xs text-gray-500">Clock photo</p>
                             <div className="aspect-square overflow-hidden rounded-md bg-gray-100">
-                              {alert.event.photoUrl ? (
-                                <img
-                                  src={alert.event.photoUrl}
-                                  alt="Clock photo"
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-full items-center justify-center text-xs text-gray-600">
-                                  No photo
-                                </div>
-                              )}
+                              <ClockPhoto event={alert.event} alt="Clock photo" emptyText="No photo" />
                             </div>
                           </div>
                           <div>
                             <p className="mb-1 text-center text-xs text-gray-500">Profile photo</p>
                             <div className="aspect-square overflow-hidden rounded-md bg-gray-100">
-                              {alert.event.faceCheck?.referencePhotoUrl ? (
-                                <img
-                                  src={alert.event.faceCheck.referencePhotoUrl}
-                                  alt="Employee profile photo"
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-full items-center justify-center text-xs text-gray-600">
-                                  No photo
-                                </div>
-                              )}
+                              <ReferencePhoto
+                                url={alert.event.faceCheck?.referencePhotoUrl}
+                                alt="Employee profile photo"
+                              />
                             </div>
                           </div>
+                          {faceResultText(alert.event.faceCheck) && (
+                            <p className="col-span-2 text-center text-xs text-gray-600">
+                              Face check: {faceResultText(alert.event.faceCheck)}
+                            </p>
+                          )}
                         </div>
                       )}
 

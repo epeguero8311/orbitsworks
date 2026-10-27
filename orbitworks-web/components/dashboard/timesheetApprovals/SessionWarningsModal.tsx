@@ -12,6 +12,9 @@ import {
   type WarningSeverity,
 } from "@/lib/sessionWarnings";
 import type { ClockEvent, JobSite, OverrideEvent } from "@/lib/types";
+import { ClockPhoto } from "@/components/time/ClockPhoto";
+import { ReferencePhoto } from "@/components/time/ReferencePhoto";
+import { faceResultText } from "@/lib/clockPhoto";
 
 const ACTION_LABEL: Record<OverrideEvent["action"], string> = {
   in: "Clock in",
@@ -210,28 +213,17 @@ function FaceWarningItem({
             {direction === "in" ? "Clock in" : "Clock out"} photo
           </p>
           <div className="aspect-square overflow-hidden rounded-md bg-white">
-            {event.photoUrl ? (
-              <img src={event.photoUrl} alt="Clock photo" className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full items-center justify-center text-xs text-gray-600">No photo</div>
-            )}
+            <ClockPhoto event={event} alt="Clock photo" emptyText="No photo" />
           </div>
         </div>
         <div>
           <p className="mb-1 text-center text-xs text-gray-500">Reference photo</p>
           <div className="aspect-square overflow-hidden rounded-md bg-white">
-            {faceCheck?.referencePhotoUrl ? (
-              <img
-                src={faceCheck.referencePhotoUrl}
-                alt="Employee reference photo"
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-xs text-gray-600">No photo</div>
-            )}
+            <ReferencePhoto url={faceCheck?.referencePhotoUrl} alt="Employee reference photo" />
           </div>
         </div>
       </div>
+      {faceResultText(faceCheck) && <p className="text-gray-600">Face check: {faceResultText(faceCheck)}</p>}
       {faceCheck?.similarity != null && (
         <p className="text-gray-600">Similarity: {faceCheck.similarity}%</p>
       )}

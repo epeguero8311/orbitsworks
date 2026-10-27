@@ -496,9 +496,12 @@ service cloud.firestore {
           // same reason - onClockEventCreated writes it after the fact
           // (Admin SDK), so no client gets even a brief window to set it
           // at create time either.
+          // photoRemovedAt - set only by the photo retention sweeps
+          // (functions/src/biometricRetention.ts, Admin SDK).
           !request.resource.data.keys().hasAny([
             'geofenceStatus', 'distanceFromSiteM', 'locationAddress',
-            'siteCorrected', 'siteMismatch', 'siteAutoDetected', 'faceCheck'
+            'siteCorrected', 'siteMismatch', 'siteAutoDetected', 'faceCheck',
+            'photoRemovedAt'
           ]);
         allow update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
@@ -532,7 +535,10 @@ service cloud.firestore {
               // onClockEventCreated/reassignClockEvent (Admin SDK) - see
               // functions/src/rekognition.ts. Never trust a client-supplied
               // match result, same reasoning as geofenceStatus above.
-              'faceCheck'
+              'faceCheck',
+              // Photo retention marker - server-written only, by the
+              // retention sweeps (functions/src/biometricRetention.ts).
+              'photoRemovedAt'
             ]) &&
           (
             isAdminOrOwner() ||

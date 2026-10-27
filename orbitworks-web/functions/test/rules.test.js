@@ -270,6 +270,41 @@ test("client cannot add faceCheck to an existing clockEvent via update", async (
   );
 });
 
+// Photo retention marker (Employee App Phase 3 Step 6) - server-written only
+// by functions/src/biometricRetention.ts.
+test("client cannot create a clockEvent with photoRemovedAt set", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "clockEvents", "evt-forged-removed"), {
+      employeeId: "emp1",
+      employeeName: "Jordan",
+      siteId: null,
+      siteName: "Not specified",
+      type: "in",
+      source: "pin",
+      createdByUid: "admin-uid",
+      photoRemovedAt: new Date(),
+    })
+  );
+});
+
+test("client cannot add, change or erase photoRemovedAt via update", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A, "clockEvents", "evt1"), { photoRemovedAt: new Date() })
+  );
+  await testEnv.withSecurityRulesDisabled((c) =>
+    updateDoc(doc(c.firestore(), "companies", COMPANY_A, "clockEvents", "evt1"), { photoRemovedAt: new Date(1000) })
+  );
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A, "clockEvents", "evt1"), { photoRemovedAt: new Date(2000) })
+  );
+  const { deleteField } = require("firebase/firestore");
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A, "clockEvents", "evt1"), { photoRemovedAt: deleteField() })
+  );
+});
+
 test("client can still update a clockEvent's ordinary fields normally", async () => {
   const db = adminContext().firestore();
   await assertSucceeds(

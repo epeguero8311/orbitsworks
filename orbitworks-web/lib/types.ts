@@ -313,6 +313,12 @@ export interface ClockEvent {
   // fourth status to render alongside match/mismatch/noFace. Server-
   // written only (functions/src/rekognition.ts).
   faceCheck?: FaceCheck;
+  // Set when a retention sweep deleted this event's clock photo
+  // (functions/src/biometricRetention.ts - cleanupClockEventPhotos and
+  // cleanupCanceledCompanyPhotos), at the same moment photoUrl is cleared.
+  // Nothing else on the event changes - faceCheck (match %, result) stays.
+  // Server-written only; firestore.rules denies it to every client.
+  photoRemovedAt?: Timestamp;
   // Auto Clock-Out. Set only on the "out" (and synthetic "breakEnd", if
   // one was needed) event the scheduled sweep writes (functions/src/
   // autoClockOut.ts) - a snapshot of the Settings > Automations cap in

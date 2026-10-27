@@ -39,6 +39,11 @@ async function deletePhotoStorageObject(photoUrl: string, context: Record<string
   }
 }
 
+// Used by both cleanupClockEventPhotos and cleanupCanceledCompanyPhotos, so
+// every deleted clock photo gets the same marker. photoRemovedAt is the only
+// thing added - faceCheck, timestamps, source, site and flags never change,
+// so the website still shows the face match result with a "Photo removed"
+// placeholder.
 async function deleteClockEventPhoto(companyId: string, eventId: string, photoUrl: string): Promise<void> {
   await deletePhotoStorageObject(photoUrl, { companyId, eventId });
   await db
@@ -46,7 +51,7 @@ async function deleteClockEventPhoto(companyId: string, eventId: string, photoUr
     .doc(companyId)
     .collection("clockEvents")
     .doc(eventId)
-    .update({ photoUrl: admin.firestore.FieldValue.delete() })
+    .update({ photoUrl: admin.firestore.FieldValue.delete(), photoRemovedAt: admin.firestore.Timestamp.now() })
     .catch((err) => {
       console.warn("Failed to clear clock event photoUrl", { companyId, eventId, error: String(err) });
     });

@@ -18,6 +18,7 @@ import ClockEventsDayView from "@/components/dashboard/ClockEventsDayView";
 import { GeofenceBadge } from "@/components/time/GeofenceBadge";
 import { FaceCheckBadge } from "@/components/time/FaceCheckBadge";
 import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
+import { clockPhotoCellLabel } from "@/lib/clockPhoto";
 import { Toast } from "@/components/Toast";
 
 export default function ClockEventLookup() {
@@ -375,7 +376,7 @@ export default function ClockEventLookup() {
                               : "-")}
                       </td>
                       <td className="px-4 py-2.5 text-gray-600">
-                        {event.photoUrl ? "View" : "-"}
+                        {clockPhotoCellLabel(event)}
                       </td>
                       <td className="px-4 py-2.5 text-gray-600">
                         {event.note || "-"}

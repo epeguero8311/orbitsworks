@@ -5,6 +5,8 @@ import { effectiveDate, sourceLabel } from "@/lib/clockEventDetailUtils";
 import { faceCheckLabel } from "@/lib/clockStatus";
 import { EventLocation } from "@/components/time/EventLocation";
 import { GeofenceDetail } from "@/components/time/GeofenceDetail";
+import { ClockPhoto } from "@/components/time/ClockPhoto";
+import { ReferencePhoto } from "@/components/time/ReferencePhoto";
 
 export function EventSide({
   label,
@@ -89,39 +91,19 @@ export function EventSide({
           <div>
             <p className="mb-1 text-center text-xs text-gray-500">Clock photo</p>
             <div className="aspect-square w-full overflow-hidden rounded-md bg-gray-100">
-              {event.photoUrl ? (
-                <img src={event.photoUrl} alt={`${label} proof photo`} className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-xs text-gray-600">
-                  No photo recorded
-                </div>
-              )}
+              <ClockPhoto event={event} alt={`${label} proof photo`} />
             </div>
           </div>
           <div>
             <p className="mb-1 text-center text-xs text-gray-500">Profile photo</p>
             <div className="aspect-square w-full overflow-hidden rounded-md bg-gray-100">
-              <img
-                src={event.faceCheck!.referencePhotoUrl}
-                alt="Employee profile photo"
-                className="h-full w-full object-cover"
-              />
+              <ReferencePhoto url={event.faceCheck?.referencePhotoUrl} alt="Employee profile photo" />
             </div>
           </div>
         </div>
       ) : (
         <div className="mt-3 aspect-square w-full overflow-hidden rounded-md bg-gray-100">
-          {event.photoUrl ? (
-            <img
-              src={event.photoUrl}
-              alt={`${label} proof photo`}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-xs text-gray-600">
-              No photo recorded
-            </div>
-          )}
+          <ClockPhoto event={event} alt={`${label} proof photo`} />
         </div>
       )}
 
