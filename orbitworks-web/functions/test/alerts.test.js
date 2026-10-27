@@ -512,25 +512,57 @@ test("TEST_COMPANY_IDS restricts the periodic sweep too", async () => {
   assert.equal(await countAlerts(companyId), 0);
 });
 
-test("maxHours fires via the periodic sweep", async () => {
-  const companyId = "c10";
+// Max Hours only counts shifts that started today in Chicago time (an open
+// shift from yesterday is a Missed Clock Out instead). These tests freeze
+// Date at a fixed Chicago time so they never depend on the real clock.
+// 2026-10-21 is a plain CDT (UTC-5) weekday - no daylight-saving change.
+async function runMaxHoursSweep(t, { companyId, nowChicago, clockInChicago }) {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(`${nowChicago}-05:00`).getTime() });
   await seedCompany(companyId); // defaults include maxHoursThreshold: 8
   setFlags({ alertsFeed: true, pushEnabled: false });
-
-  const now = Date.now();
   await db.collection("companies").doc(companyId).collection("clockEvents").add({
     employeeId: "e1",
     employeeName: "Sam",
     siteId: null,
     siteName: null,
     type: "in",
-    timestamp: admin.firestore.Timestamp.fromDate(new Date(now - 9 * 60 * 60 * 1000)), // 9h ago, over the 8h default
+    timestamp: admin.firestore.Timestamp.fromDate(new Date(`${clockInChicago}-05:00`)),
   });
 
   await funcs.checkPeriodicAlerts.run({});
 
   const snap = await db.collection("companies").doc(companyId).collection("alerts").where("alertType", "==", "maxHours").get();
-  assert.equal(snap.size, 1);
+  return snap.size;
+}
+
+test("maxHours fires via the periodic sweep - before 9am Chicago (fake clock)", async (t) => {
+  // 08:45, clocked in at 00:30 the same day = 8h15m, over the 8h default.
+  const count = await runMaxHoursSweep(t, {
+    companyId: "c10",
+    nowChicago: "2026-10-21T08:45:00",
+    clockInChicago: "2026-10-21T00:30:00",
+  });
+  assert.equal(count, 1);
+});
+
+test("maxHours fires via the periodic sweep - after 9am Chicago (fake clock)", async (t) => {
+  // 15:00, clocked in at 06:00 the same day = 9h.
+  const count = await runMaxHoursSweep(t, {
+    companyId: "c10b",
+    nowChicago: "2026-10-21T15:00:00",
+    clockInChicago: "2026-10-21T06:00:00",
+  });
+  assert.equal(count, 1);
+});
+
+test("maxHours skips a shift that started yesterday (fake clock)", async (t) => {
+  // 08:30, clocked in at 23:30 the day before = 9h, but not a same-day shift.
+  const count = await runMaxHoursSweep(t, {
+    companyId: "c10c",
+    nowChicago: "2026-10-21T08:30:00",
+    clockInChicago: "2026-10-20T23:30:00",
+  });
+  assert.equal(count, 0);
 });
 
 test("missedClockOut fires via the periodic sweep", async () => {
