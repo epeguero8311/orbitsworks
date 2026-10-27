@@ -1,10 +1,24 @@
-# Dev functions not yet deployed (orbitworks-dev-ew)
+# Dev functions held back from orbitworks-dev-ew (now deployed)
 
-These functions exist in `functions/src` and are live on prod, but are held
-back from the dev project on purpose. Deploy them in **Phase 3**, when we test
+**Deployed to dev 2026-10-26 (Phase 3 Step 1).** All 5 functions below are
+now live on orbitworks-dev-ew (dev = 48 functions, matching source). Before
+deploying, a read-only check of dev data showed their first runs would
+change nothing: auto clock-out was off at every dev company, no clock photo
+was 90+ days old, no deactivated employee qualified, and no company had
+`planCanceledAt`. Prod was not touched (every prod function update time was
+the same before and after).
+
+The same day, `firestore:indexes` was deployed to dev too. Dev was missing 2
+of the 13 indexes in `firestore.indexes.json`:
+`companies (biometricPhotosWipedAt, planCanceledAt)` (needed by
+`cleanupCanceledCompanyPhotos`) and `timesheetApprovals (employeeId, date)`.
+Dev now has all 13. No index was deleted (no `--force`).
+
+History: these functions exist in `functions/src` and are live on prod, but
+were held back from the dev project on purpose until Phase 3, when we test
 auto clock-out for employeeApp shifts.
 
-Checked 2026-10-22: source has 46 functions, dev had 40. `acceptUpdatedTerms`
+Checked 2026-10-22: source had 46 functions, dev had 40. `acceptUpdatedTerms`
 was deployed to dev the same day (terms re-accept prompt was failing with a
 404), leaving these 5:
 
@@ -16,7 +30,7 @@ was deployed to dev the same day (terms re-accept prompt was failing with a
 | `cleanupCanceledCompanyPhotos` | Every 24 hours, deletes every biometric photo of a company 90 days after its subscription is canceled. | Runs on a schedule and deletes files from dev Storage. |
 | `deleteEmployeesBulk` | Callable used by the billing downgrade flow: admin picks employee records to permanently delete (Auth + Firestore). | Permanent deletes. Not needed until we test downgrades. |
 
-Deploy command when we get there (PowerShell, from `orbitworks-web`):
+Deploy command (used 2026-10-26; PowerShell, from `orbitworks-web`):
 
 ```
 $env:FUNCTIONS_DISCOVERY_TIMEOUT = "60"
@@ -26,25 +40,28 @@ npx firebase deploy --only "functions:runAutoClockOut,functions:cleanupClockEven
 The timeout variable is needed because the CLI's default 10 second code-load
 limit times out on this codebase.
 
-## Phase 3 to-do: face data after a Pro -> Core downgrade (decided 2026-10-23)
+## Face data after a Pro -> Core downgrade (revised 2026-10-26)
 
-Decision: **freeze, then delete after 90 days on Core.** Build this in
-`cleanupCanceledCompanyPhotos` (or a sibling) when the held functions get
-deployed:
+The 2026-10-23 plan (delete each employee's `reference.jpg` and `selfie/`
+folder after 90 days on Core, with a "dropped to Core at" timestamp) is
+**replaced**. There is no new Pro-to-Core job:
 
+- **The reference selfie STAYS on a downgrade.** It is the employee's
+  profile picture. `reference.jpg`, the `selfie/` folder, `photoUrl` and
+  `faceReference` are not deleted because a company moved to Core.
 - On Core, face checks are already off (`isProCompany` gates in
-  `rekognition.ts`) and nothing new is enrolled - that is the freeze.
-- After 90 days continuously on Core, delete every employee's
-  `reference.jpg` **and** `selfie/signup.jpg` (the whole `selfie/` folder),
-  clear `photoUrl`/`faceReference`, and stamp the employee's
-  `employeeConsents/{employeeId}` record with `faceDataDeletedAt` and
-  `faceDataDeletedReason: "coreDowngrade"`. Never delete the consent record.
-- Upgrading back to Pro inside the 90 days keeps everything.
-- Log each deletion: employeeId, what was deleted (file names only), when,
-  and why. No face data, no names, no URLs/tokens in the log.
-- Needs a "dropped to Core at" timestamp on the company doc from the Stripe
-  webhook to count the 90 days from.
+  `rekognition.ts`), so nothing new is compared.
+- Clock photos are already deleted 90 days after capture on every plan by
+  `cleanupClockEventPhotos`. That covers a downgraded company too.
 - Right-to-delete is separate and already immediate (`deleteEmployee`).
+
+Phase 3 Step 6 (shrunk to this):
+- When `cleanupClockEventPhotos` deletes a clock photo, mark the photo as
+  removed on the clock event (not just clear `photoUrl`). Clock events,
+  timestamps and face match results (match %, result, flags) are never
+  deleted or changed.
+- The website shows the match % and face result for that event with a
+  "photo removed" placeholder instead of the image.
 
 ## Phase 3 to-do: flaky alerts test "maxHours fires via the periodic sweep" (found 2026-10-23)
 
@@ -61,8 +78,9 @@ deployed:
 - Not related to the 5 held functions above: the test only calls
   `checkPeriodicAlerts` (deployed on dev), and `alerts.ts` does not import
   `autoClockOut.ts`.
-- Fix (not done yet): pin "now" in the test to midday Central (or clock in a
-  few hours ago with a lower `maxHoursThreshold`), so it passes at any hour.
+- Fixed 2026-10-26 (commit ccb0b90, test only - `alerts.ts` unchanged):
+  the maxHours tests now freeze Date at fixed Chicago times (08:45 and
+  15:00 fire; a shift from yesterday does not), so they pass at any hour.
 
 ## Phase 3 to-do: employeeApp in the clock-event trigger (found in Phase 1)
 
