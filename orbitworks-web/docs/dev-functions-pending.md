@@ -175,6 +175,19 @@ Phase 3 Step 6 (shrunk to this):
   (`joinCompany` creates Auth users). `joinCompany` has a
   `TODO(Phase 10): RATE LIMIT` marker at the top of
   `functions/src/joinCompany.ts`; `getJoinInfo` (Part C) gets the same.
+- **Find why EAS Updates don't reach the dev app** (found 2026-10-28).
+  Update 01a1833d never showed on build 11; builds 10 and 11 are affected
+  (channel employee-dev, runtime 1.1.2). Until fixed, JS changes for the dev
+  app need a new build.
+- **Face check missing on one clock-out** (found 2026-10-28, gate item 12).
+  Dev, jc-test-pro-dev, Emilio Peguero (KfLB8nDz8lseZIhHEDch): the 10-27
+  8:43 PM clock-out (event e43e4076-98d5-4089-bcff-29ef57f1f433) has no
+  faceCheck field at all. It is from before a229a46. Include it in the
+  face-check recheck.
+- **Duplicate "Emilio Peguero" employee** (found 2026-10-28). Dev,
+  jc-test-pro-dev: GZ3DKAhivqjkAw04Md9T has no punches; the real one is
+  KfLB8nDz8lseZIhHEDch. Find how the duplicate got created. Don't delete it
+  until then.
 
 ## Phase 9 to-do
 
