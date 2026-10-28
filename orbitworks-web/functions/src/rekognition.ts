@@ -94,6 +94,23 @@ export async function isProCompany(companyId: string): Promise<boolean> {
   return !!company && isProPlan(company.planTier);
 }
 
+// Number of faces DetectFaces finds in one image, or null when the call
+// fails (logged; callers then write nothing - fail open, same as every
+// other Rekognition call in this file).
+async function countFaces(
+  client: RekognitionClient,
+  bytes: Buffer,
+  context: Record<string, unknown>
+): Promise<number | null> {
+  try {
+    const result = await client.send(new DetectFacesCommand({ Image: { Bytes: bytes } }));
+    return result.FaceDetails?.length ?? 0;
+  } catch (err) {
+    console.warn("Face check: DetectFaces failed", { ...context, error: String(err) });
+    return null;
+  }
+}
+
 type ClockEventFaceData = {
   photoUrl?: string;
   faceCheck?: unknown;
@@ -162,26 +179,42 @@ export async function checkFaceMatch(companyId: string, eventId: string): Promis
       );
     } catch (err) {
       const name = (err as { name?: string } | undefined)?.name;
-      if (name === "InvalidParameterException") {
-        // Source image (the pfp) has no detectable face - flag the
-        // employee's reference, never the clock event. No faceCheck is
-        // written in this branch, so a later clock event for this
-        // employee naturally retries once the pfp is replaced (the
-        // faceReference guard above is what keeps that retry cheap -
-        // $0 until the photoUrl actually changes).
+      if (name !== "InvalidParameterException") {
+        console.warn("Face check: CompareFaces failed", { companyId, eventId, employeeId, error: String(err) });
+        return;
+      }
+      // AWS sends InvalidParameterException when EITHER photo has no face,
+      // so find out which one before blaming anything. A clock photo with
+      // no face is a noFace result on this punch (same as a 0-face compare
+      // below) and must never pause checks for the employee; only a pfp
+      // that really has no face gets flagged bad.
+      const referenceFaces = await countFaces(client, referenceBytes, { companyId, eventId, employeeId, photo: "reference" });
+      if (referenceFaces === null) return;
+      if (referenceFaces === 0) {
+        // No faceCheck is written here, so a later clock event for this
+        // employee retries once the pfp is replaced (the faceReference
+        // guard above keeps that retry at $0 until photoUrl changes).
         await employeeRef.update({
           faceReference: {
             status: "bad",
             photoUrl: employee.photoUrl,
-            reason: name,
+            reason: "noFace",
             flaggedAt: admin.firestore.Timestamp.now(),
           },
         });
         await createOrKeepFaceBadReferenceAlert(companyId, employeeId, data.employeeName ?? "An employee");
         return;
       }
-      console.warn("Face check: CompareFaces failed", { companyId, eventId, employeeId, error: String(err) });
-      return;
+      const targetFaces = await countFaces(client, targetBytes, { companyId, eventId, employeeId, photo: "clock" });
+      if (targetFaces === null) return;
+      if (targetFaces > 0) {
+        // Both photos have a face - AWS rejected the compare for some
+        // other reason. Don't guess: write nothing, flag nothing.
+        console.warn("Face check: CompareFaces rejected photos that both have a face", { companyId, eventId, employeeId });
+        return;
+      }
+      // Clock photo has no face - falls through to the noFace write below.
+      result = { FaceMatches: [], UnmatchedFaces: [] };
     }
 
     const faceMatches = result.FaceMatches ?? [];

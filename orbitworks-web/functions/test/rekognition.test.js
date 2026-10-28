@@ -57,11 +57,28 @@ const funcs = require("../lib/index.js");
 // no-ops), so this instead patches .bucket on the real (lazy, no network
 // yet) Storage service instance that both this file and rekognition.ts's
 // own admin.storage() calls share.
+// The bytes are the Storage path itself, so a stubbed DetectFaces can tell
+// the reference photo from the clock photo.
 admin.storage().bucket = () => ({
-  file: () => ({
-    download: async () => [Buffer.from("fake-image-bytes")],
+  file: (path) => ({
+    download: async () => [Buffer.from(`fake-image:${path}`)],
   }),
 });
+
+// AWS fake for the InvalidParameterException branch: CompareFaces throws
+// (as AWS does when EITHER photo has no face); DetectFaces returns the given
+// face count per photo, or throws when the count is "error".
+function compareRejectedThenDetect({ referenceFaces, clockFaces }) {
+  return async (command) => {
+    if (command.constructor.name === "CompareFacesCommand") {
+      throw Object.assign(new Error("Request has invalid parameters"), { name: "InvalidParameterException" });
+    }
+    const isReference = command.input.Image.Bytes.toString().includes("reference.jpg");
+    const count = isReference ? referenceFaces : clockFaces;
+    if (count === "error") throw new Error("DetectFaces down");
+    return { FaceDetails: Array.from({ length: count }, () => ({})) };
+  };
+}
 
 function setFlags({ alertsFeed, testCompanyIds } = {}) {
   if (alertsFeed === undefined) delete process.env.ALERTS_FEED_ENABLED;
@@ -206,14 +223,12 @@ test("noFace: nothing detected writes faceCheck + faceNoFace alert", async () =>
   assert.equal(alerts[0].data().employeeId, "emp1");
 });
 
-test("bad reference photo (InvalidParameterException): flags employee, never writes faceCheck", async () => {
+test("bad reference photo (compare rejected, pfp has no face): flags employee, never writes faceCheck", async () => {
   const companyId = "face-badref";
   await seedCompany(companyId);
   await seedEmployee(companyId, "emp1");
   await seedClockEvent(companyId, "evt1");
-  sendImpl = async () => {
-    throw Object.assign(new Error("no face in source image"), { name: "InvalidParameterException" });
-  };
+  sendImpl = compareRejectedThenDetect({ referenceFaces: 0, clockFaces: 1 });
   sendCallCount = 0;
 
   await rekognitionModule.checkFaceMatch(companyId, "evt1");
@@ -223,12 +238,82 @@ test("bad reference photo (InvalidParameterException): flags employee, never wri
 
   const employee = await getEmployee(companyId, "emp1");
   assert.equal(employee.faceReference.status, "bad");
-  assert.equal(employee.faceReference.reason, "InvalidParameterException");
+  assert.equal(employee.faceReference.reason, "noFace");
   assert.equal(employee.faceReference.photoUrl, REFERENCE_PHOTO_URL);
 
   const badRefSnap = await db.collection("companies").doc(companyId).collection("alerts").doc("badref-emp1").get();
   assert.ok(badRefSnap.exists);
   assert.equal(badRefSnap.data().alertType, "faceBadReference");
+  // CompareFaces + DetectFaces on the pfp only.
+  assert.equal(sendCallCount, 2);
+});
+
+test("clock photo has no face (compare rejected, pfp has a face): noFace on the punch, pfp untouched, next punch still checked", async () => {
+  const companyId = "face-clock-noface";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "emp1");
+  await seedClockEvent(companyId, "evt1");
+  sendImpl = compareRejectedThenDetect({ referenceFaces: 1, clockFaces: 0 });
+  sendCallCount = 0;
+
+  await rekognitionModule.checkFaceMatch(companyId, "evt1");
+
+  const event = await getEvent(companyId, "evt1");
+  assert.equal(event.faceCheck.status, "noFace");
+  assert.equal(event.faceCheck.similarity, null);
+  assert.equal(event.faceCheck.facesInTarget, 0);
+  assert.equal(event.faceCheck.referencePhotoUrl, REFERENCE_PHOTO_URL);
+  const noFace = await getAlertsByType(companyId, "faceNoFace");
+  assert.equal(noFace.length, 1);
+  assert.equal(noFace[0].data().eventId, "evt1");
+
+  const employee = await getEmployee(companyId, "emp1");
+  assert.equal(employee.faceReference, undefined);
+  assert.equal((await getAlertsByType(companyId, "faceBadReference")).length, 0);
+  assert.equal(sendCallCount, 3);
+
+  // The next punch is compared normally.
+  await seedClockEvent(companyId, "evt2", { type: "out" });
+  sendImpl = async () => ({ FaceMatches: [{ Similarity: 97.2 }], UnmatchedFaces: [] });
+  sendCallCount = 0;
+  await rekognitionModule.checkFaceMatch(companyId, "evt2");
+  assert.equal(sendCallCount, 1);
+  assert.equal((await getEvent(companyId, "evt2")).faceCheck.status, "match");
+});
+
+test("compare rejected but both photos have a face: nothing written, nothing flagged", async () => {
+  const companyId = "face-rejected-both-faces";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "emp1");
+  await seedClockEvent(companyId, "evt1");
+  sendImpl = compareRejectedThenDetect({ referenceFaces: 1, clockFaces: 1 });
+
+  await rekognitionModule.checkFaceMatch(companyId, "evt1");
+
+  assert.equal((await getEvent(companyId, "evt1")).faceCheck, undefined);
+  assert.equal((await getEmployee(companyId, "emp1")).faceReference, undefined);
+  assert.equal((await getAlertsByType(companyId, "faceNoFace")).length, 0);
+  assert.equal((await getAlertsByType(companyId, "faceBadReference")).length, 0);
+});
+
+test("compare rejected and DetectFaces fails: nothing written, nothing flagged", async () => {
+  for (const [label, counts] of [
+    ["pfp", { referenceFaces: "error", clockFaces: 0 }],
+    ["clock", { referenceFaces: 1, clockFaces: "error" }],
+  ]) {
+    const companyId = `face-detect-fails-${label}`;
+    await seedCompany(companyId);
+    await seedEmployee(companyId, "emp1");
+    await seedClockEvent(companyId, "evt1");
+    sendImpl = compareRejectedThenDetect(counts);
+
+    await rekognitionModule.checkFaceMatch(companyId, "evt1");
+
+    assert.equal((await getEvent(companyId, "evt1")).faceCheck, undefined, label);
+    assert.equal((await getEmployee(companyId, "emp1")).faceReference, undefined, label);
+    assert.equal((await getAlertsByType(companyId, "faceNoFace")).length, 0, label);
+    assert.equal((await getAlertsByType(companyId, "faceBadReference")).length, 0, label);
+  }
 });
 
 test("employee already flagged with the SAME bad photo: skips AWS entirely, $0", async () => {
@@ -317,9 +402,7 @@ test("alertsEnabled false: faceBadReference alert still fires (never gated by al
   await seedCompany(companyId, { faceVerification: { alertsEnabled: false } });
   await seedEmployee(companyId, "emp1");
   await seedClockEvent(companyId, "evt1");
-  sendImpl = async () => {
-    throw Object.assign(new Error("no face in source image"), { name: "InvalidParameterException" });
-  };
+  sendImpl = compareRejectedThenDetect({ referenceFaces: 0, clockFaces: 1 });
   sendCallCount = 0;
 
   await rekognitionModule.checkFaceMatch(companyId, "evt1");

@@ -119,6 +119,28 @@ Phase 3 Step 6 (shrunk to this):
   intent filters for the prod domain, and set `APP_LINKS_IOS_APP_IDS`,
   `APP_LINKS_ANDROID_*` and `JOIN_APP_*` in `apphosting.yaml`.
 
+## Release to-do: recheck selfies wrongly flagged "no usable face" (found 2026-10-27)
+
+- **The bug (fixed on employee-app, live on dev, NOT on prod yet).**
+  `checkFaceMatch` (functions/src/rekognition.ts) treated every
+  `InvalidParameterException` from CompareFaces as "the reference selfie
+  has no face". AWS also sends it when the CLOCK photo has no face. So a
+  clock photo with no face marked the employee's selfie
+  `faceReference: bad`, raised the persistent faceBadReference alert, and
+  silently paused every later face check for that employee until the
+  selfie changed. Found on dev on a real phone clock-out.
+- **The fix.** On that error, DetectFaces decides which photo has no face:
+  selfie with no face -> flagged as before; clock photo with no face ->
+  `faceCheck: noFace` + faceNoFace alert on that punch, selfie untouched;
+  both have a face or DetectFaces fails -> nothing written.
+- **At release: prod may already have employees wrongly flagged.** Run a
+  one-time recheck (not built yet): for every employee with
+  `faceReference.status == "bad"` and `faceReference.photoUrl == photoUrl`,
+  run DetectFaces on the selfie. Exactly 1 face -> delete `faceReference`
+  and delete the `badref-{employeeId}` alert (same as
+  `onEmployeePhotoWrite` does for a passing selfie). 0 or 2+ faces -> leave
+  it. Report counts only. Pro companies only (Core never runs checks).
+
 ## Phase 10 to-do list (before the real release)
 
 - **Write temp link API tests** (added 2026-10-24). There are none today, in
