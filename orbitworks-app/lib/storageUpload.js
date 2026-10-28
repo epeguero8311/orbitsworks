@@ -13,13 +13,23 @@ import { auth } from "./firebase";
 // upload-progress events the resumable protocol needs to ever detect
 // completion. uploadAsync reads straight off disk through native code
 // and does one real HTTP POST, with no Blob/ArrayBuffer step at all.
-export async function uploadLocalFileToStorage(photoRef, localUri, contentType) {
+//
+// options.foreground (iOS): send through the normal foreground URL session
+// instead of uploadAsync's default background session. Background
+// transfers go through an iOS system service that can hold them back and
+// keeps retrying instead of failing - fine for the supervisor's offline
+// queue, but an Employee App punch is waiting on screen for this upload
+// (found 2026-10-28: ~20-80 s for a 480 KB photo on home wifi). A
+// foreground upload fails if the app leaves the screen; the punch then
+// shows Try again. Android ignores this setting.
+export async function uploadLocalFileToStorage(photoRef, localUri, contentType, options = {}) {
   const token = await auth.currentUser.getIdToken();
   const url = `https://firebasestorage.googleapis.com/v0/b/${photoRef.bucket}/o?uploadType=media&name=${encodeURIComponent(photoRef.fullPath)}`;
 
   const result = await FileSystem.uploadAsync(url, localUri, {
     httpMethod: "POST",
     uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+    ...(options.foreground ? { sessionType: FileSystem.FileSystemSessionType.FOREGROUND } : {}),
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": contentType,

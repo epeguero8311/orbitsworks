@@ -200,6 +200,123 @@ test("the PIN is never in the result", async () => {
   assert.equal(res.pin, undefined);
 });
 
+// ===================== PIN check before the camera =====================
+
+function checkPin(c, action, { pin = PIN, requestId = randomUUID(), auth, extra = {} } = {}) {
+  return callPunch(c, { action, requestId, pin, checkPinOnly: true, ...extra }, auth);
+}
+
+test("PIN check: right PIN -> pinOk, nothing written, no photo needed", async () => {
+  const c = "ec-check-ok";
+  await seed(c);
+  const before = files.size;
+  assert.deepEqual(await checkPin(c, "in"), { pinOk: true });
+  assert.deepEqual(await checkPin(c, "out"), { pinOk: true });
+  assert.equal((await events(c)).length, 0);
+  assert.equal((await db.doc(`companies/${c}/employeePinLocks/emp1`).get()).exists, false);
+  const emp = (await db.doc(`companies/${c}/employees/emp1`).get()).data();
+  assert.equal(emp.lastPunchRequestId, undefined);
+  assert.equal(files.size, before);
+});
+
+test("PIN check: wrong PIN gives tries left; 3 wrong locks (same server lock as the punch)", async (t) => {
+  const c = "ec-check-lock";
+  await seed(c);
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-21T15:00:00Z") });
+  await assert.rejects(checkPin(c, "in", { pin: "0000" }), (err) => {
+    reasonIs("wrongPin")(err);
+    assert.equal(err.details.attemptsLeft, 2);
+    assert.match(err.message, /Wrong PIN\. 2 tries left/);
+    return true;
+  });
+  await assert.rejects(checkPin(c, "in", { pin: "0000" }), reasonIs("wrongPin"));
+  await assert.rejects(checkPin(c, "in", { pin: "0000" }), (err) => {
+    reasonIs("locked")(err);
+    assert.equal(err.details.secondsLeft, 60);
+    return true;
+  });
+  // Locked: the right PIN is refused by the check AND by a real punch.
+  t.mock.timers.tick(10 * 1000);
+  await assert.rejects(checkPin(c, "in"), (err) => reasonIs("locked")(err) && err.details.secondsLeft === 50);
+  await assert.rejects(punch(c, "in"), reasonIs("locked"));
+  assert.equal((await events(c)).length, 0);
+  t.mock.timers.tick(51 * 1000);
+  assert.deepEqual(await checkPin(c, "in"), { pinOk: true });
+  assert.equal((await db.doc(`companies/${c}/employeePinLocks/emp1`).get()).exists, false);
+});
+
+test("PIN check and punch share one wrong-PIN count", async () => {
+  const c = "ec-check-shared";
+  await seed(c);
+  await assert.rejects(checkPin(c, "in", { pin: "0000" }), reasonIs("wrongPin"));
+  await assert.rejects(punch(c, "in", { pin: "0000" }), (err) => reasonIs("wrongPin")(err) && err.details.attemptsLeft === 1);
+  await assert.rejects(checkPin(c, "in", { pin: "0000" }), reasonIs("locked"));
+});
+
+test("PIN check can't be skipped: a punch without it still checks the PIN", async () => {
+  const c = "ec-check-skip";
+  await seed(c);
+  const requestId = randomUUID();
+  await assert.rejects(punch(c, "in", { pin: "0000", requestId }), reasonIs("wrongPin"));
+  assert.ok(deleted.includes(`companies/${c}/clockEvents/emp1/${requestId}.jpg`));
+  assert.equal((await events(c)).length, 0);
+  // A passed check doesn't let a later punch through with a wrong PIN.
+  const id2 = randomUUID();
+  assert.deepEqual(await checkPin(c, "in", { requestId: id2 }), { pinOk: true });
+  await assert.rejects(punch(c, "in", { pin: "0000", requestId: id2 }), reasonIs("wrongPin"));
+  assert.equal((await events(c)).length, 0);
+  // The same requestId then punches normally with the right PIN.
+  const ok = await punch(c, "in", { requestId: id2 });
+  assert.equal(ok.status, "in");
+});
+
+test("PIN check: inactive, unlinked and other-account logins are rejected", async () => {
+  const c = "ec-check-account";
+  await seed(c, { employee: { active: false } });
+  await assert.rejects(checkPin(c, "in"), reasonIs("inactive"));
+  await seed("ec-check-unlinked", { employee: { linkedUserId: "someoneElse" } });
+  await assert.rejects(checkPin("ec-check-unlinked", "in"), reasonIs("wrongAccount"));
+  await seed("ec-check-other");
+  await assert.rejects(checkPin("ec-check-other", "in", { extra: { employeeId: "empB" } }), reasonIs("wrongAccount"));
+  await assert.rejects(callPunch("ec-check-other", { action: "in", requestId: randomUUID(), pin: PIN, checkPinOnly: true }, null), reasonIs("notSignedIn"));
+  // A wrong PIN on an inactive account is still "inactive" (never a PIN hint).
+  await assert.rejects(checkPin(c, "in", { pin: "0000" }), reasonIs("inactive"));
+  assert.equal((await db.doc(`companies/${c}/employeePinLocks/emp1`).get()).exists, false);
+});
+
+test("PIN check: bad input (break, no PIN, a photo, checkPinOnly not true)", async () => {
+  const c = "ec-check-input";
+  await seed(c);
+  const id = randomUUID();
+  await assert.rejects(callPunch(c, { action: "breakStart", requestId: id, checkPinOnly: true }), reasonIs("invalid"));
+  await assert.rejects(callPunch(c, { action: "breakStart", requestId: id, pin: PIN, checkPinOnly: true }), reasonIs("invalid"));
+  await assert.rejects(callPunch(c, { action: "in", requestId: id, checkPinOnly: true }), reasonIs("invalid"));
+  await assert.rejects(
+    callPunch(c, { action: "in", requestId: id, pin: PIN, checkPinOnly: true, photoPath: `companies/${c}/clockEvents/emp1/${id}.jpg` }),
+    reasonIs("invalid")
+  );
+  await assert.rejects(callPunch(c, { action: "in", requestId: id, pin: PIN, checkPinOnly: false }), reasonIs("invalid"));
+  // Without the flag a photo is still required.
+  await assert.rejects(callPunch(c, { action: "in", requestId: id, pin: PIN }), reasonIs("invalid"));
+  assert.equal((await events(c)).length, 0);
+});
+
+test("PIN check after the punch was written: no replay result, just the check", async () => {
+  const c = "ec-check-after";
+  await seed(c);
+  const requestId = randomUUID();
+  await punch(c, "in", { requestId });
+  assert.deepEqual(await checkPin(c, "in", { requestId }), { pinOk: true });
+  assert.equal((await events(c)).length, 1);
+});
+
+test("PIN check never returns the PIN", async () => {
+  const c = "ec-check-nopin";
+  await seed(c);
+  assert.ok(!JSON.stringify(await checkPin(c, "in")).includes(PIN));
+  await assert.rejects(checkPin(c, "in", { pin: "0000" }), (err) => !JSON.stringify({ m: err.message, d: err.details }).includes(PIN));
+});
+
 // ===================== account =====================
 
 test("inactive employee is rejected with the inactive message, photo deleted", async () => {

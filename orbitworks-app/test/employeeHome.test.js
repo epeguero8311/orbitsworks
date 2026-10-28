@@ -217,6 +217,25 @@ test("errors: where the clock flow goes next", () => {
   assert.equal(h.errorStep({ code: "functions/unavailable" }), "retry");
 });
 
+test("PIN check (before the camera): what the server's answer does", () => {
+  // Wrong PIN / lock from the check: back to the PIN pad with the message
+  // or countdown - the camera never opens.
+  const wrong = httpsErr("wrongPin", "Wrong PIN. 1 try left before a 1-minute lock.", { attemptsLeft: 1 });
+  assert.equal(h.errorStep(wrong), "pin");
+  assert.equal(h.clockErrorMessage(wrong, true), "Wrong PIN. 1 try left before a 1-minute lock.");
+  const locked = httpsErr("locked", "Too many wrong PINs. Try again in 60 seconds.", { secondsLeft: 60 });
+  assert.equal(h.errorStep(locked), "pin");
+  assert.equal(h.lockSecondsLeft(locked), 60);
+  // Inactive / signed into the wrong account: stop with the message.
+  assert.equal(h.errorStep(httpsErr("inactive", "x")), "close");
+  assert.equal(h.errorStep(httpsErr("wrongAccount", "x")), "close");
+  // No signal: Try again (repeats the check).
+  assert.equal(h.errorStep({ code: "functions/unavailable" }), "retry");
+  // PIN OK: camera; or, with a photo already kept, send it straight away.
+  assert.equal(h.stepAfterPinOk(false), "camera");
+  assert.equal(h.stepAfterPinOk(true), "sending");
+});
+
 test("photo path is the punch's own file", () => {
   assert.equal(h.photoPathFor("c1", "e1", "r-1"), "companies/c1/clockEvents/e1/r-1.jpg");
 });

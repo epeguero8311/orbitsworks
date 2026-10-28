@@ -819,6 +819,9 @@ export type EmployeeClockAction = "in" | "out" | "breakStart" | "breakEnd";
 // What the phone sends. companyId/employeeId are optional and only checked
 // against the login's claims - the server never trusts them. pin and
 // photoPath are required for in/out, never sent for breaks.
+// checkPinOnly: true (in/out, PIN, no photo) only checks the PIN before the
+// camera opens and returns EmployeeClockPinCheckResult - nothing is written,
+// and the real punch still checks the PIN itself.
 export interface EmployeeClockPunchRequest {
   action: EmployeeClockAction;
   requestId: string;
@@ -826,6 +829,11 @@ export interface EmployeeClockPunchRequest {
   photoPath?: string;
   companyId?: string;
   employeeId?: string;
+  checkPinOnly?: true;
+}
+
+export interface EmployeeClockPinCheckResult {
+  pinOk: true;
 }
 
 export interface EmployeeClockPunchResult {

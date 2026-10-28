@@ -15,7 +15,8 @@ import Spinner from "../components/Spinner";
 const TITLES = { in: "Clock In", out: "Clock Out" };
 const DONE_TITLES = { in: "Clocked in", out: "Clocked out" };
 
-// Employee App clock in / out: PIN -> live front-camera photo (retake
+// Employee App clock in / out: PIN -> the server checks it (a wrong PIN or
+// the lock shows here, before any photo) -> live front-camera photo (retake
 // allowed) -> sent to employeeClockPunch -> green confirmation. Every error
 // message is the server's own plain message, or "No signal".
 export default function ClockPunchScreen({ route, navigation }) {
@@ -63,6 +64,13 @@ export default function ClockPunchScreen({ route, navigation }) {
           </View>
         ) : null}
 
+        {flow.step === "checking" ? (
+          <View style={styles.center}>
+            <Spinner size={32} color={colors.accent} />
+            <Text style={[styles.sending, { color: colors.subtext }]}>Checking PIN...</Text>
+          </View>
+        ) : null}
+
         {flow.step === "pin" ? (
           <>
             <Text style={[styles.title, { color: colors.text }]}>Enter your PIN</Text>
@@ -70,7 +78,7 @@ export default function ClockPunchScreen({ route, navigation }) {
           </>
         ) : null}
 
-        {message && flow.step !== "sending" ? <Text style={[styles.error, { color: colors.red }]}>{message}</Text> : null}
+        {message && flow.step !== "sending" && flow.step !== "checking" ? <Text style={[styles.error, { color: colors.red }]}>{message}</Text> : null}
 
         {flow.step === "retry" ? (
           <TouchableOpacity style={[styles.button, { backgroundColor: colors.accent }]} onPress={flow.retry}>

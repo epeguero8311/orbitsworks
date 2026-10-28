@@ -29,11 +29,21 @@ export async function isOnline() {
 }
 
 // Uploads the live clock photo to the punch's own path (the only name the
-// server accepts for this requestId) and returns that path.
+// server accepts for this requestId) and returns that path. Foreground
+// upload: the employee is waiting on screen (see storageUpload.js).
 export async function uploadClockPhoto({ companyId, employeeId, requestId, localUri }) {
   const path = photoPathFor(companyId, employeeId, requestId);
-  await uploadLocalFileToStorage(ref(storage, path), localUri, "image/jpeg");
+  await uploadLocalFileToStorage(ref(storage, path), localUri, "image/jpeg", { foreground: true });
   return path;
+}
+
+// Clock in/out: the server checks the PIN before the camera opens (same
+// wrong-PIN count and lock as the punch). Resolves { pinOk: true }; a wrong
+// PIN, the lock or an inactive account reject like a punch would. Nothing
+// is written - the punch itself checks the PIN again.
+export async function checkPin({ action, requestId, pin }) {
+  const res = await punchFn({ action, requestId, pin, checkPinOnly: true });
+  return res.data;
 }
 
 // -> EmployeeClockPunchResult (see the website's lib/types.ts).

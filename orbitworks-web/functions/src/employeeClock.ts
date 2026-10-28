@@ -31,6 +31,13 @@ import { employeeClockPunchSchema, EmployeeClockAction } from "./employeeClockVa
 //      so two punches for the same employee can never both pass the state
 //      check.
 // A rejected in/out punch deletes its photo, so no face photo is left over.
+//
+// PIN check before the camera (checkPinOnly: true, in/out only): steps 1, 2,
+// 4 and 5 only - the same account check and the same PIN lock transaction
+// (wrong tries count, 3 = lock) - then returns { pinOk: true } and writes
+// nothing else. It is only so a wrong PIN or the lock shows before any photo
+// is taken; the real punch still checks the PIN itself, so skipping this
+// call can't skip the check.
 // onClockEventCreated then runs as for any punch (face check, last status,
 // timesheet approval, alerts, auto clock-out).
 //
@@ -302,9 +309,9 @@ export const employeeClockPunch = onCall(async (request) => {
     throw err;
   };
 
-  // 3. double tap
-  const existing = await eventRef.get();
-  const replay = replayOf(eventRef.id, existing.data() as EventData | undefined, employeeId, input.action);
+  // 3. double tap (not for a PIN check, which never writes an event)
+  const existing = input.checkPinOnly ? null : await eventRef.get();
+  const replay = existing ? replayOf(eventRef.id, existing.data() as EventData | undefined, employeeId, input.action) : null;
   if (replay) return replay;
 
   // 4. account
@@ -326,6 +333,7 @@ export const employeeClockPunch = onCall(async (request) => {
       const message = `Wrong PIN. ${left} ${left === 1 ? "try" : "tries"} left before a 1-minute lock.`;
       return reject(clockError("wrongPin", message, { attemptsLeft: left }));
     }
+    if (input.checkPinOnly) return { pinOk: true };
 
     // 6. photo
     if (!photoIsOwn) return reject(clockError("photo"));

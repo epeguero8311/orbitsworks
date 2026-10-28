@@ -29,13 +29,20 @@ export const employeeClockPunchSchema = z
     photoPath: clockPhotoPathField.optional(),
     companyId: idField.optional(),
     employeeId: idField.optional(),
+    // true = only check the PIN (before the camera opens); nothing is
+    // written. The real punch still checks the PIN itself.
+    checkPinOnly: z.literal(true).optional(),
   })
   .refine((v) => (v.action === "in" || v.action === "out") === (v.pin !== undefined), {
     message: "A PIN is needed to clock in or out, and never for a break.",
     path: ["pin"],
   })
-  .refine((v) => (v.action === "in" || v.action === "out") === (v.photoPath !== undefined), {
-    message: "A photo is needed to clock in or out, and never for a break.",
+  .refine((v) => v.checkPinOnly !== true || v.action === "in" || v.action === "out", {
+    message: "Only clock in and out check a PIN.",
+    path: ["checkPinOnly"],
+  })
+  .refine((v) => ((v.action === "in" || v.action === "out") && v.checkPinOnly !== true) === (v.photoPath !== undefined), {
+    message: "A photo is needed to clock in or out, and never for a break or a PIN check.",
     path: ["photoPath"],
   });
 

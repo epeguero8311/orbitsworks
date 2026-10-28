@@ -264,6 +264,13 @@ function errorStep(err) {
   return "retry";
 }
 
+// After the server accepts the PIN (checked before the camera opens): open
+// the camera, or - when a photo is already kept because the punch itself
+// came back "wrong PIN" - send it again straight away.
+function stepAfterPinOk(hasPhoto) {
+  return hasPhoto ? "sending" : "camera";
+}
+
 function lockSecondsLeft(err) {
   const s = err && err.details && err.details.secondsLeft;
   return typeof s === "number" && s > 0 ? s : 0;
@@ -297,4 +304,5 @@ module.exports = {
   errorStep,
   lockSecondsLeft,
   photoPathFor,
+  stepAfterPinOk,
 };
