@@ -275,18 +275,52 @@ export const onClockEventCreated = onDocumentCreated(
     const finalSiteId = siteWasResolved ? resolvedSiteId : ((data.siteId as string | null | undefined) ?? null);
     const finalSiteName = siteWasResolved ? (resolvedSiteName ?? "") : ((data.siteName as string | undefined) ?? "");
 
-    await employeesRef
-      .doc(employeeId)
-      .update({
-        lastEventType: data.type,
-        lastEventTimestamp: data.timestamp ?? admin.firestore.FieldValue.serverTimestamp(),
-        lastEventSiteId: finalSiteId,
-        lastEventSiteName: finalSiteName,
-      })
-      .catch(() => {
+    // Ordering guard (sync speed step 4): the mobile app now sends several
+    // employees' events in parallel, and any phone can deliver an older
+    // offline punch after a newer one has already landed. Only move
+    // lastEventType forward - an event older than the stored
+    // lastEventTimestamp must never overwrite a newer status (that would
+    // e.g. flip someone who clocked out back to "in"). In a transaction so
+    // two events for one employee landing together can't both pass the
+    // check and finish in the wrong order. Equal timestamps still apply,
+    // same as before. An event with no timestamp keeps the old behavior
+    // (always applies, server time).
+    const eventTs = data.timestamp as admin.firestore.Timestamp | undefined;
+    await db
+      .runTransaction(async (tx) => {
+        const employeeRef = employeesRef.doc(employeeId);
+        const employeeSnap = await tx.get(employeeRef);
         // Employee doc may not exist in edge cases (e.g. deleted between
-        // event write and this trigger firing) - safe to ignore, this
+        // event write and this trigger firing) - nothing to update, this
         // field is a denormalized convenience, not the source of truth.
+        if (!employeeSnap.exists) return;
+        const stored = employeeSnap.get("lastEventTimestamp") as admin.firestore.Timestamp | null | undefined;
+        if (
+          eventTs &&
+          typeof eventTs.toMillis === "function" &&
+          stored &&
+          typeof stored.toMillis === "function" &&
+          eventTs.toMillis() < stored.toMillis()
+        ) {
+          console.info("lastEventType kept: older event arrived after a newer one", {
+            companyId,
+            eventId: event.params.eventId,
+            employeeId,
+            eventType: data.type,
+            eventMs: eventTs.toMillis(),
+            storedMs: stored.toMillis(),
+          });
+          return;
+        }
+        tx.update(employeeRef, {
+          lastEventType: data.type,
+          lastEventTimestamp: eventTs ?? admin.firestore.FieldValue.serverTimestamp(),
+          lastEventSiteId: finalSiteId,
+          lastEventSiteName: finalSiteName,
+        });
+      })
+      .catch((err) => {
+        console.warn("Failed to update employee lastEventType", { companyId, eventId: event.params.eventId, error: String(err) });
       });
 
     if (siteWasResolved || resolvedGeofenceApplicable) {

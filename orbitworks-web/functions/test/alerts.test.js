@@ -581,3 +581,91 @@ test("overtime fires via the periodic sweep", async () => {
   const snap = await db.collection("companies").doc(companyId).collection("alerts").where("alertType", "==", "overtime").get();
   assert.equal(snap.size, 1);
 });
+
+// Sync speed step 4 - lastEventType only moves forward in time.
+function plainEvent({ employeeId, type, iso }) {
+  return {
+    employeeId,
+    employeeName: "Jordan",
+    siteId: null,
+    siteName: null,
+    type,
+    source: "pin",
+    timestamp: admin.firestore.Timestamp.fromDate(new Date(iso)),
+  };
+}
+async function runCreated(companyId, eventId, data) {
+  await funcs.onClockEventCreated.run({ data: fakeClockEventDoc(data), params: { companyId, eventId } });
+}
+async function employeeStatus(companyId, employeeId) {
+  const snap = await db.collection("companies").doc(companyId).collection("employees").doc(employeeId).get();
+  const d = snap.data();
+  return { type: d.lastEventType, ms: d.lastEventTimestamp ? d.lastEventTimestamp.toMillis() : null };
+}
+
+test("ordering guard: an older event arriving late does not overwrite a newer lastEventType", async () => {
+  const companyId = "order-late";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "e1");
+  setFlags({ alertsFeed: false });
+
+  await runCreated(companyId, "out-1700", plainEvent({ employeeId: "e1", type: "out", iso: "2026-10-29T17:00:00Z" }));
+  await runCreated(companyId, "in-0800", plainEvent({ employeeId: "e1", type: "in", iso: "2026-10-29T08:00:00Z" }));
+
+  const s = await employeeStatus(companyId, "e1");
+  assert.equal(s.type, "out");
+  assert.equal(s.ms, Date.parse("2026-10-29T17:00:00Z"));
+});
+
+test("ordering guard: events in order still update every time", async () => {
+  const companyId = "order-normal";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "e1");
+  setFlags({ alertsFeed: false });
+
+  await runCreated(companyId, "a", plainEvent({ employeeId: "e1", type: "in", iso: "2026-10-29T08:00:00Z" }));
+  assert.equal((await employeeStatus(companyId, "e1")).type, "in");
+  await runCreated(companyId, "b", plainEvent({ employeeId: "e1", type: "breakStart", iso: "2026-10-29T12:00:00Z" }));
+  assert.equal((await employeeStatus(companyId, "e1")).type, "breakStart");
+  await runCreated(companyId, "c", plainEvent({ employeeId: "e1", type: "breakEnd", iso: "2026-10-29T12:30:00Z" }));
+  await runCreated(companyId, "d", plainEvent({ employeeId: "e1", type: "out", iso: "2026-10-29T17:00:00Z" }));
+  assert.equal((await employeeStatus(companyId, "e1")).type, "out");
+});
+
+test("ordering guard: two events for one employee landing at once end on the newer one", async () => {
+  const companyId = "order-race";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "e1");
+  setFlags({ alertsFeed: false });
+
+  for (let i = 0; i < 5; i++) {
+    await Promise.all([
+      runCreated(companyId, `in-${i}`, plainEvent({ employeeId: "e1", type: "in", iso: `2026-10-2${i}T08:00:00Z` })),
+      runCreated(companyId, `out-${i}`, plainEvent({ employeeId: "e1", type: "out", iso: `2026-10-2${i}T17:00:00Z` })),
+    ]);
+    assert.equal((await employeeStatus(companyId, "e1")).type, "out", `round ${i}`);
+  }
+});
+
+test("ordering guard: employee with no stored timestamp (legacy doc) still updates", async () => {
+  const companyId = "order-legacy";
+  await seedCompany(companyId);
+  await db.collection("companies").doc(companyId).collection("employees").doc("e1").set({
+    name: "Legacy",
+    active: true,
+    lastEventType: "in",
+  });
+  setFlags({ alertsFeed: false });
+
+  await runCreated(companyId, "x", plainEvent({ employeeId: "e1", type: "out", iso: "2026-10-29T17:00:00Z" }));
+  assert.equal((await employeeStatus(companyId, "e1")).type, "out");
+});
+
+test("ordering guard: missing employee doc is skipped without throwing", async () => {
+  const companyId = "order-noemp";
+  await seedCompany(companyId);
+  setFlags({ alertsFeed: false });
+  await assert.doesNotReject(
+    runCreated(companyId, "x", plainEvent({ employeeId: "ghost", type: "in", iso: "2026-10-29T08:00:00Z" }))
+  );
+});
