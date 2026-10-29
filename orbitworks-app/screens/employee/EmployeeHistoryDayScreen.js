@@ -1,7 +1,9 @@
-import { View, Text, Pressable, ScrollView, StyleSheet } from "react-native";
+import { View, Text, Pressable, ScrollView } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
+import { radii, spacing, fontSizes } from "../../lib/theme";
+import { useTheme } from "../../lib/ThemeContext";
+import { makeStyles } from "../../lib/makeStyles";
 import { useTabBarSpace } from "../../lib/hooks/useTabBarSpace";
 import { useNow } from "../../lib/hooks/useNow";
 import { MOCK_CLOCK_EVENTS } from "../../lib/mockData";
@@ -13,6 +15,8 @@ import Timeline from "../../components/ui/Timeline";
 // the day's punches as a timeline. LAYOUT ONLY, mock clock events.
 // route.params: { dayKey: "YYYY-MM-DD" }.
 export default function EmployeeHistoryDayScreen({ route, navigation }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   const tabBarSpace = useTabBarSpace();
   const key = route.params?.dayKey ?? "";
@@ -59,7 +63,7 @@ export default function EmployeeHistoryDayScreen({ route, navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   page: { flex: 1, backgroundColor: colors.background },
   content: { paddingHorizontal: spacing.xl },
   back: {
@@ -79,4 +83,4 @@ const styles = StyleSheet.create({
   section: { marginTop: spacing.xl, marginBottom: spacing.xxl },
   heading: { fontSize: fontSizes.lg, fontWeight: "700", color: colors.text, marginBottom: spacing.sm },
   empty: { fontSize: fontSizes.sm, color: colors.subtext },
-});
+}));

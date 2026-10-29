@@ -1,18 +1,23 @@
-import { TouchableOpacity, Text, StyleSheet } from "react-native";
-import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
+import { TouchableOpacity, Text } from "react-native";
+import { radii, spacing, fontSizes } from "../../lib/theme";
+import { useTheme } from "../../lib/ThemeContext";
+import { makeStyles } from "../../lib/makeStyles";
 import Spinner from "../Spinner";
 
+// Theme color name for each tone.
 const TONE_COLOR = {
-  blue: colors.accent,
-  green: colors.greenStrong,
-  red: colors.redStrong,
-  orange: colors.orangeStrong,
+  blue: "accent",
+  green: "greenStrong",
+  red: "redStrong",
+  orange: "orangeStrong",
 };
 
 // Full-width button. variant "solid" (filled, white text) or "outline"
 // (white with a colored border and text). tone: blue | green | red | orange.
 export default function Button({ label, onPress, tone = "blue", variant = "solid", disabled, busy, style }) {
-  const color = TONE_COLOR[tone] || TONE_COLOR.blue;
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const color = colors[TONE_COLOR[tone] || TONE_COLOR.blue];
   const solid = variant === "solid";
   return (
     <TouchableOpacity
@@ -37,7 +42,7 @@ export default function Button({ label, onPress, tone = "blue", variant = "solid
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   button: {
     minHeight: 56,
     borderRadius: radii.lg,
@@ -48,4 +53,4 @@ const styles = StyleSheet.create({
   },
   disabled: { opacity: 0.6 },
   text: { fontSize: fontSizes.lg, fontWeight: "700", letterSpacing: 0.3 },
-});
+}));

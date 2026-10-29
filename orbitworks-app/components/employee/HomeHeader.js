@@ -1,11 +1,15 @@
-import { View, Text, StyleSheet } from "react-native";
-import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
+import { View, Text } from "react-native";
+import { radii, spacing, fontSizes } from "../../lib/theme";
+import { useTheme } from "../../lib/ThemeContext";
+import { makeStyles } from "../../lib/makeStyles";
 import Avatar from "../Avatar";
 import Building2Icon from "../icons/Building2Icon";
 
 // Employee App top row: selfie, a small greeting over the name, and (while
 // known) the employee's company as a blue pill on the right.
 export default function HomeHeader({ name, photoUrl, greeting, companyName }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={styles.row}>
       <View style={styles.left}>
@@ -29,7 +33,7 @@ export default function HomeHeader({ name, photoUrl, greeting, companyName }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
   left: { flexDirection: "row", alignItems: "center", gap: spacing.md, flexShrink: 1 },
   names: { flexShrink: 1 },
@@ -46,4 +50,4 @@ const styles = StyleSheet.create({
     maxWidth: "45%",
   },
   siteText: { fontSize: fontSizes.sm, fontWeight: "600", color: colors.onColor, flexShrink: 1 },
-});
+}));

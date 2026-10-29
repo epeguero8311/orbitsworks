@@ -33,7 +33,6 @@ export const MOCK_SETTINGS = {
   pin: "1234",
   birthday: "January 1, 2000",
   lastSynced: "Jan 1, 2026 · 9:00 AM",
-  darkMode: false,
   notifications: true,
   location: true,
 };

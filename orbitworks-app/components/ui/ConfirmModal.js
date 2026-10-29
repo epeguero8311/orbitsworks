@@ -1,5 +1,6 @@
-import { Modal, View, Text, StyleSheet } from "react-native";
-import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
+import { Modal, View, Text } from "react-native";
+import { radii, spacing, fontSizes } from "../../lib/theme";
+import { makeStyles } from "../../lib/makeStyles";
 import Button from "./Button";
 
 // Dimmed backdrop with a centered white box: a question, a colored confirm
@@ -16,6 +17,7 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
 }) {
+  const styles = useStyles();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? undefined : onCancel}>
       <View style={styles.backdrop}>
@@ -32,10 +34,10 @@ export default function ConfirmModal({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   backdrop: { flex: 1, backgroundColor: colors.overlay, justifyContent: "center", padding: spacing.xxl },
   box: { backgroundColor: colors.surface, borderRadius: radii.xl, padding: spacing.xxl },
   title: { fontSize: fontSizes.xl, fontWeight: "700", color: colors.text, textAlign: "center", lineHeight: 26 },
   error: { fontSize: fontSizes.md, color: colors.red, textAlign: "center", marginTop: spacing.md },
   buttons: { gap: spacing.md, marginTop: spacing.xxl },
-});
+}));

@@ -49,7 +49,6 @@ import EmployeeSyncScreen from "./screens/employee/EmployeeSyncScreen";
 import EmployeeSettingsScreen from "./screens/employee/EmployeeSettingsScreen";
 import EmployeeHistoryScreen from "./screens/employee/EmployeeHistoryScreen";
 import EmployeeHistoryDayScreen from "./screens/employee/EmployeeHistoryDayScreen";
-import { lightColors } from "./lib/theme";
 import JoinScanScreen from "./screens/JoinScanScreen";
 import JoinStartScreen from "./screens/JoinStartScreen";
 import { useJoinLink } from "./lib/hooks/useJoinLink";
@@ -153,8 +152,9 @@ const EmployeeHistoryStack = createNativeStackNavigator();
 // History tab: the list with each day's detail pushed on top, inside the
 // tab, so the bottom nav stays up and back returns to the list.
 function EmployeeHistoryTab() {
+  const { colors } = useTheme();
   return (
-    <EmployeeHistoryStack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: lightColors.background } }}>
+    <EmployeeHistoryStack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
       <EmployeeHistoryStack.Screen name="EmployeeHistoryList" component={EmployeeHistoryScreen} />
       <EmployeeHistoryStack.Screen name="EmployeeHistoryDay" component={EmployeeHistoryDayScreen} />
     </EmployeeHistoryStack.Navigator>
@@ -162,13 +162,14 @@ function EmployeeHistoryTab() {
 }
 
 function EmployeeTabs() {
+  const { colors } = useTheme();
   return (
     <EmployeeTab.Navigator
       tabBar={(props) => (
         <FloatingTabBar
           {...props}
           icons={EMPLOYEE_TAB_ICONS}
-          barColor={lightColors.accent}
+          barColor={colors.accent}
           activeColor="rgba(255,255,255,0.22)"
           inactiveIconColor="rgba(255,255,255,0.8)"
         />
@@ -233,8 +234,7 @@ function RootNavigator() {
   return (
     <NavigationContainer ref={navigationRef} onReady={() => setNavReady(true)}>
       {backgroundSync}
-      {/* Employee screens are always light, so their status bar text stays dark. */}
-      <StatusBar style={isDark && !isEmployeeLogin ? "light" : "dark"} />
+      <StatusBar style={isDark ? "light" : "dark"} />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {currentUser && accountDisabled ? (
           <Stack.Screen name="AccountDisabled" component={AccountDisabledScreen} />

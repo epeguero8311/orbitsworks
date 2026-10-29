@@ -3,17 +3,21 @@ import { View, Text, Switch, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { useAuth } from "../../lib/AuthContext";
-import { lightColors as colors, spacing, fontSizes } from "../../lib/theme";
+import { spacing, fontSizes } from "../../lib/theme";
+import { useTheme } from "../../lib/ThemeContext";
+import { makeStyles } from "../../lib/makeStyles";
 import { MOCK_SETTINGS } from "../../lib/mockData";
 import TabPage from "../../components/ui/TabPage";
 import ListRow from "../../components/ui/ListRow";
 
-// Employee App Settings tab - LAYOUT ONLY. The info, toggles and "Last
-// synced" are mock data (lib/mockData.js) and the switches save nothing.
-// Two things are real: the app version and Log out.
+// Employee App Settings tab - LAYOUT ONLY. The info, Notifications /
+// Location and "Last synced" are mock data (lib/mockData.js) and those
+// switches save nothing. Real: Dark mode (same saved setting as the
+// supervisor app), the app version and Log out.
 export default function EmployeeSettingsScreen() {
+  const { colors, isDark, toggleTheme } = useTheme();
+  const styles = useStyles();
   const { signOutUser } = useAuth();
-  const [darkMode, setDarkMode] = useState(MOCK_SETTINGS.darkMode);
   const [notifications, setNotifications] = useState(MOCK_SETTINGS.notifications);
   const [location, setLocation] = useState(MOCK_SETTINGS.location);
   const version = Constants.expoConfig?.version ?? "";
@@ -24,7 +28,7 @@ export default function EmployeeSettingsScreen() {
     ["Birthday", MOCK_SETTINGS.birthday],
   ];
   const toggles = [
-    ["Dark mode", darkMode, setDarkMode],
+    ["Dark mode", isDark, toggleTheme],
     ["Notifications", notifications, setNotifications],
     ["Location", location, setLocation],
   ];
@@ -83,7 +87,7 @@ export default function EmployeeSettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   section: {
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -95,4 +99,4 @@ const styles = StyleSheet.create({
   rowText: { fontSize: fontSizes.md, color: colors.text },
   rightText: { fontSize: fontSizes.sm, color: colors.subtext },
   logout: { fontSize: fontSizes.md, fontWeight: "600", color: colors.redStrong },
-});
+}));

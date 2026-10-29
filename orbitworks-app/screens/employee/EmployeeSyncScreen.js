@@ -1,6 +1,8 @@
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
+import { radii, spacing, fontSizes } from "../../lib/theme";
+import { useTheme } from "../../lib/ThemeContext";
+import { makeStyles } from "../../lib/makeStyles";
 import { MOCK_SYNC_STATE, MOCK_QUEUED_ITEMS } from "../../lib/mockData";
 import TabPage from "../../components/ui/TabPage";
 import ListRow from "../../components/ui/ListRow";
@@ -8,6 +10,8 @@ import ListRow from "../../components/ui/ListRow";
 // Employee App Sync tab - LAYOUT ONLY, mock data (lib/mockData.js).
 // Online: "Everything is synced". Offline: the queued punches.
 export default function EmployeeSyncScreen() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const online = MOCK_SYNC_STATE === "online";
   const items = online ? [] : MOCK_QUEUED_ITEMS;
 
@@ -58,7 +62,7 @@ export default function EmployeeSyncScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   statusRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -87,4 +91,4 @@ const styles = StyleSheet.create({
   queued: { flexDirection: "row", alignItems: "center", gap: 6 },
   smallDot: { width: 8, height: 8, borderRadius: 4 },
   queuedText: { fontSize: fontSizes.sm, fontWeight: "600", color: colors.orangeText },
-});
+}));

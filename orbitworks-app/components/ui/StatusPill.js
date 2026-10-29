@@ -1,25 +1,30 @@
-import { View, Text, StyleSheet } from "react-native";
-import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
+import { View, Text } from "react-native";
+import { radii, spacing, fontSizes } from "../../lib/theme";
+import { useTheme } from "../../lib/ThemeContext";
+import { makeStyles } from "../../lib/makeStyles";
 
+// Theme color names for each tone.
 const TONES = {
-  neutral: { bg: colors.neutralSoft, fg: colors.subtext, dot: colors.muted },
-  green: { bg: colors.greenSoft, fg: colors.greenText, dot: colors.green },
-  orange: { bg: colors.orangeSoft, fg: colors.orangeText, dot: colors.orange },
-  blue: { bg: colors.accentSoft, fg: colors.accent, dot: colors.accent },
+  neutral: { bg: "neutralSoft", fg: "subtext", dot: "muted" },
+  green: { bg: "greenSoft", fg: "greenText", dot: "green" },
+  orange: { bg: "orangeSoft", fg: "orangeText", dot: "orange" },
+  blue: { bg: "accentSoft", fg: "accent", dot: "accent" },
 };
 
 // Small rounded status label with a dot ("Clocked in", "On break").
 export default function StatusPill({ label, tone = "neutral" }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const t = TONES[tone] || TONES.neutral;
   return (
-    <View style={[styles.pill, { backgroundColor: t.bg }]}>
-      <View style={[styles.dot, { backgroundColor: t.dot }]} />
-      <Text style={[styles.label, { color: t.fg }]}>{label}</Text>
+    <View style={[styles.pill, { backgroundColor: colors[t.bg] }]}>
+      <View style={[styles.dot, { backgroundColor: colors[t.dot] }]} />
+      <Text style={[styles.label, { color: colors[t.fg] }]}>{label}</Text>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   pill: {
     flexDirection: "row",
     alignItems: "center",
@@ -31,4 +36,4 @@ const styles = StyleSheet.create({
   },
   dot: { width: 7, height: 7, borderRadius: 4 },
   label: { fontSize: fontSizes.sm, fontWeight: "600" },
-});
+}));

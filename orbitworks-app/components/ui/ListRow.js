@@ -1,10 +1,12 @@
 import { View, Pressable, StyleSheet } from "react-native";
-import { lightColors as colors, spacing } from "../../lib/theme";
+import { spacing } from "../../lib/theme";
+import { makeStyles } from "../../lib/makeStyles";
 
 // One row of a plain list: left content, optional right content, and a thin
 // gray divider under it (divider={false} on the last row). onPress makes it
 // tappable.
 export default function ListRow({ children, right, onPress, divider = true, accessibilityLabel }) {
+  const styles = useStyles();
   const body = (
     <>
       <View style={styles.left}>{children}</View>
@@ -25,10 +27,10 @@ export default function ListRow({ children, right, onPress, divider = true, acce
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   row: { flexDirection: "row", alignItems: "center", minHeight: 52, paddingVertical: spacing.md, gap: spacing.md },
   divider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   left: { flex: 1 },
   right: { flexShrink: 0, alignItems: "flex-end" },
   pressed: { opacity: 0.5 },
-});
+}));

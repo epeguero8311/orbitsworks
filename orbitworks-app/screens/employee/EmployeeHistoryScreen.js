@@ -1,6 +1,8 @@
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { lightColors as colors, spacing, fontSizes } from "../../lib/theme";
+import { spacing, fontSizes } from "../../lib/theme";
+import { useTheme } from "../../lib/ThemeContext";
+import { makeStyles } from "../../lib/makeStyles";
 import { useNow } from "../../lib/hooks/useNow";
 import { MOCK_CLOCK_EVENTS, MOCK_HISTORY_EMPTY } from "../../lib/mockData";
 import { groupEventsByDay, summarizeDay, dayLabel, shortDate, formatWorked, formatDuration } from "../../lib/historyDays";
@@ -11,6 +13,8 @@ import DayCard from "../../components/ui/DayCard";
 // (lib/mockData.js) in the device's timezone. Wiring it up = swapping
 // MOCK_CLOCK_EVENTS for the employee's real clockEvents.
 export default function EmployeeHistoryScreen({ navigation }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const now = useNow(60000);
   const days = MOCK_HISTORY_EMPTY ? [] : groupEventsByDay(MOCK_CLOCK_EVENTS);
 
@@ -42,8 +46,8 @@ export default function EmployeeHistoryScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   list: { gap: spacing.md },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md },
   emptyText: { fontSize: fontSizes.lg, fontWeight: "600", color: colors.subtext },
-});
+}));

@@ -1,10 +1,14 @@
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
+import { radii, spacing, fontSizes } from "../../lib/theme";
+import { useTheme } from "../../lib/ThemeContext";
+import { makeStyles } from "../../lib/makeStyles";
 
 // History day card: day + date top-left, a small clock top-right, and
 // Worked (left) / Break (right) along the bottom. Tappable.
 export default function DayCard({ dayLabel, dateLabel, worked, breakTime, onPress }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
@@ -33,7 +37,7 @@ export default function DayCard({ dayLabel, dateLabel, worked, breakTime, onPres
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   card: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -50,4 +54,4 @@ const styles = StyleSheet.create({
   right: { alignItems: "flex-end" },
   label: { fontSize: fontSizes.xs, color: colors.subtext },
   value: { fontSize: fontSizes.lg, fontWeight: "700", color: colors.text, marginTop: 2 },
-});
+}));

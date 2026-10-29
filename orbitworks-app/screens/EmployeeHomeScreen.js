@@ -1,8 +1,10 @@
 import { useCallback } from "react";
-import { View, ScrollView, StyleSheet } from "react-native";
+import { View, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../lib/AuthContext";
-import { lightColors as colors, spacing } from "../lib/theme";
+import { spacing } from "../lib/theme";
+import { useTheme } from "../lib/ThemeContext";
+import { makeStyles } from "../lib/makeStyles";
 import { useEmployeeSelfView } from "../lib/hooks/useEmployeeSelfView";
 import { useEmployeeAppConfig } from "../lib/hooks/useEmployeeAppConfig";
 import { useMyClockEvents } from "../lib/hooks/useMyClockEvents";
@@ -39,6 +41,8 @@ const BREAK_DONE = { breakStart: "Break started", breakEnd: "Break ended" };
 // company's employeeAppConfig and their own clock events - all live, so the
 // status and timers are right after killing and reopening the app.
 export default function EmployeeHomeScreen({ navigation }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { userData, linkedEmployeeId } = useAuth();
   const insets = useSafeAreaInsets();
   const tabBarSpace = useTabBarSpace();
@@ -130,10 +134,10 @@ export default function EmployeeHomeScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   flex: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background },
   content: { paddingHorizontal: spacing.xl },
   gap: { height: spacing.xl },
   gapLarge: { height: spacing.xxl },
-});
+}));

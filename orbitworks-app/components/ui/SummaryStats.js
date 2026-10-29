@@ -1,9 +1,11 @@
 import { View, Text, StyleSheet } from "react-native";
-import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
+import { radii, spacing, fontSizes } from "../../lib/theme";
+import { makeStyles } from "../../lib/makeStyles";
 
 // Card of side-by-side stats: a small gray label over a bold value, with
 // thin dividers between columns. items: [{ label, value }].
 export default function SummaryStats({ items }) {
+  const styles = useStyles();
   return (
     <View style={styles.card}>
       {items.map((item, i) => (
@@ -20,7 +22,7 @@ export default function SummaryStats({ items }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   card: {
     flexDirection: "row",
     backgroundColor: colors.surface,
@@ -33,4 +35,4 @@ const styles = StyleSheet.create({
   divider: { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.border },
   label: { fontSize: fontSizes.xs, color: colors.subtext },
   value: { fontSize: fontSizes.md, fontWeight: "700", color: colors.text, marginTop: spacing.xs },
-});
+}));
