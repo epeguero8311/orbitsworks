@@ -4,6 +4,7 @@ import { useAuth } from "../lib/AuthContext";
 import { useTheme } from "../lib/ThemeContext";
 import { useClockPunch } from "../lib/hooks/useClockPunch";
 import { useEmployeeAppConfig } from "../lib/hooks/useEmployeeAppConfig";
+import { useEmployeeSelfView } from "../lib/hooks/useEmployeeSelfView";
 import { useNow } from "../lib/hooks/useNow";
 import { formatClockTime, siteLabel } from "../lib/employeeHome";
 import ScreenHeader from "../components/ScreenHeader";
@@ -11,6 +12,7 @@ import PinPad from "../components/employee/PinPad";
 import PunchCamera from "../components/employee/PunchCamera";
 import PunchConfirmation from "../components/employee/PunchConfirmation";
 import Spinner from "../components/Spinner";
+import Building2Icon from "../components/icons/Building2Icon";
 
 const TITLES = { in: "Clock In", out: "Clock Out" };
 const DONE_TITLES = { in: "Clocked in", out: "Clocked out" };
@@ -23,11 +25,16 @@ export default function ClockPunchScreen({ route, navigation }) {
   const action = route.params?.action === "out" ? "out" : "in";
   const { userData, linkedEmployeeId } = useAuth();
   const { colors } = useTheme();
-  const { timezone } = useEmployeeAppConfig(userData?.companyId);
+  const { timezone, companyName } = useEmployeeAppConfig(userData?.companyId);
+  const employeeId = linkedEmployeeId || userData?.employeeId;
+  const { view } = useEmployeeSelfView(userData?.companyId, employeeId);
+  // The employee's subcontractor company if they have one, otherwise the
+  // company that created them.
+  const company = view?.subcontractorName || companyName;
   const flow = useClockPunch({
     action,
     companyId: userData?.companyId,
-    employeeId: linkedEmployeeId || userData?.employeeId,
+    employeeId,
   });
   const now = useNow(1000);
   const lockSeconds = flow.lockedUntil > now ? Math.ceil((flow.lockedUntil - now) / 1000) : 0;
@@ -73,6 +80,14 @@ export default function ClockPunchScreen({ route, navigation }) {
 
         {flow.step === "pin" ? (
           <>
+            {company ? (
+              <View style={[styles.companyPill, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Building2Icon size={13} color={colors.accent} />
+                <Text style={[styles.companyPillText, { color: colors.accent }]} numberOfLines={1}>
+                  {company}
+                </Text>
+              </View>
+            ) : null}
             <Text style={[styles.title, { color: colors.text }]}>Enter your PIN</Text>
             <PinPad length={flow.pin.length} onDigit={flow.pressDigit} onDelete={flow.deleteDigit} disabled={lockSeconds > 0} />
           </>
@@ -100,6 +115,12 @@ const styles = StyleSheet.create({
   content: { alignItems: "center", paddingTop: 24, paddingHorizontal: 24 },
   center: { alignItems: "center", marginTop: 60 },
   sending: { marginTop: 12, fontSize: 15 },
+  // Same pill as the site tag on the supervisor PIN screen.
+  companyPill: {
+    flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14,
+    paddingVertical: 7, borderRadius: 20, borderWidth: 1, marginBottom: 20, maxWidth: "100%",
+  },
+  companyPillText: { fontSize: 13, fontWeight: "600", flexShrink: 1 },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 24 },
   error: { marginTop: 16, fontSize: 15, textAlign: "center" },
   button: { marginTop: 24, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 40 },

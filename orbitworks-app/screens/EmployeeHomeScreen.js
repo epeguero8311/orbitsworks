@@ -6,7 +6,6 @@ import { lightColors as colors, spacing } from "../lib/theme";
 import { useEmployeeSelfView } from "../lib/hooks/useEmployeeSelfView";
 import { useEmployeeAppConfig } from "../lib/hooks/useEmployeeAppConfig";
 import { useMyClockEvents } from "../lib/hooks/useMyClockEvents";
-import { useEmployeeHomeSite } from "../lib/hooks/useEmployeeHomeSite";
 import { useBreakPunch } from "../lib/hooks/useBreakPunch";
 import { useNow } from "../lib/hooks/useNow";
 import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
@@ -47,7 +46,7 @@ export default function EmployeeHomeScreen({ navigation }) {
   const employeeId = linkedEmployeeId || userData?.employeeId;
 
   const { view, loading } = useEmployeeSelfView(companyId, employeeId);
-  const { timezone, breaks: breakSettings } = useEmployeeAppConfig(companyId);
+  const { timezone, breaks: breakSettings, companyName } = useEmployeeAppConfig(companyId);
   // A 1-minute clock moves "today" and the week query at midnight; a
   // 1-second one runs only while a shift or break timer is showing.
   const minuteNow = useNow(60000);
@@ -60,9 +59,9 @@ export default function EmployeeHomeScreen({ navigation }) {
   const home = deriveHomeState(events.recentEvents, now, timezone);
   const hours = computeHours(events.weekEvents, now, timezone, breakSettings);
   const active = view?.active === true;
-  const clockedOut = home.status === "out" || home.status === "done";
-  const nextSite = useEmployeeHomeSite(clockedOut && active, events.recentEvents[0]?.id ?? "none");
-  const siteName = clockedOut ? nextSite : home.shiftSiteName;
+  // The employee's subcontractor company if they have one, otherwise the
+  // company that created them.
+  const company = view?.subcontractorName || companyName;
 
   const breakPunch = useBreakPunch();
   const onPress = useCallback(
@@ -90,7 +89,7 @@ export default function EmployeeHomeScreen({ navigation }) {
           name={view?.name ?? ""}
           photoUrl={view?.photoUrl}
           greeting={greetingFor(minuteNow, timezone)}
-          siteName={siteName}
+          companyName={company}
         />
         <View style={styles.gapLarge} />
         <StatusCard

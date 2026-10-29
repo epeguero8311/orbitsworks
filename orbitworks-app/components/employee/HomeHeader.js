@@ -1,11 +1,11 @@
 import { View, Text, StyleSheet } from "react-native";
-import { Feather } from "@expo/vector-icons";
 import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
 import Avatar from "../Avatar";
+import Building2Icon from "../icons/Building2Icon";
 
 // Employee App top row: selfie, a small greeting over the name, and (while
-// on a shift) the job site as a blue pill on the right.
-export default function HomeHeader({ name, photoUrl, greeting, siteName }) {
+// known) the employee's company as a blue pill on the right.
+export default function HomeHeader({ name, photoUrl, greeting, companyName }) {
   return (
     <View style={styles.row}>
       <View style={styles.left}>
@@ -17,11 +17,11 @@ export default function HomeHeader({ name, photoUrl, greeting, siteName }) {
           </Text>
         </View>
       </View>
-      {siteName ? (
+      {companyName ? (
         <View style={styles.site}>
-          <Feather name="map-pin" size={12} color={colors.onColor} />
+          <Building2Icon size={12} color={colors.onColor} />
           <Text style={styles.siteText} numberOfLines={1}>
-            {siteName}
+            {companyName}
           </Text>
         </View>
       ) : null}
