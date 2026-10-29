@@ -37,3 +37,28 @@ export const MOCK_SETTINGS = {
   notifications: true,
   location: true,
 };
+
+// History tab: true previews the "No hours yet" empty state.
+export const MOCK_HISTORY_EMPTY = false;
+
+// History tab: a flat list of clock events shaped like the real clockEvents
+// ({ id, type, timestamp }), built relative to today so "Today" shows.
+// lib/historyDays.js groups them into days. Day 4 is a day off.
+function mockAt(daysAgo, time) {
+  const [hh, mm] = time.split(":").map(Number);
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  d.setHours(hh, mm, 0, 0);
+  return d.getTime();
+}
+const MOCK_SHIFTS = [
+  [0, [["in", "07:30"], ["breakStart", "12:02"], ["breakEnd", "12:32"], ["out", "15:42"]]],
+  [1, [["in", "06:58"], ["breakStart", "10:00"], ["breakEnd", "10:15"], ["breakStart", "12:30"], ["breakEnd", "13:00"], ["out", "15:30"]]],
+  [2, [["in", "08:00"], ["out", "12:15"]]],
+  [3, [["in", "07:15"], ["breakStart", "11:45"], ["breakEnd", "12:15"], ["out", "16:05"]]],
+  [5, [["in", "07:30"], ["breakStart", "12:00"], ["breakEnd", "12:45"], ["out", "16:00"]]],
+  [6, [["in", "09:00"], ["breakStart", "13:00"], ["breakEnd", "13:20"], ["out", "17:10"]]],
+];
+export const MOCK_CLOCK_EVENTS = MOCK_SHIFTS.flatMap(([daysAgo, events]) =>
+  events.map(([type, time], i) => ({ id: `mock-${daysAgo}-${i}`, type, timestamp: mockAt(daysAgo, time) }))
+);

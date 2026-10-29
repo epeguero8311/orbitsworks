@@ -44,10 +44,11 @@ import EditEmployeeScreen from "./screens/supervisor/EditEmployeeScreen";
 import EmployeeSyncAlertsScreen from "./screens/supervisor/EmployeeSyncAlertsScreen";
 import EmployeeHomeScreen from "./screens/EmployeeHomeScreen";
 import ClockPunchScreen from "./screens/ClockPunchScreen";
-import EmployeeComingSoonScreen from "./screens/employee/EmployeeComingSoonScreen";
 import EmployeeAlertsScreen from "./screens/employee/EmployeeAlertsScreen";
 import EmployeeSyncScreen from "./screens/employee/EmployeeSyncScreen";
 import EmployeeSettingsScreen from "./screens/employee/EmployeeSettingsScreen";
+import EmployeeHistoryScreen from "./screens/employee/EmployeeHistoryScreen";
+import EmployeeHistoryDayScreen from "./screens/employee/EmployeeHistoryDayScreen";
 import { lightColors } from "./lib/theme";
 import JoinScanScreen from "./screens/JoinScanScreen";
 import JoinStartScreen from "./screens/JoinStartScreen";
@@ -147,6 +148,19 @@ const EMPLOYEE_TAB_ICONS = {
   EmployeeSettings: "settings",
 };
 
+const EmployeeHistoryStack = createNativeStackNavigator();
+
+// History tab: the list with each day's detail pushed on top, inside the
+// tab, so the bottom nav stays up and back returns to the list.
+function EmployeeHistoryTab() {
+  return (
+    <EmployeeHistoryStack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: lightColors.background } }}>
+      <EmployeeHistoryStack.Screen name="EmployeeHistoryList" component={EmployeeHistoryScreen} />
+      <EmployeeHistoryStack.Screen name="EmployeeHistoryDay" component={EmployeeHistoryDayScreen} />
+    </EmployeeHistoryStack.Navigator>
+  );
+}
+
 function EmployeeTabs() {
   return (
     <EmployeeTab.Navigator
@@ -162,12 +176,7 @@ function EmployeeTabs() {
       screenOptions={{ headerShown: false }}
     >
       <EmployeeTab.Screen name="EmployeeHome" component={EmployeeHomeScreen} options={{ tabBarLabel: "Home" }} />
-      <EmployeeTab.Screen
-        name="EmployeeHistory"
-        component={EmployeeComingSoonScreen}
-        initialParams={{ title: "History", icon: "clock" }}
-        options={{ tabBarLabel: "History" }}
-      />
+      <EmployeeTab.Screen name="EmployeeHistory" component={EmployeeHistoryTab} options={{ tabBarLabel: "History" }} />
       <EmployeeTab.Screen name="EmployeeAlerts" component={EmployeeAlertsScreen} options={{ tabBarLabel: "Alerts" }} />
       <EmployeeTab.Screen name="EmployeeSync" component={EmployeeSyncScreen} options={{ tabBarLabel: "Sync" }} />
       <EmployeeTab.Screen name="EmployeeSettings" component={EmployeeSettingsScreen} options={{ tabBarLabel: "Settings" }} />
