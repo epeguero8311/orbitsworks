@@ -3,21 +3,21 @@ import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
-import { useSiteSession } from "../lib/SiteSessionContext";
-import { useTodayShift } from "../lib/hooks/useTodayShift";
-import { useCompanySettings } from "../lib/hooks/useCompanySettings";
-import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
-import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
-import { useLocalEmployee } from "../lib/hooks/useLocalEmployee";
-import { useEmployeeSyncAlertCount } from "../lib/hooks/useEmployeeSyncAlertCount";
-import { syncPinTable } from "../lib/pinSync";
-import { drainQueue } from "../lib/queueSync";
-import { drainEmployeeQueue } from "../lib/employeeQueueSync";
-import OfflineBanner from "../components/OfflineBanner";
-import Avatar from "../components/Avatar";
-import Spinner from "../components/Spinner";
+import { useAuth } from "../../lib/AuthContext";
+import { useTheme } from "../../lib/ThemeContext";
+import { useSiteSession } from "../../lib/SiteSessionContext";
+import { useTodayShift } from "../../lib/hooks/useTodayShift";
+import { useCompanySettings } from "../../lib/hooks/useCompanySettings";
+import { useTabBarSpace } from "../../lib/hooks/useTabBarSpace";
+import { useLocalStatusOverlay } from "../../lib/hooks/useLocalStatusOverlay";
+import { useLocalEmployee } from "../../lib/hooks/useLocalEmployee";
+import { useEmployeeSyncAlertCount } from "../../lib/hooks/useEmployeeSyncAlertCount";
+import { syncPinTable } from "../../lib/pinSync";
+import { drainQueue } from "../../lib/queueSync";
+import { drainEmployeeQueue } from "../../lib/employeeQueueSync";
+import OfflineBanner from "../../components/OfflineBanner";
+import Avatar from "../../components/Avatar";
+import Spinner from "../../components/Spinner";
 
 export default function DashboardScreen({ navigation }) {
   const { userData, currentUser, linkedEmployeeId } = useAuth();

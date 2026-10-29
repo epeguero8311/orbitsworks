@@ -1,21 +1,21 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Sentry from "@sentry/react-native";
-import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
-import { findEmployeeByPin } from "../lib/clockLogic";
-import ScreenHeader from "../components/ScreenHeader";
-import Spinner from "../components/Spinner";
+import { useAuth } from "../../lib/AuthContext";
+import { useTheme } from "../../lib/ThemeContext";
+import { findEmployeeByPin } from "../../lib/clockLogic";
+import ScreenHeader from "../../components/ScreenHeader";
+import Spinner from "../../components/Spinner";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
 
-// Verifies the entered PIN belongs to a supervisor before allowing access
-// to the override employee list. This does not clock the supervisor
-// themselves in or out - it only authorizes them to act on someone else's
-// behalf, for cases like a forgotten PIN.
-export default function OverridePinEntryScreen({ navigation }) {
+// Identifies who is authorizing a break action, not who is going on break -
+// the target employees are picked from a list on the next screen. This PIN
+// exists so every break event records who was responsible for it. Only
+// supervisors can authorize - same restriction as Supervisor Override.
+export default function BreaksPinEntryScreen({ navigation }) {
   const { userData } = useAuth();
   const { colors } = useTheme();
   const [pin, setPin] = useState("");
@@ -51,7 +51,7 @@ export default function OverridePinEntryScreen({ navigation }) {
 
         if (!employee.isSupervisor) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          setError("Only supervisors can use override");
+          setError("Only supervisors can manage breaks");
           setPin("");
           return;
         }
@@ -59,7 +59,7 @@ export default function OverridePinEntryScreen({ navigation }) {
         // findEmployeeByPin now also resolves an inactive employee who still
         // has an open session, purely so THEY can be clocked out - a
         // deactivated supervisor must never be able to use that same PIN
-        // match to authorize actions on someone else's clock events.
+        // match to authorize breaks for someone else.
         if (!employee.active) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
           setError("This supervisor account is no longer active");
@@ -68,7 +68,7 @@ export default function OverridePinEntryScreen({ navigation }) {
         }
 
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        navigation.replace("OverrideEmployeeList", { authorizedBy: employee });
+        navigation.replace("BreaksEmployeeList", { authorizedBy: employee });
         setPin("");
       } catch (err) {
         // Previously unhandled - left `checking` stuck true forever with
@@ -79,7 +79,7 @@ export default function OverridePinEntryScreen({ navigation }) {
         setPin("");
         if (!err.message?.startsWith("Too many attempts")) {
           Sentry.captureException(err, {
-            tags: { area: "overridePinEntry" },
+            tags: { area: "breaksPinEntry" },
             contexts: { clockAttempt: { companyId: userData?.companyId } },
           });
         }
@@ -91,12 +91,12 @@ export default function OverridePinEntryScreen({ navigation }) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Supervisor Override" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Breaks" onBack={() => navigation.goBack()} />
 
       <View style={styles.content}>
-        <Text style={[styles.title, { color: colors.text }]}>Enter supervisor PIN</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Enter your PIN</Text>
         <Text style={[styles.subtitle, { color: colors.subtext }]}>
-          Use this to clock in an employee who forgot their own PIN
+          This identifies who is authorizing the break
         </Text>
 
         <View style={styles.dotsRow}>

@@ -1,5 +1,5 @@
 import { Modal, View, Text, TouchableOpacity, StyleSheet, Linking, ScrollView } from "react-native";
-import { useTheme } from "../lib/ThemeContext";
+import { useTheme } from "../../lib/ThemeContext";
 
 const POLICY_URL = "https://orbitsworks.com/biometric-policy";
 

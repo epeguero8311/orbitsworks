@@ -3,17 +3,17 @@ import { View, Text, Switch, TouchableOpacity, StyleSheet, Linking, ScrollView }
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { signOut } from "firebase/auth";
-import { auth } from "../lib/firebase";
-import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
-import { useCompanySettings } from "../lib/hooks/useCompanySettings";
-import { getLastSyncTime } from "../lib/queueSync";
-import { subscribeQueueChange } from "../lib/queueEvents";
-import { getNotificationState, setNotificationsEnabled, registerForPushNotificationsAsync } from "../lib/pushNotifications";
-import { useLocationPermission } from "../lib/hooks/useLocationPermission";
-import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
-import ScreenHeader from "../components/ScreenHeader";
-import DeviceNameRow from "../components/DeviceNameRow";
+import { auth } from "../../lib/firebase";
+import { useAuth } from "../../lib/AuthContext";
+import { useTheme } from "../../lib/ThemeContext";
+import { useCompanySettings } from "../../lib/hooks/useCompanySettings";
+import { getLastSyncTime } from "../../lib/queueSync";
+import { subscribeQueueChange } from "../../lib/queueEvents";
+import { getNotificationState, setNotificationsEnabled, registerForPushNotificationsAsync } from "../../lib/pushNotifications";
+import { useLocationPermission } from "../../lib/hooks/useLocationPermission";
+import { useTabBarSpace } from "../../lib/hooks/useTabBarSpace";
+import ScreenHeader from "../../components/ScreenHeader";
+import DeviceNameRow from "../../components/supervisor/DeviceNameRow";
 
 const APP_VERSION = Constants.expoConfig?.version ?? "-";
 

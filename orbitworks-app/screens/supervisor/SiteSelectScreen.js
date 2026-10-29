@@ -1,10 +1,10 @@
 ﻿import { View, Text, TouchableOpacity, StyleSheet, FlatList } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
-import { useSiteSession } from "../lib/SiteSessionContext";
-import { useTodayShift } from "../lib/hooks/useTodayShift";
-import ScreenHeader from "../components/ScreenHeader";
+import { useAuth } from "../../lib/AuthContext";
+import { useTheme } from "../../lib/ThemeContext";
+import { useSiteSession } from "../../lib/SiteSessionContext";
+import { useTodayShift } from "../../lib/hooks/useTodayShift";
+import ScreenHeader from "../../components/ScreenHeader";
 
 export default function SiteSelectScreen({ navigation }) {
   const { userData } = useAuth();

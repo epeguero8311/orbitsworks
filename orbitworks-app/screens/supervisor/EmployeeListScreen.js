@@ -1,11 +1,11 @@
 ﻿import { useState } from "react";
 import { View, Text, TextInput, FlatList, StyleSheet } from "react-native";
-import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
-import { useTodayShift } from "../lib/hooks/useTodayShift";
-import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
-import ScreenHeader from "../components/ScreenHeader";
-import Avatar from "../components/Avatar";
+import { useAuth } from "../../lib/AuthContext";
+import { useTheme } from "../../lib/ThemeContext";
+import { useTodayShift } from "../../lib/hooks/useTodayShift";
+import { useLocalStatusOverlay } from "../../lib/hooks/useLocalStatusOverlay";
+import ScreenHeader from "../../components/ScreenHeader";
+import Avatar from "../../components/Avatar";
 const STATUS_LABEL = { in: "In", break: "On Break", out: "Out" };
 // Clocked in/on break sort before clocked out - matches
 // OverrideEmployeeListScreen's ordering.

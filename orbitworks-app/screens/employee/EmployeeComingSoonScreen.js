@@ -1,15 +1,15 @@
 import { View, Text, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAuth } from "../lib/AuthContext";
-import { lightColors as colors, radii, spacing, fontSizes } from "../lib/theme";
-import { useEmployeeSelfView } from "../lib/hooks/useEmployeeSelfView";
-import { useEmployeeAppConfig } from "../lib/hooks/useEmployeeAppConfig";
-import { useNow } from "../lib/hooks/useNow";
-import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
-import { greetingFor } from "../lib/employeeHome";
-import HomeHeader from "../components/employee/HomeHeader";
-import Button from "../components/ui/Button";
+import { useAuth } from "../../lib/AuthContext";
+import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
+import { useEmployeeSelfView } from "../../lib/hooks/useEmployeeSelfView";
+import { useEmployeeAppConfig } from "../../lib/hooks/useEmployeeAppConfig";
+import { useNow } from "../../lib/hooks/useNow";
+import { useTabBarSpace } from "../../lib/hooks/useTabBarSpace";
+import { greetingFor } from "../../lib/employeeHome";
+import HomeHeader from "../../components/employee/HomeHeader";
+import Button from "../../components/ui/Button";
 
 // Placeholder for Employee App tabs that aren't built yet (History,
 // Notifications, Swap, Settings). route.params: { title, icon, showLogout }.

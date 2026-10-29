@@ -4,14 +4,14 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Sentry from "@sentry/react-native";
-import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
-import { useSiteSession } from "../lib/SiteSessionContext";
-import { useCompanySettings } from "../lib/hooks/useCompanySettings";
-import { findEmployeeByPin } from "../lib/clockLogic";
-import { syncPinTable } from "../lib/pinSync";
-import ScreenHeader from "../components/ScreenHeader";
-import Spinner from "../components/Spinner";
+import { useAuth } from "../../lib/AuthContext";
+import { useTheme } from "../../lib/ThemeContext";
+import { useSiteSession } from "../../lib/SiteSessionContext";
+import { useCompanySettings } from "../../lib/hooks/useCompanySettings";
+import { findEmployeeByPin } from "../../lib/clockLogic";
+import { syncPinTable } from "../../lib/pinSync";
+import ScreenHeader from "../../components/ScreenHeader";
+import Spinner from "../../components/Spinner";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
 

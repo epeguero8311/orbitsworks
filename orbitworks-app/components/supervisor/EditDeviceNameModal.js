@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet } from "react-native";
-import { useTheme } from "../lib/ThemeContext";
-import { validateDeviceName, DEVICE_NAME_MAX_LENGTH } from "../lib/validators/device";
+import { useTheme } from "../../lib/ThemeContext";
+import { validateDeviceName, DEVICE_NAME_MAX_LENGTH } from "../../lib/validators/device";
 
 // No existing edit-modal pattern anywhere else in the app (checked) - this
 // is a plain, minimal Modal + TextInput, not a shared component.

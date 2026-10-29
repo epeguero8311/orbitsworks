@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { View, Text, StyleSheet } from "react-native";
-import { recordDeclinedClockIn } from "../lib/declinedClockIns";
+import { recordDeclinedClockIn } from "../../lib/declinedClockIns";
 
 // Reached from ClockCameraScreen for a declined/failed clock-in (e.g. a
 // deactivated employee). Mirrors ClockConfirmScreen's exact

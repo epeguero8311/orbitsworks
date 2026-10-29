@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet } from "react-native";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
-import { db } from "../lib/firebase";
-import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
-import ScreenHeader from "../components/ScreenHeader";
-import Avatar from "../components/Avatar";
+import { db } from "../../lib/firebase";
+import { useAuth } from "../../lib/AuthContext";
+import { useTheme } from "../../lib/ThemeContext";
+import ScreenHeader from "../../components/ScreenHeader";
+import Avatar from "../../components/Avatar";
 
 // Update Employee (mobile) - lists ACTIVE employees only (same active==true
 // scoping every other "pick an employee" list in this app uses - see

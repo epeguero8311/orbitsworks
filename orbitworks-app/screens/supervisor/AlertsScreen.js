@@ -1,11 +1,11 @@
 import { useRef, useState } from "react";
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useTheme } from "../lib/ThemeContext";
-import { useAlertsFeed } from "../lib/hooks/useAlertsFeed";
-import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
-import { ALERT_TYPES, ALERT_TYPE_LABEL } from "../lib/alertTypes";
-import ScreenHeader from "../components/ScreenHeader";
+import { useTheme } from "../../lib/ThemeContext";
+import { useAlertsFeed } from "../../lib/hooks/useAlertsFeed";
+import { useTabBarSpace } from "../../lib/hooks/useTabBarSpace";
+import { ALERT_TYPES, ALERT_TYPE_LABEL } from "../../lib/alertTypes";
+import ScreenHeader from "../../components/ScreenHeader";
 
 const UNREAD_DOT_COLOR = "#eab308";
 

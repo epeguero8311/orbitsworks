@@ -1,5 +1,5 @@
 import { Modal, View, Text, Image, TouchableOpacity, StyleSheet } from "react-native";
-import { useTheme } from "../lib/ThemeContext";
+import { useTheme } from "../../lib/ThemeContext";
 
 // Only ever dismissed via the "Got it, close" button (onRequestClose is a
 // no-op) - the PIN is never shown or stored anywhere in the app again after

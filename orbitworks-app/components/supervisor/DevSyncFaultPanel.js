@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { View, Text, Switch, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
-import { useTheme } from "../lib/ThemeContext";
-import { FIREBASE_ENV, FIREBASE_PROJECT_ID } from "../lib/firebase";
-import { isQueueSyncing } from "../lib/queueSync";
+import { useTheme } from "../../lib/ThemeContext";
+import { FIREBASE_ENV, FIREBASE_PROJECT_ID } from "../../lib/firebase";
+import { isQueueSyncing } from "../../lib/queueSync";
 import {
   getSyncFaults,
   subscribeSyncFaults,
@@ -13,7 +13,7 @@ import {
   setHangWholeDrain,
   setTimeoutOverrideMs,
   clearAllSyncFaults,
-} from "../lib/syncFaults";
+} from "../../lib/syncFaults";
 
 const STATUS_ORDER = ["pending", "syncing", "failed", "dead", "synced"];
 

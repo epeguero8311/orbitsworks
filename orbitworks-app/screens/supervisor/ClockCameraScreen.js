@@ -3,17 +3,17 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList } from "react-native
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import * as Sentry from "@sentry/react-native";
-import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
-import { useSiteSession } from "../lib/SiteSessionContext";
-import { useCompanySettings } from "../lib/hooks/useCompanySettings";
-import { queueClockEvent } from "../lib/clockQueue";
-import { drainQueue } from "../lib/queueSync";
-import { getBestEffortLocationIfPro } from "../lib/location";
-import { getCurrentLocalStatus, getCurrentLocalSite } from "../lib/clockStatusLocal";
-import { isAutoDetectionActive, getSitesForEmployeePicker, detectLocalSite } from "../lib/geofenceCheck";
-import ScreenHeader from "../components/ScreenHeader";
-import Spinner from "../components/Spinner";
+import { useAuth } from "../../lib/AuthContext";
+import { useTheme } from "../../lib/ThemeContext";
+import { useSiteSession } from "../../lib/SiteSessionContext";
+import { useCompanySettings } from "../../lib/hooks/useCompanySettings";
+import { queueClockEvent } from "../../lib/clockQueue";
+import { drainQueue } from "../../lib/queueSync";
+import { getBestEffortLocationIfPro } from "../../lib/location";
+import { getCurrentLocalStatus, getCurrentLocalSite } from "../../lib/clockStatusLocal";
+import { isAutoDetectionActive, getSitesForEmployeePicker, detectLocalSite } from "../../lib/geofenceCheck";
+import ScreenHeader from "../../components/ScreenHeader";
+import Spinner from "../../components/Spinner";
 
 export default function ClockCameraScreen({ route, navigation }) {
   const { employee } = route.params;

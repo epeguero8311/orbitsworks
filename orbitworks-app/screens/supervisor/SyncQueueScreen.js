@@ -1,11 +1,11 @@
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useTheme } from "../lib/ThemeContext";
-import { useSyncQueue } from "../lib/hooks/useSyncQueue";
-import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
-import ScreenHeader from "../components/ScreenHeader";
-import DevSyncFaultPanel from "../components/DevSyncFaultPanel";
-import Spinner from "../components/Spinner";
+import { useTheme } from "../../lib/ThemeContext";
+import { useSyncQueue } from "../../lib/hooks/useSyncQueue";
+import { useTabBarSpace } from "../../lib/hooks/useTabBarSpace";
+import ScreenHeader from "../../components/ScreenHeader";
+import DevSyncFaultPanel from "../../components/supervisor/DevSyncFaultPanel";
+import Spinner from "../../components/Spinner";
 
 const ACTION_LABEL = { in: "Clock In", out: "Clock Out", breakStart: "Break Start", breakEnd: "Break End" };
 const STATUS_LABEL = { pending: "Waiting", syncing: "Syncing", synced: "Synced", failed: "Failed", dead: "Stuck" };

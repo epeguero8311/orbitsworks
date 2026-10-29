@@ -6,21 +6,20 @@ import {
 import { CameraView, useCameraPermissions } from "expo-camera";
 import NetInfo from "@react-native-community/netinfo";
 import { Feather } from "@expo/vector-icons";
-import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
-import { validateEmployeeName, EMPLOYEE_NAME_MAX_LENGTH } from "../lib/validators/createEmployee";
-import { queueUpdateEmployee } from "../lib/employeeUpdateQueue";
-import { syncEmployeeUpdateQueueItemNow } from "../lib/employeeUpdateQueueSync";
-import { getOrCreateDeviceId } from "../lib/deviceId";
-import ScreenHeader from "../components/ScreenHeader";
-import Avatar from "../components/Avatar";
-import PhotoNoticeModal from "../components/PhotoNoticeModal";
-import Spinner from "../components/Spinner";
+import { useAuth } from "../../lib/AuthContext";
+import { useTheme } from "../../lib/ThemeContext";
+import { validateEmployeeName, EMPLOYEE_NAME_MAX_LENGTH } from "../../lib/validators/createEmployee";
+import { queueCreateEmployee } from "../../lib/employeeQueue";
+import { syncEmployeeQueueItemNow } from "../../lib/employeeQueueSync";
+import ScreenHeader from "../../components/ScreenHeader";
+import CreateEmployeeSuccessModal from "../../components/supervisor/CreateEmployeeSuccessModal";
+import PhotoNoticeModal from "../../components/supervisor/PhotoNoticeModal";
+import Spinner from "../../components/Spinner";
 
-// How long the online attempt gets to finish before this just falls back
-// to the offline messaging - same tradeoff as CreateEmployeeScreen.js's
-// ONLINE_ATTEMPT_TIMEOUT_MS (the queued item keeps retrying in the
-// background either way).
+// How long the online attempt gets to finish before this just falls back to
+// the offline messaging - the queued item keeps retrying in the background
+// either way (see employeeQueueSync.js), so a slow/lying "connected" network
+// never leaves the person stuck watching a spinner.
 const ONLINE_ATTEMPT_TIMEOUT_MS = 10000;
 
 function withTimeout(promise, ms) {
@@ -30,49 +29,35 @@ function withTimeout(promise, ms) {
   ]);
 }
 
-// Update Employee (mobile) - same camera/retake/name-input shape as
-// CreateEmployeeScreen.js (copied, not shared - that screen has no
-// extractable component to import), pre-filled with the employee's
-// current name/photo. Supervisors can only change name and photo here -
-// nothing else (rate, PIN, sites, active status) is editable from this
-// screen, per spec.
-export default function EditEmployeeScreen({ navigation, route }) {
-  const { employee } = route.params;
+export default function CreateEmployeeScreen({ navigation }) {
   const { userData, currentUser } = useAuth();
   const { colors } = useTheme();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
 
-  const [name, setName] = useState(employee.name || "");
+  const [name, setName] = useState("");
   const [nameError, setNameError] = useState(null);
-  // Unlike CreateEmployeeScreen.js (which always opens straight to the
-  // camera, since there's no existing photo yet), this screen defaults to
-  // showing the employee's current photo - the camera only opens once the
-  // person explicitly asks to change it.
-  const [cameraOpen, setCameraOpen] = useState(false);
   const [rawPhotoUri, setRawPhotoUri] = useState(null); // just snapped, awaiting retake/use
-  const [newPhotoUri, setNewPhotoUri] = useState(null); // confirmed retake, replaces employee.photoUrl
+  const [confirmedPhotoUri, setConfirmedPhotoUri] = useState(null); // set
   const [capturing, setCapturing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
-  // Notice-before-capture (Terms Section 4.1) - same shape as
-  // CreateEmployeeScreen.js's own field, reset on handleChangePhoto so a
-  // later "Change photo" tap in the same screen visit shows it again (the
-  // first acknowledgment is tied to the photo it preceded, not the
-  // screen visit).
+  const [result, setResult] = useState(null); // { name, pin, photoUri, offline }
+  // Notice-before-capture (Terms Section 4.1) - the camera only renders
+  // once this holds a timestamp, gating every path into handleCapture
+  // behind having shown and acknowledged the notice first. Threaded
+  // through to queueCreateEmployee as photoNoticeShownAt.
   const [photoNoticeShownAt, setPhotoNoticeShownAt] = useState(null);
 
-  const trimmedName = validateEmployeeName(name).trimmed;
-  const nameChanged = !!validateEmployeeName(name).valid && trimmedName !== employee.name;
-  const canSubmit = !!validateEmployeeName(name).valid && (nameChanged || !!newPhotoUri) && !submitting;
+  const canSubmit = !!validateEmployeeName(name).valid && !!confirmedPhotoUri && !submitting;
   // CameraView's native preview surface renders black on Android when it
   // is a descendant of a ScrollView (a SurfaceView/TextureView compositing
   // issue ScrollView's clipping/recycling triggers - iOS's layer-based
   // preview does not have this problem). Rendered inside a plain View
   // instead whenever the live camera is actually on screen; every other
-  // state (current photo, preview, permission prompt, notice) stays in
-  // the ScrollView below.
-  const showingLiveCamera = cameraOpen && !!permission?.granted && !!photoNoticeShownAt && !rawPhotoUri && !newPhotoUri;
+  // state (photo preview, permission prompt, notice) stays in the
+  // ScrollView below.
+  const showingLiveCamera = !!permission?.granted && !!photoNoticeShownAt && !rawPhotoUri && !confirmedPhotoUri;
 
   async function handleCapture() {
     if (!cameraRef.current || capturing) return;
@@ -90,73 +75,65 @@ export default function EditEmployeeScreen({ navigation, route }) {
   }
 
   function handleUsePhoto() {
-    setNewPhotoUri(rawPhotoUri);
+    setConfirmedPhotoUri(rawPhotoUri);
     setRawPhotoUri(null);
-    setCameraOpen(false);
   }
 
-  // Discards the just-confirmed retake and reopens the camera right away
-  // (same single-step "Retake" behavior as CreateEmployeeScreen.js) -
-  // unlike dismissing the camera entirely, which goes back to showing the
-  // employee's original photo instead (see handleChangePhoto/below).
   function handleRetakeConfirmed() {
-    setNewPhotoUri(null);
-    setCameraOpen(true);
+    setConfirmedPhotoUri(null);
   }
 
-  async function handleChangePhoto() {
-    if (!permission?.granted) {
-      const result = await requestPermission();
-      if (!result.granted) return;
-    }
-    setPhotoNoticeShownAt(null);
-    setCameraOpen(true);
-  }
-
-  async function handleSave() {
+  async function handleCreate() {
     const validated = validateEmployeeName(name);
     if (!validated.valid) {
       setNameError(validated.error);
       return;
     }
-    if (!canSubmit) return;
+    if (!confirmedPhotoUri || submitting) return;
 
     setSubmitError(null);
     setSubmitting(true);
     try {
-      const deviceId = await getOrCreateDeviceId();
-      const updatedByName = currentUser.displayName || currentUser.email || "A supervisor";
-
-      const { localId } = await queueUpdateEmployee({
-        employeeId: employee.id,
-        name: nameChanged ? validated.trimmed : null,
-        photoUri: newPhotoUri,
-        photoNoticeShownAt: newPhotoUri ? photoNoticeShownAt : null,
-        deviceId,
-        updatedByName,
+      const { localId, pin: localPin } = await queueCreateEmployee({
+        name: validated.trimmed,
+        photoUri: confirmedPhotoUri,
+        createdByUid: currentUser.uid,
         companyId: userData.companyId,
+        photoNoticeShownAt,
       });
 
       const net = await NetInfo.fetch();
+      let outcome = null;
       if (net.isConnected) {
-        await withTimeout(syncEmployeeUpdateQueueItemNow(localId, userData.companyId), ONLINE_ATTEMPT_TIMEOUT_MS);
+        outcome = await withTimeout(
+          syncEmployeeQueueItemNow(localId, userData.companyId),
+          ONLINE_ATTEMPT_TIMEOUT_MS
+        );
       }
-      // Whether the online attempt succeeded, timed out, or this is
-      // offline, the queued item keeps retrying in the background (see
-      // useEmployeeUpdateQueueSync.js) - same "always show success" shape
-      // as CreateEmployeeScreen.js's offline branch. Navigating here,
-      // inside the handler, rather than from a `saved` state branch in
-      // the render body - calling navigation.goBack() during render
-      // triggers React's "Cannot update a component while rendering a
-      // different component" warning, since it synchronously updates the
-      // navigator's own state mid-render.
-      navigation.goBack();
+
+      if (outcome?.success) {
+        setResult({ name: validated.trimmed, pin: outcome.pin, photoUri: confirmedPhotoUri, offline: false });
+      } else if (outcome?.terminal) {
+        setSubmitError(
+          "Couldn't create this employee - see the alert for details, or try again from Employee Alerts."
+        );
+        return;
+      } else {
+        // Offline, or the attempt timed out / hit a transient error - the
+        // queue keeps retrying in the background (see useEmployeeQueueSync.js).
+        setResult({ name: validated.trimmed, pin: localPin, photoUri: confirmedPhotoUri, offline: true });
+      }
     } catch (err) {
-      console.log("Update employee failed:", err.message);
+      console.log("Create employee failed:", err.message);
       setSubmitError("Something went wrong. Try again.");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleModalClose() {
+    setResult(null);
+    navigation.navigate("MainTabs");
   }
 
   if (!permission) {
@@ -168,7 +145,7 @@ export default function EditEmployeeScreen({ navigation, route }) {
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <ScreenHeader title="Edit Employee" onBack={() => navigation.goBack()} />
+      <ScreenHeader title="Create Employee" onBack={() => navigation.goBack()} />
       {showingLiveCamera ? (
         <View style={styles.content}>{renderFormBody()}</View>
       ) : (
@@ -177,8 +154,17 @@ export default function EditEmployeeScreen({ navigation, route }) {
         </ScrollView>
       )}
 
+      <CreateEmployeeSuccessModal
+        visible={!!result}
+        name={result?.name}
+        pin={result?.pin}
+        photoUri={result?.photoUri}
+        offline={result?.offline}
+        onClose={handleModalClose}
+      />
+
       <PhotoNoticeModal
-        visible={cameraOpen && !!permission?.granted && !photoNoticeShownAt && !rawPhotoUri && !newPhotoUri}
+        visible={!!permission?.granted && !photoNoticeShownAt && !rawPhotoUri && !confirmedPhotoUri}
         onAcknowledge={setPhotoNoticeShownAt}
       />
     </KeyboardAvoidingView>
@@ -206,9 +192,9 @@ export default function EditEmployeeScreen({ navigation, route }) {
 
         <Text style={[styles.label, { color: colors.subtext, marginTop: 20 }]}>Reference photo</Text>
 
-        {newPhotoUri ? (
+        {confirmedPhotoUri ? (
           <View style={styles.confirmedRow}>
-            <Image source={{ uri: newPhotoUri }} style={styles.confirmedPhoto} />
+            <Image source={{ uri: confirmedPhotoUri }} style={styles.confirmedPhoto} />
             <TouchableOpacity
               style={[styles.retakeChip, { borderColor: colors.border }]}
               onPress={handleRetakeConfirmed}
@@ -229,21 +215,10 @@ export default function EditEmployeeScreen({ navigation, route }) {
               </TouchableOpacity>
             </View>
           </View>
-        ) : !cameraOpen ? (
-          <View style={styles.confirmedRow}>
-            <Avatar name={employee.name} photoUrl={employee.photoUrl} size={88} />
-            <TouchableOpacity
-              style={[styles.retakeChip, { borderColor: colors.border }]}
-              onPress={handleChangePhoto}
-            >
-              <Feather name="camera" size={14} color={colors.accent} />
-              <Text style={[styles.retakeChipText, { color: colors.accent }]}>Change photo</Text>
-            </TouchableOpacity>
-          </View>
         ) : !permission.granted ? (
           <View style={[styles.photoBox, styles.permBox, { borderColor: colors.border }]}>
             <Text style={[styles.permText, { color: colors.text }]}>
-              Camera access is needed to take a new reference photo.
+              Camera access is needed to take a reference photo.
             </Text>
             <TouchableOpacity style={[styles.previewButton, { backgroundColor: colors.accent }]} onPress={requestPermission}>
               <Text style={styles.previewButtonText}>Grant Permission</Text>
@@ -274,10 +249,10 @@ export default function EditEmployeeScreen({ navigation, route }) {
 
         <TouchableOpacity
           style={[styles.submitButton, { backgroundColor: colors.accent }, !canSubmit && { opacity: 0.4 }]}
-          onPress={handleSave}
+          onPress={handleCreate}
           disabled={!canSubmit}
         >
-          {submitting ? <Spinner size={20} color="#fff" /> : <Text style={styles.submitButtonText}>Save Changes</Text>}
+          {submitting ? <Spinner size={20} color="#fff" /> : <Text style={styles.submitButtonText}>Create Employee</Text>}
         </TouchableOpacity>
       </>
     );

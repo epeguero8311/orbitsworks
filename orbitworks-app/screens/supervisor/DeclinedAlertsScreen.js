@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { View, Text, FlatList, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useTheme } from "../lib/ThemeContext";
-import { getDeclinedClockIns, markAllDeclinedRead } from "../lib/declinedClockIns";
-import ScreenHeader from "../components/ScreenHeader";
+import { useTheme } from "../../lib/ThemeContext";
+import { getDeclinedClockIns, markAllDeclinedRead } from "../../lib/declinedClockIns";
+import ScreenHeader from "../../components/ScreenHeader";
 
 function timeAgo(ms) {
   const seconds = Math.floor((Date.now() - ms) / 1000);

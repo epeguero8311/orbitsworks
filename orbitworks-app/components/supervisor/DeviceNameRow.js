@@ -3,10 +3,10 @@ import { View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native
 import { Feather } from "@expo/vector-icons";
 import NetInfo from "@react-native-community/netinfo";
 import { doc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../lib/firebase";
-import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
-import { useDeviceDoc } from "../lib/hooks/useDeviceDoc";
+import { db } from "../../lib/firebase";
+import { useAuth } from "../../lib/AuthContext";
+import { useTheme } from "../../lib/ThemeContext";
+import { useDeviceDoc } from "../../lib/hooks/useDeviceDoc";
 import EditDeviceNameModal from "./EditDeviceNameModal";
 
 // Same label/value styling as the "Logged in as" row directly above it

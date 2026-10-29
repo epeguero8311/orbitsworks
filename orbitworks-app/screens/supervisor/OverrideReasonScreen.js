@@ -4,12 +4,12 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 import * as Sentry from "@sentry/react-native";
-import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
-import { submitOverrideBatch } from "../lib/clockQueue";
-import { drainQueue } from "../lib/queueSync";
-import ScreenHeader from "../components/ScreenHeader";
-import Spinner from "../components/Spinner";
+import { useAuth } from "../../lib/AuthContext";
+import { useTheme } from "../../lib/ThemeContext";
+import { submitOverrideBatch } from "../../lib/clockQueue";
+import { drainQueue } from "../../lib/queueSync";
+import ScreenHeader from "../../components/ScreenHeader";
+import Spinner from "../../components/Spinner";
 
 const MIN_LENGTH = 10;
 const MAX_LENGTH = 500;

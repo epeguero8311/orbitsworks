@@ -3,18 +3,18 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList } from "react-native
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Sentry from "@sentry/react-native";
-import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
-import { useSiteSession } from "../lib/SiteSessionContext";
-import { useTodayShift } from "../lib/hooks/useTodayShift";
-import { useLocalStatusOverlay } from "../lib/hooks/useLocalStatusOverlay";
-import { useCompanySettings } from "../lib/hooks/useCompanySettings";
-import { queueBreakEvent } from "../lib/clockQueue";
-import { drainQueue } from "../lib/queueSync";
-import { getBestEffortLocationIfPro } from "../lib/location";
-import ScreenHeader from "../components/ScreenHeader";
-import Avatar from "../components/Avatar";
-import Spinner from "../components/Spinner";
+import { useAuth } from "../../lib/AuthContext";
+import { useTheme } from "../../lib/ThemeContext";
+import { useSiteSession } from "../../lib/SiteSessionContext";
+import { useTodayShift } from "../../lib/hooks/useTodayShift";
+import { useLocalStatusOverlay } from "../../lib/hooks/useLocalStatusOverlay";
+import { useCompanySettings } from "../../lib/hooks/useCompanySettings";
+import { queueBreakEvent } from "../../lib/clockQueue";
+import { drainQueue } from "../../lib/queueSync";
+import { getBestEffortLocationIfPro } from "../../lib/location";
+import ScreenHeader from "../../components/ScreenHeader";
+import Avatar from "../../components/Avatar";
+import Spinner from "../../components/Spinner";
 
 export default function BreaksEmployeeListScreen({ navigation, route }) {
   const authorizedBy = route?.params?.authorizedBy;
