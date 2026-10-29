@@ -44,6 +44,8 @@ import EditEmployeeScreen from "./screens/EditEmployeeScreen";
 import EmployeeSyncAlertsScreen from "./screens/EmployeeSyncAlertsScreen";
 import EmployeeHomeScreen from "./screens/EmployeeHomeScreen";
 import ClockPunchScreen from "./screens/ClockPunchScreen";
+import EmployeeComingSoonScreen from "./screens/EmployeeComingSoonScreen";
+import { lightColors } from "./lib/theme";
 import JoinScanScreen from "./screens/JoinScanScreen";
 import JoinStartScreen from "./screens/JoinStartScreen";
 import { useJoinLink } from "./lib/hooks/useJoinLink";
@@ -130,6 +132,61 @@ function MainTabs() {
   );
 }
 
+// Employee App tabs: Home plus four "Coming soon" tabs (Settings also
+// holds Log out). Clock in/out (ClockPunch) stays a full-screen stack
+// step on top of these.
+const EmployeeTab = createBottomTabNavigator();
+const EMPLOYEE_TAB_ICONS = {
+  EmployeeHome: "home",
+  EmployeeHistory: "clock",
+  EmployeeNotifications: "bell",
+  EmployeeSwap: "repeat",
+  EmployeeSettings: "settings",
+};
+
+function EmployeeTabs() {
+  return (
+    <EmployeeTab.Navigator
+      tabBar={(props) => (
+        <FloatingTabBar
+          {...props}
+          icons={EMPLOYEE_TAB_ICONS}
+          barColor={lightColors.accent}
+          activeColor="rgba(255,255,255,0.22)"
+          inactiveIconColor="rgba(255,255,255,0.8)"
+        />
+      )}
+      screenOptions={{ headerShown: false }}
+    >
+      <EmployeeTab.Screen name="EmployeeHome" component={EmployeeHomeScreen} options={{ tabBarLabel: "Home" }} />
+      <EmployeeTab.Screen
+        name="EmployeeHistory"
+        component={EmployeeComingSoonScreen}
+        initialParams={{ title: "History", icon: "clock" }}
+        options={{ tabBarLabel: "History" }}
+      />
+      <EmployeeTab.Screen
+        name="EmployeeNotifications"
+        component={EmployeeComingSoonScreen}
+        initialParams={{ title: "Notifications", icon: "bell" }}
+        options={{ tabBarLabel: "Notifications" }}
+      />
+      <EmployeeTab.Screen
+        name="EmployeeSwap"
+        component={EmployeeComingSoonScreen}
+        initialParams={{ title: "Swap", icon: "repeat" }}
+        options={{ tabBarLabel: "Swap" }}
+      />
+      <EmployeeTab.Screen
+        name="EmployeeSettings"
+        component={EmployeeComingSoonScreen}
+        initialParams={{ title: "Settings", icon: "settings", showLogout: true }}
+        options={{ tabBarLabel: "Settings" }}
+      />
+    </EmployeeTab.Navigator>
+  );
+}
+
 // Supervisor/admin background work (PIN table, offline clock/employee
 // queues, push registration). Never mounted for an Employee App login -
 // those calls are supervisor-only server-side and would just fail, and an
@@ -179,14 +236,15 @@ function RootNavigator() {
   return (
     <NavigationContainer ref={navigationRef} onReady={() => setNavReady(true)}>
       {backgroundSync}
-      <StatusBar style={isDark ? "light" : "dark"} />
+      {/* Employee screens are always light, so their status bar text stays dark. */}
+      <StatusBar style={isDark && !isEmployeeLogin ? "light" : "dark"} />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {currentUser && accountDisabled ? (
           <Stack.Screen name="AccountDisabled" component={AccountDisabledScreen} />
         ) : currentUser && isEmployeeLogin ? (
           // Employee App: Home + clock in/out only, no supervisor screens.
           <>
-            <Stack.Screen name="EmployeeHome" component={EmployeeHomeScreen} />
+            <Stack.Screen name="EmployeeTabs" component={EmployeeTabs} />
             <Stack.Screen name="ClockPunch" component={ClockPunchScreen} options={{ gestureEnabled: false }} />
           </>
         ) : currentUser ? (

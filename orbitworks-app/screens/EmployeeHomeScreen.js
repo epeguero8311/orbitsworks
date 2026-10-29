@@ -1,34 +1,48 @@
 import { useCallback } from "react";
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
+import { Modal, View, ScrollView, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../lib/AuthContext";
-import { useTheme } from "../lib/ThemeContext";
+import { lightColors as colors, spacing } from "../lib/theme";
 import { useEmployeeSelfView } from "../lib/hooks/useEmployeeSelfView";
 import { useEmployeeAppConfig } from "../lib/hooks/useEmployeeAppConfig";
 import { useMyClockEvents } from "../lib/hooks/useMyClockEvents";
 import { useEmployeeHomeSite } from "../lib/hooks/useEmployeeHomeSite";
 import { useBreakPunch } from "../lib/hooks/useBreakPunch";
 import { useNow } from "../lib/hooks/useNow";
-import { BUTTON_ACTION, buttonsFor, computeHours, dayKey, deriveHomeState, formatClockTime, siteLabel } from "../lib/employeeHome";
+import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
+import {
+  BUTTON_ACTION,
+  buttonsFor,
+  computeHours,
+  dayKey,
+  deriveHomeState,
+  formatClockTime,
+  greetingFor,
+  siteLabel,
+} from "../lib/employeeHome";
 import HomeHeader from "../components/employee/HomeHeader";
 import StatusCard from "../components/employee/StatusCard";
 import ClockButtons from "../components/employee/ClockButtons";
+import HoursSummary from "../components/employee/HoursSummary";
 import InactiveNotice from "../components/employee/InactiveNotice";
-import ConfirmModal from "../components/employee/ConfirmModal";
 import PunchConfirmation from "../components/employee/PunchConfirmation";
+import ConfirmModal from "../components/ui/ConfirmModal";
 import Spinner from "../components/Spinner";
 
-const BREAK_QUESTIONS = { breakStart: "Start your break?", breakEnd: "End your break?" };
-const BREAK_LABELS = { breakStart: "Start Break", breakEnd: "End Break" };
+const BREAK_QUESTIONS = {
+  breakStart: "You are about to start your break",
+  breakEnd: "You are about to end your break",
+};
+const BREAK_LABELS = { breakStart: "Start", breakEnd: "End break" };
 const BREAK_DONE = { breakStart: "Break started", breakEnd: "Break ended" };
 
 // Employee App Home. Reads only the employee's self view (no PIN), the
 // company's employeeAppConfig and their own clock events - all live, so the
 // status and timers are right after killing and reopening the app.
 export default function EmployeeHomeScreen({ navigation }) {
-  const { userData, linkedEmployeeId, signOutUser } = useAuth();
-  const { colors } = useTheme();
+  const { userData, linkedEmployeeId } = useAuth();
   const insets = useSafeAreaInsets();
+  const tabBarSpace = useTabBarSpace();
   const companyId = userData?.companyId;
   const employeeId = linkedEmployeeId || userData?.employeeId;
 
@@ -62,7 +76,7 @@ export default function EmployeeHomeScreen({ navigation }) {
 
   if (loading || !events.loaded) {
     return (
-      <View style={[styles.center, { backgroundColor: colors.background }]}>
+      <View style={styles.center}>
         <Spinner size={28} color={colors.accent} />
       </View>
     );
@@ -70,48 +84,60 @@ export default function EmployeeHomeScreen({ navigation }) {
 
   const done = breakPunch.result;
   return (
-    <View style={[styles.flex, { backgroundColor: colors.background }]}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 24 }]}>
-        <HomeHeader name={view?.name ?? ""} photoUrl={view?.photoUrl} siteName={siteName} />
-        <View style={styles.gap} />
-        <StatusCard homeState={home} nowMs={now} hours={hours} />
+    <View style={styles.flex}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.lg, paddingBottom: tabBarSpace + spacing.xxl }]}>
+        <HomeHeader
+          name={view?.name ?? ""}
+          photoUrl={view?.photoUrl}
+          greeting={greetingFor(minuteNow, timezone)}
+          siteName={siteName}
+        />
+        <View style={styles.gapLarge} />
+        <StatusCard
+          homeState={home}
+          nowMs={now}
+          startedLabel={home.shiftInMs ? formatClockTime(home.shiftInMs, timezone) : null}
+          maxBreakMinutes={breakSettings?.maxBreakMinutes}
+        />
         <View style={styles.gap} />
         {active ? (
           <ClockButtons buttons={buttonsFor(home.status, active)} onPress={onPress} disabled={breakPunch.sending} />
         ) : (
           <InactiveNotice />
         )}
-        <TouchableOpacity style={styles.logout} onPress={signOutUser}>
-          <Text style={[styles.logoutText, { color: colors.subtext }]}>Log out</Text>
-        </TouchableOpacity>
+        <View style={styles.gap} />
+        <HoursSummary todayMs={hours.todayMs} weekMs={hours.weekMs} />
       </ScrollView>
 
       <ConfirmModal
         visible={!!breakPunch.pending}
         title={BREAK_QUESTIONS[breakPunch.pending] ?? ""}
         confirmLabel={BREAK_LABELS[breakPunch.pending] ?? "OK"}
+        confirmTone="orange"
         error={breakPunch.error}
         busy={breakPunch.sending}
         onConfirm={breakPunch.confirm}
         onCancel={breakPunch.cancel}
       />
-      {done ? (
-        <PunchConfirmation
-          title={BREAK_DONE[done.type]}
-          timeLabel={formatClockTime(done.timestampMs, timezone)}
-          siteName={siteLabel(done.siteName)}
-          onClose={breakPunch.clearResult}
-        />
-      ) : null}
+      {/* In a Modal so the green screen also covers the floating tab bar. */}
+      <Modal visible={!!done} transparent animationType="fade" onRequestClose={breakPunch.clearResult}>
+        {done ? (
+          <PunchConfirmation
+            title={BREAK_DONE[done.type]}
+            timeLabel={formatClockTime(done.timestampMs, timezone)}
+            siteName={siteLabel(done.siteName)}
+            onClose={breakPunch.clearResult}
+          />
+        ) : null}
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  content: { paddingHorizontal: 20 },
-  gap: { height: 20 },
-  logout: { alignSelf: "center", marginTop: 28, padding: 8 },
-  logoutText: { fontSize: 14, fontWeight: "500" },
+  flex: { flex: 1, backgroundColor: colors.background },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background },
+  content: { paddingHorizontal: spacing.xl },
+  gap: { height: spacing.xl },
+  gapLarge: { height: spacing.xxl },
 });

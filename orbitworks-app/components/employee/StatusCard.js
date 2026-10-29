@@ -1,56 +1,48 @@
-import { View, Text, StyleSheet } from "react-native";
-import { useTheme } from "../../lib/ThemeContext";
-import { formatTimer } from "../../lib/employeeHome";
-import HoursSummary from "./HoursSummary";
+import { formatBreakDigits, formatTimerDigits } from "../../lib/employeeHome";
+import TimerCard from "../ui/TimerCard";
+import ProgressBar from "../ui/ProgressBar";
 
-const TITLES = {
-  out: "Clocked out",
-  in: "Clocked in",
-  break: "On break",
-  done: "Done for the day",
+const PILLS = {
+  out: { label: "Clocked out", tone: "neutral" },
+  done: { label: "Done for the day", tone: "neutral" },
+  in: { label: "Clocked in", tone: "green" },
+  break: { label: "On break", tone: "orange" },
 };
 
-// Employee Home status card. Clocked in: worked time this shift (breaks
-// excluded - it pauses on break). On break: count-up from break start.
-// Clocked out / done: today's and this week's hours (read only).
-export default function StatusCard({ homeState, nowMs, hours }) {
-  const { colors } = useTheme();
-  const { status } = homeState;
-  const dotColor = status === "in" ? colors.green : status === "break" ? "#f59e0b" : colors.dotOff;
+const DEFAULT_MAX_BREAK_MINUTES = 15;
 
-  let timerLabel = null;
-  let timer = null;
+// Employee Home status card. Clocked in: worked time this shift (breaks
+// excluded - it pauses on break) plus the start time. On break: count-up
+// from break start, with a bar up to the company's max break length.
+// Clocked out / done: a gray 00:00:00.
+export default function StatusCard({ homeState, nowMs, startedLabel, maxBreakMinutes }) {
+  const { status } = homeState;
+  const pill = PILLS[status] || PILLS.out;
+
   if (status === "in") {
-    timerLabel = "Shift time";
-    timer = formatTimer(homeState.workedMs);
-  } else if (status === "break" && homeState.breakStartMs) {
-    timerLabel = "Break time";
-    timer = formatTimer(nowMs - homeState.breakStartMs);
+    return (
+      <TimerCard
+        pillLabel={pill.label}
+        pillTone={pill.tone}
+        time={formatTimerDigits(homeState.workedMs)}
+        caption={startedLabel ? `Started at ${startedLabel}` : null}
+      />
+    );
   }
 
-  return (
-    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <View style={styles.titleRow}>
-        <View style={[styles.dot, { backgroundColor: dotColor }]} />
-        <Text style={[styles.title, { color: colors.text }]}>{TITLES[status]}</Text>
-      </View>
-      {timer ? (
-        <>
-          <Text style={[styles.timer, { color: colors.text }]}>{timer}</Text>
-          <Text style={[styles.timerLabel, { color: colors.subtext }]}>{timerLabel}</Text>
-        </>
-      ) : (
-        <HoursSummary todayMs={hours.todayMs} weekMs={hours.weekMs} />
-      )}
-    </View>
-  );
-}
+  if (status === "break" && homeState.breakStartMs) {
+    const elapsedMs = Math.max(0, nowMs - homeState.breakStartMs);
+    const maxMin = Number(maxBreakMinutes) > 0 ? Number(maxBreakMinutes) : DEFAULT_MAX_BREAK_MINUTES;
+    return (
+      <TimerCard pillLabel={pill.label} pillTone={pill.tone} time={formatBreakDigits(elapsedMs)}>
+        <ProgressBar
+          progress={elapsedMs / (maxMin * 60000)}
+          startLabel={`${Math.floor(elapsedMs / 60000)} min`}
+          endLabel={`${maxMin} min break`}
+        />
+      </TimerCard>
+    );
+  }
 
-const styles = StyleSheet.create({
-  card: { borderRadius: 16, borderWidth: 1, padding: 20, alignItems: "center" },
-  titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  title: { fontSize: 18, fontWeight: "700" },
-  timer: { fontSize: 44, fontWeight: "700", marginTop: 12, fontVariant: ["tabular-nums"] },
-  timerLabel: { fontSize: 13, marginTop: 2 },
-});
+  return <TimerCard pillLabel={pill.label} pillTone={pill.tone} time="00:00:00" dimmed />;
+}

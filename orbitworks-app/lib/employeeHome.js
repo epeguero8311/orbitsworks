@@ -225,6 +225,28 @@ function formatTimer(ms) {
   return `${h}:${pad(m)}:${pad(s)}`;
 }
 
+// Home timer card: "HH:MM:SS" (always two-digit hours).
+function formatTimerDigits(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+}
+
+// Break timer: "MM:SS" (minutes keep counting past 59).
+function formatBreakDigits(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${pad(Math.floor(total / 60))}:${pad(total % 60)}`;
+}
+
+// Header greeting by the hour in the company's timezone.
+function greetingFor(ms, timeZone) {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hourCycle: "h23" }).format(new Date(ms))
+  );
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
 // Hours summary: "7h 45m".
 function formatHours(ms) {
   const totalMin = Math.max(0, Math.floor(ms / 60000));
@@ -298,6 +320,9 @@ module.exports = {
   applyAutoBreak,
   computeHours,
   formatTimer,
+  formatTimerDigits,
+  formatBreakDigits,
+  greetingFor,
   formatHours,
   formatClockTime,
   clockErrorMessage,
