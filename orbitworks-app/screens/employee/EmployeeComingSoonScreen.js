@@ -11,9 +11,9 @@ import { greetingFor } from "../../lib/employeeHome";
 import HomeHeader from "../../components/employee/HomeHeader";
 import Button from "../../components/ui/Button";
 
-// Placeholder for Employee App tabs that aren't built yet (History,
-// Notifications, Swap, Settings). route.params: { title, icon, showLogout }.
-// Settings keeps the employee's Log out button (it used to be on Home).
+// Placeholder for Employee App tabs that aren't built yet (History).
+// route.params: { title, icon, showLogout }. showLogout adds a Log out
+// button (Settings has its own screen now).
 export default function EmployeeComingSoonScreen({ route }) {
   const { userData, linkedEmployeeId, signOutUser } = useAuth();
   const insets = useSafeAreaInsets();

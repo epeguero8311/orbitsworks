@@ -82,5 +82,6 @@ export const fontSizes = {
   lg: 17,
   xl: 20,
   xxl: 24,
+  pageTitle: 30,
   timer: 52,
 };

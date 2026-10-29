@@ -45,6 +45,9 @@ import EmployeeSyncAlertsScreen from "./screens/supervisor/EmployeeSyncAlertsScr
 import EmployeeHomeScreen from "./screens/EmployeeHomeScreen";
 import ClockPunchScreen from "./screens/ClockPunchScreen";
 import EmployeeComingSoonScreen from "./screens/employee/EmployeeComingSoonScreen";
+import EmployeeAlertsScreen from "./screens/employee/EmployeeAlertsScreen";
+import EmployeeSyncScreen from "./screens/employee/EmployeeSyncScreen";
+import EmployeeSettingsScreen from "./screens/employee/EmployeeSettingsScreen";
 import { lightColors } from "./lib/theme";
 import JoinScanScreen from "./screens/JoinScanScreen";
 import JoinStartScreen from "./screens/JoinStartScreen";
@@ -139,8 +142,8 @@ const EmployeeTab = createBottomTabNavigator();
 const EMPLOYEE_TAB_ICONS = {
   EmployeeHome: "home",
   EmployeeHistory: "clock",
-  EmployeeNotifications: "bell",
-  EmployeeSwap: "repeat",
+  EmployeeAlerts: "bell",
+  EmployeeSync: "repeat",
   EmployeeSettings: "settings",
 };
 
@@ -165,24 +168,9 @@ function EmployeeTabs() {
         initialParams={{ title: "History", icon: "clock" }}
         options={{ tabBarLabel: "History" }}
       />
-      <EmployeeTab.Screen
-        name="EmployeeNotifications"
-        component={EmployeeComingSoonScreen}
-        initialParams={{ title: "Notifications", icon: "bell" }}
-        options={{ tabBarLabel: "Notifications" }}
-      />
-      <EmployeeTab.Screen
-        name="EmployeeSwap"
-        component={EmployeeComingSoonScreen}
-        initialParams={{ title: "Swap", icon: "repeat" }}
-        options={{ tabBarLabel: "Swap" }}
-      />
-      <EmployeeTab.Screen
-        name="EmployeeSettings"
-        component={EmployeeComingSoonScreen}
-        initialParams={{ title: "Settings", icon: "settings", showLogout: true }}
-        options={{ tabBarLabel: "Settings" }}
-      />
+      <EmployeeTab.Screen name="EmployeeAlerts" component={EmployeeAlertsScreen} options={{ tabBarLabel: "Alerts" }} />
+      <EmployeeTab.Screen name="EmployeeSync" component={EmployeeSyncScreen} options={{ tabBarLabel: "Sync" }} />
+      <EmployeeTab.Screen name="EmployeeSettings" component={EmployeeSettingsScreen} options={{ tabBarLabel: "Settings" }} />
     </EmployeeTab.Navigator>
   );
 }
