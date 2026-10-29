@@ -1,23 +1,22 @@
 import { useState, useCallback } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Sentry from "@sentry/react-native";
 import { useAuth } from "../../lib/AuthContext";
-import { useTheme } from "../../lib/ThemeContext";
+import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
 import { useSiteSession } from "../../lib/SiteSessionContext";
 import { useCompanySettings } from "../../lib/hooks/useCompanySettings";
 import { findEmployeeByPin } from "../../lib/clockLogic";
 import { syncPinTable } from "../../lib/pinSync";
-import ScreenHeader from "../../components/ScreenHeader";
-import Spinner from "../../components/Spinner";
-
-const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
+import BackBar from "../../components/ui/BackBar";
+import PinPad from "../../components/ui/PinPad";
 
 export default function PinEntryScreen({ navigation }) {
   const { userData } = useAuth();
-  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const { selectedSite } = useSiteSession();
   const { settings } = useCompanySettings(userData?.companyId);
   const [pin, setPin] = useState("");
@@ -103,84 +102,53 @@ export default function PinEntryScreen({ navigation }) {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title="Clock In / Out" onBack={() => navigation.goBack()} />
-
-      <View style={styles.content}>
-        <View style={[styles.sitePill, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Feather name="map-pin" size={13} color={colors.accent} />
-          <Text style={[styles.sitePillText, { color: colors.accent }]}>{siteLabel}</Text>
-        </View>
-
-        <Text style={[styles.title, { color: colors.text }]}>Enter your PIN</Text>
-
-        <View style={styles.dotsRow}>
-          {[0, 1, 2, 3].map((i) => (
-            <View
-              key={i}
-              style={[
-                styles.dot,
-                { borderColor: colors.border },
-                i < pin.length && { backgroundColor: colors.accent, borderColor: colors.accent },
-              ]}
-            />
-          ))}
-        </View>
-
-        {checking && <View style={{ marginTop: 12, alignItems: "center" }}><Spinner size={20} color={colors.accent} /></View>}
-        {error ? <Text style={[styles.error, { color: colors.red }]}>{error}</Text> : null}
-
-        <View style={styles.keypad}>
-          {KEYS.map((key, i) => (
-            <TouchableOpacity
-              key={i}
-              style={[styles.key, key === "" && styles.keyHidden]}
-              onPress={() => handleKeyPress(key)}
-              disabled={key === ""}
-            >
-              {key === "del" ? (
-                <Feather name="delete" size={26} color={colors.text} />
-              ) : (
-                <Text style={[styles.keyText, { color: colors.text }]}>{key}</Text>
-              )}
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {settings.appSettings.allowSupervisorOverride && (
-          <TouchableOpacity
-            style={[styles.overrideButton, { backgroundColor: colors.accent }]}
-            onPress={() => navigation.navigate("OverridePinEntry")}
-          >
-            <Text style={styles.overrideButtonText}>Supervisor override</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+    <View style={[styles.container, { paddingBottom: insets.bottom + spacing.lg }]}>
+      <BackBar title="Clock In / Out" onBack={() => navigation.goBack()} />
+      <PinPad
+        title="Enter your PIN"
+        top={
+          <View style={styles.sitePill}>
+            <Feather name="map-pin" size={13} color={colors.accent} />
+            <Text style={styles.sitePillText}>{siteLabel}</Text>
+          </View>
+        }
+        length={pin.length}
+        onDigit={handleKeyPress}
+        onDelete={() => handleKeyPress("del")}
+        busy={checking}
+        message={error}
+        shakeKey={error}
+      />
+      {settings.appSettings.allowSupervisorOverride && (
+        <TouchableOpacity style={styles.overrideButton} onPress={() => navigation.navigate("OverridePinEntry")}>
+          <Text style={styles.overrideButtonText}>Supervisor override</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { alignItems: "center", paddingTop: 24 },
+  container: { flex: 1, backgroundColor: colors.background },
   sitePill: {
-    flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14,
-    paddingVertical: 7, borderRadius: 20, borderWidth: 1, marginBottom: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
+    backgroundColor: colors.accentSoft,
+    marginBottom: spacing.lg,
   },
-  sitePillText: { fontSize: 13, fontWeight: "600" },
-  title: { fontSize: 20, fontWeight: "700", marginBottom: 24 },
-  dotsRow: { flexDirection: "row", marginBottom: 8 },
-  dot: { width: 16, height: 16, borderRadius: 8, borderWidth: 1, marginHorizontal: 8 },
-  error: { marginTop: 12 },
-  keypad: { flexDirection: "row", flexWrap: "wrap", width: 280, marginTop: 32, justifyContent: "center" },
-  key: { width: 80, height: 80, justifyContent: "center", alignItems: "center" },
-  keyHidden: { opacity: 0 },
-  keyText: { fontSize: 26, fontWeight: "600" },
+  sitePillText: { fontSize: fontSizes.sm, fontWeight: "600", color: colors.accent },
   overrideButton: {
-    marginTop: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 10,
+    alignSelf: "center",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    minHeight: 44,
+    justifyContent: "center",
+    borderRadius: radii.md,
+    backgroundColor: colors.accent,
   },
-  overrideButtonText: { fontSize: 13, fontWeight: "700", color: "#fff" },
+  overrideButtonText: { fontSize: fontSizes.sm, fontWeight: "700", color: colors.onColor },
 });

@@ -40,7 +40,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "generate:icons": "node scripts/generate-icons.mjs",
-    "test": "node --test test/envRules.test.js test/joinLink.test.js test/joinSignup.test.js test/joinSignIn.test.js test/employeeHome.test.js",
+    "test": "node --test test/envRules.test.js test/joinLink.test.js test/joinSignup.test.js test/joinSignIn.test.js test/employeeHome.test.js test/pinPadLayout.test.js",
     "lint": "eslint ."
   },
   "private": true,
