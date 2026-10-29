@@ -72,7 +72,7 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
           location,
         });
       }
-      drainQueue(userData.companyId);
+      drainQueue(userData.companyId, "breaks");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSelectedIds((prev) => prev.filter((id) => !targets.some((t) => t.id === id)));
     } catch (err) {

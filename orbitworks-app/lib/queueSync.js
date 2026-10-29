@@ -161,7 +161,7 @@ async function resolvePhotoUri(storedUri) {
 // step left to guard - FileSystem.getInfoAsync's exists/size > 0 check
 // in resolvePhotoUri (this function's only caller) is what now stands in
 // for the old "read back empty" guard.
-async function uploadPhoto(companyId, employeeId, localUri) {
+async function uploadPhoto(companyId, employeeId, localUri, timing) {
   // Dev-only: simulate the local-read step hanging - see
   // DevSyncFaultPanel.js's hangPhotoBlob switch.
   if (__DEV__ && isFaultActive("hangPhotoBlob")) {
@@ -176,8 +176,33 @@ async function uploadPhoto(companyId, employeeId, localUri) {
   const uploadPromise = __DEV__ && isFaultActive("hangUpload")
     ? hangForever()
     : uploadLocalFileToStorage(photoRef, localUri, "image/jpeg");
+  let stepStart = Date.now();
   await withTimeout(uploadPromise, resolveTimeoutMs(PHOTO_UPLOAD_TIMEOUT_MS), "uploadBytesResumable");
-  return withTimeout(getDownloadURL(photoRef), resolveTimeoutMs(PHOTO_DOWNLOAD_URL_TIMEOUT_MS), "getDownloadURL");
+  timing.uploadMs = Date.now() - stepStart;
+  stepStart = Date.now();
+  const url = await withTimeout(getDownloadURL(photoRef), resolveTimeoutMs(PHOTO_DOWNLOAD_URL_TIMEOUT_MS), "getDownloadURL");
+  timing.downloadUrlMs = Date.now() - stepStart;
+  return url;
+}
+
+// Sync-speed measurement: one item's timings, in ms. A breadcrumb (rides
+// along on any later Sentry error) and a "[sync-timing]" console line
+// (Metro / device logs). Slow syncs are reported to Sentry at most once
+// per drain - see the end of drainQueue - so a slow network can't flood it.
+const SLOW_SYNC_REPORT_MS = 15 * 1000;
+
+function logSyncTiming(item, timing, outcome, trigger) {
+  const data = {
+    localId: item.localId,
+    type: item.type,
+    outcome,
+    trigger,
+    attempts: item.attempts || 0,
+    ...timing,
+  };
+  Sentry.addBreadcrumb({ category: "queueSync", message: "syncOne:timing", level: "info", data });
+  console.log("[sync-timing]", JSON.stringify(data));
+  return data;
 }
 
 // Hard structural validation (goal 9): catches data that is broken, not
@@ -255,7 +280,7 @@ async function backupItemIfNeeded(sqlite, companyId, item) {
 // cleaned up, resetStuckSyncs will replay this item on next launch -
 // setDoc against the same ID just overwrites the identical document
 // instead of creating a second clock event for the same action.
-async function syncOne(sqlite, item, companyId) {
+async function syncOne(sqlite, item, companyId, timing) {
   const eventRef = doc(firestoreDb, "companies", companyId, "clockEvents", item.localId);
 
   Sentry.addBreadcrumb({
@@ -280,7 +305,10 @@ async function syncOne(sqlite, item, companyId) {
     // call that itself throws/times out is not proof the file is bad -
     // it propagates normally below and fails the whole item instead, so
     // it gets retried later with the photo still attached, not dropped.
+    const statStart = Date.now();
     resolvedPhoto = await resolvePhotoUri(item.photoLocalUri);
+    timing.photoStatMs = Date.now() - statStart;
+    if (resolvedPhoto) timing.photoBytes = resolvedPhoto.info.size;
     if (!resolvedPhoto) {
       Sentry.captureMessage("queueSync:photoDropped", {
         level: "warning",
@@ -301,7 +329,7 @@ async function syncOne(sqlite, item, companyId) {
       // Any failure from here on (network, upload, timeout) is ambiguous
       // - not proof the file is bad - so it propagates up and fails the
       // whole item normally, keeping photoLocalUri for the next retry.
-      photoUrl = await uploadPhoto(companyId, item.employeeId, resolvedPhoto.uri);
+      photoUrl = await uploadPhoto(companyId, item.employeeId, resolvedPhoto.uri, timing);
       Sentry.addBreadcrumb({
         category: "queueSync",
         message: "syncOne:photoUploaded",
@@ -379,9 +407,13 @@ async function syncOne(sqlite, item, companyId) {
     writePromise = setDoc(eventRef, payload, { merge: true });
   }
 
+  const writeStart = Date.now();
   try {
     await withTimeout(writePromise, resolveTimeoutMs(FIRESTORE_WRITE_TIMEOUT_MS), "setDoc");
+    timing.writeMs = Date.now() - writeStart;
+    timing.tapToServerMs = Date.now() - item.createdAt;
   } catch (err) {
+    timing.writeMs = Date.now() - writeStart;
     // Belt-and-suspenders for the exact scenario merge:true exists to
     // prevent, in case some other field or rule neither of us has
     // thought of yet still causes a rejection: if the server says
@@ -408,6 +440,8 @@ async function syncOne(sqlite, item, companyId) {
             level: "info",
             data: { localId: item.localId },
           });
+          timing.alreadyLanded = true;
+          timing.tapToServerMs = Date.now() - item.createdAt;
           await finalizeSynced(sqlite, item, resolvedPhoto);
           return;
         }
@@ -536,8 +570,21 @@ async function readPendingItems(sqlite) {
   }
 }
 
-export async function drainQueue(companyId) {
-  if (syncing || !companyId) return;
+// `trigger` is measurement-only (which caller started this drain - see
+// logSyncTiming); it never changes behavior.
+export async function drainQueue(companyId, trigger = "other") {
+  if (syncing || !companyId) {
+    if (companyId) {
+      Sentry.addBreadcrumb({
+        category: "queueSync",
+        message: "drainQueue:skipped-busy",
+        level: "info",
+        data: { trigger },
+      });
+    }
+    return;
+  }
+  const drainStartAt = Date.now();
 
   // isConnected only means "attached to a network interface," not "that
   // network can actually reach the internet" - a job-site wifi with a
@@ -624,6 +671,8 @@ export async function drainQueue(companyId) {
     let syncedCount = 0;
     let failedCount = 0;
     let deadCount = 0;
+    let slowCount = 0;
+    let slowest = null;
 
     for (const item of pending) {
       if (myEpoch !== currentEpoch) break;
@@ -634,8 +683,12 @@ export async function drainQueue(companyId) {
       );
       notifyQueueChange();
 
+      const timing = { queueWaitMs: Date.now() - item.createdAt, drainAgeMs: Date.now() - drainStartAt };
+
       // Best-effort, never throws, never blocks the real attempt below.
+      const backupStart = Date.now();
       await backupItemIfNeeded(sqlite, companyId, item);
+      timing.backupMs = Date.now() - backupStart;
 
       try {
         const validationError = validateQueueItem(item);
@@ -645,14 +698,20 @@ export async function drainQueue(companyId) {
           throw err;
         }
 
-        await withTimeout(syncOne(sqlite, item, companyId), resolveTimeoutMs(PER_ITEM_TIMEOUT_MS), "item");
+        await withTimeout(syncOne(sqlite, item, companyId, timing), resolveTimeoutMs(PER_ITEM_TIMEOUT_MS), "item");
 
         if (myEpoch !== currentEpoch) break;
         syncedCount++;
         lastProgressAt = Date.now();
+        const logged = logSyncTiming(item, timing, "synced", trigger);
+        if (timing.tapToServerMs > SLOW_SYNC_REPORT_MS) {
+          slowCount++;
+          if (!slowest || timing.tapToServerMs > slowest.tapToServerMs) slowest = logged;
+        }
       } catch (err) {
         if (myEpoch !== currentEpoch) break;
 
+        logSyncTiming(item, { ...timing, error: err.message }, "failed", trigger);
         console.log("Sync failed for", item.localId, err.message);
         failedCount++;
 
@@ -708,11 +767,44 @@ export async function drainQueue(companyId) {
 
     inFlightLocalId = null;
 
+    // Events queued while this drain was running were never in its
+    // snapshot, so they wait for the next trigger. Counted here to show
+    // how often that happens.
+    let addedDuringDrain = null;
+    try {
+      const row = await sqlite.getFirstAsync(
+        "SELECT COUNT(*) as c FROM event_queue WHERE syncStatus IN ('pending','failed') AND createdAt >= ?",
+        [drainStartAt]
+      );
+      addedDuringDrain = row ? row.c : 0;
+    } catch {
+      // measurement only
+    }
+
+    const drainSummary = {
+      trigger,
+      startCount: pending.length,
+      syncedCount,
+      failedCount,
+      deadCount,
+      addedDuringDrain,
+      slowCount,
+      drainMs: Date.now() - drainStartAt,
+    };
+    console.log("[sync-timing] drain", JSON.stringify(drainSummary));
+    // At most one Sentry event per drain, carrying the slowest item.
+    if (slowest) {
+      Sentry.captureMessage("queueSync:slow", {
+        level: "warning",
+        tags: { area: "queueSync", trigger, hasPhoto: slowest.photoBytes != null ? "true" : "false" },
+        contexts: { drainSummary, slowestItem: slowest },
+      });
+    }
     Sentry.addBreadcrumb({
       category: "queueSync",
       message: "drainQueue:finished",
       level: "info",
-      data: { companyId, syncedCount, failedCount, deadCount },
+      data: { companyId, ...drainSummary },
     });
 
     // Records that a drain pass ran to completion (online, reached

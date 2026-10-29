@@ -187,7 +187,7 @@ export default function ClockCameraScreen({ route, navigation }) {
       // uploading immediately in the background. If not, useQueueSync
       // will pick it up on the next reconnect/foreground. Either way we
       // do not wait for it before confirming to the user.
-      drainQueue(userData.companyId);
+      drainQueue(userData.companyId, "clockCapture");
 
       // Guard: if the user backed out (impossible right now since back
       // is disabled while submitting, but this also covers the screen

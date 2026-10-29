@@ -94,7 +94,7 @@ export default function DashboardScreen({ navigation }) {
     try {
       await Promise.all([
         syncPinTable().catch(() => {}),
-        drainQueue(userData?.companyId),
+        drainQueue(userData?.companyId, "pullRefresh"),
         drainEmployeeQueue(userData?.companyId),
       ]);
     } finally {

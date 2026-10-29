@@ -97,7 +97,7 @@ export function useSyncQueue() {
     try {
       await Promise.all([
         syncPinTable().catch(() => {}),
-        drainQueue(companyId),
+        drainQueue(companyId, "syncNow"),
         drainEmployeeQueue(companyId).catch(() => {}),
       ]);
     } finally {
@@ -112,7 +112,7 @@ export function useSyncQueue() {
   const retry = useCallback(
     async (localId) => {
       await retryQueueItem(localId);
-      if (companyId) drainQueue(companyId);
+      if (companyId) drainQueue(companyId, "retry");
     },
     [companyId]
   );
