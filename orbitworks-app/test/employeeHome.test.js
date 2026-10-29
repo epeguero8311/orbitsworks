@@ -239,3 +239,20 @@ test("PIN check (before the camera): what the server's answer does", () => {
 test("photo path is the punch's own file", () => {
   assert.equal(h.photoPathFor("c1", "e1", "r-1"), "companies/c1/clockEvents/e1/r-1.jpg");
 });
+
+// ===================== home card display =====================
+
+test("timer card digits: HH:MM:SS, break MM:SS", () => {
+  assert.equal(h.formatTimerDigits(0), "00:00:00");
+  assert.equal(h.formatTimerDigits(2 * HOUR + 14 * MIN + 5000), "02:14:05");
+  assert.equal(h.formatTimerDigits(-5), "00:00:00");
+  assert.equal(h.formatBreakDigits(12 * MIN + 40000), "12:40");
+  assert.equal(h.formatBreakDigits(75 * MIN + 3000), "75:03");
+});
+
+test("greeting follows the company timezone hour", () => {
+  assert.equal(h.greetingFor(t("2026-10-21T08:00"), TZ), "Good morning");
+  assert.equal(h.greetingFor(t("2026-10-21T12:00"), TZ), "Good afternoon");
+  assert.equal(h.greetingFor(t("2026-10-21T17:30"), TZ), "Good evening");
+  assert.equal(h.greetingFor(t("2026-10-21T00:15"), TZ), "Good morning");
+});

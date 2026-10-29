@@ -1,25 +1,31 @@
-import { View, Text, StyleSheet } from "react-native";
-import { Feather } from "@expo/vector-icons";
+import { View, Text } from "react-native";
+import { radii, spacing, fontSizes } from "../../lib/theme";
 import { useTheme } from "../../lib/ThemeContext";
+import { makeStyles } from "../../lib/makeStyles";
 import Avatar from "../Avatar";
+import Building2Icon from "../icons/Building2Icon";
 
-// Employee Home top row: selfie + name on the left, job site on the right
-// (blank when there is none).
-export default function HomeHeader({ name, photoUrl, siteName }) {
+// Employee App top row: selfie, a small greeting over the name, and (while
+// known) the employee's company as a blue pill on the right.
+export default function HomeHeader({ name, photoUrl, greeting, companyName }) {
   const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={styles.row}>
       <View style={styles.left}>
-        <Avatar name={name} photoUrl={photoUrl} size={48} />
-        <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
-          {name}
-        </Text>
+        <Avatar name={name} photoUrl={photoUrl} size={44} />
+        <View style={styles.names}>
+          {greeting ? <Text style={styles.greeting}>{greeting}</Text> : null}
+          <Text style={styles.name} numberOfLines={1}>
+            {name}
+          </Text>
+        </View>
       </View>
-      {siteName ? (
-        <View style={[styles.site, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Feather name="map-pin" size={13} color={colors.accent} />
-          <Text style={[styles.siteText, { color: colors.accent }]} numberOfLines={1}>
-            {siteName}
+      {companyName ? (
+        <View style={styles.site}>
+          <Building2Icon size={12} color={colors.onColor} />
+          <Text style={styles.siteText} numberOfLines={1}>
+            {companyName}
           </Text>
         </View>
       ) : null}
@@ -27,19 +33,21 @@ export default function HomeHeader({ name, photoUrl, siteName }) {
   );
 }
 
-const styles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  left: { flexDirection: "row", alignItems: "center", gap: 12, flexShrink: 1 },
-  name: { fontSize: 18, fontWeight: "700", flexShrink: 1 },
+const useStyles = makeStyles((colors) => ({
+  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
+  left: { flexDirection: "row", alignItems: "center", gap: spacing.md, flexShrink: 1 },
+  names: { flexShrink: 1 },
+  greeting: { fontSize: fontSizes.sm, color: colors.subtext },
+  name: { fontSize: fontSizes.lg, fontWeight: "700", color: colors.text, marginTop: 1 },
   site: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
+    gap: 5,
+    paddingHorizontal: spacing.md,
     paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: radii.pill,
+    backgroundColor: colors.accent,
     maxWidth: "45%",
   },
-  siteText: { fontSize: 13, fontWeight: "600", flexShrink: 1 },
-});
+  siteText: { fontSize: fontSizes.sm, fontWeight: "600", color: colors.onColor, flexShrink: 1 },
+}));

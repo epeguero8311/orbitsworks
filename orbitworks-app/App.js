@@ -21,29 +21,34 @@ import LoginScreen from "./screens/LoginScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import AccountDisabledScreen from "./screens/AccountDisabledScreen";
 import LoadingScreen from "./screens/LoadingScreen";
-import DashboardScreen from "./screens/DashboardScreen";
-import AlertsScreen from "./screens/AlertsScreen";
-import SyncQueueScreen from "./screens/SyncQueueScreen";
-import SettingsScreen from "./screens/SettingsScreen";
-import EmployeeListScreen from "./screens/EmployeeListScreen";
-import SiteSelectScreen from "./screens/SiteSelectScreen";
-import NotesScreen from "./screens/NotesScreen";
-import PinEntryScreen from "./screens/PinEntryScreen";
-import ClockCameraScreen from "./screens/ClockCameraScreen";
-import ClockConfirmScreen from "./screens/ClockConfirmScreen";
-import ClockDeclinedScreen from "./screens/ClockDeclinedScreen";
-import DeclinedAlertsScreen from "./screens/DeclinedAlertsScreen";
-import BreaksPinEntryScreen from "./screens/BreaksPinEntryScreen";
-import BreaksEmployeeListScreen from "./screens/BreaksEmployeeListScreen";
-import OverridePinEntryScreen from "./screens/OverridePinEntryScreen";
-import OverrideEmployeeListScreen from "./screens/OverrideEmployeeListScreen";
-import OverrideReasonScreen from "./screens/OverrideReasonScreen";
-import CreateEmployeeScreen from "./screens/CreateEmployeeScreen";
-import UpdateEmployeeScreen from "./screens/UpdateEmployeeScreen";
-import EditEmployeeScreen from "./screens/EditEmployeeScreen";
-import EmployeeSyncAlertsScreen from "./screens/EmployeeSyncAlertsScreen";
+import DashboardScreen from "./screens/supervisor/DashboardScreen";
+import AlertsScreen from "./screens/supervisor/AlertsScreen";
+import SyncQueueScreen from "./screens/supervisor/SyncQueueScreen";
+import SettingsScreen from "./screens/supervisor/SettingsScreen";
+import EmployeeListScreen from "./screens/supervisor/EmployeeListScreen";
+import SiteSelectScreen from "./screens/supervisor/SiteSelectScreen";
+import NotesScreen from "./screens/supervisor/NotesScreen";
+import PinEntryScreen from "./screens/supervisor/PinEntryScreen";
+import ClockCameraScreen from "./screens/supervisor/ClockCameraScreen";
+import ClockConfirmScreen from "./screens/supervisor/ClockConfirmScreen";
+import ClockDeclinedScreen from "./screens/supervisor/ClockDeclinedScreen";
+import DeclinedAlertsScreen from "./screens/supervisor/DeclinedAlertsScreen";
+import BreaksPinEntryScreen from "./screens/supervisor/BreaksPinEntryScreen";
+import BreaksEmployeeListScreen from "./screens/supervisor/BreaksEmployeeListScreen";
+import OverridePinEntryScreen from "./screens/supervisor/OverridePinEntryScreen";
+import OverrideEmployeeListScreen from "./screens/supervisor/OverrideEmployeeListScreen";
+import OverrideReasonScreen from "./screens/supervisor/OverrideReasonScreen";
+import CreateEmployeeScreen from "./screens/supervisor/CreateEmployeeScreen";
+import UpdateEmployeeScreen from "./screens/supervisor/UpdateEmployeeScreen";
+import EditEmployeeScreen from "./screens/supervisor/EditEmployeeScreen";
+import EmployeeSyncAlertsScreen from "./screens/supervisor/EmployeeSyncAlertsScreen";
 import EmployeeHomeScreen from "./screens/EmployeeHomeScreen";
 import ClockPunchScreen from "./screens/ClockPunchScreen";
+import EmployeeAlertsScreen from "./screens/employee/EmployeeAlertsScreen";
+import EmployeeSyncScreen from "./screens/employee/EmployeeSyncScreen";
+import EmployeeSettingsScreen from "./screens/employee/EmployeeSettingsScreen";
+import EmployeeHistoryScreen from "./screens/employee/EmployeeHistoryScreen";
+import EmployeeHistoryDayScreen from "./screens/employee/EmployeeHistoryDayScreen";
 import JoinScanScreen from "./screens/JoinScanScreen";
 import JoinStartScreen from "./screens/JoinStartScreen";
 import { useJoinLink } from "./lib/hooks/useJoinLink";
@@ -121,6 +126,56 @@ function MainTabs() {
   );
 }
 
+// Employee App tabs: Home plus four "Coming soon" tabs (Settings also
+// holds Log out). Clock in/out (ClockPunch) stays a full-screen stack
+// step on top of these.
+const EmployeeTab = createBottomTabNavigator();
+const EMPLOYEE_TAB_ICONS = {
+  EmployeeHome: "home",
+  EmployeeHistory: "clock",
+  EmployeeAlerts: "bell",
+  EmployeeSync: "repeat",
+  EmployeeSettings: "settings",
+};
+
+const EmployeeHistoryStack = createNativeStackNavigator();
+
+// History tab: the list with each day's detail pushed on top, inside the
+// tab, so the bottom nav stays up and back returns to the list.
+function EmployeeHistoryTab() {
+  const { colors } = useTheme();
+  return (
+    <EmployeeHistoryStack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+      <EmployeeHistoryStack.Screen name="EmployeeHistoryList" component={EmployeeHistoryScreen} />
+      <EmployeeHistoryStack.Screen name="EmployeeHistoryDay" component={EmployeeHistoryDayScreen} />
+    </EmployeeHistoryStack.Navigator>
+  );
+}
+
+function EmployeeTabs() {
+  const { colors } = useTheme();
+  return (
+    <EmployeeTab.Navigator
+      tabBar={(props) => (
+        <FloatingTabBar
+          {...props}
+          icons={EMPLOYEE_TAB_ICONS}
+          barColor={colors.accent}
+          activeColor="rgba(255,255,255,0.22)"
+          inactiveIconColor="rgba(255,255,255,0.8)"
+        />
+      )}
+      screenOptions={{ headerShown: false }}
+    >
+      <EmployeeTab.Screen name="EmployeeHome" component={EmployeeHomeScreen} options={{ tabBarLabel: "Home" }} />
+      <EmployeeTab.Screen name="EmployeeHistory" component={EmployeeHistoryTab} options={{ tabBarLabel: "History" }} />
+      <EmployeeTab.Screen name="EmployeeAlerts" component={EmployeeAlertsScreen} options={{ tabBarLabel: "Alerts" }} />
+      <EmployeeTab.Screen name="EmployeeSync" component={EmployeeSyncScreen} options={{ tabBarLabel: "Sync" }} />
+      <EmployeeTab.Screen name="EmployeeSettings" component={EmployeeSettingsScreen} options={{ tabBarLabel: "Settings" }} />
+    </EmployeeTab.Navigator>
+  );
+}
+
 // Supervisor/admin background work (PIN table, offline clock/employee
 // queues, push registration). Never mounted for an Employee App login -
 // those calls are supervisor-only server-side and would just fail, and an
@@ -177,7 +232,7 @@ function RootNavigator() {
         ) : currentUser && isEmployeeLogin ? (
           // Employee App: Home + clock in/out only, no supervisor screens.
           <>
-            <Stack.Screen name="EmployeeHome" component={EmployeeHomeScreen} />
+            <Stack.Screen name="EmployeeTabs" component={EmployeeTabs} />
             <Stack.Screen name="ClockPunch" component={ClockPunchScreen} options={{ gestureEnabled: false }} />
           </>
         ) : currentUser ? (
