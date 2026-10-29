@@ -285,7 +285,13 @@ export const onClockEventCreated = onDocumentCreated(
     // check and finish in the wrong order. Equal timestamps still apply,
     // same as before. An event with no timestamp keeps the old behavior
     // (always applies, server time).
-    const eventTs = data.timestamp as admin.firestore.Timestamp | undefined;
+    //
+    // Compares (and stores) the event's EFFECTIVE time - adjustedTimestamp
+    // ?? timestamp, the same rule autoClockOut/autoBreak/clockStatus use -
+    // so the stored lastEventTimestamp is always on the same basis as what
+    // the next event is compared against.
+    const eventTs = ((data.adjustedTimestamp as admin.firestore.Timestamp | undefined) ??
+      (data.timestamp as admin.firestore.Timestamp | undefined)) as admin.firestore.Timestamp | undefined;
     await db
       .runTransaction(async (tx) => {
         const employeeRef = employeesRef.doc(employeeId);

@@ -669,3 +669,33 @@ test("ordering guard: missing employee doc is skipped without throwing", async (
     runCreated(companyId, "x", plainEvent({ employeeId: "ghost", type: "in", iso: "2026-10-29T08:00:00Z" }))
   );
 });
+
+test("ordering guard: compares and stores effective time (adjustedTimestamp ?? timestamp)", async () => {
+  const companyId = "order-effective";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "e1");
+  setFlags({ alertsFeed: false });
+
+  // Raw timestamp says 08:00, but its effective (adjusted) time is 18:00.
+  await runCreated(companyId, "out-adj", {
+    ...plainEvent({ employeeId: "e1", type: "out", iso: "2026-10-29T08:00:00Z" }),
+    adjustedTimestamp: admin.firestore.Timestamp.fromDate(new Date("2026-10-29T18:00:00Z")),
+  });
+  let s = await employeeStatus(companyId, "e1");
+  assert.equal(s.type, "out");
+  assert.equal(s.ms, Date.parse("2026-10-29T18:00:00Z"));
+
+  // 12:00 is newer than the raw 08:00 but older than the effective 18:00 -> ignored.
+  await runCreated(companyId, "in-1200", plainEvent({ employeeId: "e1", type: "in", iso: "2026-10-29T12:00:00Z" }));
+  s = await employeeStatus(companyId, "e1");
+  assert.equal(s.type, "out");
+
+  // Effective time of the new event wins over its raw timestamp too.
+  await runCreated(companyId, "in-adj", {
+    ...plainEvent({ employeeId: "e1", type: "in", iso: "2026-10-29T07:00:00Z" }),
+    adjustedTimestamp: admin.firestore.Timestamp.fromDate(new Date("2026-10-29T19:00:00Z")),
+  });
+  s = await employeeStatus(companyId, "e1");
+  assert.equal(s.type, "in");
+  assert.equal(s.ms, Date.parse("2026-10-29T19:00:00Z"));
+});
