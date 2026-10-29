@@ -51,6 +51,12 @@ import { redactJoinTokens } from "./lib/joinLink";
 import { scrubSensitive } from "./lib/sentryScrub";
 import { resolveFirebaseEnv } from "./config/envRules";
 import * as Sentry from '@sentry/react-native';
+import Constants, { ExecutionEnvironment } from "expo-constants";
+
+// Expo Go (store app) has no Sentry native module, so Sentry is turned off
+// there: no native init, and UI-dev sessions don't send events. Dev and
+// store builds are unchanged.
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
 // Sentry "environment": "production" only when this bundle talks to the
 // real Firebase project; the dev app (and any dev-Firebase build) is "dev".
@@ -70,6 +76,9 @@ Sentry.init({
   dsn: 'https://f796828c3aaf68527b01e471a0aa9404@o4512133013176320.ingest.us.sentry.io/4512133093261312',
 
   environment: SENTRY_ENVIRONMENT,
+
+  enabled: !isExpoGo,
+  enableNative: !isExpoGo,
 
   // Join tokens always; the sign-up email/password/birthday and the new
   // PIN while the sign-up screen has them (lib/sentryScrub.js).
