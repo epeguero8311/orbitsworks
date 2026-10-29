@@ -1,13 +1,13 @@
 import { useCallback } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useAuth } from "../lib/AuthContext";
-import { lightColors as colors } from "../lib/theme";
+import { useTheme } from "../lib/ThemeContext";
 import { useClockPunch } from "../lib/hooks/useClockPunch";
 import { useEmployeeAppConfig } from "../lib/hooks/useEmployeeAppConfig";
 import { useNow } from "../lib/hooks/useNow";
 import { formatClockTime, siteLabel } from "../lib/employeeHome";
-import BackBar from "../components/ui/BackBar";
-import PinPad from "../components/ui/PinPad";
+import ScreenHeader from "../components/ScreenHeader";
+import PinPad from "../components/employee/PinPad";
 import PunchCamera from "../components/employee/PunchCamera";
 import PunchConfirmation from "../components/employee/PunchConfirmation";
 import Spinner from "../components/Spinner";
@@ -22,6 +22,7 @@ const DONE_TITLES = { in: "Clocked in", out: "Clocked out" };
 export default function ClockPunchScreen({ route, navigation }) {
   const action = route.params?.action === "out" ? "out" : "in";
   const { userData, linkedEmployeeId } = useAuth();
+  const { colors } = useTheme();
   const { timezone } = useEmployeeAppConfig(userData?.companyId);
   const flow = useClockPunch({
     action,
@@ -51,59 +52,58 @@ export default function ClockPunchScreen({ route, navigation }) {
   const lockedMessage = lockSeconds > 0 ? `Too many wrong PINs. Try again in ${lockSeconds} second${lockSeconds === 1 ? "" : "s"}.` : "";
   // While a lock applies, only the live countdown shows (never a stale one).
   const message = flow.lockedUntil > 0 ? lockedMessage : flow.error;
-  // The pad stays up while the PIN is checked, so a wrong PIN can shake it.
-  const onPad = flow.step === "pin" || flow.step === "checking";
 
   return (
-    <View style={styles.container}>
-      <BackBar title={TITLES[action]} onBack={flow.step === "sending" ? undefined : close} />
-      {onPad ? (
-        <PinPad
-          title="Enter your PIN"
-          length={flow.pin.length}
-          onDigit={flow.pressDigit}
-          onDelete={flow.deleteDigit}
-          disabled={lockSeconds > 0 || flow.step === "checking"}
-          busy={flow.step === "checking"}
-          busyLabel="Checking PIN..."
-          message={message}
-          shakeKey={flow.error}
-        />
-      ) : (
-        <View style={styles.content}>
-          {flow.step === "sending" ? (
-            <View style={styles.center}>
-              <Spinner size={32} color={colors.accent} />
-              <Text style={styles.sending}>{action === "in" ? "Clocking in..." : "Clocking out..."}</Text>
-            </View>
-          ) : null}
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScreenHeader title={TITLES[action]} onBack={flow.step === "sending" ? undefined : close} />
+      <View style={styles.content}>
+        {flow.step === "sending" ? (
+          <View style={styles.center}>
+            <Spinner size={32} color={colors.accent} />
+            <Text style={[styles.sending, { color: colors.subtext }]}>{action === "in" ? "Clocking in..." : "Clocking out..."}</Text>
+          </View>
+        ) : null}
 
-          {message && flow.step !== "sending" ? <Text style={styles.error}>{message}</Text> : null}
+        {flow.step === "checking" ? (
+          <View style={styles.center}>
+            <Spinner size={32} color={colors.accent} />
+            <Text style={[styles.sending, { color: colors.subtext }]}>Checking PIN...</Text>
+          </View>
+        ) : null}
 
-          {flow.step === "retry" ? (
-            <TouchableOpacity style={styles.button} onPress={flow.retry}>
-              <Text style={styles.buttonText}>Try again</Text>
-            </TouchableOpacity>
-          ) : null}
-          {flow.step === "failed" || flow.step === "retry" ? (
-            <TouchableOpacity style={styles.link} onPress={close}>
-              <Text style={styles.linkText}>Back to Home</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-      )}
+        {flow.step === "pin" ? (
+          <>
+            <Text style={[styles.title, { color: colors.text }]}>Enter your PIN</Text>
+            <PinPad length={flow.pin.length} onDigit={flow.pressDigit} onDelete={flow.deleteDigit} disabled={lockSeconds > 0} />
+          </>
+        ) : null}
+
+        {message && flow.step !== "sending" && flow.step !== "checking" ? <Text style={[styles.error, { color: colors.red }]}>{message}</Text> : null}
+
+        {flow.step === "retry" ? (
+          <TouchableOpacity style={[styles.button, { backgroundColor: colors.accent }]} onPress={flow.retry}>
+            <Text style={styles.buttonText}>Try again</Text>
+          </TouchableOpacity>
+        ) : null}
+        {flow.step === "failed" || flow.step === "retry" ? (
+          <TouchableOpacity style={styles.link} onPress={close}>
+            <Text style={[styles.linkText, { color: colors.accent }]}>Back to Home</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1 },
   content: { alignItems: "center", paddingTop: 24, paddingHorizontal: 24 },
   center: { alignItems: "center", marginTop: 60 },
-  sending: { marginTop: 12, fontSize: 15, color: colors.subtext },
-  error: { marginTop: 16, fontSize: 15, textAlign: "center", color: colors.red },
-  button: { marginTop: 24, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 40, backgroundColor: colors.accent },
-  buttonText: { color: colors.onColor, fontSize: 16, fontWeight: "700" },
+  sending: { marginTop: 12, fontSize: 15 },
+  title: { fontSize: 20, fontWeight: "700", marginBottom: 24 },
+  error: { marginTop: 16, fontSize: 15, textAlign: "center" },
+  button: { marginTop: 24, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 40 },
+  buttonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
   link: { marginTop: 16, padding: 8 },
-  linkText: { fontSize: 15, fontWeight: "600", color: colors.accent },
+  linkText: { fontSize: 15, fontWeight: "600" },
 });

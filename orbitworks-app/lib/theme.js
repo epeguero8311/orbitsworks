@@ -25,8 +25,6 @@ export const lightColors = {
   neutralSoft: "#f1f5f9",
   track: "#f1f5f9",
   dotOff: "#d1d5db",
-  keypad: "#e5e7eb",
-  keypadPressed: "#b8bcc4",
   overlay: "rgba(15,23,42,0.5)",
   onColor: "#ffffff",
 };
@@ -54,8 +52,6 @@ export const darkColors = {
   neutralSoft: "#27272a",
   track: "#27272a",
   dotOff: "#3f3f46",
-  keypad: "#27272a",
-  keypadPressed: "#52525b",
   overlay: "rgba(0,0,0,0.6)",
   onColor: "#ffffff",
 };
