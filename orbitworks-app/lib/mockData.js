@@ -32,7 +32,7 @@ export const MOCK_SETTINGS = {
   email: "alex.sample@example.com",
   pin: "1234",
   birthday: "January 1, 2000",
-  lastSynced: "Jan 1, 2026 · 9:00 AM",
+  lastSynced: "Jan 1, 2026 \u00b7 9:00 AM",
   notifications: true,
   location: true,
 };

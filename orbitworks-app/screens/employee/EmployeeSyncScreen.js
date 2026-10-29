@@ -52,7 +52,7 @@ export default function EmployeeSyncScreen() {
             >
               <Text style={styles.action}>{item.action}</Text>
               <Text style={styles.sub}>
-                {item.employeeName} · {item.time}
+                {item.employeeName}{" \u00b7 "}{item.time}
               </Text>
             </ListRow>
           ))}

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Modal, View, Text, Image, Pressable, StyleSheet } from "react-native";
+import { Modal, View, Text, Image, Pressable, StyleSheet, useWindowDimensions } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
 
@@ -15,6 +15,10 @@ const AUTO_CLOSE_MS = 3000;
 // Sizing it with absoluteFill inside a screen only covers that screen's
 // content area, which is what left gaps before.
 export default function SuccessOverlay({ visible = true, title, timeLabel, siteName, photoUri, onClose }) {
+  // Explicit window size as well as flex, so the green can never shrink to
+  // its content even if the Modal's own container comes up short.
+  const { width, height } = useWindowDimensions();
+
   useEffect(() => {
     if (!visible) return undefined;
     const timer = setTimeout(onClose, AUTO_CLOSE_MS);
@@ -31,9 +35,14 @@ export default function SuccessOverlay({ visible = true, title, timeLabel, siteN
       onRequestClose={onClose}
     >
       <StatusBar style="light" />
-      <Pressable style={styles.fill} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close">
+      <Pressable
+        style={[styles.fill, { width, height }]}
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel="Close"
+      >
         <View style={styles.checkCircle}>
-          <Text style={styles.check}>{"✓"}</Text>
+          <Text style={styles.check}>{"\u2713"}</Text>
         </View>
         <Text style={styles.title}>{title}</Text>
         {timeLabel ? <Text style={styles.time}>{timeLabel}</Text> : null}
