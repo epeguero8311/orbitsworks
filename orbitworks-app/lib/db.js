@@ -230,6 +230,9 @@ async function openDb() {
     "ALTER TABLE event_queue ADD COLUMN syncedAt INTEGER",
     "ALTER TABLE pin_cache ADD COLUMN lastEventTimestamp INTEGER",
     "ALTER TABLE event_queue ADD COLUMN backedUp INTEGER NOT NULL DEFAULT 0",
+    // Sync speed-up: earliest time (ms) a failed row may be retried by an
+    // automatic drain. NULL = retry on the next drain. See queueSync.js.
+    "ALTER TABLE event_queue ADD COLUMN nextAttemptAt INTEGER",
     // Notice-before-capture (Terms Section 4.1) - the on-device moment the
     // identity-verification notice was acknowledged, in ms (Date.now()),
     // threaded through to createEmployee/updateEmployeeProfile as

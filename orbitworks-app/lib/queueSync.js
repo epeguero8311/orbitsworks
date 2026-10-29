@@ -9,29 +9,28 @@ import { notifyQueueChange } from "./queueEvents";
 import { isFaultActive, resolveTimeoutMs, hangForever, fakePermissionDeniedError } from "./syncFaults";
 import { uploadLocalFileToStorage } from "./storageUpload";
 
-let syncing = false;
+// The running drain, or null. Only one drain runs at a time, but it is
+// no longer a "busy, come back later" lock: a drainQueue call that
+// arrives while one is running wakes it (see wakePump) so a just-queued
+// event is picked up right away instead of waiting for the next trigger.
+let pump = null;
 
 // Bumped every time a drain starts, and again whenever the stall
 // detector below forcibly abandons one. A drain captures its own value
-// at start (myEpoch) and checks it against the current one at every
-// checkpoint - success, failure, or the top of the next loop iteration.
-// If they no longer match, this drain has been abandoned (the lock was
-// forced open so a fresher drain could run) and must stop touching
-// anything immediately: no more SQLite writes, no more counters, no
-// clobbering a row a newer drain may have already finished. This is
-// what keeps "force the lock open" from re-introducing the two-drains-
-// at-once bug it exists to prevent.
+// at start (myEpoch) and checks it at every checkpoint. If they no
+// longer match, this drain has been abandoned and must stop touching
+// anything immediately: no more SQLite writes, no clobbering a row a
+// newer drain may have already finished.
 let currentEpoch = 0;
 
-// Which item (if any) the current drain is in the middle of - purely so
-// a stall report in Sentry says which punch was stuck, not just "a
-// drain" (see the stall detector in drainQueue).
-let inFlightLocalId = null;
+// Per-event in-flight lock: localIds currently being sent. A row in here
+// is never picked up a second time, by this drain or a newer one.
+const inFlight = new Set();
 
 // Lets the Sync Queue tab show a live "syncing" state without polling -
 // it just reads this alongside its own notifyQueueChange-driven refresh.
 export function isQueueSyncing() {
-  return syncing;
+  return pump !== null;
 }
 
 // How long a synced row stays in event_queue before cleanup deletes it.
@@ -95,6 +94,23 @@ const PHOTO_CLEANUP_TIMEOUT_MS = 10 * 1000;
 // retry count can ever fix a missing employeeId, so burning 8 attempts
 // on it only delays quarantining it.
 const DEAD_LETTER_ATTEMPTS = 8;
+
+// How many employees' events are sent at the same time. Each employee's
+// own events are always sent one at a time, oldest first.
+const MAX_PARALLEL_EMPLOYEES = 3;
+
+// Wait before an automatic retry of a failed row, by attempt number
+// (1st failure -> 5s, 2nd -> 15s, ... capped at 5 min). Stops a row that
+// keeps failing from being retried in a tight loop on a bad network.
+const RETRY_BACKOFF_MS = [5000, 15000, 30000, 60000, 120000, 300000];
+function backoffMs(attempts) {
+  return RETRY_BACKOFF_MS[Math.min(Math.max(attempts, 1), RETRY_BACKOFF_MS.length) - 1];
+}
+
+// Triggers that mean "conditions may have just changed" (network back,
+// app reopened, someone pressed Sync Now). These clear the backoff so
+// failed rows are retried right away instead of waiting out their timer.
+const BACKOFF_RESET_TRIGGERS = new Set(["login", "foreground", "netChange", "syncNow", "retry", "pullRefresh"]);
 
 // Races `promise` against a timer. If the timer wins, rejects with an
 // Error whose message is `timeout:<label>` so Sentry/lastError make it
@@ -530,16 +546,22 @@ export async function cleanupSyncedQueueItems() {
   notifyQueueChange();
 }
 
-// Reads every pending/failed row for a drain pass. If the batch query
-// itself throws (goal 12 - a single unreadable row can poison a SELECT *
-// on some SQLite driver paths), falls back to reading just the id
-// column, then hydrating each row one at a time so a single corrupted
-// row can be skipped-and-logged instead of blocking every other item's
-// read.
+// Reads every row that is ready to send: pending/failed, past its retry
+// backoff, and not already being sent. If the batch query itself throws
+// (goal 12 - a single unreadable row can poison a SELECT * on some SQLite
+// driver paths), falls back to reading just the id column, then
+// hydrating each row one at a time so a single corrupted row can be
+// skipped-and-logged instead of blocking every other item's read.
+const READY_WHERE =
+  "syncStatus IN ('pending','failed') AND (nextAttemptAt IS NULL OR nextAttemptAt <= ?)";
+
 async function readPendingItems(sqlite) {
+  const now = Date.now();
+  let rows;
   try {
-    return await sqlite.getAllAsync(
-      "SELECT * FROM event_queue WHERE syncStatus IN ('pending','failed') ORDER BY clientTimestamp ASC"
+    rows = await sqlite.getAllAsync(
+      `SELECT * FROM event_queue WHERE ${READY_WHERE} ORDER BY clientTimestamp ASC`,
+      [now]
     );
   } catch (batchErr) {
     Sentry.captureException(batchErr, { tags: { area: "queueSync", step: "batchRead" } });
@@ -547,14 +569,15 @@ async function readPendingItems(sqlite) {
     let ids = [];
     try {
       ids = await sqlite.getAllAsync(
-        "SELECT localId FROM event_queue WHERE syncStatus IN ('pending','failed') ORDER BY clientTimestamp ASC"
+        `SELECT localId FROM event_queue WHERE ${READY_WHERE} ORDER BY clientTimestamp ASC`,
+        [now]
       );
     } catch (idsErr) {
       Sentry.captureException(idsErr, { tags: { area: "queueSync", step: "batchReadFallbackIds" } });
       return [];
     }
 
-    const rows = [];
+    rows = [];
     for (const { localId } of ids) {
       try {
         const row = await sqlite.getFirstAsync("SELECT * FROM event_queue WHERE localId = ?", [localId]);
@@ -566,35 +589,198 @@ async function readPendingItems(sqlite) {
         });
       }
     }
-    return rows;
+  }
+  return rows.filter((r) => !inFlight.has(r.localId));
+}
+
+// One automatic retry timer for the soonest backed-off row, so a failed
+// row is retried when its backoff ends even if no other trigger fires
+// (useQueueSync's 60s poll is still there as a backstop).
+let retryTimer = null;
+async function scheduleBackoffRetry(sqlite, companyId) {
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+  try {
+    const row = await sqlite.getFirstAsync(
+      "SELECT MIN(nextAttemptAt) as t FROM event_queue WHERE syncStatus IN ('pending','failed') AND nextAttemptAt IS NOT NULL"
+    );
+    if (!row || row.t == null) return;
+    const delay = Math.max(1000, row.t - Date.now());
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      drainQueue(companyId, "backoff");
+    }, delay);
+  } catch {
+    // The 60s poll in useQueueSync still covers this.
   }
 }
 
-// `trigger` is measurement-only (which caller started this drain - see
-// logSyncTiming); it never changes behavior.
-export async function drainQueue(companyId, trigger = "other") {
-  if (syncing || !companyId) {
-    if (companyId) {
-      Sentry.addBreadcrumb({
-        category: "queueSync",
-        message: "drainQueue:skipped-busy",
-        level: "info",
-        data: { trigger },
+async function clearBackoff() {
+  const sqlite = await getDb();
+  await runExclusive(() =>
+    sqlite.runAsync(
+      "UPDATE event_queue SET nextAttemptAt = NULL WHERE syncStatus IN ('pending','failed') AND nextAttemptAt IS NOT NULL"
+    )
+  );
+}
+
+// Sends one row: validate, sync, then record the outcome. Never throws.
+// The backup copy (queueBackups) runs alongside, not before, the real
+// send - it's a safety net and must not add a round trip to every event.
+// The one exception is a structurally invalid row: it never reaches
+// clockEvents, so its backup is awaited because it's the only copy.
+async function processItem(state, sqlite, companyId, item) {
+  const { myEpoch, trigger, stats } = state;
+  inFlight.add(item.localId);
+  try {
+    await runExclusive(() =>
+      sqlite.runAsync("UPDATE event_queue SET syncStatus = 'syncing' WHERE localId = ?", [item.localId])
+    );
+    notifyQueueChange();
+
+    const timing = { queueWaitMs: Date.now() - item.createdAt, drainAgeMs: Date.now() - state.startedAt };
+    const validationError = validateQueueItem(item);
+
+    try {
+      if (validationError) {
+        await backupItemIfNeeded(sqlite, companyId, item);
+        const err = new Error(`invalid:${validationError}`);
+        err.code = "queue-validation";
+        throw err;
+      }
+
+      const backup = backupItemIfNeeded(sqlite, companyId, item);
+      await withTimeout(syncOne(sqlite, item, companyId, timing), resolveTimeoutMs(PER_ITEM_TIMEOUT_MS), "item");
+      backup.catch(() => {});
+
+      if (myEpoch !== currentEpoch) return;
+      stats.syncedCount++;
+      state.lastProgressAt = Date.now();
+      const logged = logSyncTiming(item, timing, "synced", trigger);
+      if (timing.tapToServerMs > SLOW_SYNC_REPORT_MS) {
+        stats.slowCount++;
+        if (!stats.slowest || timing.tapToServerMs > stats.slowest.tapToServerMs) stats.slowest = logged;
+      }
+    } catch (err) {
+      if (myEpoch !== currentEpoch) return;
+
+      logSyncTiming(item, { ...timing, error: err.message }, "failed", trigger);
+      console.log("Sync failed for", item.localId, err.message);
+      stats.failedCount++;
+
+      const isValidationFailure = err.code === "queue-validation";
+      const nextAttempts = (item.attempts || 0) + 1;
+      const isDead = isValidationFailure || nextAttempts >= DEAD_LETTER_ATTEMPTS;
+      if (isDead) stats.deadCount++;
+
+      // A persistent failure (attempts keeps climbing) means this item
+      // will never sync on its own - e.g. a Firestore rules rejection,
+      // a malformed field, or a step that keeps timing out - as opposed
+      // to a one-off network blip. Report every failure so Sentry's
+      // grouping/count shows which this is; tag by attempts bucket and
+      // dead-letter state so a chronically-stuck item stands out.
+      Sentry.captureException(err, {
+        tags: {
+          area: "queueSync",
+          eventType: item.type,
+          source: item.source ?? "unknown",
+          persistent: item.attempts >= 2 ? "true" : "false",
+          deadLetter: isDead ? "true" : "false",
+          invalid: isValidationFailure ? "true" : "false",
+          timedOut: typeof err.message === "string" && err.message.startsWith("timeout:") ? "true" : "false",
+        },
+        contexts: {
+          clockQueueItem: {
+            localId: item.localId,
+            companyId,
+            employeeId: item.employeeId,
+            type: item.type,
+            source: item.source,
+            attempts: nextAttempts,
+            hasPhoto: !!item.photoLocalUri,
+            errorMessage: err.message,
+            errorCode: err.code,
+          },
+          ...(err.photoDiagnostics ? { photo: err.photoDiagnostics } : {}),
+          ...(err.rejectedPayload ? { rejectedPayload: err.rejectedPayload } : {}),
+        },
       });
+
+      await runExclusive(() =>
+        sqlite.runAsync(
+          "UPDATE event_queue SET syncStatus = ?, attempts = ?, lastError = ?, nextAttemptAt = ? WHERE localId = ?",
+          [
+            isDead ? "dead" : "failed",
+            nextAttempts,
+            err.message || "Unknown error",
+            isDead ? null : Date.now() + backoffMs(nextAttempts),
+            item.localId,
+          ]
+        )
+      );
+      notifyQueueChange();
+      state.lastProgressAt = Date.now();
     }
-    return;
+  } catch (err) {
+    // Only the SQLite status writes above can land here. The row stays
+    // 'syncing' and resetStuckSyncs puts it back in line.
+    Sentry.captureException(err, { tags: { area: "queueSync", step: "statusWrite" } });
+  } finally {
+    inFlight.delete(item.localId);
   }
-  const drainStartAt = Date.now();
+}
+
+// One employee's events, strictly one at a time, oldest first. A failed
+// event does not block the next one (same as before this change); it
+// waits out its backoff and is retried by a later pass.
+async function runEmployeeLane(state, sqlite, companyId, items) {
+  for (const item of items) {
+    if (state.myEpoch !== currentEpoch) return;
+    if (inFlight.has(item.localId)) continue;
+    await processItem(state, sqlite, companyId, item);
+  }
+}
+
+function wakePump(p) {
+  p.wakeRequested = true;
+  if (p.wake) {
+    const resolve = p.wake;
+    p.wake = null;
+    resolve();
+  }
+}
+
+// `trigger` names which caller started this drain (measurement, plus
+// whether to clear retry backoff - see BACKOFF_RESET_TRIGGERS).
+export async function drainQueue(companyId, trigger = "other") {
+  if (!companyId) return;
+
+  if (BACKOFF_RESET_TRIGGERS.has(trigger)) {
+    await clearBackoff().catch(() => {});
+  }
+
+  if (pump) {
+    if (!pump.closing) {
+      // A drain is already running: wake it so it re-reads the queue and
+      // starts on this new work now (if it has a free slot), instead of
+      // the old behavior of skipping and waiting for the next trigger.
+      Sentry.addBreadcrumb({ category: "queueSync", message: "drainQueue:woke-running", level: "info", data: { trigger } });
+      wakePump(pump);
+      return pump.promise;
+    }
+    // The running drain has already finished its last read - run again
+    // right after it so this call's work is not missed.
+    const closing = pump.promise;
+    return closing.then(() => drainQueue(companyId, trigger));
+  }
 
   // isConnected only means "attached to a network interface," not "that
-  // network can actually reach the internet" - a job-site wifi with a
-  // dead backhaul, or a weak cell signal, can report isConnected: true
-  // while every request past this point would hang. isInternetReachable
-  // is NetInfo's actual reachability probe; treat only a confirmed-false
-  // as a reason to skip (null/undefined means "still checking," and we'd
-  // rather attempt and let the per-step timeouts below catch a bad
-  // network than wait indefinitely for a reachability verdict that may
-  // never arrive either).
+  // network can actually reach the internet". isInternetReachable is
+  // NetInfo's reachability probe; treat only a confirmed-false as a
+  // reason to skip (null/undefined means "still checking," and we'd
+  // rather attempt and let the per-step timeouts catch a bad network).
   const net = await NetInfo.fetch();
   if (!net.isConnected || net.isInternetReachable === false) {
     Sentry.addBreadcrumb({
@@ -605,199 +791,130 @@ export async function drainQueue(companyId, trigger = "other") {
     });
     return;
   }
+  // Re-check: another call may have started a drain during the await.
+  if (pump) return drainQueue(companyId, trigger);
 
-  const myEpoch = ++currentEpoch;
-  syncing = true;
+  const p = {
+    myEpoch: ++currentEpoch,
+    trigger,
+    startedAt: Date.now(),
+    lastProgressAt: Date.now(),
+    wakeRequested: false,
+    wake: null,
+    closing: false,
+    stats: { syncedCount: 0, failedCount: 0, deadCount: 0, slowCount: 0, slowest: null },
+    promise: null,
+  };
+  pump = p;
+  p.promise = runPump(p, companyId).catch((err) => {
+    Sentry.captureException(err, { tags: { area: "queueSync", step: "drain" } });
+  });
   notifyQueueChange();
+  return p.promise;
+}
 
-  let lastProgressAt = Date.now();
+async function runPump(p, companyId) {
+  const { myEpoch, trigger, stats } = p;
+  const lanes = new Map(); // employeeId -> promise
+  const seen = new Set(); // localIds picked up by this drain (summary only)
+  let addedDuringDrain = 0;
 
-  // The lock above must never be held forever, but a FIXED total-duration
-  // cap is the wrong invariant for a queue that can legitimately take
-  // longer than any fixed number to drain (an 85-item backlog, each
-  // taking a few real seconds, easily clears 5 minutes while perfectly
-  // healthy). This only fires when NOTHING has finished - success or
-  // failure - in STALL_THRESHOLD_MS, i.e. truly stuck, not just long.
-  //
-  // Firing here does not stop whatever is currently in flight inside
-  // this drain - it can't, there's no cancellation token that reaches
-  // into syncOne. What it does is bump currentEpoch, making myEpoch
-  // stale. This drain checks that at every checkpoint (top of the loop,
-  // and right after any item settles) and stops touching the database
-  // the moment it notices - so even though it may still be "running" in
-  // the background for up to one more PER_ITEM_TIMEOUT_MS, it can never
-  // again write a status that could clobber what a newer drain does.
+  // The lock must never be held forever. This fires only when NOTHING
+  // has finished - success or failure - in STALL_THRESHOLD_MS, i.e. truly
+  // stuck, not just long. It can't cancel work in flight; it bumps
+  // currentEpoch so this drain stops writing anything, releases the
+  // lock, and clears the in-flight set so a fresh drain can retry those
+  // rows (a retry is safe: same doc id, merge write).
   const stallCheck = setInterval(() => {
     if (myEpoch !== currentEpoch) {
       clearInterval(stallCheck);
       return;
     }
-    if (Date.now() - lastProgressAt > resolveTimeoutMs(STALL_THRESHOLD_MS)) {
+    if (Date.now() - p.lastProgressAt > resolveTimeoutMs(STALL_THRESHOLD_MS)) {
       Sentry.captureMessage("queueSync:stall-forced-unlock", {
         level: "warning",
         tags: { area: "queueSync" },
         contexts: {
-          queueSync: { companyId, inFlightLocalId, stallThresholdMs: resolveTimeoutMs(STALL_THRESHOLD_MS) },
+          queueSync: { companyId, inFlight: [...inFlight], stallThresholdMs: resolveTimeoutMs(STALL_THRESHOLD_MS) },
         },
       });
       currentEpoch++;
-      syncing = false;
+      inFlight.clear();
+      if (pump === p) pump = null;
       notifyQueueChange();
       clearInterval(stallCheck);
+      wakePump(p);
     }
   }, resolveTimeoutMs(STALL_CHECK_INTERVAL_MS));
 
+  let sqlite = null;
   try {
     // Dev-only: hang before any item is even picked up, bypassing every
-    // per-item try/catch below entirely. This is the one fault that
-    // exercises the stall detector as a true last resort rather than the
-    // per-item timeout below.
+    // per-item timeout. Exercises the stall detector as a last resort.
     if (__DEV__ && isFaultActive("hangWholeDrain")) {
       await hangForever();
     }
 
     await cleanupSyncedQueueItems().catch(() => {});
+    sqlite = await getDb();
 
-    const sqlite = await getDb();
-    const pending = await readPendingItems(sqlite);
+    // Keep starting lanes until there is nothing left that's ready.
+    // Re-reads the queue every time a lane finishes or a new drainQueue
+    // call wakes us, so events queued mid-drain are picked up right away.
+    while (myEpoch === currentEpoch) {
+      p.wakeRequested = false;
+      const ready = await readPendingItems(sqlite);
 
-    Sentry.addBreadcrumb({
-      category: "queueSync",
-      message: "drainQueue:start",
-      level: "info",
-      data: { companyId, pendingCount: pending.length },
-    });
-
-    let syncedCount = 0;
-    let failedCount = 0;
-    let deadCount = 0;
-    let slowCount = 0;
-    let slowest = null;
-
-    for (const item of pending) {
-      if (myEpoch !== currentEpoch) break;
-      inFlightLocalId = item.localId;
-
-      await runExclusive(() =>
-        sqlite.runAsync("UPDATE event_queue SET syncStatus = 'syncing' WHERE localId = ?", [item.localId])
-      );
-      notifyQueueChange();
-
-      const timing = { queueWaitMs: Date.now() - item.createdAt, drainAgeMs: Date.now() - drainStartAt };
-
-      // Best-effort, never throws, never blocks the real attempt below.
-      const backupStart = Date.now();
-      await backupItemIfNeeded(sqlite, companyId, item);
-      timing.backupMs = Date.now() - backupStart;
-
-      try {
-        const validationError = validateQueueItem(item);
-        if (validationError) {
-          const err = new Error(`invalid:${validationError}`);
-          err.code = "queue-validation";
-          throw err;
-        }
-
-        await withTimeout(syncOne(sqlite, item, companyId, timing), resolveTimeoutMs(PER_ITEM_TIMEOUT_MS), "item");
-
-        if (myEpoch !== currentEpoch) break;
-        syncedCount++;
-        lastProgressAt = Date.now();
-        const logged = logSyncTiming(item, timing, "synced", trigger);
-        if (timing.tapToServerMs > SLOW_SYNC_REPORT_MS) {
-          slowCount++;
-          if (!slowest || timing.tapToServerMs > slowest.tapToServerMs) slowest = logged;
-        }
-      } catch (err) {
-        if (myEpoch !== currentEpoch) break;
-
-        logSyncTiming(item, { ...timing, error: err.message }, "failed", trigger);
-        console.log("Sync failed for", item.localId, err.message);
-        failedCount++;
-
-        const isValidationFailure = err.code === "queue-validation";
-        const nextAttempts = (item.attempts || 0) + 1;
-        const isDead = isValidationFailure || nextAttempts >= DEAD_LETTER_ATTEMPTS;
-        if (isDead) deadCount++;
-
-        // A persistent failure (attempts keeps climbing) means this item
-        // will never sync on its own - e.g. a Firestore rules rejection,
-        // a malformed field, or a step that keeps timing out - as
-        // opposed to a one-off network blip. Report every failure so
-        // Sentry's grouping/count shows which this is; tag by attempts
-        // bucket and dead-letter state so a chronically-stuck item
-        // stands out from a first-try retry in the issue list.
-        Sentry.captureException(err, {
-          tags: {
-            area: "queueSync",
-            eventType: item.type,
-            source: item.source ?? "unknown",
-            persistent: item.attempts >= 2 ? "true" : "false",
-            deadLetter: isDead ? "true" : "false",
-            invalid: isValidationFailure ? "true" : "false",
-            timedOut: typeof err.message === "string" && err.message.startsWith("timeout:") ? "true" : "false",
-          },
-          contexts: {
-            clockQueueItem: {
-              localId: item.localId,
-              companyId,
-              employeeId: item.employeeId,
-              type: item.type,
-              source: item.source,
-              attempts: nextAttempts,
-              hasPhoto: !!item.photoLocalUri,
-              errorMessage: err.message,
-              errorCode: err.code,
-            },
-            ...(err.photoDiagnostics ? { photo: err.photoDiagnostics } : {}),
-            ...(err.rejectedPayload ? { rejectedPayload: err.rejectedPayload } : {}),
-          },
-        });
-
-        await runExclusive(() =>
-          sqlite.runAsync(
-            "UPDATE event_queue SET syncStatus = ?, attempts = ?, lastError = ? WHERE localId = ?",
-            [isDead ? "dead" : "failed", nextAttempts, err.message || "Unknown error", item.localId]
-          )
-        );
-        notifyQueueChange();
-        lastProgressAt = Date.now();
+      const byEmployee = new Map();
+      for (const item of ready) {
+        if (!byEmployee.has(item.employeeId)) byEmployee.set(item.employeeId, []);
+        byEmployee.get(item.employeeId).push(item);
       }
-    }
 
-    inFlightLocalId = null;
+      for (const [employeeId, items] of byEmployee) {
+        if (lanes.size >= MAX_PARALLEL_EMPLOYEES) break;
+        if (lanes.has(employeeId)) continue;
+        for (const item of items) {
+          if (!seen.has(item.localId)) {
+            seen.add(item.localId);
+            if (item.createdAt >= p.startedAt) addedDuringDrain++;
+          }
+        }
+        const lane = runEmployeeLane(p, sqlite, companyId, items).finally(() => lanes.delete(employeeId));
+        lanes.set(employeeId, lane);
+      }
 
-    // Events queued while this drain was running were never in its
-    // snapshot, so they wait for the next trigger. Counted here to show
-    // how often that happens.
-    let addedDuringDrain = null;
-    try {
-      const row = await sqlite.getFirstAsync(
-        "SELECT COUNT(*) as c FROM event_queue WHERE syncStatus IN ('pending','failed') AND createdAt >= ?",
-        [drainStartAt]
-      );
-      addedDuringDrain = row ? row.c : 0;
-    } catch {
-      // measurement only
+      if (lanes.size === 0) {
+        if (p.wakeRequested) continue;
+        break;
+      }
+      const woken = new Promise((resolve) => {
+        p.wake = resolve;
+      });
+      await Promise.race([...lanes.values(), woken]);
+      p.wake = null;
     }
+    // From here on a new drainQueue call queues behind this one.
+    p.closing = true;
+    await Promise.all(lanes.values());
 
     const drainSummary = {
       trigger,
-      startCount: pending.length,
-      syncedCount,
-      failedCount,
-      deadCount,
+      startCount: seen.size,
+      syncedCount: stats.syncedCount,
+      failedCount: stats.failedCount,
+      deadCount: stats.deadCount,
       addedDuringDrain,
-      slowCount,
-      drainMs: Date.now() - drainStartAt,
+      slowCount: stats.slowCount,
+      drainMs: Date.now() - p.startedAt,
     };
     console.log("[sync-timing] drain", JSON.stringify(drainSummary));
     // At most one Sentry event per drain, carrying the slowest item.
-    if (slowest) {
+    if (stats.slowest) {
       Sentry.captureMessage("queueSync:slow", {
         level: "warning",
-        tags: { area: "queueSync", trigger, hasPhoto: slowest.photoBytes != null ? "true" : "false" },
-        contexts: { drainSummary, slowestItem: slowest },
+        tags: { area: "queueSync", trigger, hasPhoto: stats.slowest.photoBytes != null ? "true" : "false" },
+        contexts: { drainSummary, slowestItem: stats.slowest },
       });
     }
     Sentry.addBreadcrumb({
@@ -809,23 +926,19 @@ export async function drainQueue(companyId, trigger = "other") {
 
     // Records that a drain pass ran to completion (online, reached
     // Firestore) - independent of whether every individual item
-    // succeeded; per-item failures stay visible in the Sync Queue tab
-    // itself. Drives Settings' "last successful sync" display.
+    // succeeded. Drives Settings' "last successful sync" display.
     if (myEpoch === currentEpoch) {
       await runExclusive(() =>
         sqlite.runAsync("INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('queueLastSync', ?)", [String(Date.now())])
       ).catch(() => {});
-      notifyQueueChange();
+      await scheduleBackoffRetry(sqlite, companyId);
     }
   } finally {
     clearInterval(stallCheck);
-    // Only release the lock if this is still the drain currentEpoch
-    // recognizes. If the stall detector already abandoned this epoch,
-    // the lock state is already whatever it set - this drain releasing
-    // it again (or stomping on a newer drain's lock) would reintroduce
-    // the exact two-drains-at-once bug the epoch check exists to stop.
-    if (myEpoch === currentEpoch) {
-      syncing = false;
+    p.closing = true;
+    // Only release the lock if the stall detector hasn't already.
+    if (pump === p) {
+      pump = null;
       notifyQueueChange();
     }
   }
@@ -849,7 +962,7 @@ export async function retryQueueItem(localId) {
   const sqlite = await getDb();
   await runExclusive(() =>
     sqlite.runAsync(
-      "UPDATE event_queue SET syncStatus = 'pending', attempts = 0, lastError = NULL WHERE localId = ?",
+      "UPDATE event_queue SET syncStatus = 'pending', attempts = 0, lastError = NULL, nextAttemptAt = NULL WHERE localId = ?",
       [localId]
     )
   );

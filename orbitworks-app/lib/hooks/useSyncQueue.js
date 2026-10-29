@@ -88,9 +88,8 @@ export function useSyncQueue() {
   // was pressed, since nothing ever pulled fresh server state back down.
   // syncPinTable() is what actually refreshes pin_cache.lastEventType/
   // lastEventTimestamp that getCurrentLocalStatus (clockStatusLocal.js)
-  // compares against - drainQueue's own `syncing` guard still makes the
-  // push half a no-op if a drain is already running, so this never opens
-  // a second concurrent flush there.
+  // compares against. If a drain is already running, drainQueue wakes it
+  // (and clears retry backoff) rather than starting a second one.
   const syncNow = useCallback(async () => {
     if (!companyId) return;
     setPulling(true);
