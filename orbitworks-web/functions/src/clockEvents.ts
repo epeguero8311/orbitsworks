@@ -1,5 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { onDocumentCreated, type FirestoreEvent } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentUpdated, type FirestoreEvent } from "firebase-functions/v2/firestore";
 import { defineBoolean } from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import { Timestamp } from "firebase-admin/firestore";
@@ -630,10 +630,39 @@ export const onClockEventCreated = onDocumentCreated(
     // timesheetApproval/overrideEvent writes, or any alert check above
     // it. checkFaceMatch re-fetches the event itself and does its own
     // Pro/enabled/pfp guards - see functions/src/rekognition.ts.
+    // claim: the mobile app now attaches the photo after the doc (sync
+    // speed step 3), so onClockEventPhotoAdded below may also see it -
+    // the claim makes sure only one of the two runs the check. For an
+    // event created without a photo this returns early (no photoUrl yet)
+    // and onClockEventPhotoAdded does the check once the photo lands.
     try {
-      await checkFaceMatch(companyId, event.params.eventId);
+      await checkFaceMatch(companyId, event.params.eventId, { claim: true });
     } catch (err) {
       console.warn("Face check failed", { eventId: event.params.eventId, companyId, error: String(err) });
+    }
+  }
+);
+
+// Face check for a photo that arrives after its clock event (sync speed
+// step 3: the mobile app writes the event doc first with photoPending:
+// true and no photoUrl, uploads the photo, then merges photoUrl in).
+// Fires on every clock event update, so it exits on the first line for
+// anything but "photoUrl went from absent/empty to set". Old app versions
+// write photoUrl at create time, which never matches here - their check
+// stays in onClockEventCreated, exactly as before.
+export const onClockEventPhotoAdded = onDocumentUpdated(
+  {
+    document: "companies/{companyId}/clockEvents/{eventId}",
+    secrets: [REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY],
+  },
+  async (event) => {
+    const before = event.data?.before.data() as { photoUrl?: string | null } | undefined;
+    const after = event.data?.after.data() as { photoUrl?: string | null; faceCheck?: unknown } | undefined;
+    if (!after?.photoUrl || before?.photoUrl || after.faceCheck) return;
+    try {
+      await checkFaceMatch(event.params.companyId, event.params.eventId, { claim: true });
+    } catch (err) {
+      console.warn("Face check failed", { eventId: event.params.eventId, companyId: event.params.companyId, error: String(err) });
     }
   }
 );

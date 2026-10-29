@@ -25,7 +25,7 @@ export function useLocalStatusOverlay(employees) {
       `SELECT employeeId, type, MAX(clientTimestamp) as latestTs
        FROM event_queue
        WHERE syncStatus IN ('pending','syncing','failed')
-          OR (syncStatus = 'synced' AND clientTimestamp > ?)
+          OR (syncStatus IN ('synced','photoPending') AND clientTimestamp > ?)
        GROUP BY employeeId`,
       [Date.now() - GRACE_MS]
     );

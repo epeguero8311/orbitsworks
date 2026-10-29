@@ -8,10 +8,20 @@ import DevSyncFaultPanel from "../components/DevSyncFaultPanel";
 import Spinner from "../components/Spinner";
 
 const ACTION_LABEL = { in: "Clock In", out: "Clock Out", breakStart: "Break Start", breakEnd: "Break End" };
-const STATUS_LABEL = { pending: "Waiting", syncing: "Syncing", synced: "Synced", failed: "Failed", dead: "Stuck" };
+// photoPending: the clock event itself is already on the server; only its
+// photo is still uploading (see queueSync.js sendDoc/sendPhoto).
+const STATUS_LABEL = {
+  pending: "Waiting",
+  syncing: "Syncing",
+  photoPending: "Sent - photo uploading",
+  synced: "Synced",
+  failed: "Failed",
+  dead: "Stuck",
+};
 
 function statusColor(status, colors) {
   if (status === "synced") return colors.green;
+  if (status === "photoPending") return colors.accent;
   if (status === "failed") return colors.red;
   if (status === "dead") return colors.red;
   if (status === "syncing") return colors.accent;
@@ -101,6 +111,16 @@ export default function SyncQueueScreen() {
               <View style={styles.failedRow}>
                 <Text style={[styles.failedReason, { color: colors.red }]} numberOfLines={2}>
                   {describeError(item.lastError)}
+                </Text>
+                <TouchableOpacity onPress={syncNow} disabled={syncing || !online}>
+                  <Text style={[styles.retry, { color: colors.accent }]}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {item.syncStatus === "photoPending" && !!item.lastError && (
+              <View style={styles.failedRow}>
+                <Text style={[styles.failedReason, { color: colors.subtext }]} numberOfLines={2}>
+                  Clock event saved. {describeError(item.lastError)}
                 </Text>
                 <TouchableOpacity onPress={syncNow} disabled={syncing || !online}>
                   <Text style={[styles.retry, { color: colors.accent }]}>Retry</Text>

@@ -57,6 +57,29 @@ export function sourceLabel(source: ClockEvent["source"]): { text: string; class
   }
 }
 
+// A photo still "pending" this long after the clock event is treated as
+// never arriving. The phone normally attaches it within seconds to a few
+// minutes; it only retries while the app is open, so a long gap means
+// the phone stopped trying (app deleted, phone lost, upload gave up).
+export const PHOTO_OVERDUE_MS = 6 * 60 * 60 * 1000;
+
+export type PhotoStatus = "ready" | "pending" | "missing" | "none";
+
+// Where a clock event's photo stands. "missing" covers both an explicit
+// photoMissing flag from the phone and a photo that stayed pending past
+// PHOTO_OVERDUE_MS. "none" = this event never had a photo (break,
+// override, admin entry, or an old event recorded without one).
+export function photoStatus(event: ClockEvent, nowMs: number = Date.now()): PhotoStatus {
+  if (event.photoUrl) return "ready";
+  if (event.photoMissing) return "missing";
+  if (event.photoPending) {
+    const tsMs = event.timestamp ? event.timestamp.toDate().getTime() : null;
+    if (tsMs != null && nowMs - tsMs > PHOTO_OVERDUE_MS) return "missing";
+    return "pending";
+  }
+  return "none";
+}
+
 // Face Verification (Pro). Unlike sourceLabel/typeLabel above, "not
 // checked" (faceCheck absent entirely) is a real, explicit badge state
 // here, not a silent render-nothing - it covers every reason the check

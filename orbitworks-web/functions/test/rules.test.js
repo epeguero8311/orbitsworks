@@ -371,3 +371,123 @@ test("client still cannot change planTier itself even to unlock faceVerification
     })
   );
 });
+
+// Sync speed step 3 (mobile doc-first, photo-after). No rules change -
+// these pin down that the new mobile write sequence passes the EXISTING
+// create rule + isIdempotentReplay, and that it didn't loosen anything.
+// Writes are setDoc(..., { merge: true }) exactly like queueSync.js.
+const SUP_UID = "sup-uid";
+async function seedSupervisor() {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "companies", COMPANY_A, "employees", "sup-emp"), {
+      name: "Sam Supervisor",
+      active: true,
+      isSupervisor: true,
+      assignedSiteIds: [],
+    });
+  });
+}
+function supervisorContext(uid = SUP_UID, employeeId = "sup-emp") {
+  return testEnv.authenticatedContext(uid, { companyId: COMPANY_A, role: "supervisor", employeeId });
+}
+function docFirstPayload(localId) {
+  return {
+    localId,
+    employeeId: "emp1",
+    employeeName: "Jordan",
+    siteId: null,
+    siteName: "Not specified",
+    subcontractorId: null,
+    subcontractorName: null,
+    type: "in",
+    source: "pin",
+    photoPending: true,
+    note: null,
+    authorizedById: null,
+    authorizedByName: null,
+    reason: null,
+    overrideEventId: null,
+    deviceId: "3f0f6b8e-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+    deviceNameSnapshot: null,
+    createdByUid: SUP_UID,
+    clientTimestamp: new Date("2026-10-29T14:00:00Z"),
+    timestamp: new Date("2026-10-29T14:00:00Z"),
+    createdAt: new Date("2026-10-29T14:00:00Z"),
+  };
+}
+const PHOTO_URL = "https://firebasestorage.googleapis.com/v0/b/x/o/companies%2FcompanyA%2FclockEvents%2Femp1%2Fl1.jpg?alt=media&token=t";
+
+test("doc-first: supervisor creates clockEvent with photoPending and no photoUrl", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  await assertSucceeds(setDoc(doc(db, "companies", COMPANY_A, "clockEvents", "l1"), docFirstPayload("l1"), { merge: true }));
+});
+
+test("doc-first: same supervisor merges { photoUrl, photoPending:false } afterwards", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  const ref = doc(db, "companies", COMPANY_A, "clockEvents", "l1");
+  await assertSucceeds(setDoc(ref, docFirstPayload("l1"), { merge: true }));
+  await assertSucceeds(setDoc(ref, { photoUrl: PHOTO_URL, photoPending: false }, { merge: true }));
+});
+
+test("doc-first: replaying the doc payload after the photo landed keeps photoUrl", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  const ref = doc(db, "companies", COMPANY_A, "clockEvents", "l1");
+  await assertSucceeds(setDoc(ref, docFirstPayload("l1"), { merge: true }));
+  await assertSucceeds(setDoc(ref, { photoUrl: PHOTO_URL, photoPending: false }, { merge: true }));
+  await assertSucceeds(setDoc(ref, docFirstPayload("l1"), { merge: true }));
+  const snap = await getDoc(ref);
+  assert.equal(snap.data().photoUrl, PHOTO_URL);
+});
+
+test("doc-first: supervisor can flag a lost photo with { photoPending:false, photoMissing:true }", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  const ref = doc(db, "companies", COMPANY_A, "clockEvents", "l1");
+  await assertSucceeds(setDoc(ref, docFirstPayload("l1"), { merge: true }));
+  await assertSucceeds(setDoc(ref, { photoPending: false, photoMissing: true }, { merge: true }));
+});
+
+test("doc-first: a DIFFERENT supervisor cannot attach a photo (isIdempotentReplay unchanged)", async () => {
+  await seedSupervisor();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "companies", COMPANY_A, "employees", "sup2-emp"), {
+      name: "Other Supervisor",
+      active: true,
+      isSupervisor: true,
+    });
+  });
+  await assertSucceeds(
+    setDoc(doc(supervisorContext().firestore(), "companies", COMPANY_A, "clockEvents", "l1"), docFirstPayload("l1"), { merge: true })
+  );
+  const other = supervisorContext("sup2-uid", "sup2-emp").firestore();
+  await assertFails(
+    setDoc(doc(other, "companies", COMPANY_A, "clockEvents", "l1"), { photoUrl: PHOTO_URL, photoPending: false }, { merge: true })
+  );
+});
+
+test("doc-first: supervisor still cannot set faceCheck alongside the photo merge", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  const ref = doc(db, "companies", COMPANY_A, "clockEvents", "l1");
+  await assertSucceeds(setDoc(ref, docFirstPayload("l1"), { merge: true }));
+  await assertFails(setDoc(ref, { photoUrl: PHOTO_URL, photoPending: false, faceCheck: FAKE_FACE_CHECK }, { merge: true }));
+});
+
+test("old app versions: create with photoUrl in the same write still succeeds", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  const { photoPending, ...oldPayload } = docFirstPayload("l-old");
+  void photoPending;
+  await assertSucceeds(
+    setDoc(doc(db, "companies", COMPANY_A, "clockEvents", "l-old"), { ...oldPayload, photoUrl: PHOTO_URL }, { merge: true })
+  );
+});
+
+test("faceCheckClaims is server-only: clients can neither read nor write it", async () => {
+  const db = adminContext().firestore();
+  await assertFails(setDoc(doc(db, "companies", COMPANY_A, "faceCheckClaims", "l1"), { claimedAt: new Date() }));
+  await assertFails(getDoc(doc(db, "companies", COMPANY_A, "faceCheckClaims", "l1")));
+});

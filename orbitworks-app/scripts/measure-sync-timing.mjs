@@ -4,8 +4,11 @@
 //   tap         - createdAt (set on the phone when the employee tapped)
 //   photo done  - the Storage object's timeCreated (upload finished)
 //   on server   - the Firestore doc's createTime
-// The photo's filename is Date.now() at upload start, which gives the
-// upload duration and the time the event spent waiting in the queue.
+// Old app versions name the photo Date.now() at upload start, which gives
+// the upload duration and the time the event spent waiting in the queue.
+// From sync speed step 3 on, the doc is written first and the photo is
+// named {localId}.jpg and attached after - photoLandS is then tap -> photo
+// in Storage, and tapToServerS is tap -> event doc on the server.
 //
 // Uses your gcloud login (gcloud auth print-access-token). Never writes.
 //
@@ -75,9 +78,11 @@ for (const d of docs) {
     tapToServerS: +((onServer - tap) / 1000).toFixed(1),
     queueWaitS: null,
     uploadS: null,
+    photoLandS: null,
     KB: null,
     KBps: null,
     photoPending: f.photoPending?.booleanValue ?? null,
+    photoMissing: f.photoMissing?.booleanValue ?? null,
     employee: (f.employeeName?.stringValue || "-").slice(0, 16),
     face: f.faceCheck?.mapValue?.fields?.status?.stringValue || "",
     similarity: (() => {
@@ -96,6 +101,7 @@ for (const d of docs) {
     if (meta) {
       const done = Date.parse(meta.timeCreated);
       row.KB = Math.round(Number(meta.size) / 1024);
+      row.photoLandS = +((done - tap) / 1000).toFixed(1);
       if (startMatch) {
         const start = Number(startMatch[1]);
         row.queueWaitS = +((start - tap) / 1000).toFixed(1);
@@ -119,5 +125,9 @@ console.log({
   tapToServerMedianS: median(rows.map((r) => r.tapToServerS)),
   tapToServerMaxS: rows.length ? max(rows.map((r) => r.tapToServerS)) : null,
   uploadMedianS: median(rows.map((r) => r.uploadS)),
+  photoLandMedianS: median(rows.map((r) => r.photoLandS)),
+  photoLandMaxS: rows.some((r) => r.photoLandS != null) ? max(rows.map((r) => r.photoLandS)) : null,
+  stillPhotoPending: rows.filter((r) => r.photoPending === true).length,
+  photoMissing: rows.filter((r) => r.photoMissing === true).length,
   photoMedianKB: median(rows.map((r) => r.KB)),
 });

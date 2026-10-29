@@ -94,6 +94,25 @@ export async function isProCompany(companyId: string): Promise<boolean> {
   return !!company && isProPlan(company.planTier);
 }
 
+// True if this call won the right to run the face check for this event
+// (see checkFaceMatch's `claim`). create() fails with ALREADY_EXISTS when
+// another invocation got there first.
+const ALREADY_EXISTS = 6;
+async function claimFaceCheck(companyId: string, eventId: string): Promise<boolean> {
+  try {
+    await db
+      .collection("companies")
+      .doc(companyId)
+      .collection("faceCheckClaims")
+      .doc(eventId)
+      .create({ claimedAt: admin.firestore.FieldValue.serverTimestamp() });
+    return true;
+  } catch (err) {
+    if ((err as { code?: number }).code === ALREADY_EXISTS) return false;
+    throw err;
+  }
+}
+
 type ClockEventFaceData = {
   photoUrl?: string;
   faceCheck?: unknown;
@@ -118,7 +137,21 @@ type EmployeeFaceData = {
 // (after it deletes the stale faceCheck for the new employee - see
 // clockEvents.ts's 6.6 comment for why that call can't just rely on a
 // trigger re-firing).
-export async function checkFaceMatch(companyId: string, eventId: string): Promise<void> {
+//
+// `claim: true` (the two clock event triggers) makes this run at most once
+// per event. The mobile app now writes the event doc first and attaches
+// photoUrl a moment later, so both onClockEventCreated (if the photo has
+// already arrived by the time it gets here) and onClockEventPhotoAdded
+// can see the photo. The first to create faceCheckClaims/{eventId} runs
+// the check; the other returns. Server-only collection (rules deny all
+// client access), so a client can never pre-claim an event to skip its
+// check. reassignClockEvent deliberately does not claim - it is an
+// admin-requested re-check after clearing the old faceCheck.
+export async function checkFaceMatch(
+  companyId: string,
+  eventId: string,
+  opts: { claim?: boolean } = {}
+): Promise<void> {
   try {
     const eventRef = db.collection("companies").doc(companyId).collection("clockEvents").doc(eventId);
     const eventSnap = await eventRef.get();
@@ -136,6 +169,8 @@ export async function checkFaceMatch(companyId: string, eventId: string): Promis
     if (employee.faceReference?.status === "bad" && employee.faceReference.photoUrl === employee.photoUrl) {
       return;
     }
+
+    if (opts.claim && !(await claimFaceCheck(companyId, eventId))) return;
 
     const referencePath = storagePathFromDownloadUrl(employee.photoUrl);
     const targetPath = storagePathFromDownloadUrl(data.photoUrl);

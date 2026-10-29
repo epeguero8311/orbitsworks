@@ -2,7 +2,7 @@
 
 import { ClockEvent } from "@/lib/types";
 import { effectiveDate, sourceLabel } from "@/lib/clockEventDetailUtils";
-import { faceCheckLabel } from "@/lib/clockStatus";
+import { faceCheckLabel, photoStatus } from "@/lib/clockStatus";
 import { EventLocation } from "@/components/time/EventLocation";
 import { GeofenceDetail } from "@/components/time/GeofenceDetail";
 
@@ -53,6 +53,15 @@ export function EventSide({
   }
 
   const badge = sourceLabel(event.source);
+  // Shown in place of the photo when there isn't one (yet).
+  const photoState = photoStatus(event);
+  const noPhotoText =
+    photoState === "pending"
+      ? "Photo uploading from the phone"
+      : photoState === "missing"
+        ? "Photo was taken but never arrived"
+        : "No photo recorded";
+  const noPhotoClass = photoState === "missing" ? "text-red-700" : "text-gray-600";
   const faceBadge = faceCheckLabel(event.faceCheck);
   // Admin/supervisor only, per spec - the whole Time Tracking page this
   // modal opens from is already admin/owner-only (supervisors are
@@ -92,8 +101,8 @@ export function EventSide({
               {event.photoUrl ? (
                 <img src={event.photoUrl} alt={`${label} proof photo`} className="h-full w-full object-cover" />
               ) : (
-                <div className="flex h-full w-full items-center justify-center text-xs text-gray-600">
-                  No photo recorded
+                <div className={`flex h-full w-full items-center justify-center px-2 text-center text-xs ${noPhotoClass}`}>
+                  {noPhotoText}
                 </div>
               )}
             </div>
@@ -118,8 +127,8 @@ export function EventSide({
               className="h-full w-full object-cover"
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center text-xs text-gray-600">
-              No photo recorded
+            <div className={`flex h-full w-full items-center justify-center px-2 text-center text-xs ${noPhotoClass}`}>
+              {noPhotoText}
             </div>
           )}
         </div>

@@ -456,3 +456,103 @@ test("onEmployeePhotoWrite: new pfp with 0 faces sets faceReference bad + faceBa
   assert.ok(badRefSnap.exists);
   assert.equal(badRefSnap.data().alertType, "faceBadReference");
 });
+
+// Sync speed step 3: the mobile app writes the clock event first and
+// attaches photoUrl a moment later. onClockEventPhotoAdded runs the face
+// check when the photo appears; a claim doc makes sure the create trigger
+// and the update trigger can never both run it for one event.
+function fakeClockEventUpdate({ companyId, eventId, beforeData, afterData }) {
+  return {
+    params: { companyId, eventId },
+    data: { before: { data: () => beforeData }, after: { data: () => afterData } },
+  };
+}
+
+test("claim: two claimed checks racing on one event make ONE Rekognition call", async () => {
+  const companyId = "face-claim-race";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "emp1");
+  await seedClockEvent(companyId, "evt1");
+  sendImpl = async () => ({ FaceMatches: [{ Similarity: 99.1 }], UnmatchedFaces: [] });
+  sendCallCount = 0;
+
+  await Promise.all([
+    rekognitionModule.checkFaceMatch(companyId, "evt1", { claim: true }),
+    rekognitionModule.checkFaceMatch(companyId, "evt1", { claim: true }),
+  ]);
+
+  assert.equal(sendCallCount, 1);
+  assert.equal((await getEvent(companyId, "evt1")).faceCheck.status, "match");
+});
+
+test("onClockEventPhotoAdded: photo attached after the doc runs the face check once", async () => {
+  const companyId = "face-photo-added";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "emp1");
+  await seedClockEvent(companyId, "evt1", { photoPending: true });
+  await db.collection("companies").doc(companyId).collection("clockEvents").doc("evt1")
+    .update({ photoUrl: admin.firestore.FieldValue.delete() });
+  sendImpl = async () => ({ FaceMatches: [{ Similarity: 12.5 }], UnmatchedFaces: [] });
+  sendCallCount = 0;
+
+  // The create trigger's check finds no photo yet and does nothing.
+  await rekognitionModule.checkFaceMatch(companyId, "evt1", { claim: true });
+  assert.equal(sendCallCount, 0);
+
+  await db.collection("companies").doc(companyId).collection("clockEvents").doc("evt1")
+    .set({ photoUrl: CLOCK_PHOTO_URL, photoPending: false }, { merge: true });
+  const before = { employeeId: "emp1", photoPending: true };
+  const after = { employeeId: "emp1", photoPending: false, photoUrl: CLOCK_PHOTO_URL };
+  await funcs.onClockEventPhotoAdded.run(fakeClockEventUpdate({ companyId, eventId: "evt1", beforeData: before, afterData: after }));
+  // Firestore can deliver the same update event twice - must not re-run.
+  await funcs.onClockEventPhotoAdded.run(fakeClockEventUpdate({ companyId, eventId: "evt1", beforeData: before, afterData: after }));
+
+  assert.equal(sendCallCount, 1);
+  const event = await getEvent(companyId, "evt1");
+  assert.equal(event.faceCheck.status, "mismatch");
+  assert.equal((await getAlertsByType(companyId, "faceMismatch")).length, 1);
+});
+
+test("onClockEventPhotoAdded: photoUrl already present before (old app / server enrichment) never re-checks", async () => {
+  const companyId = "face-photo-already";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "emp1");
+  await seedClockEvent(companyId, "evt1");
+  sendImpl = async () => ({ FaceMatches: [{ Similarity: 99 }], UnmatchedFaces: [] });
+  sendCallCount = 0;
+
+  // An old app version's replay can change photoUrl to a fresh upload;
+  // geofence/site enrichment updates leave it unchanged. Neither is
+  // "photo first appeared".
+  await funcs.onClockEventPhotoAdded.run(fakeClockEventUpdate({
+    companyId, eventId: "evt1",
+    beforeData: { photoUrl: CLOCK_PHOTO_URL },
+    afterData: { photoUrl: CLOCK_PHOTO_URL + "&v=2" },
+  }));
+  await funcs.onClockEventPhotoAdded.run(fakeClockEventUpdate({
+    companyId, eventId: "evt1",
+    beforeData: { photoUrl: CLOCK_PHOTO_URL },
+    afterData: { photoUrl: CLOCK_PHOTO_URL, geofenceStatus: "inside" },
+  }));
+
+  assert.equal(sendCallCount, 0);
+});
+
+test("old app path: create trigger's claimed check runs; a later photo-added event for it does not run again", async () => {
+  const companyId = "face-old-app";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "emp1");
+  await seedClockEvent(companyId, "evt1"); // photoUrl set at create, like 1.1.2
+  sendImpl = async () => ({ FaceMatches: [{ Similarity: 100 }], UnmatchedFaces: [] });
+  sendCallCount = 0;
+
+  await rekognitionModule.checkFaceMatch(companyId, "evt1", { claim: true });
+  await funcs.onClockEventPhotoAdded.run(fakeClockEventUpdate({
+    companyId, eventId: "evt1",
+    beforeData: { photoUrl: null },
+    afterData: { photoUrl: CLOCK_PHOTO_URL },
+  }));
+
+  assert.equal(sendCallCount, 1);
+  assert.equal((await getEvent(companyId, "evt1")).faceCheck.similarity, 100);
+});

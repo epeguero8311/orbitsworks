@@ -15,7 +15,7 @@ import {
   clearAllSyncFaults,
 } from "../lib/syncFaults";
 
-const STATUS_ORDER = ["pending", "syncing", "failed", "dead", "synced"];
+const STATUS_ORDER = ["pending", "syncing", "photoPending", "failed", "dead", "synced"];
 
 // Dev-only panel for the Sync Queue tab. Lets a developer flip sync
 // fault switches and watch the queue's live state while doing it.
