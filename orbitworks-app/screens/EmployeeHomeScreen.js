@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { Modal, View, ScrollView, StyleSheet } from "react-native";
+import { View, ScrollView, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../lib/AuthContext";
 import { lightColors as colors, spacing } from "../lib/theme";
@@ -119,17 +119,14 @@ export default function EmployeeHomeScreen({ navigation }) {
         onConfirm={breakPunch.confirm}
         onCancel={breakPunch.cancel}
       />
-      {/* In a Modal so the green screen also covers the floating tab bar. */}
-      <Modal visible={!!done} transparent animationType="fade" onRequestClose={breakPunch.clearResult}>
-        {done ? (
-          <PunchConfirmation
-            title={BREAK_DONE[done.type]}
-            timeLabel={formatClockTime(done.timestampMs, timezone)}
-            siteName={siteLabel(done.siteName)}
-            onClose={breakPunch.clearResult}
-          />
-        ) : null}
-      </Modal>
+      {done ? (
+        <PunchConfirmation
+          title={BREAK_DONE[done.type]}
+          timeLabel={formatClockTime(done.timestampMs, timezone)}
+          siteName={siteLabel(done.siteName)}
+          onClose={breakPunch.clearResult}
+        />
+      ) : null}
     </View>
   );
 }
