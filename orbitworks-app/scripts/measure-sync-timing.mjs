@@ -78,7 +78,12 @@ for (const d of docs) {
     KB: null,
     KBps: null,
     photoPending: f.photoPending?.booleanValue ?? null,
+    employee: (f.employeeName?.stringValue || "-").slice(0, 16),
     face: f.faceCheck?.mapValue?.fields?.status?.stringValue || "",
+    similarity: (() => {
+      const s = f.faceCheck?.mapValue?.fields?.similarity;
+      return s?.doubleValue ?? (s?.integerValue != null ? Number(s.integerValue) : null);
+    })(),
   };
   const url = f.photoUrl?.stringValue;
   if (url) {
