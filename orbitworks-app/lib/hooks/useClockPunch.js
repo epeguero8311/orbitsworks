@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { checkPin, isOnline, newRequestId, sendPunch, uploadClockPhoto } from "../employeeClockApi";
 import { clockErrorMessage, errorStep, lockSecondsLeft, NO_SIGNAL, stepAfterPinOk } from "../employeeHome";
+import { outcomeOf, startPunchTimer } from "../punchTimings";
 
 // Employee App clock in / out flow:
 //   PIN -> server checks the PIN -> live photo -> upload + punch -> confirmation.
@@ -23,8 +24,12 @@ export function useClockPunch({ action, companyId, employeeId }) {
   const [result, setResult] = useState(null);
   // What "Try again" repeats: the PIN check or the punch.
   const [retryWhat, setRetryWhat] = useState("punch");
+  // Dev-build-only step timings (lib/punchTimings.js). Starts when the
+  // screen opens (the Clock in / Clock out tap).
+  const [timer] = useState(() => startPunchTimer(action));
 
   const fail = useCallback(async (err, what) => {
+    timer.finish(outcomeOf(err));
     setError(clockErrorMessage(err, await isOnline()));
     const next = errorStep(err);
     if (next === "pin") {
@@ -41,7 +46,7 @@ export function useClockPunch({ action, companyId, employeeId }) {
       setRetryWhat(what);
       setStep("retry");
     }
-  }, []);
+  }, [timer]);
 
   const submit = useCallback(
     async (pinValue, uri) => {
@@ -55,14 +60,17 @@ export function useClockPunch({ action, companyId, employeeId }) {
       }
       try {
         const photoPath = await uploadClockPhoto({ companyId, employeeId, requestId, localUri: uri });
+        timer.mark("uploaded");
         const res = await sendPunch({ action, requestId, pin: pinValue, photoPath });
+        timer.mark("punched");
+        timer.finish("ok");
         setResult(res);
         setStep("done");
       } catch (err) {
         await fail(err, "punch");
       }
     },
-    [action, companyId, employeeId, requestId, fail]
+    [action, companyId, employeeId, requestId, fail, timer]
   );
 
   const verify = useCallback(
@@ -77,6 +85,7 @@ export function useClockPunch({ action, companyId, employeeId }) {
       }
       try {
         await checkPin({ action, requestId, pin: pinValue });
+        timer.mark("pinChecked");
         setLockedUntil(0);
         if (stepAfterPinOk(!!keptUri) === "sending") submit(pinValue, keptUri);
         else setStep("camera");
@@ -84,7 +93,7 @@ export function useClockPunch({ action, companyId, employeeId }) {
         await fail(err, "check");
       }
     },
-    [action, requestId, submit, fail]
+    [action, requestId, submit, fail, timer]
   );
 
   const pressDigit = useCallback(
@@ -93,19 +102,22 @@ export function useClockPunch({ action, companyId, employeeId }) {
       const next = (pin + digit).slice(0, 4);
       setPin(next);
       if (next.length < 4) return;
+      timer.mark("pinTyped");
       verify(next, photoUri);
     },
-    [pin, photoUri, step, verify]
+    [pin, photoUri, step, verify, timer]
   );
 
   const deleteDigit = useCallback(() => setPin((p) => p.slice(0, -1)), []);
 
   const submitPhoto = useCallback(
     (uri) => {
+      timer.mark("photoTaken");
+      timer.notePhoto(uri);
       setPhotoUri(uri);
       submit(pin, uri);
     },
-    [pin, submit]
+    [pin, submit, timer]
   );
 
   const retry = useCallback(

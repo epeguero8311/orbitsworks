@@ -9,6 +9,7 @@ import { makeStyles } from "../../lib/makeStyles";
 import { MOCK_SETTINGS } from "../../lib/mockData";
 import TabPage from "../../components/ui/TabPage";
 import ListRow from "../../components/ui/ListRow";
+import DevPunchTimings from "../../components/employee/DevPunchTimings";
 
 // Employee App Settings tab - LAYOUT ONLY. The info, Notifications /
 // Location and "Last synced" are mock data (lib/mockData.js) and those
@@ -72,6 +73,8 @@ export default function EmployeeSettingsScreen() {
           <Text style={styles.rowText}>App version</Text>
         </ListRow>
       </View>
+
+      <DevPunchTimings />
 
       <View style={styles.section}>
         <ListRow

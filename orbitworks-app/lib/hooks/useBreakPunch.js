@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { isOnline, newRequestId, sendPunch } from "../employeeClockApi";
 import { clockErrorMessage, NO_SIGNAL } from "../employeeHome";
+import { outcomeOf, startPunchTimer } from "../punchTimings";
 
 // Employee App breaks: one tap, a confirm, then send. No PIN, no photo.
 //   pending: "breakStart" | "breakEnd" | null (the confirm is showing)
@@ -28,15 +29,21 @@ export function useBreakPunch() {
     if (!pending || !requestId) return;
     setSending(true);
     setError("");
+    // Dev-build-only timing (lib/punchTimings.js): confirm tap -> reply.
+    const timer = startPunchTimer(pending);
+    timer.mark("sendStart");
     try {
       if (!(await isOnline())) {
         setError(NO_SIGNAL);
         return;
       }
       const res = await sendPunch({ action: pending, requestId });
+      timer.mark("punched");
+      timer.finish("ok");
       setPending(null);
       setResult(res);
     } catch (err) {
+      timer.finish(outcomeOf(err));
       setError(clockErrorMessage(err, await isOnline()));
     } finally {
       setSending(false);
