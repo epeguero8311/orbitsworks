@@ -5,12 +5,15 @@ import { useTheme } from "../lib/ThemeContext";
 import { useClockPunch } from "../lib/hooks/useClockPunch";
 import { useEmployeeAppConfig } from "../lib/hooks/useEmployeeAppConfig";
 import { useEmployeeSelfView } from "../lib/hooks/useEmployeeSelfView";
+import { usePunchQueue } from "../lib/hooks/usePunchQueue";
 import { useNow } from "../lib/hooks/useNow";
 import { formatClockTime, siteLabel } from "../lib/employeeHome";
+import { WILL_SYNC_NOTE } from "../lib/punchQueueLogic";
 import ScreenHeader from "../components/ScreenHeader";
 import PinPad from "../components/employee/PinPad";
 import PunchCamera from "../components/employee/PunchCamera";
 import PunchConfirmation from "../components/employee/PunchConfirmation";
+import ConnectionBanner from "../components/employee/ConnectionBanner";
 import Spinner from "../components/Spinner";
 import Building2Icon from "../components/icons/Building2Icon";
 
@@ -21,20 +24,33 @@ const DONE_TITLES = { in: "Clocked in", out: "Clocked out" };
 // the lock shows here, before any photo) -> live front-camera photo (retake
 // allowed) -> sent to employeeClockPunch -> green confirmation. Every error
 // message is the server's own plain message, or "No signal".
+// Phase 4: with no or weak signal the punch is saved on the phone and the
+// same green confirmation shows "Will sync when online" with the expected
+// site. Redo (from the Sync tab, params.redoId): PIN only, then the saved
+// punch is sent again with its original time and photo.
+// params: action, expectedSite, lastEventMs, redoId
 export default function ClockPunchScreen({ route, navigation }) {
-  const action = route.params?.action === "out" ? "out" : "in";
+  const params = route.params || {};
+  const action = params.action === "out" ? "out" : "in";
+  const redoId = params.redoId || null;
   const { userData, linkedEmployeeId } = useAuth();
   const { colors } = useTheme();
-  const { timezone, companyName } = useEmployeeAppConfig(userData?.companyId);
+  const companyId = userData?.companyId;
+  const { timezone, companyName } = useEmployeeAppConfig(companyId);
   const employeeId = linkedEmployeeId || userData?.employeeId;
-  const { view } = useEmployeeSelfView(userData?.companyId, employeeId);
+  const { view } = useEmployeeSelfView(companyId, employeeId);
+  const queue = usePunchQueue(companyId, employeeId);
   // The employee's subcontractor company if they have one, otherwise the
   // company that created them.
   const company = view?.subcontractorName || companyName;
   const flow = useClockPunch({
     action,
-    companyId: userData?.companyId,
+    companyId,
     employeeId,
+    expectedSite: params.expectedSite || "",
+    lastEventMs: typeof params.lastEventMs === "number" ? params.lastEventMs : null,
+    queueAhead: queue.queueAhead,
+    redoId,
   });
   const now = useNow(1000);
   const lockSeconds = flow.lockedUntil > now ? Math.ceil((flow.lockedUntil - now) / 1000) : 0;
@@ -50,6 +66,7 @@ export default function ClockPunchScreen({ route, navigation }) {
         title={DONE_TITLES[flow.result.type] ?? TITLES[action]}
         timeLabel={formatClockTime(flow.result.timestampMs, timezone)}
         siteName={siteLabel(flow.result.siteName)}
+        note={flow.result.queued ? WILL_SYNC_NOTE : null}
         photoUri={flow.photoUri}
         onClose={close}
       />
@@ -59,15 +76,17 @@ export default function ClockPunchScreen({ route, navigation }) {
   const lockedMessage = lockSeconds > 0 ? `Too many wrong PINs. Try again in ${lockSeconds} second${lockSeconds === 1 ? "" : "s"}.` : "";
   // While a lock applies, only the live countdown shows (never a stale one).
   const message = flow.lockedUntil > 0 ? lockedMessage : flow.error;
+  const sendingText = redoId ? "Sending..." : action === "in" ? "Clocking in..." : "Clocking out...";
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title={TITLES[action]} onBack={flow.step === "sending" ? undefined : close} />
+      <ScreenHeader title={redoId ? `Redo ${TITLES[action]}` : TITLES[action]} onBack={flow.step === "sending" ? undefined : close} />
+      <ConnectionBanner style={styles.banner} />
       <View style={styles.content}>
         {flow.step === "sending" ? (
           <View style={styles.center}>
             <Spinner size={32} color={colors.accent} />
-            <Text style={[styles.sending, { color: colors.subtext }]}>{action === "in" ? "Clocking in..." : "Clocking out..."}</Text>
+            <Text style={[styles.sending, { color: colors.subtext }]}>{sendingText}</Text>
           </View>
         ) : null}
 
@@ -88,7 +107,7 @@ export default function ClockPunchScreen({ route, navigation }) {
                 </Text>
               </View>
             ) : null}
-            <Text style={[styles.title, { color: colors.text }]}>Enter your PIN</Text>
+            <Text style={[styles.title, { color: colors.text }]}>{redoId ? "Type your PIN again" : "Enter your PIN"}</Text>
             <PinPad length={flow.pin.length} onDigit={flow.pressDigit} onDelete={flow.deleteDigit} disabled={lockSeconds > 0} />
           </>
         ) : null}
@@ -102,7 +121,7 @@ export default function ClockPunchScreen({ route, navigation }) {
         ) : null}
         {flow.step === "failed" || flow.step === "retry" ? (
           <TouchableOpacity style={styles.link} onPress={close}>
-            <Text style={[styles.linkText, { color: colors.accent }]}>Back to Home</Text>
+            <Text style={[styles.linkText, { color: colors.accent }]}>{redoId ? "Back" : "Back to Home"}</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -112,6 +131,7 @@ export default function ClockPunchScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  banner: { marginHorizontal: 24, marginTop: 8 },
   content: { alignItems: "center", paddingTop: 24, paddingHorizontal: 24 },
   center: { alignItems: "center", marginTop: 60 },
   sending: { marginTop: 12, fontSize: 15 },

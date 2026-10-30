@@ -7,14 +7,15 @@ const AUTO_CLOSE_MS = 3000;
 
 // Full-screen green success message (clock in/out, break start/end): check
 // mark, title, time, site and an optional photo thumbnail. Closes on any
-// tap or by itself after about 3 seconds.
+// tap or by itself after about 3 seconds. note: one extra line under the
+// site (an offline punch: "Will sync when online").
 //
 // It is its own Modal (a separate window) with translucent status and
 // navigation bars, so it always covers the whole screen edge to edge -
 // status bar, tab bar and system bars included - wherever it's rendered.
 // Sizing it with absoluteFill inside a screen only covers that screen's
 // content area, which is what left gaps before.
-export default function SuccessOverlay({ visible = true, title, timeLabel, siteName, photoUri, onClose }) {
+export default function SuccessOverlay({ visible = true, title, timeLabel, siteName, note, photoUri, onClose }) {
   // Explicit window size as well as flex, so the green can never shrink to
   // its content even if the Modal's own container comes up short.
   const { width, height } = useWindowDimensions();
@@ -47,6 +48,7 @@ export default function SuccessOverlay({ visible = true, title, timeLabel, siteN
         <Text style={styles.title}>{title}</Text>
         {timeLabel ? <Text style={styles.time}>{timeLabel}</Text> : null}
         {siteName ? <Text style={styles.site}>{siteName}</Text> : null}
+        {note ? <Text style={styles.note}>{note}</Text> : null}
         {photoUri ? <Image source={{ uri: photoUri }} style={styles.thumb} /> : null}
         <Text style={styles.hint}>Tap to close</Text>
       </Pressable>
@@ -75,6 +77,7 @@ const styles = StyleSheet.create({
   title: { color: colors.onColor, fontSize: 26, fontWeight: "800", textAlign: "center" },
   time: { color: colors.onColor, fontSize: fontSizes.xl, fontWeight: "600", marginTop: 6 },
   site: { color: colors.greenSoft, fontSize: 16, marginTop: spacing.xs, textAlign: "center" },
+  note: { color: colors.onColor, fontSize: 16, fontWeight: "700", marginTop: spacing.md, textAlign: "center" },
   thumb: { width: 72, height: 72, borderRadius: 36, marginTop: 18, borderWidth: 2, borderColor: colors.onColor },
   hint: { color: colors.greenSoft, fontSize: fontSizes.sm, marginTop: spacing.xxl },
 });

@@ -4,20 +4,38 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Spinner from "../Spinner";
 
+// Phase 4: a smaller photo so a punch uploads faster on weak signal (and
+// takes less room while saved offline). Used only when the phone offers
+// this size; otherwise the camera's default. Checked on dev: no change in
+// the face check. Employee App only - the supervisor camera is unchanged.
+const PICTURE_SIZE = "1280x720";
+
 // Live clock photo for the Employee App: front camera only, no photo
 // library. After taking it the employee sees it and picks Retake or Use
 // photo. quality 0.5, same as the supervisor ClockCameraScreen (these go
-// through the same face check). onUse(uri) - the photo is never logged.
+// through the same face check), at 1280x720 (see PICTURE_SIZE). onUse(uri)
+// - the photo is never logged.
 export default function PunchCamera({ onUse, onCancel }) {
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
   const [ready, setReady] = useState(false);
+  const [pictureSize, setPictureSize] = useState(undefined);
   const [capturing, setCapturing] = useState(false);
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState(null);
   const insets = useSafeAreaInsets();
 
   if (!permission) return <View style={styles.black} />;
+
+  async function onCameraReady() {
+    setReady(true);
+    try {
+      const sizes = await cameraRef.current?.getAvailablePictureSizesAsync();
+      if (Array.isArray(sizes) && sizes.includes(PICTURE_SIZE)) setPictureSize(PICTURE_SIZE);
+    } catch {
+      // Keep the default size.
+    }
+  }
 
   if (!permission.granted) {
     return (
@@ -70,7 +88,13 @@ export default function PunchCamera({ onUse, onCancel }) {
 
   return (
     <View style={styles.black}>
-      <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" onCameraReady={() => setReady(true)} />
+      <CameraView
+        ref={cameraRef}
+        style={StyleSheet.absoluteFill}
+        facing="front"
+        pictureSize={pictureSize}
+        onCameraReady={onCameraReady}
+      />
       <View style={[styles.top, { paddingTop: insets.top + 16 }]}>
         <Text style={styles.hint}>Face the camera, in good light.</Text>
       </View>

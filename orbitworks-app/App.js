@@ -15,6 +15,8 @@ import { useEmployeeUpdateQueueSync } from "./lib/hooks/useEmployeeUpdateQueueSy
 import { useQueuePendingCount } from "./lib/hooks/useQueuePendingCount";
 import { usePushRegistration } from "./lib/hooks/usePushRegistration";
 import { useAlertsFeed } from "./lib/hooks/useAlertsFeed";
+import { usePunchQueue } from "./lib/hooks/usePunchQueue";
+import { usePunchQueueSync } from "./lib/hooks/usePunchQueueSync";
 import { navigationRef } from "./lib/navigationRef";
 import FloatingTabBar from "./components/FloatingTabBar";
 import LoginScreen from "./screens/LoginScreen";
@@ -126,9 +128,12 @@ function MainTabs() {
   );
 }
 
-// Employee App tabs: Home plus four "Coming soon" tabs (Settings also
+// Employee App tabs: Home, History, Alerts, Sync and Settings (which also
 // holds Log out). Clock in/out (ClockPunch) stays a full-screen stack
-// step on top of these.
+// step on top of these. Phase 4: these tabs stay mounted for the whole
+// employee login, so this is where the phone keeps sending saved punches
+// (usePunchQueueSync) and the Sync tab badge counts Waiting + Syncing +
+// Failed.
 const EmployeeTab = createBottomTabNavigator();
 const EMPLOYEE_TAB_ICONS = {
   EmployeeHome: "home",
@@ -154,6 +159,11 @@ function EmployeeHistoryTab() {
 
 function EmployeeTabs() {
   const { colors } = useTheme();
+  const { userData, linkedEmployeeId } = useAuth();
+  const companyId = userData?.companyId;
+  const employeeId = linkedEmployeeId || userData?.employeeId;
+  usePunchQueueSync(companyId, employeeId);
+  const { badge } = usePunchQueue(companyId, employeeId);
   return (
     <EmployeeTab.Navigator
       tabBar={(props) => (
@@ -170,7 +180,11 @@ function EmployeeTabs() {
       <EmployeeTab.Screen name="EmployeeHome" component={EmployeeHomeScreen} options={{ tabBarLabel: "Home" }} />
       <EmployeeTab.Screen name="EmployeeHistory" component={EmployeeHistoryTab} options={{ tabBarLabel: "History" }} />
       <EmployeeTab.Screen name="EmployeeAlerts" component={EmployeeAlertsScreen} options={{ tabBarLabel: "Alerts" }} />
-      <EmployeeTab.Screen name="EmployeeSync" component={EmployeeSyncScreen} options={{ tabBarLabel: "Sync" }} />
+      <EmployeeTab.Screen
+        name="EmployeeSync"
+        component={EmployeeSyncScreen}
+        options={{ tabBarLabel: "Sync", tabBarBadge: badge > 0 ? badge : undefined }}
+      />
       <EmployeeTab.Screen name="EmployeeSettings" component={EmployeeSettingsScreen} options={{ tabBarLabel: "Settings" }} />
     </EmployeeTab.Navigator>
   );

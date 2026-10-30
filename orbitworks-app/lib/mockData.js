@@ -1,15 +1,7 @@
 // TEMPORARY MOCK DATA - layout preview only. Nothing here is real or saved.
-// Used by the Employee App Sync, Alerts and Settings tabs until they're wired
-// to real data. Delete this file (and its imports) once they are.
-
-// Sync tab: "online" or "offline". Flip to preview both states.
-export const MOCK_SYNC_STATE = "offline";
-
-export const MOCK_QUEUED_ITEMS = [
-  { id: "q1", action: "Break End", employeeName: "Alex Sample", time: "12:32 PM" },
-  { id: "q2", action: "Break Start", employeeName: "Alex Sample", time: "12:02 PM" },
-  { id: "q3", action: "Clock out", employeeName: "Alex Sample", time: "Yesterday, 4:31 PM" },
-];
+// Used by the Employee App History, Alerts and Settings tabs until they're
+// wired to real data. Delete this file (and its imports) once they are.
+// (The Sync tab, Last synced and the PIN row went real in Phase 4.)
 
 // Alerts tab: true previews the "No alerts" empty state.
 export const MOCK_ALERTS_EMPTY = false;
@@ -30,9 +22,7 @@ export const MOCK_ALERTS = [
 // Settings tab: obviously fake values, never a real employee's.
 export const MOCK_SETTINGS = {
   email: "alex.sample@example.com",
-  pin: "1234",
   birthday: "January 1, 2000",
-  lastSynced: "Jan 1, 2026 \u00b7 9:00 AM",
   notifications: true,
   location: true,
 };

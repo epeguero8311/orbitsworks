@@ -7,25 +7,42 @@ import { spacing, fontSizes } from "../../lib/theme";
 import { useTheme } from "../../lib/ThemeContext";
 import { makeStyles } from "../../lib/makeStyles";
 import { MOCK_SETTINGS } from "../../lib/mockData";
+import { useEmployeeAppConfig } from "../../lib/hooks/useEmployeeAppConfig";
+import { usePunchQueue } from "../../lib/hooks/usePunchQueue";
+import { useNow } from "../../lib/hooks/useNow";
+import { formatWhen } from "../../lib/punchQueueLogic";
 import TabPage from "../../components/ui/TabPage";
 import ListRow from "../../components/ui/ListRow";
+import ConfirmModal from "../../components/ui/ConfirmModal";
 import DevPunchTimings from "../../components/employee/DevPunchTimings";
 
-// Employee App Settings tab - LAYOUT ONLY. The info, Notifications /
-// Location and "Last synced" are mock data (lib/mockData.js) and those
-// switches save nothing. Real: Dark mode (same saved setting as the
-// supervisor app), the app version and Log out.
+// The PIN itself is never kept on the phone for display.
+const PIN_MASK = "****";
+
+// Employee App Settings tab. Real: Last synced (when the server last
+// accepted a punch from this phone), Dark mode (same saved setting as the
+// supervisor app), the app version and Log out - with a warning when
+// punches are still waiting on the phone (they stay, and sync only when
+// this employee signs back in). Still mock until Phase 5 (lib/mockData.js):
+// email, birthday and the Notifications / Location switches.
 export default function EmployeeSettingsScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const styles = useStyles();
-  const { signOutUser } = useAuth();
+  const { signOutUser, userData, linkedEmployeeId } = useAuth();
+  const companyId = userData?.companyId;
+  const employeeId = linkedEmployeeId || userData?.employeeId;
+  const { timezone } = useEmployeeAppConfig(companyId);
+  const queue = usePunchQueue(companyId, employeeId);
+  const now = useNow(60000);
   const [notifications, setNotifications] = useState(MOCK_SETTINGS.notifications);
   const [location, setLocation] = useState(MOCK_SETTINGS.location);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const version = Constants.expoConfig?.version ?? "";
+  const lastSynced = queue.lastSyncedMs ? formatWhen(queue.lastSyncedMs, now, timezone) : "Never";
 
   const info = [
     ["Logged in as", MOCK_SETTINGS.email],
-    ["PIN", MOCK_SETTINGS.pin],
+    ["PIN", PIN_MASK],
     ["Birthday", MOCK_SETTINGS.birthday],
   ];
   const toggles = [
@@ -33,6 +50,8 @@ export default function EmployeeSettingsScreen() {
     ["Notifications", notifications, setNotifications],
     ["Location", location, setLocation],
   ];
+  const onLogout = () => (queue.badge > 0 ? setConfirmLogout(true) : signOutUser());
+  const notSynced = `${queue.badge} punch${queue.badge === 1 ? " is" : "es are"} not synced yet`;
 
   return (
     <TabPage title="Settings">
@@ -66,7 +85,7 @@ export default function EmployeeSettingsScreen() {
       </View>
 
       <View style={styles.section}>
-        <ListRow right={<Text style={styles.rightText}>{MOCK_SETTINGS.lastSynced}</Text>}>
+        <ListRow right={<Text style={styles.rightText}>{lastSynced}</Text>}>
           <Text style={styles.rowText}>Last synced</Text>
         </ListRow>
         <ListRow divider={false} right={<Text style={styles.rightText}>{version}</Text>}>
@@ -79,13 +98,27 @@ export default function EmployeeSettingsScreen() {
       <View style={styles.section}>
         <ListRow
           divider={false}
-          onPress={signOutUser}
+          onPress={onLogout}
           accessibilityLabel="Log out"
           right={<Feather name="log-out" size={20} color={colors.redStrong} />}
         >
           <Text style={styles.logout}>Log out</Text>
         </ListRow>
       </View>
+
+      <ConfirmModal
+        visible={confirmLogout}
+        title={notSynced}
+        message="They stay on this phone and sync only when you sign back in on it."
+        confirmLabel="Log out"
+        confirmTone="red"
+        cancelLabel="Stay signed in"
+        onConfirm={() => {
+          setConfirmLogout(false);
+          signOutUser();
+        }}
+        onCancel={() => setConfirmLogout(false)}
+      />
     </TabPage>
   );
 }

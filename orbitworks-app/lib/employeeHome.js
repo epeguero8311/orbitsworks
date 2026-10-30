@@ -259,7 +259,11 @@ function formatClockTime(ms, timeZone) {
 
 // ---- errors ----
 
-const KNOWN_REASONS = ["invalid", "notSignedIn", "wrongAccount", "inactive", "wrongPin", "locked", "photo", "wrongState"];
+const KNOWN_REASONS = [
+  "invalid", "notSignedIn", "wrongAccount", "inactive", "wrongPin", "locked", "photo", "wrongState",
+  // Phase 4 queued punches (only a sync can get these).
+  "tooOld", "superseded", "badTime", "syncBlocked",
+];
 const NETWORK_CODES = ["functions/unavailable", "functions/deadline-exceeded", "unavailable", "deadline-exceeded"];
 
 // The callable's own plain message for a known reason; "No signal" for any
@@ -310,6 +314,7 @@ module.exports = {
   BUTTON_ACTION,
   toMs,
   effectiveMs,
+  sortEvents,
   dayKey,
   weekKey,
   weekQueryStartMs,
