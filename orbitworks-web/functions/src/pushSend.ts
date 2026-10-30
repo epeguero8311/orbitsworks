@@ -22,6 +22,10 @@ const ALERT_TITLE: Record<AlertDoc["alertType"], string> = {
   // via createAlertIfNew directly, never through sendPushForAlert. Present
   // only so this Record stays exhaustive over AlertDoc["alertType"].
   autoClockOut: "Auto Clocked Out",
+  // Never sent either - written via createAlertIfNew directly (see
+  // functions/src/employeeClockQueued.ts and clockEvents.ts).
+  syncWrongPin: "Wrong PIN at Sync",
+  syncedLateApproved: "Late Punch on Approved Timesheet",
 };
 
 // Sends one alert to every registered, notification-enabled device on the

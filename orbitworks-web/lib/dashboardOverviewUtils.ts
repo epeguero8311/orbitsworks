@@ -34,7 +34,10 @@ export type AlertItem = {
     // Update Employee (mobile) - see functions/src/alerts.ts.
     | "employeeUpdated"
     // Auto Clock-Out - see functions/src/autoClockOut.ts.
-    | "autoClockOut";
+    | "autoClockOut"
+    // Employee App Phase 4 (offline punches) - see functions/src/alerts.ts.
+    | "syncWrongPin"
+    | "syncedLateApproved";
   // Who/what this alert is about - an employee name for every alert type
   // today. A future site-level alert (no single employee involved) should
   // put the site name (or "All Sites") here instead - alertTitle() below
@@ -75,6 +78,8 @@ export const ALERT_SHORT_TAGS: Record<AlertItem["alertType"], string> = {
   faceBadReference: "Bad Reference Photo",
   employeeUpdated: "Employee Updated",
   autoClockOut: "Auto Clocked Out",
+  syncWrongPin: "Wrong PIN at Sync",
+  syncedLateApproved: "Late Punch on Approved Timesheet",
 };
 
 // Drives the severity dot in AlertsPanel - urgent (red) for alerts that need
@@ -106,6 +111,9 @@ export const ALERT_SEVERITY: Record<AlertItem["alertType"], AlertSeverity> = {
   // clockedInOutsideGeofence/siteMismatch's own "someone should take a
   // look" framing.
   autoClockOut: "warning",
+  // Employee App Phase 4 - someone should take a look, nothing is blocked.
+  syncWrongPin: "warning",
+  syncedLateApproved: "warning",
 };
 
 export function alertTitle(alert: AlertItem) {

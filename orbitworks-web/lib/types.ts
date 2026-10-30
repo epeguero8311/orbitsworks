@@ -288,6 +288,11 @@ export interface ClockEvent {
   // "Auto-detected" tag in Time Tracking. Flips to false once an admin
   // manually assigns a site via assignSessionSite.
   siteAutoDetected?: boolean;
+  // Employee App Phase 4: true when the punch was queued on the phone
+  // (offline or slow signal) and sent later. `timestamp` is then the time
+  // the employee made the punch on the phone, not when it reached the
+  // server (that is createdAt). Drives the "Synced late" tag.
+  syncedLate?: boolean;
   authorizedById?: string;
   authorizedByName?: string;
   createdByUid?: string;
@@ -432,7 +437,15 @@ export type MobileAlertType =
   // createAlertIfNew, bypassing maybeCreateAndPush). Keyed per shift
   // (eventId = the clock-in event's id), same convention as
   // clockedInOutsideGeofence/siteMismatch above.
-  | "autoClockOut";
+  | "autoClockOut"
+  // Employee App Phase 4 (offline punches). Admin/owner web only, never
+  // pushed, filtered out of the supervisor mobile Alerts tab like
+  // autoClockOut. syncWrongPin: 3+ queued punches for one employee had a
+  // wrong PIN when they synced (per employee per day).
+  // syncedLateApproved: a queued punch synced into a timesheet that was
+  // already approved (per event).
+  | "syncWrongPin"
+  | "syncedLateApproved";
 
 export interface MobileAlert {
   id: string;
@@ -867,7 +880,17 @@ export type EmployeeClockErrorReason =
   | "locked"
   | "photo"
   | "wrongState"
-  | "generic";
+  | "generic"
+  // Phase 4 queued punches only - permanent, the phone never retries:
+  // tooOld (punch time over 24 h ago) and superseded (a later punch, e.g.
+  // an auto clock-out, is already recorded) = "Not recorded, tell your
+  // admin"; badTime (phone clock too far ahead) and syncBlocked (5 wrong
+  // PINs at sync in 24 h) = "Couldn't sync, please speak to your
+  // supervisor".
+  | "tooOld"
+  | "superseded"
+  | "badTime"
+  | "syncBlocked";
 
 // ---- Temp Clock-In Links (Pro) ----
 //

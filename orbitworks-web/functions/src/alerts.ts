@@ -42,6 +42,16 @@ export const ALERT_TYPES = [
   // maybeCreateAndPush) so it never pushes, and excluded client-side from
   // the mobile Alerts tab (useAlertsFeed.js).
   "autoClockOut",
+  // Employee App Phase 4 (offline punches) - see
+  // functions/src/employeeClockQueued.ts. Admin/owner web only, never
+  // pushed (createAlertIfNew directly), and filtered out of the supervisor
+  // mobile Alerts tab (useAlertsFeed.js) like autoClockOut.
+  //   syncWrongPin       - 3+ queued punches for one employee had a wrong
+  //                        PIN when they synced (one per employee per day)
+  //   syncedLateApproved - a queued punch synced into a timesheet that was
+  //                        already approved (one per event)
+  "syncWrongPin",
+  "syncedLateApproved",
 ] as const;
 
 export type AlertType = (typeof ALERT_TYPES)[number];
@@ -71,6 +81,8 @@ export const ALERT_SEVERITY: Record<AlertType, "urgent" | "warning" | "info"> = 
   employeeUpdated: "warning",
   // Yellow per spec - informational, never blocks anything.
   autoClockOut: "warning",
+  syncWrongPin: "warning",
+  syncedLateApproved: "warning",
 };
 
 // The untrusted-input boundary for alert generation: validates every id
@@ -204,6 +216,9 @@ const ALERT_ID_PREFIX: Record<AlertType, string> = {
   // branch in createAlertIfNew below) - same convention as
   // clockedInOutsideGeofence/siteMismatch.
   autoClockOut: "autoout",
+  syncWrongPin: "syncpin",
+  // Keyed by the late event's own id (eventId-keyed branch below).
+  syncedLateApproved: "latesync",
 };
 
 function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string): string {
@@ -242,7 +257,8 @@ export async function createAlertIfNew(input: AlertInput, occurredAt: Timestamp)
   const subjectId =
     data.alertType === "clockedInOutsideGeofence" ||
     data.alertType === "siteMismatch" ||
-    data.alertType === "autoClockOut"
+    data.alertType === "autoClockOut" ||
+    data.alertType === "syncedLateApproved"
       ? data.eventId ?? data.employeeId ?? "company"
       : data.employeeId ?? data.siteId ?? "company";
   const alertId = buildAlertId(data.alertType, subjectId, data.dateKey);

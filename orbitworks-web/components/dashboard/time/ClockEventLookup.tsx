@@ -18,6 +18,7 @@ import ClockEventsDayView from "@/components/dashboard/ClockEventsDayView";
 import { GeofenceBadge } from "@/components/time/GeofenceBadge";
 import { FaceCheckBadge } from "@/components/time/FaceCheckBadge";
 import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
+import { SyncedLateTag } from "@/components/time/SyncedLateTag";
 import { clockPhotoCellLabel } from "@/lib/clockPhoto";
 import { Toast } from "@/components/Toast";
 
@@ -343,6 +344,7 @@ export default function ClockEventLookup() {
                       <td className="px-4 py-2.5 text-gray-600">
                         {event.siteName}
                         <AutoDetectedTag event={event} />
+                        <SyncedLateTag event={event} />
                       </td>
                       <td className="px-4 py-2.5">
                         <span className={`font-medium ${typeBadge.className}`}>

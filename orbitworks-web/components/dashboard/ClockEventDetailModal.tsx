@@ -4,6 +4,7 @@ import { useClockEventDetail } from "@/lib/hooks/useClockEventDetail";
 import { EmployeeReassignDropdown } from "@/components/dashboard/clockEventDetail/EmployeeReassignDropdown";
 import { EventSide } from "@/components/dashboard/clockEventDetail/EventSide";
 import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
+import { SyncedLateTag } from "@/components/time/SyncedLateTag";
 import { ClockEvent } from "@/lib/types";
 
 type Props = {
@@ -45,6 +46,7 @@ export default function ClockEventDetailModal({
             <p className="mt-0.5 text-sm text-gray-600">
               {d.dayLabel} - {d.liveEvent.siteName}
               <AutoDetectedTag event={d.liveEvent} />
+              <SyncedLateTag event={d.liveEvent} />
             </p>
           </div>
           <button

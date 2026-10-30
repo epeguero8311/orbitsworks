@@ -12,7 +12,7 @@ import {
 } from "./shared";
 import { MAPBOX_TOKEN, haversineMeters, reverseGeocode } from "./geocoding";
 import { classifyGeofence, detectSite, DetectableSite, GeofenceStatus } from "./geofencing";
-import { checkLateClockIn, checkEarlyClockOut, checkOutsideGeofence, checkSiteMismatch } from "./alerts";
+import { checkLateClockIn, checkEarlyClockOut, checkOutsideGeofence, checkSiteMismatch, createAlertIfNew } from "./alerts";
 import { checkFaceMatch, REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY } from "./rekognition";
 
 // Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
@@ -98,6 +98,44 @@ async function handleDeviceTracking(
   } catch (err) {
     console.warn("Device tracking failed for clock event", eventId, companyId, err);
   }
+}
+
+// Phase 4 (see onClockEventCreated): the shift's clock-in is the latest
+// "in" before this event; its timesheetApproval doc shares its id.
+async function alertIfLateIntoApproved(
+  companyId: string,
+  employeeId: string,
+  eventId: string,
+  data: FirebaseFirestore.DocumentData
+): Promise<void> {
+  const eventTs: admin.firestore.Timestamp = data.timestamp ?? admin.firestore.Timestamp.now();
+  const companyRef = db.collection("companies").doc(companyId);
+  const inSnap = await companyRef
+    .collection("clockEvents")
+    .where("employeeId", "==", employeeId)
+    .where("type", "==", "in")
+    .where("timestamp", "<", eventTs)
+    .orderBy("timestamp", "desc")
+    .limit(1)
+    .get();
+  if (inSnap.empty) return;
+  const approval = await companyRef.collection("timesheetApprovals").doc(inSnap.docs[0].id).get();
+  if (approval.data()?.status !== "approved") return;
+  await createAlertIfNew(
+    {
+      companyId,
+      alertType: "syncedLateApproved",
+      employeeId,
+      employeeName: (data.employeeName as string | undefined) ?? null,
+      siteId: (data.siteId as string | null | undefined) ?? null,
+      siteName: (data.siteName as string | undefined) ?? null,
+      message: "A punch saved offline synced into a timesheet that was already approved. Please review it.",
+      eventId,
+      employeeUpdateId: null,
+      dateKey: localDateKey(eventTs.toDate()),
+    },
+    eventTs
+  );
 }
 
 // Keeps employees/{employeeId}.lastEventType in sync with the most
@@ -363,6 +401,18 @@ export const onClockEventCreated = onDocumentCreated(
         .catch((err) => {
           console.error("Failed to create timesheetApproval for", event.params.eventId, err);
         });
+    }
+
+    // Employee App Phase 4: a punch queued on the phone and synced late
+    // (syncedLate) can land in a shift whose timesheet an admin already
+    // approved. It stays approved (decided 2026-10-28) - the admin just gets
+    // a syncedLateApproved alert (web only, no push) to take a look. A late
+    // clock-in starts its own new pending approval above, so only
+    // out/breaks can hit an approved one.
+    if (data.syncedLate === true && data.type !== "in") {
+      await alertIfLateIntoApproved(companyId, employeeId, event.params.eventId, data).catch((err) => {
+        console.warn("Late-sync approved-timesheet check failed", event.params.eventId, err);
+      });
     }
 
     // Supervisor overrides: upsert the shared overrideEvents doc for this

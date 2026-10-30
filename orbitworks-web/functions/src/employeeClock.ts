@@ -3,6 +3,16 @@ import * as admin from "firebase-admin";
 import { timingSafeEqual, randomUUID } from "crypto";
 import { db } from "./shared";
 import { employeeClockPunchSchema, EmployeeClockAction } from "./employeeClockValidators";
+import {
+  COULDNT_SYNC_MESSAGE,
+  NOT_RECORDED_MESSAGE,
+  QUEUED_WRONG_PIN_MESSAGE,
+  isSuperseded,
+  isSyncBlocked,
+  queuedEventMs,
+  queuedTimeProblem,
+  recordSyncWrongPin,
+} from "./employeeClockQueued";
 
 // ---- Employee App: clock in / out / breaks (employeeClockPunch) ----
 //
@@ -41,6 +51,12 @@ import { employeeClockPunchSchema, EmployeeClockAction } from "./employeeClockVa
 // onClockEventCreated then runs as for any punch (face check, last status,
 // timesheet approval, alerts, auto clock-out).
 //
+// Queued punch (queuedAtMs set - Phase 4, see employeeClockQueued.ts): same
+// steps, except the time window check, the PIN checked without the 3-strike
+// lock, a later punch already recorded rejects it, and the event keeps the
+// phone's time with syncedLate: true. Online punches (no queuedAtMs) are
+// unchanged.
+//
 // Never log the PIN, photo URL or names - log() prints a step and a code.
 
 export const EMPLOYEE_CLOCK_ERRORS = {
@@ -56,7 +72,12 @@ export type EmployeeClockErrorReason =
   | keyof typeof EMPLOYEE_CLOCK_ERRORS
   | "wrongPin"
   | "locked"
-  | "wrongState";
+  | "wrongState"
+  // Queued punches only, all permanent (the phone never retries them).
+  | "tooOld"
+  | "superseded"
+  | "badTime"
+  | "syncBlocked";
 
 const ERROR_CODES: Record<
   EmployeeClockErrorReason,
@@ -71,6 +92,10 @@ const ERROR_CODES: Record<
   photo: "invalid-argument",
   wrongState: "failed-precondition",
   generic: "internal",
+  tooOld: "failed-precondition",
+  superseded: "failed-precondition",
+  badTime: "invalid-argument",
+  syncBlocked: "permission-denied",
 };
 
 function clockError(reason: EmployeeClockErrorReason, message?: string, extra: Record<string, unknown> = {}): HttpsError {
@@ -297,6 +322,7 @@ export const employeeClockPunch = onCall(async (request) => {
   }
 
   const isInOut = input.action === "in" || input.action === "out";
+  const queued = input.queuedAtMs !== undefined;
   const companyRef = db.collection("companies").doc(companyId);
   const eventRef = companyRef.collection("clockEvents").doc(input.requestId);
   const employeeRef = companyRef.collection("employees").doc(employeeId);
@@ -321,8 +347,24 @@ export const employeeClockPunch = onCall(async (request) => {
   if (employee.active !== true) return reject(clockError("inactive"));
 
   const nowMs = Date.now();
+
+  // 4b. queued punch: its time must be within the window
+  if (queued) {
+    const problem = queuedTimeProblem(input.queuedAtMs as number, nowMs);
+    if (problem === "tooOld") return reject(clockError("tooOld", NOT_RECORDED_MESSAGE));
+    if (problem === "badTime") return reject(clockError("badTime", COULDNT_SYNC_MESSAGE));
+  }
+
   let photoUrl: string | null = null;
-  if (isInOut) {
+  if (isInOut && queued) {
+    // 5q. PIN for a queued punch: no 3-strike lock, own 24 h count + cap
+    if (await isSyncBlocked(companyId, employeeId, nowMs)) return reject(clockError("syncBlocked", COULDNT_SYNC_MESSAGE));
+    if (!pinMatches(input.pin as string, employee.pin)) {
+      await recordSyncWrongPin(companyId, employeeId, employee.name ?? "", nowMs);
+      return reject(clockError("wrongPin", QUEUED_WRONG_PIN_MESSAGE, { queued: true }));
+    }
+  }
+  if (isInOut && !queued) {
     // 5. PIN
     const pin = await checkPin(companyId, employeeId, input.pin as string, employee.pin, nowMs);
     if (!pin.ok && pin.reason === "locked") {
@@ -334,7 +376,8 @@ export const employeeClockPunch = onCall(async (request) => {
       return reject(clockError("wrongPin", message, { attemptsLeft: left }));
     }
     if (input.checkPinOnly) return { pinOk: true };
-
+  }
+  if (isInOut) {
     // 6. photo
     if (!photoIsOwn) return reject(clockError("photo"));
     photoUrl = await photoUrlFor(ownPhotoPath, nowMs);
@@ -368,7 +411,13 @@ export const employeeClockPunch = onCall(async (request) => {
       if (!emp || emp.linkedUserId !== uid) return { kind: "rejected", err: clockError("wrongAccount") };
       if (emp.active !== true) return { kind: "rejected", err: clockError("inactive") };
 
-      const latestType = latestSnap.empty ? undefined : (latestSnap.docs[0].data() as EventData).type;
+      const latest = latestSnap.empty ? undefined : (latestSnap.docs[0].data() as EventData);
+      const latestType = latest?.type;
+      const txNowMs = Date.now();
+      const eventMs = queued ? queuedEventMs(input.queuedAtMs as number, txNowMs) : txNowMs;
+      if (queued && isSuperseded(eventMs, latest?.timestamp ? latest.timestamp.toMillis() : null)) {
+        return { kind: "rejected", err: clockError("superseded", NOT_RECORDED_MESSAGE) };
+      }
       const message = wrongStateMessage(input.action, statusAfter(latestType));
       if (message) return { kind: "rejected", err: clockError("wrongState", message, { status: statusAfter(latestType) }) };
 
@@ -379,7 +428,7 @@ export const employeeClockPunch = onCall(async (request) => {
         if (shiftIn?.siteId) site = { siteId: shiftIn.siteId, siteName: shiftIn.siteName || NO_SITE_NAME };
       }
 
-      const timestamp = admin.firestore.Timestamp.fromMillis(Date.now());
+      const timestamp = admin.firestore.Timestamp.fromMillis(eventMs);
       const data: Record<string, unknown> = {
         employeeId,
         employeeName: emp.name ?? "",
@@ -395,6 +444,7 @@ export const employeeClockPunch = onCall(async (request) => {
         requestId: input.requestId,
       };
       if (photoUrl) data.photoUrl = photoUrl;
+      if (queued) data.syncedLate = true;
       tx.create(eventRef, data);
       tx.update(employeeRef, { lastPunchRequestId: input.requestId, lastPunchAt: timestamp });
       return { kind: "written", data: data as EventData };

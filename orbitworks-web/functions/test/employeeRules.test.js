@@ -311,6 +311,22 @@ test("FAIL: nobody on a client reads or writes PIN locks", async () => {
   }
 });
 
+// Phase 4: wrong PINs at sync (employeeClockQueued.ts) - server-only.
+// Seeded first so update/delete fail on the rules, not on a missing doc.
+test("FAIL: nobody on a client reads or writes wrong-PIN-at-sync counts", async () => {
+  await testEnv.withSecurityRulesDisabled((c) =>
+    setDoc(doc(c.firestore(), "companies", A, "syncPinFailures", "empA"), { failures: [Date.now()] })
+  );
+  for (const ctx of [employeeA(), adminA(), supervisorA()]) {
+    const r = doc(ctx.firestore(), "companies", A, "syncPinFailures", "empA");
+    await assertFails(getDoc(r));
+    await assertFails(getDocs(collection(ctx.firestore(), "companies", A, "syncPinFailures")));
+    await assertFails(setDoc(r, { failures: [] }));
+    await assertFails(updateDoc(r, { failures: [] }));
+    await assertFails(deleteDoc(r));
+  }
+});
+
 test("FAIL: deactivated employee clocks in", async () => {
   await testEnv.withSecurityRulesDisabled((c) =>
     updateDoc(doc(c.firestore(), "companies", A, "employees", "empA"), { active: false })

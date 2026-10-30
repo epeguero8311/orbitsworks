@@ -38,10 +38,19 @@ export const employeeClockPunchSchema = z
     // true = only check the PIN (before the camera opens); nothing is
     // written. The real punch still checks the PIN itself.
     checkPinOnly: z.literal(true).optional(),
+    // Phase 4 offline punches: when the employee made this punch on the
+    // phone (ms since epoch). Present only for a punch that was queued on
+    // the phone and is being sent later; the server then uses this time
+    // (within limits) instead of its own and tags the event "synced late".
+    queuedAtMs: z.number().int().positive().optional(),
   })
   .refine((v) => (v.action === "in" || v.action === "out") === (v.pin !== undefined), {
     message: "A PIN is needed to clock in or out, and never for a break.",
     path: ["pin"],
+  })
+  .refine((v) => v.checkPinOnly !== true || v.queuedAtMs === undefined, {
+    message: "A PIN check never carries a queued time.",
+    path: ["queuedAtMs"],
   })
   .refine((v) => v.checkPinOnly !== true || v.action === "in" || v.action === "out", {
     message: "Only clock in and out check a PIN.",

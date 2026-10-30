@@ -5,6 +5,8 @@ import { useAuth } from "../AuthContext";
 import { useLocalEmployee } from "./useLocalEmployee";
 import { getOrCreatePushDeviceId } from "../pushDeviceId";
 
+const WEB_ONLY_ALERT_TYPES = ["autoClockOut", "syncWrongPin", "syncedLateApproved"];
+
 // Live view of companies/{companyId}/alerts, newest first. Fails to an
 // empty list rather than an error (kill-switch-off or unreachable both
 // look the same to this tab - nothing to show, not a broken screen).
@@ -41,14 +43,16 @@ export function useAlertsFeed() {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        // Auto Clock-Out is admin/owner web-only per spec - never shown in
-        // the mobile Alerts tab and never pushed. The alerts collection
-        // itself is shared/generic (no per-type filter server-side), so
-        // this is the one place that has to know to drop it.
+        // Auto Clock-Out and the Employee App Phase 4 sync alerts
+        // (syncWrongPin, syncedLateApproved) are admin/owner web-only per
+        // spec - never shown in the mobile Alerts tab and never pushed.
+        // The alerts collection itself is shared/generic (no per-type
+        // filter server-side), so this is the one place that has to know
+        // to drop them.
         setAlerts(
           snapshot.docs
             .map((d) => ({ id: d.id, ...d.data() }))
-            .filter((a) => a.alertType !== "autoClockOut")
+            .filter((a) => !WEB_ONLY_ALERT_TYPES.includes(a.alertType))
         );
         setLoading(false);
       },

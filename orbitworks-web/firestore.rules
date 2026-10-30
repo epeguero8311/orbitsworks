@@ -329,6 +329,12 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // Employee App Phase 4: wrong PINs found when queued punches sync
+      // (employeeClockQueued.ts). Server-only, like employeePinLocks.
+      match /syncPinFailures/{employeeId} {
+        allow read, write: if false;
+      }
+
       match /jobSites/{siteId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&

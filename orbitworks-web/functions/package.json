@@ -5,7 +5,7 @@
     "serve": "npm run build && firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "test": "npm run build && node --test test/rules.test.js test/alerts.test.js test/geofencing.test.js test/rekognition.test.js test/employeeRules.test.js test/employeeAppConfig.test.js test/joinCodeRules.test.js test/clockEventSources.test.js test/employeeClock.test.js test/biometricRetention.test.js"
+    "test": "npm run build && node --test test/rules.test.js test/alerts.test.js test/geofencing.test.js test/rekognition.test.js test/employeeRules.test.js test/employeeAppConfig.test.js test/joinCodeRules.test.js test/clockEventSources.test.js test/employeeClock.test.js test/employeeClockQueued.test.js test/biometricRetention.test.js"
   },
   "engines": {
     "node": "22"

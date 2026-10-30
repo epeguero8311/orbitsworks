@@ -189,6 +189,23 @@ Phase 3 Step 6 (shrunk to this):
   KfLB8nDz8lseZIhHEDch. Find how the duplicate got created. Don't delete it
   until then.
 
+## Phase 5 to-do (Hours)
+
+- **Wire the History tabs to real clock events** (decided 2026-10-29).
+  `screens/employee/EmployeeHistoryScreen.js` and
+  `EmployeeHistoryDayScreen.js` still use `MOCK_CLOCK_EVENTS` /
+  `MOCK_HISTORY_EMPTY` from `lib/mockData.js`. Phase 4 leaves them on mock.
+- **Wire Settings email, birthday and the Notifications / Location
+  switches** (decided 2026-10-29). Still `MOCK_SETTINGS` in
+  `EmployeeSettingsScreen.js`. Phase 4 only wires "Last synced", the PIN
+  row ("****") and the sign-out warning.
+
+## Phase 7 to-do
+
+- **Wire the employee Alerts tab** (decided 2026-10-29).
+  `screens/employee/EmployeeAlertsScreen.js` still uses `MOCK_ALERTS` /
+  `MOCK_ALERTS_EMPTY` from `lib/mockData.js`.
+
 ## Phase 9 to-do
 
 - **Duplicate sign-up flag** (decided 2026-10-24, Phase 2 Part C). Flagging
