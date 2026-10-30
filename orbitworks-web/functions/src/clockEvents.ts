@@ -403,13 +403,13 @@ export const onClockEventCreated = onDocumentCreated(
         });
     }
 
-    // Employee App Phase 4: a punch queued on the phone and synced late
-    // (syncedLate) can land in a shift whose timesheet an admin already
+    // Employee App Phase 4: a punch queued on the phone (queued - synced
+    // late or not) can land in a shift whose timesheet an admin already
     // approved. It stays approved (decided 2026-10-28) - the admin just gets
     // a syncedLateApproved alert (web only, no push) to take a look. A late
     // clock-in starts its own new pending approval above, so only
     // out/breaks can hit an approved one.
-    if (data.syncedLate === true && data.type !== "in") {
+    if (data.queued === true && data.type !== "in") {
       await alertIfLateIntoApproved(companyId, employeeId, event.params.eventId, data).catch((err) => {
         console.warn("Late-sync approved-timesheet check failed", event.params.eventId, err);
       });

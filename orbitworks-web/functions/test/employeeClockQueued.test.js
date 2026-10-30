@@ -172,6 +172,7 @@ test("online: server time, no syncedLate, nothing queued-only written", async ()
   const res = await punch(c, "in");
   const [ev] = await events(c);
   assert.equal(ev.syncedLate, undefined);
+  assert.equal(ev.queued, undefined);
   assert.ok(ev.timestamp.toMillis() >= before && ev.timestamp.toMillis() <= Date.now());
   assert.equal(res.timestampMs, ev.timestamp.toMillis());
   assert.equal((await failDoc(c).get()).exists, false);
@@ -202,12 +203,12 @@ test("online: PIN check, clock in, breaks and clock out are unchanged", async ()
   await punch(c, "out");
   const evs = await events(c);
   assert.equal(evs.length, 4);
-  assert.ok(evs.every((e) => e.syncedLate === undefined));
+  assert.ok(evs.every((e) => e.syncedLate === undefined && e.queued === undefined));
 });
 
 // ===================== queued: time =====================
 
-test("queued: clock in, break, clock out land with the phone's times and syncedLate", async () => {
+test("queued: clock in, break, clock out land with the phone's times, queued and syncedLate", async () => {
   const c = "q-chain";
   await seed(c);
   const now = Date.now();
@@ -224,12 +225,12 @@ test("queued: clock in, break, clock out land with the phone's times and syncedL
   assert.equal(rOut.status, "out");
   const evs = (await events(c)).sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis());
   assert.deepEqual(
-    evs.map((e) => [e.type, e.timestamp.toMillis(), e.syncedLate]),
+    evs.map((e) => [e.type, e.timestamp.toMillis(), e.queued, e.syncedLate]),
     [
-      ["in", tIn, true],
-      ["breakStart", tBs, true],
-      ["breakEnd", tBe, true],
-      ["out", tOut, true],
+      ["in", tIn, true, true],
+      ["breakStart", tBs, true, true],
+      ["breakEnd", tBe, true, true],
+      ["out", tOut, true, true],
     ]
   );
   assert.equal(evs[0].source, "employeeApp");
@@ -237,11 +238,35 @@ test("queued: clock in, break, clock out land with the phone's times and syncedL
   assert.equal(evs[3].siteId, "site1");
 });
 
+test("queued: synced under 5 min after its time = queued but NOT synced late; 5 min or more = synced late", async (t) => {
+  const c = "q-late5";
+  await seed(c);
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-30T15:00:00Z") });
+  await queuedPunch(c, "in", Date.now() - 5 * MIN + 1000);
+  await queuedPunch(c, "breakStart", Date.now() - MIN);
+  await queuedPunch(c, "breakEnd", Date.now() - 5 * 1000);
+  t.mock.timers.tick(5 * MIN);
+  await queuedPunch(c, "out", Date.now() - 5 * MIN);
+  const evs = (await events(c)).sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis());
+  assert.deepEqual(
+    evs.map((e) => [e.type, e.queued, e.syncedLate]),
+    [
+      ["in", true, undefined],
+      ["breakStart", true, undefined],
+      ["breakEnd", true, undefined],
+      ["out", true, true],
+    ]
+  );
+});
+
 test("queued: up to 2 min in the future is accepted (kept at server now); more is badTime", async () => {
   const c = "q-future";
   await seed(c);
   const res = await queuedPunch(c, "in", Date.now() + 2 * MIN - 2000);
   assert.ok(res.timestampMs <= Date.now());
+  const [first] = await events(c);
+  assert.equal(first.queued, true);
+  assert.equal(first.syncedLate, undefined);
   const rid = randomUUID();
   await assert.rejects(queuedPunch(c, "out", Date.now() + 2 * MIN + 5000, { requestId: rid }), (err) => {
     reasonIs("badTime")(err);
@@ -401,6 +426,19 @@ test("trigger: queued clock out into an APPROVED timesheet alerts the admin; it 
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].eventId, rOut.eventId);
   assert.equal((await db.doc(`companies/${c}/timesheetApprovals/${rIn.eventId}`).get()).data().status, "approved");
+});
+
+test("trigger: a QUICK queued punch (no Synced late tag) into an approved timesheet still alerts", async () => {
+  const c = "q-approved-quick";
+  await seed(c);
+  const rIn = await queuedPunch(c, "in", Date.now() - 5 * HOUR);
+  await runTrigger(c, rIn.eventId);
+  await approveShift(c, rIn.eventId);
+  const rOut = await queuedPunch(c, "out", Date.now() - 10 * 1000);
+  const ev = await runTrigger(c, rOut.eventId);
+  assert.equal(ev.queued, true);
+  assert.equal(ev.syncedLate, undefined);
+  assert.equal((await alertsOf(c, "syncedLateApproved")).length, 1);
 });
 
 test("trigger: queued punch into a PENDING timesheet, or an online one into an approved one, makes no alert", async () => {

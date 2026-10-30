@@ -184,6 +184,11 @@ Phase 3 Step 6 (shrunk to this):
   8:43 PM clock-out (event e43e4076-98d5-4089-bcff-29ef57f1f433) has no
   faceCheck field at all. It is from before a229a46. Include it in the
   face-check recheck.
+- **Old lint error in `orbitworks-app/lib/hooks/useAlertsFeed.js`**
+  (found 2026-10-29, Phase 4). `react-hooks/set-state-in-effect`: the
+  effect calls `setAlerts([])` / `setLoading(false)` directly when there is
+  no companyId. It was there before Phase 4; Phase 4 only touched the
+  web-only alert filter in that file. Fix in the Phase 10 lint pass.
 - **Duplicate "Emilio Peguero" employee** (found 2026-10-28). Dev,
   jc-test-pro-dev: GZ3DKAhivqjkAw04Md9T has no punches; the real one is
   KfLB8nDz8lseZIhHEDch. Find how the duplicate got created. Don't delete it

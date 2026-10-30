@@ -1,9 +1,10 @@
 import type { ClockEvent } from "@/lib/types";
 
 // Employee App Phase 4 - a punch the phone saved offline (or on slow
-// signal) and sent later. Its time is when the employee made it on the
-// phone, not when it reached the server. Shown next to the site name
-// wherever AutoDetectedTag is. Renders nothing for any other event.
+// signal) that reached the server 5+ minutes after it was made. Its time
+// is when the employee made it on the phone, not when it arrived. Shown
+// next to the site name wherever AutoDetectedTag is. Renders nothing for
+// any other event.
 export function SyncedLateTag({ event }: { event: ClockEvent }) {
   if (event.syncedLate !== true) return null;
 

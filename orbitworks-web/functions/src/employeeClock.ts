@@ -8,6 +8,7 @@ import {
   NOT_RECORDED_MESSAGE,
   QUEUED_WRONG_PIN_MESSAGE,
   isSuperseded,
+  isSyncedLate,
   isSyncBlocked,
   queuedEventMs,
   queuedTimeProblem,
@@ -54,8 +55,8 @@ import {
 // Queued punch (queuedAtMs set - Phase 4, see employeeClockQueued.ts): same
 // steps, except the time window check, the PIN checked without the 3-strike
 // lock, a later punch already recorded rejects it, and the event keeps the
-// phone's time with syncedLate: true. Online punches (no queuedAtMs) are
-// unchanged.
+// phone's time with queued: true (plus syncedLate: true if it arrived 5+
+// minutes late). Online punches (no queuedAtMs) are unchanged.
 //
 // Never log the PIN, photo URL or names - log() prints a step and a code.
 
@@ -444,7 +445,10 @@ export const employeeClockPunch = onCall(async (request) => {
         requestId: input.requestId,
       };
       if (photoUrl) data.photoUrl = photoUrl;
-      if (queued) data.syncedLate = true;
+      if (queued) {
+        data.queued = true;
+        if (isSyncedLate(eventMs, txNowMs)) data.syncedLate = true;
+      }
       tx.create(eventRef, data);
       tx.update(employeeRef, { lastPunchRequestId: input.requestId, lastPunchAt: timestamp });
       return { kind: "written", data: data as EventData };

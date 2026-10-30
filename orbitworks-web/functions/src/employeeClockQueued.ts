@@ -17,7 +17,9 @@ import { createAlertIfNew } from "./alerts";
 //   - rejects it for good if a later punch is already recorded
 //     (superseded - e.g. an auto clock-out ran first)
 //   - writes it with the phone's time (never later than now) and
-//     syncedLate: true
+//     queued: true; syncedLate: true only if it reached the server 5+
+//     minutes after that time (a quick resend after a slow-signal
+//     timeout gets no "Synced late" tag)
 // Online punches never reach this file and are unchanged.
 
 export const QUEUED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -25,6 +27,7 @@ export const QUEUED_MAX_FUTURE_MS = 2 * 60 * 1000;
 export const SYNC_PIN_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const SYNC_PIN_ALERT_AT = 3;
 export const SYNC_PIN_BLOCK_AT = 5;
+export const SYNCED_LATE_AFTER_MS = 5 * 60 * 1000;
 
 export const NOT_RECORDED_MESSAGE = "Not recorded, tell your admin.";
 export const COULDNT_SYNC_MESSAGE = "Couldn't sync, please speak to your supervisor.";
@@ -42,6 +45,12 @@ export function queuedTimeProblem(queuedAtMs: number, nowMs: number): "tooOld" |
 // the future, before the next online punch).
 export function queuedEventMs(queuedAtMs: number, nowMs: number): number {
   return Math.min(queuedAtMs, nowMs);
+}
+
+// "Synced late" tag: the punch reached the server 5+ minutes after its
+// own time.
+export function isSyncedLate(eventMs: number, nowMs: number): boolean {
+  return nowMs - eventMs >= SYNCED_LATE_AFTER_MS;
 }
 
 // A later (or same-time) punch already recorded means this one can't go in.

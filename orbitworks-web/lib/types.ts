@@ -288,10 +288,12 @@ export interface ClockEvent {
   // "Auto-detected" tag in Time Tracking. Flips to false once an admin
   // manually assigns a site via assignSessionSite.
   siteAutoDetected?: boolean;
-  // Employee App Phase 4: true when the punch was queued on the phone
-  // (offline or slow signal) and sent later. `timestamp` is then the time
-  // the employee made the punch on the phone, not when it reached the
-  // server (that is createdAt). Drives the "Synced late" tag.
+  // Employee App Phase 4: queued is true when the punch was saved on the
+  // phone (offline or slow signal) and sent later. `timestamp` is then the
+  // time the employee made the punch on the phone, not when it reached the
+  // server (that is createdAt). syncedLate is true only when it reached the
+  // server 5+ minutes after that time - it drives the "Synced late" tag.
+  queued?: boolean;
   syncedLate?: boolean;
   authorizedById?: string;
   authorizedByName?: string;
