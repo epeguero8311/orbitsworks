@@ -90,6 +90,40 @@ export function AuthProvider({ children }) {
 
       if (user) {
         const userDocPromise = getDoc(doc(db, "users", user.uid));
+
+        // Fast path: role + companyId are already in the ID token stored on
+        // the phone, so the app can start (and start loading company data)
+        // without waiting on the users-doc round trip - up to 4 s on a weak
+        // signal. Those token claims are exactly what firestore.rules check.
+        // The users doc still replaces this the moment it lands, same as
+        // the slow-network path below always did.
+        const claimsData = await cachedClaimsUserData(user);
+        if (activeUid !== user.uid) return;
+        if (claimsData) {
+          tagSentryUser(user, claimsData);
+          setUserData(claimsData);
+          setCurrentUser(user);
+          setLoading(false);
+          userDocPromise
+            .then((snap) => {
+              if (activeUid !== user.uid || !snap.exists()) return;
+              const full = snap.data();
+              tagSentryUser(user, full);
+              setUserData(full);
+            })
+            .catch((error) => {
+              console.log("Error fetching user data:", error);
+              // Offline cold start: expected, the claims above already cover it.
+              if (error?.code === "unavailable") return;
+              Sentry.captureException(error, {
+                tags: { area: "auth-fetch-user-doc" },
+                contexts: { auth: { uid: user.uid } },
+              });
+            });
+          return;
+        }
+
+        // No usable claims on the phone: wait for the users doc as before.
         let data = null;
         let timedOut = false;
         try {

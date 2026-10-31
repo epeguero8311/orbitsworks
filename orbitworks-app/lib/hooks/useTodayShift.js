@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { createContext, createElement, useContext, useEffect, useMemo, useState } from "react";
 import { collection, query, where, orderBy, limit, onSnapshot, Timestamp } from "firebase/firestore";
 import { db } from "../firebase";
+import { useAuth } from "../AuthContext";
 import {
   buildShiftStatus,
   employeesNeedingLatest,
@@ -23,7 +24,11 @@ import {
 //
 // loading stays true until every one of those has answered, so a status is
 // never shown from a half-loaded set.
-export function useTodayShift(companyId) {
+//
+// One shared set of listeners for the whole app (TodayShiftProvider in
+// App.js), started as soon as the signed-in company is known - i.e. while
+// the splash is still up - instead of once per screen after it.
+function useTodayShiftListeners(companyId) {
   const [employees, setEmployees] = useState([]);
   const [sites, setSites] = useState([]);
   const [todayInEvents, setTodayInEvents] = useState([]);
@@ -151,4 +156,25 @@ export function useTodayShift(companyId) {
   }, [companyId]);
 
   return { employees, sites, todayInEvents, loading };
+}
+
+const EMPTY = { employees: [], sites: [], todayInEvents: [], loading: true };
+const TodayShiftContext = createContext(EMPTY);
+
+export function TodayShiftProvider({ children }) {
+  const { currentUser, userData } = useAuth();
+  const { employees, sites, todayInEvents, loading } = useTodayShiftListeners(
+    currentUser ? userData?.companyId : null
+  );
+  const value = useMemo(
+    () => ({ employees, sites, todayInEvents, loading }),
+    [employees, sites, todayInEvents, loading]
+  );
+  return createElement(TodayShiftContext.Provider, { value }, children);
+}
+
+// Screens keep calling useTodayShift(companyId); the data comes from the
+// shared provider, which always follows the signed-in user's company.
+export function useTodayShift() {
+  return useContext(TodayShiftContext);
 }

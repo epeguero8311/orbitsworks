@@ -8,6 +8,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
 import { ThemeProvider, useTheme } from "./lib/ThemeContext";
 import { SiteSessionProvider } from "./lib/SiteSessionContext";
+import { TodayShiftProvider } from "./lib/hooks/useTodayShift";
 import { usePinTableSync } from "./lib/hooks/usePinTableSync";
 import { useQueueSync } from "./lib/hooks/useQueueSync";
 import { useEmployeeQueueSync } from "./lib/hooks/useEmployeeQueueSync";
@@ -161,7 +162,9 @@ export default Sentry.wrap(function App() {
       <ThemeProvider>
         <AuthProvider>
           <SiteSessionProvider>
-            <RootNavigator />
+            <TodayShiftProvider>
+              <RootNavigator />
+            </TodayShiftProvider>
           </SiteSessionProvider>
         </AuthProvider>
       </ThemeProvider>
