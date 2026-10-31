@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { collection, onSnapshot, query, orderBy, doc, arrayUnion, writeBatch } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, limit, doc, arrayUnion, writeBatch } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import { useLocalEmployee } from "./useLocalEmployee";
@@ -15,6 +15,13 @@ import { getOrCreatePushDeviceId } from "../pushDeviceId";
 // alert read automatically - only the "Mark all read" button
 // (AlertsScreen.js) does, via markAllRead below. Opening the tab never
 // changes read state on its own.
+//
+// Only the newest ALERTS_LIMIT alerts are loaded (all of them was ~950 KB
+// for ShipMate on every cold start). Unread counts and "Mark Seen" cover
+// those alerts; the tab badge shows "9+" above 9, so it never shows a
+// wrong large number.
+export const ALERTS_LIMIT = 100;
+
 export function useAlertsFeed() {
   const { userData, linkedEmployeeId } = useAuth();
   const companyId = userData?.companyId;
@@ -37,7 +44,11 @@ export function useAlertsFeed() {
       return;
     }
 
-    const q = query(collection(db, "companies", companyId, "alerts"), orderBy("occurredAt", "desc"));
+    const q = query(
+      collection(db, "companies", companyId, "alerts"),
+      orderBy("occurredAt", "desc"),
+      limit(ALERTS_LIMIT)
+    );
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
