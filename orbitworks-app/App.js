@@ -94,7 +94,7 @@ function MainTabs() {
 }
 
 function RootNavigator() {
-  const { currentUser, loading, accountDisabled } = useAuth();
+  const { currentUser, loading, accountDisabled, accountChecked } = useAuth();
   const { isDark } = useTheme();
   const [splashAnimationDone, setSplashAnimationDone] = useState(false);
   usePinTableSync();
@@ -115,7 +115,10 @@ function RootNavigator() {
   }, [onNativeSplashHandoff]);
 
   if (!splashAnimationDone) {
-    return <LoadingScreen ready={!loading} onFinish={() => setSplashAnimationDone(true)} />;
+    // Hide once sign-in is known and (for supervisors/admins) the server
+    // has said whether the account is still active - see accountChecked.
+    const splashReady = !loading && (!currentUser || accountChecked);
+    return <LoadingScreen ready={splashReady} onFinish={() => setSplashAnimationDone(true)} />;
   }
 
   return (

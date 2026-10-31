@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Animated, StyleSheet, Easing } from "react-native";
 
-const MIN_DISPLAY_MS = 2000;
+// No minimum any more: the splash goes as soon as the app is ready (App.js
+// splashReady), so it never adds wait time of its own.
+const MIN_DISPLAY_MS = 0;
 const FADE_IN_MS = 400;
 const FADE_OUT_MS = 300;
 
