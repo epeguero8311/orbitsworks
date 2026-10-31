@@ -318,11 +318,14 @@ export const onClockEventCreated = onDocumentCreated(
           });
           return;
         }
+        // Breaks have nothing to do with site: they keep the clock-in's
+        // site as the employee's current site, so the clock-out after a
+        // break can still check its geofence against it.
+        const isBreak = data.type === "breakStart" || data.type === "breakEnd";
         tx.update(employeeRef, {
           lastEventType: data.type,
           lastEventTimestamp: eventTs ?? admin.firestore.FieldValue.serverTimestamp(),
-          lastEventSiteId: finalSiteId,
-          lastEventSiteName: finalSiteName,
+          ...(isBreak ? {} : { lastEventSiteId: finalSiteId, lastEventSiteName: finalSiteName }),
         });
       })
       .catch((err) => {

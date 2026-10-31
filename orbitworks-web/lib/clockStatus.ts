@@ -17,6 +17,13 @@ export function deriveStatus(type: ClockEvent["type"] | undefined): ClockStatus 
   return STATUS_BY_EVENT_TYPE[type] ?? "out";
 }
 
+// Breaks have nothing to do with site, geofence or face check - the log
+// shows "-" for all three, including for older break events that were
+// saved with a "Not specified" site.
+export function isBreakEvent(type: ClockEvent["type"] | undefined): boolean {
+  return type === "breakStart" || type === "breakEnd";
+}
+
 export function typeLabel(type: ClockEvent["type"]): { text: string; className: string } {
   switch (type) {
     case "in":

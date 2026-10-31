@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import { useClockEventsByDay } from "@/lib/hooks/useClockEventsByDay";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { ClockEvent } from "@/lib/types";
-import { typeLabel, sourceLabel } from "@/lib/clockStatus";
+import { typeLabel, sourceLabel, isBreakEvent } from "@/lib/clockStatus";
 import { dateKey } from "@/lib/reportUtils";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import { GeofenceBadge } from "@/components/time/GeofenceBadge";
@@ -166,8 +166,14 @@ export default function ClockEventsDayView({
                     {event.employeeName}
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">
-                    {event.siteName}
-                    <AutoDetectedTag event={event} />
+                    {isBreakEvent(event.type) ? (
+                      "-"
+                    ) : (
+                      <>
+                        {event.siteName}
+                        <AutoDetectedTag event={event} />
+                      </>
+                    )}
                   </td>
                   <td className="px-4 py-2.5">
                     <span className={`font-medium ${typeBadge.className}`}>

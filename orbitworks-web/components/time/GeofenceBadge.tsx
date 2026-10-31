@@ -1,5 +1,6 @@
 import type { ClockEvent } from "@/lib/types";
 import { formatGeofenceDistance } from "@/lib/geo";
+import { isBreakEvent } from "@/lib/clockStatus";
 
 // Geofencing (Pro) Part 4 - shown in the Time Tracking log (both the
 // search-results table and the day view) and reused as the seed for the
@@ -7,6 +8,7 @@ import { formatGeofenceDistance } from "@/lib/geo";
 // geofenceStatus is absent - a non-geofenced site, a Core company, or an
 // event from before this feature, all look identical (no badge, no error).
 export function GeofenceBadge({ event }: { event: ClockEvent }) {
+  if (isBreakEvent(event.type)) return <span className="text-gray-600">-</span>;
   if (!event.geofenceStatus) return null;
 
   if (event.geofenceStatus === "outside") {

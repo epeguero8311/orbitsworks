@@ -1,5 +1,5 @@
 import type { ClockEvent } from "@/lib/types";
-import { faceCheckLabel, photoStatus } from "@/lib/clockStatus";
+import { faceCheckLabel, isBreakEvent, photoStatus } from "@/lib/clockStatus";
 
 // Face Verification (Pro) - shown in the Time Tracking log (both the
 // search-results table and the day view), same placement convention as
@@ -11,6 +11,7 @@ import { faceCheckLabel, photoStatus } from "@/lib/clockStatus";
 // A photo still uploading from the phone shows "Pending" instead: the
 // check runs server-side the moment the photo arrives.
 export function FaceCheckBadge({ event }: { event: ClockEvent }) {
+  if (isBreakEvent(event.type)) return <span className="text-gray-600">-</span>;
   const { text, className } =
     !event.faceCheck && photoStatus(event) === "pending"
       ? { text: "Pending", className: "bg-blue-50 text-blue-700" }

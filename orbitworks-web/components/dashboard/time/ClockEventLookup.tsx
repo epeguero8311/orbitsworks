@@ -11,7 +11,7 @@ import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useEmployeeTimesheet } from "@/lib/hooks/useEmployeeTimesheet";
 import { useClockEvents } from "@/lib/hooks/useClockEvents";
 import { exportEmployeeHistoryExcel } from "@/lib/reportExcelUtils";
-import { typeLabel, sourceLabel } from "@/lib/clockStatus";
+import { typeLabel, sourceLabel, isBreakEvent } from "@/lib/clockStatus";
 import { ClockEvent } from "@/lib/types";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import ClockEventsDayView from "@/components/dashboard/ClockEventsDayView";
@@ -341,8 +341,14 @@ export default function ClockEventLookup() {
                         {event.employeeName}
                       </td>
                       <td className="px-4 py-2.5 text-gray-600">
-                        {event.siteName}
-                        <AutoDetectedTag event={event} />
+                        {isBreakEvent(event.type) ? (
+                          "-"
+                        ) : (
+                          <>
+                            {event.siteName}
+                            <AutoDetectedTag event={event} />
+                          </>
+                        )}
                       </td>
                       <td className="px-4 py-2.5">
                         <span className={`font-medium ${typeBadge.className}`}>
