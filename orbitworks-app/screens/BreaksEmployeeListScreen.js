@@ -16,6 +16,10 @@ import ScreenHeader from "../components/ScreenHeader";
 import Avatar from "../components/Avatar";
 import Spinner from "../components/Spinner";
 
+// On break sorts before working - same pattern as EmployeeListScreen's
+// in/out ordering.
+const STATUS_SORT_ORDER = { break: 0, in: 1 };
+
 export default function BreaksEmployeeListScreen({ navigation, route }) {
   const authorizedBy = route?.params?.authorizedBy;
   const { userData, currentUser } = useAuth();
@@ -37,7 +41,9 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
         : isNoneSite
         ? employees.filter((e) => !e.assignedSiteIds || e.assignedSiteIds.length === 0)
         : employees;
-    return bySite.filter((e) => e.status === "in" || e.status === "break");
+    return bySite
+      .filter((e) => e.status === "in" || e.status === "break")
+      .sort((a, b) => STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status]);
   }, [employees, selectedSite, isNoneSite]);
 
   const toggleSelect = (id) => {
