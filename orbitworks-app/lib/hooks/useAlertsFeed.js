@@ -4,6 +4,7 @@ import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
 import { useLocalEmployee } from "./useLocalEmployee";
 import { getOrCreatePushDeviceId } from "../pushDeviceId";
+import { markLaunch, noteLaunchCount } from "../launchTiming";
 
 // Live view of companies/{companyId}/alerts, newest first. Fails to an
 // empty list rather than an error (kill-switch-off or unreachable both
@@ -62,6 +63,8 @@ export function useAlertsFeed() {
             .filter((a) => a.alertType !== "autoClockOut")
         );
         setLoading(false);
+        noteLaunchCount("alerts", snapshot.size);
+        markLaunch("alertsLoaded");
       },
       (err) => {
         console.log("Alerts feed error:", err.message);

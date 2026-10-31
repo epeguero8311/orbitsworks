@@ -2,6 +2,7 @@ import { createContext, createElement, useContext, useEffect, useMemo, useState 
 import { collection, query, where, orderBy, limit, onSnapshot, Timestamp } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../AuthContext";
+import { markLaunch, noteLaunchCount } from "../launchTiming";
 import {
   buildShiftStatus,
   employeesNeedingLatest,
@@ -97,6 +98,9 @@ function useTodayShiftListeners(companyId) {
       setEmployees(result.employees);
       setTodayInEvents(result.todayIns);
       setLoading(false);
+      noteLaunchCount("windowEvents", windowEvents.length);
+      noteLaunchCount("latestQueries", needed.length);
+      markLaunch("homeData");
     };
 
     const employeesRef = collection(db, "companies", companyId, "employees");
