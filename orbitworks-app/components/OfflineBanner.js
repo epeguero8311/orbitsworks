@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Animated, StyleSheet, Text } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import NetInfo from "@react-native-community/netinfo";
 import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
+import { useIsOffline } from "../lib/hooks/useIsOffline";
 
 // Persistent bottom banner, visible only while offline. isConnected
 // covers "no network at all"; isInternetReachable catches the "on wifi
@@ -28,17 +28,9 @@ const HIDE_OFFSET = 160;
 export default function OfflineBanner() {
   const tabBarSpace = useTabBarSpace();
   const restingBottom = tabBarSpace + 12;
-  const [visible, setVisible] = useState(false);
+  const visible = useIsOffline();
   const translateY = useRef(new Animated.Value(HIDE_OFFSET)).current;
   const opacity = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const sub = NetInfo.addEventListener((state) => {
-      const offline = state.isConnected === false || state.isInternetReachable === false;
-      setVisible(offline);
-    });
-    return () => sub();
-  }, []);
 
   useEffect(() => {
     Animated.parallel([

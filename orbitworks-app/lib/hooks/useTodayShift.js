@@ -34,6 +34,9 @@ function useTodayShiftListeners(companyId) {
   const [sites, setSites] = useState([]);
   const [todayInEvents, setTodayInEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  // True when what's shown didn't come from the server (offline: Firestore
+  // here is memory-only, so after a restart that means an empty list).
+  const [fromCache, setFromCache] = useState(false);
 
   useEffect(() => {
     if (!companyId) {
@@ -41,6 +44,7 @@ function useTodayShiftListeners(companyId) {
       setSites([]);
       setTodayInEvents([]);
       setLoading(false);
+      setFromCache(false);
       return;
     }
     setLoading(true);
@@ -50,6 +54,8 @@ function useTodayShiftListeners(companyId) {
     let windowEvents = [];
     let employeesReady = false;
     let eventsReady = false;
+    let employeesFromCache = false;
+    let eventsFromCache = false;
     let stopped = false;
     // employeeId -> { type, ts } | null (no events at all). Missing = not
     // answered yet.
@@ -97,6 +103,7 @@ function useTodayShiftListeners(companyId) {
       const result = buildShiftStatus({ activeEmployees, inactiveEmployees, windowEvents, latestById });
       setEmployees(result.employees);
       setTodayInEvents(result.todayIns);
+      setFromCache(employeesFromCache || eventsFromCache);
       setLoading(false);
       noteLaunchCount("windowEvents", windowEvents.length);
       noteLaunchCount("latestQueries", needed.length);
@@ -110,11 +117,13 @@ function useTodayShiftListeners(companyId) {
         const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         activeEmployees = all.filter((e) => e.active === true);
         inactiveEmployees = all.filter((e) => e.active !== true);
+        employeesFromCache = snap.metadata.fromCache;
         employeesReady = true;
         apply();
       },
       (error) => {
         console.log("[useTodayShift] employees listener error:", error.code, error.message);
+        employeesFromCache = true;
         employeesReady = true;
         apply();
       }
@@ -127,11 +136,13 @@ function useTodayShiftListeners(companyId) {
       windowQuery,
       (snap) => {
         windowEvents = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        eventsFromCache = snap.metadata.fromCache;
         eventsReady = true;
         apply();
       },
       (error) => {
         console.log("[useTodayShift] events listener error:", error.code, error.message);
+        eventsFromCache = true;
         eventsReady = true;
         apply();
       }
@@ -159,20 +170,20 @@ function useTodayShiftListeners(companyId) {
     };
   }, [companyId]);
 
-  return { employees, sites, todayInEvents, loading };
+  return { employees, sites, todayInEvents, loading, fromCache };
 }
 
-const EMPTY = { employees: [], sites: [], todayInEvents: [], loading: true };
+const EMPTY = { employees: [], sites: [], todayInEvents: [], loading: true, fromCache: false };
 const TodayShiftContext = createContext(EMPTY);
 
 export function TodayShiftProvider({ children }) {
   const { currentUser, userData } = useAuth();
-  const { employees, sites, todayInEvents, loading } = useTodayShiftListeners(
+  const { employees, sites, todayInEvents, loading, fromCache } = useTodayShiftListeners(
     currentUser ? userData?.companyId : null
   );
   const value = useMemo(
-    () => ({ employees, sites, todayInEvents, loading }),
-    [employees, sites, todayInEvents, loading]
+    () => ({ employees, sites, todayInEvents, loading, fromCache }),
+    [employees, sites, todayInEvents, loading, fromCache]
   );
   return createElement(TodayShiftContext.Provider, { value }, children);
 }
