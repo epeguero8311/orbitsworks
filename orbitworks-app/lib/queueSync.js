@@ -622,7 +622,7 @@ async function readPendingItems(sqlite) {
   let rows;
   try {
     rows = await sqlite.getAllAsync(
-      `SELECT * FROM event_queue WHERE ${READY_WHERE} ORDER BY clientTimestamp ASC`,
+      `SELECT * FROM event_queue WHERE ${READY_WHERE} ORDER BY clientTimestamp ASC, localId ASC`,
       [now]
     );
   } catch (batchErr) {
@@ -631,7 +631,7 @@ async function readPendingItems(sqlite) {
     let ids = [];
     try {
       ids = await sqlite.getAllAsync(
-        `SELECT localId FROM event_queue WHERE ${READY_WHERE} ORDER BY clientTimestamp ASC`,
+        `SELECT localId FROM event_queue WHERE ${READY_WHERE} ORDER BY clientTimestamp ASC, localId ASC`,
         [now]
       );
     } catch (idsErr) {
@@ -689,7 +689,8 @@ async function clearBackoff() {
 }
 
 // Sends one row - its event doc, or (for a 'photoPending' row) just its
-// photo - then records the outcome. Never throws.
+// photo - then records the outcome. Never throws. Returns true only when
+// the step reached the server (runEmployeeLane stops on false).
 // The backup copy (queueBackups) runs alongside, not before, the real
 // send - it's a safety net and must not add a round trip to every event.
 // The one exception is a structurally invalid row: it never reaches
@@ -727,7 +728,7 @@ async function processItem(state, sqlite, companyId, item) {
         backup.catch(() => {});
       }
 
-      if (myEpoch !== currentEpoch) return;
+      if (myEpoch !== currentEpoch) return false;
       state.lastProgressAt = Date.now();
       if (isPhotoStep) {
         stats.photoCount++;
@@ -742,8 +743,9 @@ async function processItem(state, sqlite, companyId, item) {
           if (!stats.slowest || timing.tapToServerMs > stats.slowest.tapToServerMs) stats.slowest = logged;
         }
       }
+      return true;
     } catch (err) {
-      if (myEpoch !== currentEpoch) return;
+      if (myEpoch !== currentEpoch) return false;
 
       logSyncTiming(item, { ...timing, error: err.message }, "failed", trigger);
       console.log("Sync failed for", item.localId, timing.step, err.message);
@@ -805,24 +807,49 @@ async function processItem(state, sqlite, companyId, item) {
       );
       notifyQueueChange();
       state.lastProgressAt = Date.now();
+      return false;
     }
   } catch (err) {
     // Only the SQLite status writes above can land here. The row stays
     // 'syncing' and resetStuckSyncs puts it back in line.
     Sentry.captureException(err, { tags: { area: "queueSync", step: "statusWrite" } });
+    return false;
   } finally {
     inFlight.delete(item.localId);
   }
 }
 
-// One employee's events, strictly one at a time, oldest first. A failed
-// event does not block the next one (same as before this change); it
-// waits out its backoff and is retried by a later pass.
+// One employee's event docs, strictly in order, oldest first. A failed
+// doc stops the lane: the employee's later events wait until it lands
+// (or goes 'dead' after DEAD_LETTER_ATTEMPTS), so a clock-out can never
+// reach the server before the clock-in it follows. See heldEmployeeHeads.
 async function runEmployeeLane(state, sqlite, companyId, items) {
   for (const item of items) {
     if (state.myEpoch !== currentEpoch) return;
-    if (inFlight.has(item.localId)) continue;
-    await processItem(state, sqlite, companyId, item);
+    if (inFlight.has(item.localId)) return;
+    const sent = await processItem(state, sqlite, companyId, item);
+    if (!sent) return;
+  }
+}
+
+// Each employee's oldest event whose DOC is not on the server yet
+// (employeeId -> localId). An employee's lane may only start at this row,
+// so a row waiting out its backoff holds that employee's later events.
+// Only the doc step counts: 'photoPending' (doc already sent) never holds
+// anything back, and 'dead' rows are skipped so one stuck event can't
+// block an employee forever. Returns null if the read fails - the drain
+// then runs unordered rather than not at all.
+async function readDocHeads(sqlite) {
+  try {
+    const rows = await sqlite.getAllAsync(
+      "SELECT employeeId, localId FROM event_queue WHERE syncStatus IN ('pending','failed','syncing') ORDER BY clientTimestamp ASC, localId ASC"
+    );
+    const heads = new Map();
+    for (const r of rows) if (!heads.has(r.employeeId)) heads.set(r.employeeId, r.localId);
+    return heads;
+  } catch (err) {
+    Sentry.captureException(err, { tags: { area: "queueSync", step: "docHeads" } });
+    return null;
   }
 }
 
@@ -956,6 +983,7 @@ async function runPump(p, companyId) {
     while (myEpoch === currentEpoch) {
       p.wakeRequested = false;
       const ready = await readPendingItems(sqlite);
+      const heads = await readDocHeads(sqlite);
 
       // Event docs: one lane per employee, in order.
       const byEmployee = new Map();
@@ -967,6 +995,10 @@ async function runPump(p, companyId) {
       for (const [employeeId, items] of byEmployee) {
         if (lanes.size >= MAX_PARALLEL_EMPLOYEES) break;
         if (lanes.has(employeeId)) continue;
+        // Held: this employee's oldest unsent doc is not ready (backoff,
+        // or left 'syncing' until resetStuckSyncs). Their newer events
+        // wait; the phone still shows the newest one (useLocalStatusOverlay).
+        if (heads && heads.get(employeeId) !== items[0].localId) continue;
         items.forEach(markSeen);
         const lane = runEmployeeLane(p, sqlite, companyId, items).finally(() => {
           lanes.delete(employeeId);

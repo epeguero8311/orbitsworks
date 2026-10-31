@@ -17,6 +17,8 @@ Each one prints OK or FAILED.
 | `ddc50f3` | Step 2: send immediately, per-event lock, 3 employees in parallel, retry backoff |
 | `1eb7139` | Step 3: event doc first, photo after; face check on photo arrival; web "Uploading"/"Photo missing" |
 | `30005f9`, `b4b0ea3` | Step 4: `lastEventType` only moves forward (effective time = `adjustedTimestamp ?? timestamp`) |
+| `6cd4036` | Breaks list: on break at the top, working at the bottom |
+| (this commit) | Strict per-employee order: an employee's event doc waits until their older event doc is on the server (photos never hold anything back) |
 
 There are no `firestore.rules` or `storage.rules` changes, so nothing to deploy for rules.
 
@@ -144,6 +146,8 @@ node scripts/measure-sync-timing.mjs qdLsh075T743sGEKyZs7 --since <START-ISO>
 | D | **Airplane mode**: turn it on, clock in/out 4 times across 2 employees, turn it off. | Clock-ins are instant while offline. All 4 events land within **about 10s** of reconnecting, then their photos. Each employee's status is right in the app and on the web (`lastEventType` = their latest action). The Sync Queue empties. Nothing shows Failed or Stuck. |
 | E | **Old app** (App Store 1.1.2): 1 clock-in, if not already done in 1a. | Face check still runs (Match). |
 | F | **Web** (optional; needs local `npm run dev` on syncspeed, because web isn't deployed yet) | A photo still on its way shows **Uploading**, then **View**. |
+| G | **Close mid-sync, then clock out**: clock in 3-4 employees, force-close the app right away while they're still syncing, reopen, then clock all of them out. | Every in AND out lands on the server, in order. Nobody's status jumps back to "in" after being clocked out, on the phone or the web. Nothing is duplicated or lost. |
+| H | **Breaks list order**: with some employees on break and some working, open Breaks. Start a break for one working employee, end one break. | Everyone **On Break** is at the top, **Working** at the bottom. The list re-sorts right after each action. |
 
 If the test fails, run section 4, then fix on `syncspeed`.
 
