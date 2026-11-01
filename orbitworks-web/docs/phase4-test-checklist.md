@@ -1,18 +1,19 @@
 # Employee App Phase 4 - Nov 1 test checklist
 
-Offline punch queue (steps 1-7). Dev only: orbitworks-dev-ew. Prod is not touched.
+Offline punch queue (steps 1-7) + fast punches (every punch is saved on the phone first, green screen at once). Dev only: orbitworks-dev-ew. Prod is not touched.
 
-## Builds (Nov 1, profile employeeDev)
+## Builds (profile employeeDev)
 
-1. Build 1 - UI-only: from tag `ui-only-build` (2b29ec3). New screens plus the dev timing readout. Used for T1 only.
-2. Build 2 - Phase 4: from `employee-app` HEAD (includes main up to 8cce37d). Used for T2-T13 and S1-S6.
+1. Build 1 - UI-only: from tag `ui-only-build` (2b29ec3), build 15. New screens plus the dev timing readout. Used for T1 only.
+2. Build 2 - Phase 4 + fast punches: from `employee-app` HEAD (ec726c0 or later, includes main up to 8cce37d). Used for T2-T16 and S1-S6. Replaces build 16.
 
 ## How to run it
 
 - One test at a time, in order. Use the same test employee all day.
 - After each test, send "done T#". I check dev read-only and answer OK or FAILED.
 - "I check" = what I look at on dev (Firestore, Storage, function logs, the dev website). I write nothing.
-- Nov 1, 2026 is the US clock change (back 1 h at 2 AM). Test during the day; don't run a shift across 2 AM.
+- Keep the app open and the screen on while a punch is waiting to sync. A locked phone sleeps, and a punch that waited through sleep follows the normal queued rules instead of getting server time.
+- Fast-sync rule: a punch that reaches the server within 2 min of being made (same app run) gets the server's time and looks like an online punch (no `queued`, no "Synced late"). Over 2 min: the phone's time and `queued: true`; 5 min or more also "Synced late".
 - The 24 h rules (saved PIN deleted after 24 h, punches older than 24 h not recorded) can't be tested in one day. Unit tests cover them (`orbitworks-app/test/punchQueueLogic.test.js`).
 
 ---
@@ -35,20 +36,21 @@ Offline punch queue (steps 1-7). Dev only: orbitworks-dev-ew. Prod is not touche
 
 ---
 
-## Build 2 - Phase 4
+## Build 2 - Phase 4 + fast punches
 
-### T2. Online punch is unchanged (and the photo size)
+### T2. Online punch: instant, looks normal on the website (and the photo size)
 
 - **Tap:** On good wifi, from clocked out: Clock In (PIN + photo).
 - **You should see:**
-  - Green overlay with no "Will sync when online" line.
-  - No banner on Home.
-  - Sync tab: "Everything is synced".
+  - The camera opens right after the 4th digit (no "Checking PIN..." screen).
+  - Green overlay right after "Use photo", with no "Will sync when online" line and no "Clocking in..." spinner.
+  - No banner on Home. The Sync badge never shows.
+  - Sync tab: the Clock in row Synced within a few seconds (every punch now shows there for 24 h).
   - Settings: Last synced = "Today, <now>", PIN = `****`.
 - **I check:**
-  - The event has no `queued` and no `syncedLate`.
+  - The event has no `queued`, no `syncedLate`, no `phoneClockOff`; its time is within about 2 s of `createdAt` (server time).
   - The photo in dev Storage: pixel size (expected 720x1280 portrait), KB, and the face check result.
-  - The timing readout.
+  - The timing readout: "to success" well under 1 s, plus a "synced" row for the send.
 
 ### T3. The done-test (all offline, then sync)
 
@@ -62,32 +64,36 @@ Start clocked out. If T2 left you clocked in, clock out online first.
   5. Kill the app (swipe it away) and reopen it, still in airplane mode.
   6. Turn wifi on and stay on Home.
 - **You should see:**
-  - Each punch: green overlay + "Will sync when online" + the expected site.
+  - Each punch: green overlay right away + "Will sync when online" + the expected site.
   - The "No signal..." banner on Home and the PIN screen.
   - Home follows each punch (Clocked in -> On break -> Clocked in -> Done for the day).
-  - Sync tab: 4 rows "Waiting"; the Sync badge shows 4.
+  - Sync tab: 4 rows "Waiting"; the Sync badge shows 4 (each punch counts once it is 10 s old).
   - After reopening offline: Home shows "Done for the day" and today's hours, not a spinner and not "Clocked out" with 0h.
   - With wifi on: the rows go Syncing -> Synced, the badge goes away, and Last synced updates.
   - On the dev website: all 4 punches at the times you wrote down, each with the "Synced late" tag.
 - **I check:**
   - Exactly 4 events, in order.
-  - Each event's time = the phone's punch time (not the sync time), with `queued: true` and `syncedLate: true`.
+  - Each event's time = the phone's punch time (not the sync time), with `queued: true` and `syncedLate: true`, no `phoneClockOff`.
   - Clock in and clock out have photos.
   - No duplicates.
 
-### T4. Quick timeout: syncs in under 5 min -> NO "Synced late"
+### T4. Weak signal: synced under 2 min = normal; 2-5 min = queued, no "Synced late"
+
+Start clocked out. Keep the app open and the screen on.
 
 - **Tap:**
   1. iPhone Settings -> Developer -> Network Link Conditioner -> "100% Loss" -> on. Wifi stays on.
   2. Clock In (PIN + photo).
-  3. Within 2 minutes, turn the conditioner off.
+  3. Within 1 minute, turn the conditioner off. Wait until the row is Synced.
+  4. Conditioner on again. Clock Out (PIN + photo).
+  5. Wait 3 minutes, then turn the conditioner off. Wait until the row is Synced (tap Sync Now if it waits).
 - **You should see:**
-  - "Checking PIN..." for about 3 s, then the camera opens anyway.
-  - Green overlay + "Will sync when online".
-  - The "Weak signal..." banner.
-  - Once the conditioner is off, the row goes Synced within about a minute (a retry stuck on the bad signal times out after 30 s).
-  - On the website: no "Synced late" tag on this punch.
-- **I check:** `queued: true`, the time is the phone's time, and `syncedLate` is absent.
+  - The camera opens right after the PIN both times. If you take the photo fast, "Checking PIN..." shows for up to 3 s.
+  - Green overlay + "Will sync when online" both times (the PIN couldn't be checked), and the "Weak signal..." banner.
+  - Website: neither punch has a "Synced late" tag.
+- **I check:**
+  - Clock in (step 3): no `queued`, server time (synced under 2 min). The PIN was checked when it synced.
+  - Clock out (step 5): `queued: true`, the phone's time, no `syncedLate`.
 
 ### T5. Wrong PIN offline -> Redo -> lands with the original time + photo
 
@@ -119,14 +125,14 @@ You are clocked in from T5.
   2. Clock Out with a WRONG PIN.
   3. Wifi on. Wait until the row shows Failed.
   4. Tap Clock Back In on Home with the correct PIN (online).
-  5. Sync tab: tap Redo on the failed Clock out and type the correct PIN.
+  5. Wait 3 minutes. Then Sync tab: tap Redo on the failed Clock out and type the correct PIN.
 - **You should see:**
   - The Clock out row Failed, with the red line "Sending is paused until the failed punch below is fixed."
-  - The Clock Back In shows green + "Will sync when online" even though you're online, and its row stays Waiting behind the failed one. The badge counts both.
+  - The Clock Back In shows green at once with no "Will sync" line (you're online and the PIN was checked), but its row stays Waiting behind the failed one. After 10 s the badge counts both.
   - After Redo: Clock out goes Synced first, then Clock in. The badge goes away.
 - **I check:**
   - The out event comes before the new in event, both at their original phone times.
-  - The in event has `queued: true` (it was queued behind).
+  - The in event has `queued: true` (it waited over 2 min behind the failed one).
 
 ### T7. Remove a "Not recorded" punch; the queue continues after
 
@@ -161,6 +167,7 @@ You are clocked in from T7.
   5. Tap Remove and confirm.
   6. Set the employee back to Active on the website.
 - **You should see:**
+  - The break shows green at once + "Will sync when online".
   - The row Failed: "Couldn't sync, please speak to your supervisor." with Remove only.
   - After Remove the row is gone.
 - **I check:** no break event was written.
@@ -173,7 +180,7 @@ You are clocked in (on shift) from T7/T8.
   1. Airplane mode on.
   2. Start Break.
   3. Settings -> Log out. Read the box, then tap Log out.
-  4. Wifi on.
+  4. Wait 3 minutes. Wifi on.
   5. Sign back in as the same employee.
 - **You should see:**
   - Box: "1 punch is not synced yet" / "They stay on this phone and sync only when you sign back in on it." with Log out / Stay signed in.
@@ -199,24 +206,25 @@ You are on break from T9.
 
 ### T11. Sync tab badge count and Sync Now
 
-You are clocked in from T10.
+You are clocked in from T10. Keep the app open and the screen on.
 
 - **Tap:**
   1. Network Link Conditioner "100% Loss" on (wifi stays on).
-  2. Start Break, then End Break (each spins about 5 s, then saves).
+  2. Start Break, then End Break.
   3. Open the Sync tab.
-  4. Turn the conditioner off. Right away, tap Sync Now.
+  4. Within 1 minute of End Break, turn the conditioner off and tap Sync Now.
 - **You should see:**
-  - The Sync badge shows 1, then 2.
-  - The Sync tab shows 2 rows Waiting (one may flip to Syncing while the phone retries), and the top line says "Weak signal".
+  - Each break shows green at once (no spinner).
+  - The Sync badge shows 1 about 10 s after Start Break, then 2.
+  - The Sync tab shows 2 rows Waiting (one may flip to Syncing while the phone retries). The top line says "Weak signal" once a send has timed out (30 s).
   - Sync Now changes to "Syncing...", and both rows go Synced. That's within seconds, or up to 30 s if a retry was already stuck on the bad signal.
   - The badge goes away, and Last synced = now.
-- **I check:** both events landed, in order, at the original times, with no "Synced late" tag (under 5 min).
+- **I check:** both events landed, in order, with no "Synced late" tag. Each one that synced within 2 min of its tap has server time and no `queued`.
 
 ### T12. Smaller photo: the face check passes on real Phase 4 photos
 
 - **Tap:** Online, 3 punches with your face clearly in frame: Clock Out, Clock In, Clock Out. Do one of them in poorer light (indoors, no window).
-- **You should see:** Normal green overlays.
+- **You should see:** Normal green overlays, right after each photo.
 - **I check:** for these 3 photos and every Phase 4 photo from T2-T9:
   - the pixel size and KB;
   - the face check result and match %, compared with the full-size photos from before Phase 4;
@@ -231,12 +239,53 @@ You are clocked in from T10.
   3. Airplane mode on: Clock In.
   4. Settings: open the timing readout.
 - **You should see:**
-  - Online punches: same flow as T1, with the photo upload shorter.
-  - Airplane: the green overlay with "Will sync when online" right after the photo, instead of "No signal".
-  - The timing rows (airplane rows show "queued").
+  - Online: camera right after the PIN, green right after the photo or the break confirm - the same feel as the supervisor app.
+  - Airplane: the green overlay with "Will sync when online" right after the photo.
+  - The timing rows: one per punch ("to success") and one per send ("synced": upload, punch, total = punch -> synced).
 - **I check:**
-  - The T1 vs T13 table per step (PIN check, upload, punch, total) for wifi, cell and airplane.
+  - The T1 vs T13 table: tap -> green screen for each punch (T1 total vs T13 total), for wifi, cell and airplane.
+  - The background send times (upload, punch) per punch.
   - The airplane punch syncs once wifi is back.
+
+### T14. Wrong PIN while the camera is open -> back to the PIN with the error; lock after 3
+
+Online. Any clock punch works (Clock In or Clock Out).
+
+- **Tap:**
+  1. Clock punch, type a WRONG PIN. The camera opens. Don't take the photo.
+  2. Repeat with a wrong PIN 2 more times.
+  3. After the lock ends, type the correct PIN and take the photo.
+- **You should see:**
+  - Each wrong PIN: the camera closes within about a second, back on the PIN pad with "Wrong PIN. 2 tries left before a 1-minute lock." (then 1).
+  - The 3rd: "Too many wrong PINs. Try again in 60 seconds." with the countdown, PIN pad disabled.
+  - Step 3: green at once, no "Will sync" line.
+- **I check:** no event for the wrong ones, the lock in `employeePinLocks`, and the final event has no `queued`.
+
+### T15. Phone clock set back -> phoneClockOff (offline + app killed, then online)
+
+Start at least 12 minutes after your last punch, so the set-back time is still after it. The time is set back 10 minutes, not 1 hour: a time before your last punch would be refused as "Not recorded" before it could be flagged.
+
+- **Tap:**
+  1. iPhone Settings -> General -> Date & Time: Set Automatically off, set the time 10 minutes back.
+  2. Airplane mode on. Clock punch (PIN + photo). Note the green screen time (it shows the phone's wrong time).
+  3. Kill the app. Set the time back to automatic. Reopen the app, airplane mode off. Wait until the row is Synced.
+  4. Set the time 10 minutes back again. Online: one more clock punch (PIN + photo).
+  5. Set the time back to automatic.
+- **You should see:** both punches green at once. If a row sits in Waiting after step 3 or 4, tap Sync Now.
+- **I check:**
+  - Step 2 punch: the phone's time (10 min early), `queued: true`, `phoneClockOff: true` (its phone time is 10 min before the expected time).
+  - Step 4 punch: the real server time (not the phone's), no `queued`, `phoneClockOff: true`.
+
+### T16. Breaks are instant, online and offline
+
+- **Tap:**
+  1. Online: Start Break, End Break.
+  2. Airplane mode on: Start Break, End Break. Then airplane mode off.
+- **You should see:**
+  - Online: green right after the confirm, no "Will sync" line, no wait.
+  - Offline: green right after the confirm, with "Will sync when online".
+  - The offline rows go Synced once you're online.
+- **I check:** online breaks have server time and no `queued`; offline ones follow the 2-minute rule (synced under 2 min = server time; over = phone time + `queued: true`).
 
 ---
 
