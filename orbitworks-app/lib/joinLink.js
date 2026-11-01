@@ -1,5 +1,5 @@
-// Crew code (QR) links. Pure functions, CommonJS so test/joinLink.test.js
-// can run them in plain Node.
+// Crew code (QR) and email invite links. Pure functions, CommonJS so
+// test/joinLink.test.js can run them in plain Node.
 //
 // A crew code link is {appUrl}/j/{token} (what the QR holds) or
 // {scheme}://j/{token} (the "Open in the app" button on the /j page).
@@ -29,10 +29,38 @@ function parseJoinUrl(url, joinLinks) {
   return TOKEN_RE.test(token) ? token : null;
 }
 
-// Blanks any crew code token in a string (Sentry breadcrumbs/events).
-function redactJoinTokens(text) {
-  if (typeof text !== "string") return text;
-  return text.replace(/(\/j\/)[A-Za-z0-9_-]{16,}/g, "$1[redacted]");
+// Every sign-up link this app opens: a crew code (/j/) or an email invite
+// (/i/, Phase 3B), on the https site or the app scheme. Returns
+// { kind: "qr" | "invite", token } or null. Both tokens use TOKEN_RE.
+const LINK_KINDS = [
+  ["j", "qr"],
+  ["i", "invite"],
+];
+
+function parseAppLink(url, joinLinks) {
+  if (typeof url !== "string" || !joinLinks) return null;
+  if (typeof joinLinks.appUrl !== "string" || typeof joinLinks.scheme !== "string" || !joinLinks.scheme) return null;
+  const raw = url.trim();
+  if (raw.length > 512) return null;
+
+  const base = joinLinks.appUrl.replace(/\/+$/, "");
+  for (const [segment, kind] of LINK_KINDS) {
+    const httpsPrefix = `${base}/${segment}/`;
+    const schemePrefix = `${joinLinks.scheme}://${segment}/`;
+    let path = null;
+    if (raw.startsWith(httpsPrefix)) path = raw.slice(httpsPrefix.length);
+    else if (raw.startsWith(schemePrefix)) path = raw.slice(schemePrefix.length);
+    if (path === null) continue;
+    const token = path.split(/[?#]/)[0].replace(/\/+$/, "");
+    return TOKEN_RE.test(token) ? { kind, token } : null;
+  }
+  return null;
 }
 
-module.exports = { TOKEN_RE, parseJoinUrl, redactJoinTokens };
+// Blanks any crew code or invite token in a string (Sentry breadcrumbs/events).
+function redactJoinTokens(text) {
+  if (typeof text !== "string") return text;
+  return text.replace(/(\/[ji]\/)[A-Za-z0-9_-]{16,}/g, "$1[redacted]");
+}
+
+module.exports = { TOKEN_RE, parseJoinUrl, parseAppLink, redactJoinTokens };

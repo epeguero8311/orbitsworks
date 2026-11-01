@@ -19,8 +19,16 @@ const SELFIE_MIN_BYTES = 5 * 1024;
 
 const ID_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
 
-// Crew code token, shared by joinCompany and getJoinInfo.
-const joinTokenField = z.string().regex(/^[A-Za-z0-9_-]{32,128}$/, "Invalid code");
+// Firestore doc id (employee, site, subcontractor). Shared with
+// employeeInviteValidators.ts.
+export const idField = z.string().regex(ID_REGEX);
+
+// Crew code token, shared by joinCompany and getJoinInfo. Email invite
+// tokens use the same rule (employeeInviteValidators.ts).
+export const joinTokenField = z.string().regex(/^[A-Za-z0-9_-]{32,128}$/, "Invalid code");
+
+// Lowercased + trimmed. Shared by both sign-ups and the invite create call.
+export const emailField = z.string().trim().toLowerCase().max(254).pipe(z.email("Enter a valid email."));
 
 // Whole years between a YYYY-MM-DD birthday and today (UTC).
 export function ageOn(birthday: string, now: Date = new Date()): number {
@@ -59,7 +67,7 @@ export const joinCompanySchema = z.object({
     .trim()
     .min(2, "Enter your full name.")
     .max(NAME_MAX_LENGTH, "That name is too long."),
-  email: z.string().trim().toLowerCase().max(254).pipe(z.email("Enter a valid email.")),
+  email: emailField,
   password: z.string().min(8, "Password must be at least 8 characters.").max(128, "That password is too long."),
   privacyAccepted: z.literal(true, "You must accept the Privacy Policy."),
   privacyVersion: z.string().max(64),

@@ -103,13 +103,31 @@ const REASONS = {
   generic: { kind: "retry", message: "Something went wrong. Try again." },
 };
 
-function mapJoinError(err) {
+// Email invite (Phase 3B) wording. Same kinds, invite words instead of
+// "crew code". inviteInactive / inviteUnusable / emailMismatch are only
+// sent by acceptEmployeeInvite - keep in step with INVITE_ERRORS in the
+// functions package's employeeInviteValidators.ts.
+const INVITE_NO_LONGER_ACTIVE = "This invite is no longer active. Ask your admin to send a new one.";
+
+const INVITE_REASONS = {
+  ...REASONS,
+  inactive: { kind: "inactive", message: INVITE_NO_LONGER_ACTIVE },
+  accountProblem: { kind: "inactive", message: INVITE_NO_LONGER_ACTIVE },
+  inviteInactive: { kind: "inactive", message: INVITE_NO_LONGER_ACTIVE },
+  inviteUnusable: { kind: "inactive", message: "This invite can't be used anymore. Ask your admin to send a new one." },
+  emailMismatch: { kind: "email", message: "Use the email address this invite was sent to." },
+  subcontractor: { kind: "subcontractor", message: "That company option isn't available anymore. Pick another." },
+};
+
+// source: "qr" (crew code, the default) or "invite".
+function mapJoinError(err, source = "qr") {
   const reason = err && err.details && typeof err.details.reason === "string" ? err.details.reason : null;
   if (reason === "invalid") {
     const msg = typeof err.message === "string" && err.message.length > 0 && err.message.length < 200 ? err.message : "Check your details and try again.";
     return { kind: "field", message: msg };
   }
-  if (reason && REASONS[reason]) return REASONS[reason];
+  const table = source === "invite" ? INVITE_REASONS : REASONS;
+  if (reason && Object.prototype.hasOwnProperty.call(table, reason)) return table[reason];
   return { kind: "retry", message: CONNECTION };
 }
 
@@ -145,6 +163,7 @@ module.exports = {
   PASSWORD_MAX_LENGTH,
   SELFIE_MAX_BYTES,
   NO_LONGER_ACTIVE,
+  INVITE_NO_LONGER_ACTIVE,
   validateFullName,
   validateEmail,
   validatePassword,

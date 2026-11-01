@@ -171,10 +171,12 @@ Phase 3 Step 6 (shrunk to this):
 
 - **Move the development/dev/preview EAS profiles to the dev app ID** -
   see the Employee App to-dos above.
-- **Rate limit `joinCompany` and `getJoinInfo`.** Both are unauthenticated
-  (`joinCompany` creates Auth users). `joinCompany` has a
-  `TODO(Phase 10): RATE LIMIT` marker at the top of
-  `functions/src/joinCompany.ts`; `getJoinInfo` (Part C) gets the same.
+- **Rate limit both join paths: QR (`joinCompany`, `getJoinInfo`) and
+  email invite (`acceptEmployeeInvite`, `getInviteInfo`, Phase 3B).** All
+  four are unauthenticated (`joinCompany` and `acceptEmployeeInvite` create
+  Auth users). Before prod they need per-IP / per-token limits and App
+  Check. Each has a `TODO(Phase 10): RATE LIMIT` marker at the top of its
+  file (decided 2026-11-01: invites match QR for now, no limit yet).
 - **Find why EAS Updates don't reach the dev app** (found 2026-10-28).
   Update 01a1833d never showed on build 11; builds 10 and 11 are affected
   (channel employee-dev, runtime 1.1.2). Until fixed, JS changes for the dev

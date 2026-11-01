@@ -115,3 +115,25 @@ test("sentryScrub: ignores values shorter than 4", () => {
   s.setScrubValue("x", "12");
   assert.equal(s.scrubSensitive({ m: "12" }).m, "12");
 });
+
+// ---- Phase 3B: invite wording ----
+
+test("mapJoinError(invite): invite reasons and wording", () => {
+  const inactive = v.mapJoinError({ details: { reason: "inviteInactive" } }, "invite");
+  assert.deepEqual(inactive, { kind: "inactive", message: v.INVITE_NO_LONGER_ACTIVE });
+  assert.equal(v.mapJoinError({ details: { reason: "inactive" } }, "invite").message, v.INVITE_NO_LONGER_ACTIVE);
+  assert.equal(v.mapJoinError({ details: { reason: "accountProblem" } }, "invite").message, v.INVITE_NO_LONGER_ACTIVE);
+  assert.equal(v.mapJoinError({ details: { reason: "inviteUnusable" } }, "invite").kind, "inactive");
+  assert.deepEqual(v.mapJoinError({ details: { reason: "emailMismatch" } }, "invite"), { kind: "email", message: "Use the email address this invite was sent to." });
+  assert.equal(v.mapJoinError({ details: { reason: "emailInUse" } }, "invite").kind, "email");
+  assert.equal(v.mapJoinError({ details: { reason: "subcontractor" } }, "invite").message.includes("code"), false);
+  assert.equal(v.mapJoinError({ details: { reason: "photo" } }, "invite").kind, "photo");
+  assert.equal(v.mapJoinError({ details: { reason: "invalid" }, message: "Enter a real date of birth." }, "invite").kind, "field");
+  assert.equal(v.mapJoinError(new Error("Network request failed"), "invite").kind, "retry");
+});
+
+test("mapJoinError: invite-only reasons mean nothing on a crew code, junk reasons are retry", () => {
+  assert.equal(v.mapJoinError({ details: { reason: "emailMismatch" } }).kind, "retry");
+  assert.equal(v.mapJoinError({ details: { reason: "toString" } }, "invite").kind, "retry");
+  assert.equal(v.mapJoinError({ details: { reason: "inactive" } }).message, v.NO_LONGER_ACTIVE);
+});
