@@ -65,15 +65,34 @@ export const syncEmployeeSelfView = onDocumentWritten("companies/{companyId}/emp
   const before = event.data?.before?.data();
   const after = event.data?.after?.data();
 
-  if (!after) {
-    await selfViewRef(companyId, employeeId).delete();
-    return;
-  }
-
-  if (before) {
+  // Cheap skip: this write didn't touch any copied field, so skipping it
+  // can never leave the view stale.
+  if (before && after) {
     const unchanged = JSON.stringify(buildEmployeeSelfView(before)) === JSON.stringify(buildEmployeeSelfView(after));
     if (unchanged) return;
   }
 
-  await writeEmployeeSelfView(companyId, employeeId, after);
+  await syncSelfViewFromEmployeeDoc(companyId, employeeId);
 });
+
+// Events can arrive out of order (an employee doc created and then linked a
+// few seconds later, with a cold start in between, delivered the older
+// "create" event last and left the view unlinked). So the view is never
+// built from the event's own snapshot: it is rebuilt from the employee doc
+// as it is now, in a transaction, so a write that lands meanwhile can't be
+// overwritten with older data. No employee doc = no view.
+export async function syncSelfViewFromEmployeeDoc(companyId: string, employeeId: string): Promise<void> {
+  const employeeRef = db.collection("companies").doc(companyId).collection("employees").doc(employeeId);
+  const viewRef = selfViewRef(companyId, employeeId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(employeeRef);
+    if (!snap.exists) {
+      tx.delete(viewRef);
+      return;
+    }
+    tx.set(viewRef, {
+      ...buildEmployeeSelfView(snap.data() as EmployeeData),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+}

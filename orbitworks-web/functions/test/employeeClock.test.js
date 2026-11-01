@@ -676,20 +676,48 @@ test("self view: copies only safe fields - never the PIN, rate, dob or email", a
 test("self view: updates on a real change, skips a PIN-only change, deleted with the employee", async () => {
   const c = "ec-view-sync";
   await seed(c);
-  const emp = (await db.doc(`companies/${c}/employees/emp1`).get()).data();
+  const empRef = db.doc(`companies/${c}/employees/emp1`);
+  const emp = (await empRef.get()).data();
   const viewRef = db.doc(`companies/${c}/employeeSelfViews/emp1`);
   await funcs.syncEmployeeSelfView.run(employeeWriteEvent(c, undefined, emp));
 
+  // The trigger re-reads the employee doc, so each event follows a real write.
+  await empRef.update({ active: false });
   await funcs.syncEmployeeSelfView.run(employeeWriteEvent(c, emp, { ...emp, active: false }));
   assert.equal((await viewRef.get()).data().active, false);
 
   // A PIN-only (or rate-only) change writes nothing to the view.
   await viewRef.update({ marker: "untouched" });
+  await empRef.update({ pin: "9876", hourlyRate: 40 });
   await funcs.syncEmployeeSelfView.run(employeeWriteEvent(c, { ...emp, active: false }, { ...emp, active: false, pin: "9876", hourlyRate: 40 }));
   const v = (await viewRef.get()).data();
   assert.equal(v.marker, "untouched");
   assert.ok(!JSON.stringify(v).includes("9876"));
 
+  await empRef.delete();
   await funcs.syncEmployeeSelfView.run(employeeWriteEvent(c, emp, undefined));
   assert.equal((await viewRef.get()).exists, false);
+});
+
+test("self view: create and link events delivered out of order still end linked", async () => {
+  const c = "ec-view-order";
+  await seed(c);
+  const empRef = db.doc(`companies/${c}/employees/emp1`);
+  const viewRef = db.doc(`companies/${c}/employeeSelfViews/emp1`);
+  // Like addEmployee then linkEmployeeLogin: created unlinked, linked a
+  // moment later. The doc is now linked.
+  const linked = (await empRef.get()).data();
+  const unlinked = { ...linked };
+  delete unlinked.linkedUserId;
+  delete unlinked.appAccess;
+
+  // The link event arrives first, then the older create event.
+  await funcs.syncEmployeeSelfView.run(employeeWriteEvent(c, unlinked, linked));
+  assert.equal((await viewRef.get()).data().linkedUserId, "uid1");
+  await funcs.syncEmployeeSelfView.run(employeeWriteEvent(c, undefined, unlinked));
+
+  const view = (await viewRef.get()).data();
+  assert.equal(view.linkedUserId, "uid1");
+  assert.equal(view.active, true);
+  assert.equal(view.name, "Ana");
 });
