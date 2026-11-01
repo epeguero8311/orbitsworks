@@ -7,6 +7,8 @@ import {
   COULDNT_SYNC_MESSAGE,
   NOT_RECORDED_MESSAGE,
   QUEUED_WRONG_PIN_MESSAGE,
+  isFastSync,
+  isPhoneClockOff,
   isSuperseded,
   isSyncedLate,
   isSyncBlocked,
@@ -292,6 +294,9 @@ function resultFrom(eventId: string, data: EventData, replayed: boolean) {
     photoUrl: data.photoUrl ?? null,
     status: statusAfter(data.type),
     replayed,
+    // The phone saves (server time, its uptime) after every call, to work
+    // out phoneClockOff later (see employeeClockQueued.ts).
+    serverNowMs: Date.now(),
   };
 }
 
@@ -324,6 +329,9 @@ export const employeeClockPunch = onCall(async (request) => {
 
   const isInOut = input.action === "in" || input.action === "out";
   const queued = input.queuedAtMs !== undefined;
+  // Queued but sent within FAST_SYNC_MAX_MS: server time minus the wait,
+  // written like an online punch (see employeeClockQueued.ts).
+  const fast = queued && isFastSync(input.waitMs);
   const companyRef = db.collection("companies").doc(companyId);
   const eventRef = companyRef.collection("clockEvents").doc(input.requestId);
   const employeeRef = companyRef.collection("employees").doc(employeeId);
@@ -349,8 +357,9 @@ export const employeeClockPunch = onCall(async (request) => {
 
   const nowMs = Date.now();
 
-  // 4b. queued punch: its time must be within the window
-  if (queued) {
+  // 4b. queued punch: its time must be within the window (a fast sync
+  // gets server time, so the phone's time is never used for it)
+  if (queued && !fast) {
     const problem = queuedTimeProblem(input.queuedAtMs as number, nowMs);
     if (problem === "tooOld") return reject(clockError("tooOld", NOT_RECORDED_MESSAGE));
     if (problem === "badTime") return reject(clockError("badTime", COULDNT_SYNC_MESSAGE));
@@ -376,7 +385,7 @@ export const employeeClockPunch = onCall(async (request) => {
       const message = `Wrong PIN. ${left} ${left === 1 ? "try" : "tries"} left before a 1-minute lock.`;
       return reject(clockError("wrongPin", message, { attemptsLeft: left }));
     }
-    if (input.checkPinOnly) return { pinOk: true };
+    if (input.checkPinOnly) return { pinOk: true, serverNowMs: Date.now() };
   }
   if (isInOut) {
     // 6. photo
@@ -415,7 +424,11 @@ export const employeeClockPunch = onCall(async (request) => {
       const latest = latestSnap.empty ? undefined : (latestSnap.docs[0].data() as EventData);
       const latestType = latest?.type;
       const txNowMs = Date.now();
-      const eventMs = queued ? queuedEventMs(input.queuedAtMs as number, txNowMs) : txNowMs;
+      const eventMs = fast
+        ? txNowMs - (input.waitMs as number)
+        : queued
+          ? queuedEventMs(input.queuedAtMs as number, txNowMs)
+          : txNowMs;
       if (queued && isSuperseded(eventMs, latest?.timestamp ? latest.timestamp.toMillis() : null)) {
         return { kind: "rejected", err: clockError("superseded", NOT_RECORDED_MESSAGE) };
       }
@@ -445,9 +458,12 @@ export const employeeClockPunch = onCall(async (request) => {
         requestId: input.requestId,
       };
       if (photoUrl) data.photoUrl = photoUrl;
-      if (queued) {
+      if (queued && !fast) {
         data.queued = true;
         if (isSyncedLate(eventMs, txNowMs)) data.syncedLate = true;
+      }
+      if (queued && isPhoneClockOff({ queuedAtMs: input.queuedAtMs as number, eventMs, fast, expectedAtMs: input.expectedAtMs })) {
+        data.phoneClockOff = true;
       }
       tx.create(eventRef, data);
       tx.update(employeeRef, { lastPunchRequestId: input.requestId, lastPunchAt: timestamp });

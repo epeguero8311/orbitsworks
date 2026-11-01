@@ -20,7 +20,22 @@ import { createAlertIfNew } from "./alerts";
 //     queued: true; syncedLate: true only if it reached the server 5+
 //     minutes after that time (a quick resend after a slow-signal
 //     timeout gets no "Synced late" tag)
-// Online punches never reach this file and are unchanged.
+//
+// Fast sync (every punch from the new app goes through the phone's queue):
+// the phone sends waitMs = how long the punch waited, measured by its
+// uptime clock in the same app run (it can't be changed in Settings, and
+// the phone only sends it when its wall clock agrees). Within
+// FAST_SYNC_MAX_MS the event gets the SERVER's time minus that wait and
+// looks exactly like an online punch: no queued, no syncedLate, no 24 h /
+// future checks on the phone's time. Longer, or no waitMs = the rules above.
+//
+// phoneClockOff: true when the phone's own clock was wrong at the punch -
+//   - fast sync: the phone's time is 2+ min away from server time - wait
+//   - otherwise: the phone's time is 2+ min EARLIER than expectedAtMs (last
+//     server time the phone saw + uptime since). Uptime pauses while the
+//     phone sleeps, so expectedAtMs can only lag the real time: "earlier
+//     than expected" is proof of a clock set back, "later" proves nothing.
+// Online punches (older app builds) never reach this file and are unchanged.
 
 export const QUEUED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const QUEUED_MAX_FUTURE_MS = 2 * 60 * 1000;
@@ -28,6 +43,20 @@ export const SYNC_PIN_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const SYNC_PIN_ALERT_AT = 3;
 export const SYNC_PIN_BLOCK_AT = 5;
 export const SYNCED_LATE_AFTER_MS = 5 * 60 * 1000;
+export const FAST_SYNC_MAX_MS = 2 * 60 * 1000;
+export const PHONE_CLOCK_OFF_MS = 2 * 60 * 1000;
+
+// true = this queued punch synced fast enough to get server time.
+export function isFastSync(waitMs: number | undefined): waitMs is number {
+  return typeof waitMs === "number" && waitMs >= 0 && waitMs <= FAST_SYNC_MAX_MS;
+}
+
+// See the header: two-sided for a fast sync, one-sided against expectedAtMs.
+export function isPhoneClockOff(input: { queuedAtMs: number; eventMs: number; fast: boolean; expectedAtMs?: number }): boolean {
+  if (input.fast) return Math.abs(input.queuedAtMs - input.eventMs) > PHONE_CLOCK_OFF_MS;
+  if (typeof input.expectedAtMs !== "number") return false;
+  return input.expectedAtMs - input.queuedAtMs > PHONE_CLOCK_OFF_MS;
+}
 
 export const NOT_RECORDED_MESSAGE = "Not recorded, tell your admin.";
 export const COULDNT_SYNC_MESSAGE = "Couldn't sync, please speak to your supervisor.";

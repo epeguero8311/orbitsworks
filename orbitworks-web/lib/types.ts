@@ -303,6 +303,10 @@ export interface ClockEvent {
   // server 5+ minutes after that time - it drives the "Synced late" tag.
   queued?: boolean;
   syncedLate?: boolean;
+  // Employee App: the phone's own clock was 2+ min wrong when the punch was
+  // made (see functions/src/employeeClockQueued.ts). The event time never
+  // trusts it for a fast sync. Field only for now - website tag in Phase 10.
+  phoneClockOff?: boolean;
   authorizedById?: string;
   authorizedByName?: string;
   createdByUid?: string;
@@ -874,6 +878,8 @@ export interface EmployeeClockPunchResult {
   // true when this requestId was already used - the first result is
   // returned and nothing new was written.
   replayed: boolean;
+  // Server time when it answered (the phone keeps it with its uptime).
+  serverNowMs?: number;
 }
 
 // getEmployeeHomeSite (functions/src/employeeClock.ts) - where the next

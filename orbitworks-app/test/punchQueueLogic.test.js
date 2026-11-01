@@ -266,3 +266,71 @@ test("Home: last punch time includes queued punches", () => {
   assert.equal(q.newestFirst(events)[0].id, brk.requestId);
   assert.equal(q.lastEventMs([]), null);
 });
+
+// ---- fast sync, phone clock checks, badge delay ----
+
+const SEC = 1000;
+const RUN = "run-1";
+
+test("expected time: anchor server time + uptime since; none after a restart or with no anchor", () => {
+  const anchor = { serverMs: NOW, uptimeMs: 5000 * SEC };
+  assert.equal(q.expectedTimeFrom(anchor, 5000 * SEC + 90 * SEC), NOW + 90 * SEC);
+  assert.equal(q.expectedTimeFrom(anchor, 100 * SEC), null); // uptime went back = restarted
+  assert.equal(q.expectedTimeFrom(null, 5000 * SEC), null);
+  assert.equal(q.expectedTimeFrom(anchor, null), null);
+});
+
+test("fast wait: same app run, up to 2 min, clocks agree -> the uptime wait", () => {
+  const it = item({ createdAt: NOW, uptimeAtMs: 1000 * SEC, sessionId: RUN });
+  assert.equal(q.fastWaitMs(it, { sessionId: RUN, uptimeNowMs: 1003 * SEC, wallNowMs: NOW + 3 * SEC }), 3 * SEC);
+  assert.equal(q.fastWaitMs(it, { sessionId: RUN, uptimeNowMs: 1120 * SEC, wallNowMs: NOW + 120 * SEC }), 120 * SEC);
+});
+
+test("fast wait: none after an app kill, over 2 min, phone asleep, clock changed, or old rows", () => {
+  const it = item({ createdAt: NOW, uptimeAtMs: 1000 * SEC, sessionId: RUN });
+  // killed app = new run id
+  assert.equal(q.fastWaitMs(it, { sessionId: "run-2", uptimeNowMs: 1003 * SEC, wallNowMs: NOW + 3 * SEC }), null);
+  // over 2 min
+  assert.equal(q.fastWaitMs(it, { sessionId: RUN, uptimeNowMs: 1121 * SEC, wallNowMs: NOW + 121 * SEC }), null);
+  // phone slept 10 min: uptime moved 30 s, wall clock 10 min
+  assert.equal(q.fastWaitMs(it, { sessionId: RUN, uptimeNowMs: 1030 * SEC, wallNowMs: NOW + 10 * MIN }), null);
+  // wall clock set back 1 h after the punch
+  assert.equal(q.fastWaitMs(it, { sessionId: RUN, uptimeNowMs: 1005 * SEC, wallNowMs: NOW - HOUR }), null);
+  // restarted (uptime lower)
+  assert.equal(q.fastWaitMs(it, { sessionId: RUN, uptimeNowMs: 10 * SEC, wallNowMs: NOW + 5 * SEC }), null);
+  // a row saved before this build (no uptime / run id)
+  assert.equal(q.fastWaitMs(item({ createdAt: NOW }), { sessionId: RUN, uptimeNowMs: 1003 * SEC, wallNowMs: NOW + 3 * SEC }), null);
+});
+
+// T15: clock set back 1 h, punch offline, app killed, clock fixed, sync.
+test("T15: clock set back, offline punch, app killed -> no fast wait, expected time is 1 h after the phone time", () => {
+  const anchor = { serverMs: NOW, uptimeMs: 2000 * SEC }; // saved at the last online call
+  const uptimeAtPunch = 2000 * SEC + 10 * MIN; // 10 min later, phone clock now 1 h behind
+  const phoneTime = NOW + 10 * MIN - HOUR;
+  const punch = item({
+    queuedAtMs: phoneTime,
+    createdAt: phoneTime,
+    uptimeAtMs: uptimeAtPunch,
+    expectedAtMs: q.expectedTimeFrom(anchor, uptimeAtPunch),
+    sessionId: RUN,
+  });
+  assert.equal(punch.expectedAtMs, NOW + 10 * MIN);
+  // App killed and reopened (new run), clock fixed, synced 20 min later.
+  const wait = q.fastWaitMs(punch, { sessionId: "run-2", uptimeNowMs: uptimeAtPunch + 20 * MIN, wallNowMs: NOW + 30 * MIN });
+  assert.equal(wait, null);
+  // The server flags phoneClockOff when the phone time is 2+ min earlier
+  // than expected (functions test "expected time: ... phoneClockOff").
+  assert.ok(punch.expectedAtMs - punch.queuedAtMs > 2 * MIN);
+});
+
+test("badge: a Waiting/Syncing punch counts only once 10 s old; Failed always; next change time", () => {
+  const items = [
+    item({ status: "waiting", createdAt: NOW - 2 * SEC }),
+    item({ status: "syncing", createdAt: NOW - 20 * SEC }),
+    item({ status: "failed", failKind: "redo", createdAt: NOW - SEC }),
+  ];
+  assert.equal(q.badgeCount(items, C, E, NOW), 2);
+  assert.equal(q.badgeCount(items, C, E), 3);
+  assert.equal(q.nextBadgeChangeMs(items, C, E, NOW), NOW + 8 * SEC);
+  assert.equal(q.nextBadgeChangeMs([item({ status: "synced", syncedAt: NOW })], C, E, NOW), null);
+});

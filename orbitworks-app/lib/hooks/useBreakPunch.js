@@ -1,22 +1,21 @@
 import { useCallback, useState } from "react";
-import { isOnline, newRequestId, PUNCH_TIMEOUT_MS, sendPunch, withTimeout } from "../employeeClockApi";
-import { clockErrorMessage } from "../employeeHome";
-import { isSignalError, queuedTimeFor } from "../punchQueueLogic";
-import { enqueuePunch, setLastSynced } from "../punchQueue";
-import { noteSignalOk, noteWeakSignal } from "../punchQueueEvents";
-import { outcomeOf, startPunchTimer } from "../punchTimings";
+import { isOnline, newRequestId } from "../employeeClockApi";
+import { queuedTimeFor } from "../punchQueueLogic";
+import { enqueuePunch } from "../punchQueue";
+import { isWeakSignal } from "../punchQueueEvents";
+import { punchClockFields } from "../clockAnchor";
+import { startPunchTimer } from "../punchTimings";
 
 const SAVE_FAILED = "Couldn't save this punch on the phone. Try again.";
 
-// Employee App breaks: one tap, a confirm, then send. No PIN, no photo.
+// Employee App breaks: one tap, a confirm, then the green confirmation at
+// once. No PIN, no photo. Same as the supervisor app: the break is saved on
+// the phone and the queue (punchQueueSync.js) sends it straight away when
+// online; "Will sync when online" shows only when offline or on weak signal.
 //   pending: "breakStart" | "breakEnd" | null (the confirm is showing)
-// One requestId per confirmed tap; "Try again" on the error reuses it so a
-// lost reply can't write a second break event.
-// Phase 4: with no signal, a reply slower than 5 s, or older punches still
-// in the phone's queue (queueAhead), the break is saved on the phone and
-// the confirmation shows right away (result.queued = true). siteName: the
-// shift's site, shown on that confirmation.
-export function useBreakPunch({ companyId, employeeId, queueAhead, lastEventMs, siteName }) {
+// One requestId per confirmed tap. siteName: the shift's site, shown on the
+// confirmation.
+export function useBreakPunch({ companyId, employeeId, lastEventMs, siteName }) {
   const [pending, setPending] = useState(null);
   const [requestId, setRequestId] = useState(null);
   const [sending, setSending] = useState(false);
@@ -34,53 +33,31 @@ export function useBreakPunch({ companyId, employeeId, queueAhead, lastEventMs, 
     setError("");
   }, []);
 
-  const save = useCallback(
-    async (action, queuedAtMs) => {
-      try {
-        await enqueuePunch({ companyId, employeeId, action, requestId, queuedAtMs, siteName: siteName || "" });
-        setPending(null);
-        setResult({ type: action, timestampMs: queuedAtMs, siteName: siteName || "", queued: true });
-      } catch {
-        setError(SAVE_FAILED);
-      }
-    },
-    [companyId, employeeId, requestId, siteName]
-  );
-
   const confirm = useCallback(async () => {
     if (!pending || !requestId) return;
+    const action = pending;
     setSending(true);
     setError("");
-    // Dev-build-only timing (lib/punchTimings.js): confirm tap -> reply.
-    const timer = startPunchTimer(pending);
+    // Dev-build-only timing (lib/punchTimings.js): confirm tap -> green screen.
+    const timer = startPunchTimer(action);
     timer.mark("sendStart");
-    const queuedAtMs = queuedTimeFor(Date.now(), lastEventMs);
     try {
-      if (queueAhead || !(await isOnline())) {
-        timer.finish("queued");
-        await save(pending, queuedAtMs);
-        return;
-      }
-      const res = await withTimeout(sendPunch({ action: pending, requestId }), PUNCH_TIMEOUT_MS);
-      timer.mark("punched");
-      timer.finish("ok");
-      noteSignalOk();
-      setLastSynced(companyId, employeeId, Date.now()).catch(() => {});
+      const queuedAtMs = queuedTimeFor(Date.now(), lastEventMs);
+      const clock = await punchClockFields();
+      const [, online] = await Promise.all([
+        enqueuePunch({ companyId, employeeId, action, requestId, queuedAtMs, siteName: siteName || "", clock }),
+        isOnline(),
+      ]);
+      timer.finish("saved");
       setPending(null);
-      setResult(res);
-    } catch (err) {
-      if (isSignalError(err)) {
-        if (err.code === "timeout") noteWeakSignal();
-        timer.finish("queued");
-        await save(pending, queuedAtMs);
-        return;
-      }
-      timer.finish(outcomeOf(err));
-      setError(clockErrorMessage(err, await isOnline()));
+      setResult({ type: action, timestampMs: queuedAtMs, siteName: siteName || "", queued: !online || isWeakSignal() });
+    } catch {
+      timer.finish("saveFailed");
+      setError(SAVE_FAILED);
     } finally {
       setSending(false);
     }
-  }, [pending, requestId, queueAhead, lastEventMs, companyId, employeeId, save]);
+  }, [pending, requestId, lastEventMs, companyId, employeeId, siteName]);
 
   const clearResult = useCallback(() => setResult(null), []);
 

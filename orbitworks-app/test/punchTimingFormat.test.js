@@ -6,7 +6,7 @@ const t = require("../lib/punchTimingFormat");
 
 test("clock in: every step from its marks", () => {
   const steps = t.stepDurations({ start: 0, pinTyped: 2000, pinChecked: 2400, photoTaken: 5400, uploaded: 7600, punched: 8400, end: 8450 });
-  assert.deepEqual(steps, { typingMs: 2000, pinCheckMs: 400, cameraMs: 3000, uploadMs: 2200, punchMs: 800, totalMs: 8400 });
+  assert.deepEqual(steps, { typingMs: 2000, pinCheckMs: 400, cameraMs: 3000, uploadMs: 2200, punchMs: 800, successMs: null, totalMs: 8400 });
 });
 
 test("break: only punch and total, no PIN or photo steps", () => {
@@ -16,6 +16,21 @@ test("break: only punch and total, no PIN or photo steps", () => {
   assert.equal(steps.uploadMs, null);
   assert.equal(steps.punchMs, 900);
   assert.equal(steps.totalMs, 900);
+});
+
+test("fast flow: camera opens with the PIN, success right after the photo", () => {
+  const steps = t.stepDurations({ start: 0, pinTyped: 2000, cameraOpen: 2000, pinChecked: 2500, photoTaken: 4500, end: 4560 });
+  assert.equal(steps.pinCheckMs, 500);
+  assert.equal(steps.cameraMs, 2500);
+  assert.equal(steps.successMs, 60);
+  assert.equal(steps.uploadMs, null);
+  assert.equal(steps.totalMs, 4560);
+});
+
+test("fast break: confirm tap -> success", () => {
+  const steps = t.stepDurations({ start: 0, sendStart: 0, end: 40 });
+  assert.equal(steps.successMs, 40);
+  assert.equal(steps.punchMs, null);
 });
 
 test("failed attempt: total runs to the end mark", () => {

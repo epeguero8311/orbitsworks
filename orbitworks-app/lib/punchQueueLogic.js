@@ -2,11 +2,12 @@
 // React Native, Expo or Firebase imports so test/punchQueueLogic.test.js
 // can run them under `node --test` (same pattern as employeeHome.js).
 //
-// A queued punch is one the phone saved instead of sending: no signal, a
-// slow PIN check (3 s) or a slow upload + punch (5 s), or older punches
-// still waiting in front of it. It is sent later, oldest first, with
-// queuedAtMs = when the employee made it. The server decides if it counts
-// (see orbitworks-web/functions/src/employeeClockQueued.ts).
+// Every punch is saved on the phone first (green screen at once) and the
+// queue sends it, oldest first, with queuedAtMs = when the employee made
+// it - straight away when online, later when not. A punch sent within
+// 2 min in the same app run also carries its uptime wait, so the server
+// uses its own time (fast sync). The server decides if it counts (see
+// orbitworks-web/functions/src/employeeClockQueued.ts).
 
 const { dayKey, effectiveMs, formatClockTime, sortEvents, toMs } = require("./employeeHome");
 
@@ -16,6 +17,15 @@ const DAY_MS = 24 * HOUR_MS;
 
 const PIN_CHECK_TIMEOUT_MS = 3 * SECOND_MS;
 const PUNCH_TIMEOUT_MS = 5 * SECOND_MS;
+// Fast sync (same as the server's FAST_SYNC_MAX_MS): a punch sent within
+// this long gets server time minus its wait and looks like an online punch.
+const FAST_SYNC_MAX_MS = 2 * 60 * SECOND_MS;
+// The uptime wait and the wall-clock wait must agree this closely, else the
+// phone slept or its clock was changed and the wait isn't sent.
+const CLOCKS_AGREE_MS = 10 * SECOND_MS;
+// Sync tab badge: a Waiting/Syncing punch counts only after this long, so a
+// punch that syncs in a second never flashes "1". Failed always counts.
+const BADGE_DELAY_MS = 10 * SECOND_MS;
 // Same window as the server (QUEUED_MAX_AGE_MS): older than this can't be
 // recorded, and a saved PIN is deleted.
 const QUEUED_MAX_AGE_MS = DAY_MS;
@@ -98,6 +108,35 @@ function isTooOld(item, nowMs) {
   return nowMs - item.queuedAtMs > QUEUED_MAX_AGE_MS;
 }
 
+// ---- phone clock checks (fast sync + phoneClockOff) ----
+//
+// After every successful server call the phone saves an anchor:
+// { serverMs, uptimeMs } (lib/clockAnchor.js). Uptime counts from the
+// phone's start and can't be changed in Settings, but it pauses while the
+// phone sleeps - so any time worked out from it can only lag the real time.
+
+// Wall time "now" from the anchor: serverMs + uptime since. null with no
+// anchor, or when uptime went backwards (the phone restarted since).
+function expectedTimeFrom(anchor, uptimeNowMs) {
+  if (!anchor || !Number.isFinite(anchor.serverMs) || !Number.isFinite(anchor.uptimeMs)) return null;
+  if (!Number.isFinite(uptimeNowMs) || uptimeNowMs < anchor.uptimeMs) return null;
+  return Math.round(anchor.serverMs + (uptimeNowMs - anchor.uptimeMs));
+}
+
+// How long a saved punch has waited, by the uptime clock - sent to the
+// server so it can use its own time. Only when the punch was saved in this
+// same app run (no kill, no restart), the wait is 2 min or less, and the
+// phone's wall clock says the same (no sleep, no clock change). Else null:
+// the normal queued rules apply.
+function fastWaitMs(item, { sessionId, uptimeNowMs, wallNowMs }) {
+  if (!item || !item.sessionId || item.sessionId !== sessionId) return null;
+  if (!Number.isFinite(item.uptimeAtMs) || !Number.isFinite(uptimeNowMs) || uptimeNowMs < item.uptimeAtMs) return null;
+  const waitMs = uptimeNowMs - item.uptimeAtMs;
+  if (waitMs > FAST_SYNC_MAX_MS) return null;
+  if (Math.abs(wallNowMs - item.createdAt - waitMs) > CLOCKS_AGREE_MS) return null;
+  return Math.round(waitMs);
+}
+
 // Rejects with { code: "timeout" } if the promise takes longer than ms.
 // The promise itself keeps running (a punch already sent can't be
 // recalled - the server's requestId makes a resend safe).
@@ -142,13 +181,26 @@ function isPaused(items, companyId, employeeId) {
   return !!open[0] && open[0].status === "failed";
 }
 
-// Sync tab badge: Waiting + Syncing + Failed.
-function badgeCount(items, companyId, employeeId) {
-  return mine(items, companyId, employeeId).filter((i) => OPEN_STATUSES.includes(i.status)).length;
+// Sync tab badge: Failed, plus Waiting + Syncing once they are
+// BADGE_DELAY_MS old (with no nowMs, every open punch counts).
+function badgeCount(items, companyId, employeeId, nowMs) {
+  return mine(items, companyId, employeeId).filter(
+    (i) =>
+      OPEN_STATUSES.includes(i.status) &&
+      (i.status === "failed" || typeof nowMs !== "number" || nowMs - i.createdAt >= BADGE_DELAY_MS)
+  ).length;
 }
 
-// true = a new punch must join the queue behind older ones (an online punch
-// would make the older ones "Not recorded").
+// When the badge next changes on its own (a fresh punch turns 10 s old),
+// or null.
+function nextBadgeChangeMs(items, companyId, employeeId, nowMs) {
+  const times = mine(items, companyId, employeeId)
+    .filter((i) => (i.status === "waiting" || i.status === "syncing") && nowMs - i.createdAt < BADGE_DELAY_MS)
+    .map((i) => i.createdAt + BADGE_DELAY_MS);
+  return times.length ? Math.min(...times) : null;
+}
+
+// true = punches are still waiting on the phone (Waiting, Syncing or Failed).
 function hasQueueAhead(items, companyId, employeeId) {
   return badgeCount(items, companyId, employeeId) > 0;
 }
@@ -252,6 +304,9 @@ module.exports = {
   eventsForCache,
   PIN_CHECK_TIMEOUT_MS,
   PUNCH_TIMEOUT_MS,
+  FAST_SYNC_MAX_MS,
+  CLOCKS_AGREE_MS,
+  BADGE_DELAY_MS,
   QUEUED_MAX_AGE_MS,
   PIN_KEEP_MS,
   SYNCED_KEEP_MS,
@@ -265,10 +320,13 @@ module.exports = {
   rowAction,
   queuedTimeFor,
   isTooOld,
+  expectedTimeFrom,
+  fastWaitMs,
   withTimeout,
   nextToSend,
   isPaused,
   badgeCount,
+  nextBadgeChangeMs,
   hasQueueAhead,
   visibleItems,
   pinsToDelete,

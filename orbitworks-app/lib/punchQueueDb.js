@@ -67,5 +67,16 @@ async function openDb() {
       value TEXT
     );
   `);
+  // Added after Phase 4 (lib/clockAnchor.js): the punch's uptime, expected
+  // time and app run id. Older rows keep NULL = normal queued rules.
+  const cols = await db.getAllAsync("PRAGMA table_info(punch_queue)");
+  const have = new Set(cols.map((c) => c.name));
+  for (const [name, type] of [
+    ["uptimeAtMs", "INTEGER"],
+    ["expectedAtMs", "INTEGER"],
+    ["sessionId", "TEXT"],
+  ]) {
+    if (!have.has(name)) await db.execAsync(`ALTER TABLE punch_queue ADD COLUMN ${name} ${type}`);
+  }
   return db;
 }

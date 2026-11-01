@@ -42,6 +42,9 @@ function toItem(row) {
     attempts: row.attempts,
     createdAt: row.createdAt,
     syncedAt: row.syncedAt || null,
+    uptimeAtMs: Number.isFinite(row.uptimeAtMs) ? row.uptimeAtMs : null,
+    expectedAtMs: Number.isFinite(row.expectedAtMs) ? row.expectedAtMs : null,
+    sessionId: row.sessionId || null,
   };
 }
 
@@ -70,17 +73,34 @@ async function keepPhoto(requestId, uri) {
   return dest;
 }
 
-// Saves one punch. pin / photoUri only for clock in/out.
-export async function enqueuePunch({ companyId, employeeId, action, requestId, queuedAtMs, siteName, pin, photoUri, photoUploaded }) {
+// Saves one punch. pin / photoUri only for clock in/out. clock = the
+// punch's uptime / expected time / app run (lib/clockAnchor.js).
+export async function enqueuePunch({ companyId, employeeId, action, requestId, queuedAtMs, siteName, pin, photoUri, photoUploaded, clock }) {
   const photoLocalUri = photoUri ? await keepPhoto(requestId, photoUri) : null;
   if (pin) await SecureStore.setItemAsync(pinKey(requestId), pin, SECURE_OPTS);
   const db = await getPunchDb();
+  const c = clock || {};
   await runPunchWrite(() =>
     db.runAsync(
       `INSERT OR REPLACE INTO punch_queue
-        (requestId, companyId, employeeId, action, queuedAtMs, siteName, photoLocalUri, photoUploaded, hasPin, status, attempts, createdAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', 0, ?)`,
-      [requestId, companyId, employeeId, action, queuedAtMs, siteName || "", photoLocalUri, photoUploaded ? 1 : 0, pin ? 1 : 0, Date.now()]
+        (requestId, companyId, employeeId, action, queuedAtMs, siteName, photoLocalUri, photoUploaded, hasPin, status, attempts, createdAt,
+         uptimeAtMs, expectedAtMs, sessionId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', 0, ?, ?, ?, ?)`,
+      [
+        requestId,
+        companyId,
+        employeeId,
+        action,
+        queuedAtMs,
+        siteName || "",
+        photoLocalUri,
+        photoUploaded ? 1 : 0,
+        pin ? 1 : 0,
+        Date.now(),
+        Number.isFinite(c.uptimeAtMs) ? c.uptimeAtMs : null,
+        Number.isFinite(c.expectedAtMs) ? c.expectedAtMs : null,
+        c.sessionId || null,
+      ]
     )
   );
   notifyPunchQueue();

@@ -37,6 +37,16 @@ export const employeeClockPunchSchema = z
     // the phone and is being sent later; the server then uses this time
     // (within limits) instead of its own and tags the event "synced late".
     queuedAtMs: z.number().int().positive().optional(),
+    // Fast sync (see employeeClockQueued.ts): how long the queued punch
+    // waited on the phone, by its uptime clock in the same app run.
+    waitMs: z.number().int().min(0).max(24 * 60 * 60 * 1000).optional(),
+    // When the phone expected the punch to be: last server time it saw +
+    // uptime since. Only used to set phoneClockOff.
+    expectedAtMs: z.number().int().positive().optional(),
+  })
+  .refine((v) => v.queuedAtMs !== undefined || (v.waitMs === undefined && v.expectedAtMs === undefined), {
+    message: "waitMs and expectedAtMs only come with a queued time.",
+    path: ["waitMs"],
   })
   .refine((v) => (v.action === "in" || v.action === "out") === (v.pin !== undefined), {
     message: "A PIN is needed to clock in or out, and never for a break.",

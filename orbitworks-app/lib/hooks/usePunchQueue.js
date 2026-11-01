@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { getLastSynced, listAllPunches } from "../punchQueue";
 import { subscribePunchQueue } from "../punchQueueEvents";
-import { badgeCount, isPaused, visibleItems } from "../punchQueueLogic";
+import { badgeCount, isPaused, nextBadgeChangeMs, visibleItems } from "../punchQueueLogic";
 
-const EMPTY = { all: [], rows: [], badge: 0, paused: false, lastSyncedMs: null, loaded: false };
+const EMPTY = { all: [], rows: [], badge: 0, open: 0, nextChangeMs: null, paused: false, lastSyncedMs: null, loaded: false };
 
 // Employee App Phase 4: this employee's punches kept on the phone, re-read
 // whenever the queue changes.
 //   all          - every saved punch (for Home's status)
 //   rows         - the Sync tab list, newest first (Synced stay 24 h)
-//   badge        - Waiting + Syncing + Failed (Sync tab badge)
-//   queueAhead   - a new punch must join the queue behind these
+//   badge        - Failed, plus Waiting + Syncing once 10 s old (Sync tab
+//                  badge - a punch that syncs in a second never shows)
+//   queueAhead   - punches are still waiting on the phone
 //   paused       - the oldest unsent punch failed for good
 //   lastSyncedMs - when the server last accepted a punch from this phone
 export function usePunchQueue(companyId, employeeId) {
@@ -22,10 +23,13 @@ export function usePunchQueue(companyId, employeeId) {
       const items = await listAllPunches();
       const lastSyncedMs = await getLastSynced(companyId, employeeId);
       const all = items.filter((i) => i.companyId === companyId && i.employeeId === employeeId);
+      const nowMs = Date.now();
       setState({
         all,
-        rows: visibleItems(items, companyId, employeeId, Date.now()),
-        badge: badgeCount(items, companyId, employeeId),
+        rows: visibleItems(items, companyId, employeeId, nowMs),
+        badge: badgeCount(items, companyId, employeeId, nowMs),
+        open: badgeCount(items, companyId, employeeId),
+        nextChangeMs: nextBadgeChangeMs(items, companyId, employeeId, nowMs),
         paused: isPaused(items, companyId, employeeId),
         lastSyncedMs,
         loaded: true,
@@ -49,5 +53,12 @@ export function usePunchQueue(companyId, employeeId) {
     };
   }, [companyId, employeeId, load]);
 
-  return { ...state, queueAhead: state.badge > 0, reload: load };
+  // Re-read when a fresh punch turns 10 s old, so the badge appears then.
+  useEffect(() => {
+    if (!state.nextChangeMs) return undefined;
+    const timer = setTimeout(load, Math.max(0, state.nextChangeMs - Date.now()) + 50);
+    return () => clearTimeout(timer);
+  }, [state.nextChangeMs, load]);
+
+  return { ...state, queueAhead: state.open > 0, reload: load };
 }

@@ -196,7 +196,7 @@ test("online: PIN check, clock in, breaks and clock out are unchanged", async ()
   const c = "q-online-flow";
   await seed(c);
   const rid = randomUUID();
-  assert.deepEqual(await callPunch(c, { action: "in", requestId: rid, pin: PIN, checkPinOnly: true }), { pinOk: true });
+  assert.equal((await callPunch(c, { action: "in", requestId: rid, pin: PIN, checkPinOnly: true })).pinOk, true);
   await punch(c, "in", { requestId: rid });
   await punch(c, "breakStart");
   await punch(c, "breakEnd");
@@ -454,4 +454,103 @@ test("trigger: queued punch into a PENDING timesheet, or an online one into an a
   const rBe = await punch(c, "breakEnd");
   await runTrigger(c, rBe.eventId);
   assert.equal((await alertsOf(c, "syncedLateApproved")).length, 0);
+});
+
+// ===================== fast sync + phoneClockOff =====================
+
+const near = (a, b, ms = 3000) => Math.abs(a - b) <= ms;
+
+test("fast: a queued punch sent within 2 min gets server time minus the wait and looks online", async () => {
+  const c = "q-fast";
+  await seed(c);
+  const before = Date.now();
+  const r = await queuedPunch(c, "in", before - 3000, { extra: { waitMs: 3000 } });
+  assert.ok(near(r.timestampMs, before - 3000));
+  assert.ok(typeof r.serverNowMs === "number" && near(r.serverNowMs, Date.now()));
+  await queuedPunch(c, "breakStart", Date.now() - 500, { extra: { waitMs: 500 } });
+  const evs = await events(c);
+  for (const e of evs) {
+    assert.equal(e.queued, undefined);
+    assert.equal(e.syncedLate, undefined);
+    assert.equal(e.phoneClockOff, undefined);
+  }
+});
+
+test("fast: phone clock set back 1 h (or 25 h) -> server time, phoneClockOff, never tooOld", async () => {
+  const c = "q-fast-clock";
+  await seed(c);
+  const r = await queuedPunch(c, "in", Date.now() - HOUR, { extra: { waitMs: 2000 } });
+  assert.ok(near(r.timestampMs, Date.now() - 2000));
+  const r2 = await queuedPunch(c, "breakStart", Date.now() - 25 * HOUR, { extra: { waitMs: 1000 } });
+  assert.ok(near(r2.timestampMs, Date.now() - 1000));
+  const evs = await events(c);
+  assert.deepEqual(evs.map((e) => [e.phoneClockOff, e.queued]), [[true, undefined], [true, undefined]]);
+});
+
+test("fast: a wait over 2 min is a normal queued punch (phone time, queued)", async () => {
+  const c = "q-fast-over";
+  await seed(c);
+  const at = Date.now() - 3 * MIN;
+  const r = await queuedPunch(c, "in", at, { extra: { waitMs: 3 * MIN } });
+  assert.equal(r.timestampMs, at);
+  const [e] = await events(c);
+  assert.equal(e.queued, true);
+  assert.equal(e.phoneClockOff, undefined);
+});
+
+test("fast: right after a punch into an approved timesheet makes no alert (same as online)", async () => {
+  const c = "q-fast-approved";
+  await seed(c);
+  const rIn = await queuedPunch(c, "in", Date.now() - 5 * HOUR);
+  await runTrigger(c, rIn.eventId);
+  await approveShift(c, rIn.eventId);
+  const rOut = await queuedPunch(c, "out", Date.now() - 2000, { extra: { waitMs: 2000 } });
+  const ev = await runTrigger(c, rOut.eventId);
+  assert.equal(ev.queued, undefined);
+  assert.equal((await alertsOf(c, "syncedLateApproved")).length, 0);
+});
+
+// T15: clock set back 1 h, punch offline, app killed (no waitMs), clock
+// fixed, synced 20 min later. The phone's expected time (last server time
+// + uptime) is 1 h after the punch's phone time -> flagged.
+test("expected time: phone time 2+ min EARLIER than expected -> phoneClockOff (slow sync, app killed)", async () => {
+  const c = "q-expected";
+  await seed(c);
+  const realAt = Date.now() - 20 * MIN;
+  const phoneAt = realAt - HOUR;
+  const err = await queuedPunch(c, "in", phoneAt, { extra: { expectedAtMs: realAt } }).catch((e) => e);
+  // An hour+ in the past is still inside the 24 h window, so it lands.
+  assert.ok(!(err instanceof Error), err && err.message);
+  const [e] = await events(c);
+  assert.equal(e.timestamp.toMillis(), phoneAt);
+  assert.equal(e.queued, true);
+  assert.equal(e.syncedLate, true);
+  assert.equal(e.phoneClockOff, true);
+});
+
+test("expected time: phone time later than expected (phone slept), or within 2 min, is not flagged", async () => {
+  const c = "q-expected-ok";
+  await seed(c);
+  // Uptime paused while the phone slept: expected lags 30 min behind.
+  await queuedPunch(c, "in", Date.now() - 10 * MIN, { extra: { expectedAtMs: Date.now() - 40 * MIN } });
+  await queuedPunch(c, "breakStart", Date.now() - 5 * MIN, { extra: { expectedAtMs: Date.now() - 5 * MIN + 90 * 1000 } });
+  await queuedPunch(c, "breakEnd", Date.now() - 2 * MIN);
+  const evs = await events(c);
+  assert.deepEqual(evs.map((e) => e.phoneClockOff), [undefined, undefined, undefined]);
+});
+
+test("fast/expected: bad input (wait without a queued time, negative wait)", async () => {
+  const c = "q-fast-bad";
+  await seed(c);
+  await assert.rejects(punch(c, "breakStart", { extra: { waitMs: 100 } }), reasonIs("invalid"));
+  await assert.rejects(punch(c, "breakStart", { extra: { expectedAtMs: Date.now() } }), reasonIs("invalid"));
+  await assert.rejects(queuedPunch(c, "breakStart", Date.now(), { extra: { waitMs: -1 } }), reasonIs("invalid"));
+});
+
+test("PIN check answers with the server time", async () => {
+  const c = "q-pin-time";
+  await seed(c);
+  const r = await callPunch(c, { action: "in", requestId: randomUUID(), pin: PIN, checkPinOnly: true });
+  assert.equal(r.pinOk, true);
+  assert.ok(near(r.serverNowMs, Date.now()));
 });

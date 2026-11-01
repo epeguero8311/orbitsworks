@@ -5,23 +5,22 @@ import { ref } from "firebase/storage";
 import { functions, storage } from "./firebase";
 import { uploadLocalFileToStorage } from "./storageUpload";
 import { photoPathFor } from "./employeeHome";
-import { PIN_CHECK_TIMEOUT_MS, PUNCH_TIMEOUT_MS, withTimeout } from "./punchQueueLogic";
+import { PIN_CHECK_TIMEOUT_MS, withTimeout } from "./punchQueueLogic";
+import { withAnchor } from "./clockAnchor";
 
 // Employee App: calls to the server for clock in/out/breaks and the Home
-// site. The PIN is sent over TLS with the punch. A punch that can't go
-// through quickly is saved on the phone instead (lib/punchQueue.js) - its
-// PIN is kept in SecureStore only until it syncs (24 h at most) and is
-// never logged.
-//
-// Time limits for a punch made on screen (Phase 4):
-//   3 s for the PIN check  - then the PIN is saved and the camera opens
-//   5 s for upload + punch - then the punch is saved and sent later
-// The queue's own sends (punchQueueSync.js) use the callable's 30 s.
+// site. The PIN is sent over TLS with the punch. Every punch is saved on
+// the phone first (lib/punchQueue.js) and sent by the queue right away -
+// its PIN is kept in SecureStore only until it syncs (24 h at most) and is
+// never logged. The PIN check runs while the camera is open; after 3 s with
+// no answer the server checks the PIN when the punch syncs instead.
+// The queue's sends (punchQueueSync.js) use the callable's 30 s.
+// Every successful punch call saves server time + uptime (clockAnchor.js).
 
 const punchFn = httpsCallable(functions, "employeeClockPunch", { timeout: 30000 });
 const homeSiteFn = httpsCallable(functions, "getEmployeeHomeSite", { timeout: 15000 });
 
-export { PIN_CHECK_TIMEOUT_MS, PUNCH_TIMEOUT_MS, withTimeout };
+export { PIN_CHECK_TIMEOUT_MS, withTimeout };
 
 // One id per punch attempt. Reused for retries of the same punch, so a reply
 // lost to bad signal can never create a second event.
@@ -49,24 +48,29 @@ export async function uploadClockPhoto({ companyId, employeeId, requestId, local
   return path;
 }
 
-// Clock in/out: the server checks the PIN before the camera opens (same
-// wrong-PIN count and lock as the punch). Resolves { pinOk: true }; a wrong
-// PIN, the lock or an inactive account reject like a punch would. Nothing
-// is written - the punch itself checks the PIN again.
+// Clock in/out: the server checks the PIN while the camera is open (same
+// wrong-PIN count and lock as an online punch). Resolves { pinOk: true };
+// a wrong PIN, the lock or an inactive account reject like a punch would.
+// Nothing is written - the punch itself checks the PIN again.
 export async function checkPin({ action, requestId, pin }) {
-  const res = await punchFn({ action, requestId, pin, checkPinOnly: true });
+  const res = await withAnchor(() => punchFn({ action, requestId, pin, checkPinOnly: true }));
   return res.data;
 }
 
 // -> EmployeeClockPunchResult (see the website's lib/types.ts).
-// queuedAtMs: only for a punch sent from the phone's queue - when the
-// employee made it.
-export async function sendPunch({ action, requestId, pin, photoPath, queuedAtMs }) {
+// queuedAtMs: when the employee made the punch (phone time). waitMs: how
+// long it waited, by uptime, when known (fast sync). expectedAtMs: when the
+// phone expected it to be (phoneClockOff). See employeeClockQueued.ts.
+export async function sendPunch({ action, requestId, pin, photoPath, queuedAtMs, waitMs, expectedAtMs }) {
   const data = { action, requestId };
   if (pin) data.pin = pin;
   if (photoPath) data.photoPath = photoPath;
-  if (typeof queuedAtMs === "number") data.queuedAtMs = Math.round(queuedAtMs);
-  const res = await punchFn(data);
+  if (typeof queuedAtMs === "number") {
+    data.queuedAtMs = Math.round(queuedAtMs);
+    if (Number.isFinite(waitMs)) data.waitMs = Math.round(waitMs);
+    if (Number.isFinite(expectedAtMs)) data.expectedAtMs = Math.round(expectedAtMs);
+  }
+  const res = await withAnchor(() => punchFn(data));
   return res.data;
 }
 

@@ -81,6 +81,16 @@ export function startPunchTimer(action) {
   };
 }
 
+// One entry for the queue's own send of a punch: upload, punch, and the
+// time from the punch to "synced" (total). No-op outside the dev build.
+export async function recordSyncTiming(action, outcome, steps) {
+  if (!TIMINGS_ENABLED) return;
+  await load();
+  entries = addTiming(entries, { action, at: Date.now(), outcome, steps, photoBytes: null });
+  notify();
+  save();
+}
+
 // Short, PII-free outcome for a failed attempt (the server's reason code).
 export function outcomeOf(err) {
   return String(err?.details?.reason || err?.code || "error").slice(0, 40);

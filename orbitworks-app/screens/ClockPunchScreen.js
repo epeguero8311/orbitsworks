@@ -5,7 +5,6 @@ import { useTheme } from "../lib/ThemeContext";
 import { useClockPunch } from "../lib/hooks/useClockPunch";
 import { useEmployeeAppConfig } from "../lib/hooks/useEmployeeAppConfig";
 import { useEmployeeSelfView } from "../lib/hooks/useEmployeeSelfView";
-import { usePunchQueue } from "../lib/hooks/usePunchQueue";
 import { useNow } from "../lib/hooks/useNow";
 import { formatClockTime, siteLabel } from "../lib/employeeHome";
 import { WILL_SYNC_NOTE } from "../lib/punchQueueLogic";
@@ -20,14 +19,15 @@ import Building2Icon from "../components/icons/Building2Icon";
 const TITLES = { in: "Clock In", out: "Clock Out" };
 const DONE_TITLES = { in: "Clocked in", out: "Clocked out" };
 
-// Employee App clock in / out: PIN -> the server checks it (a wrong PIN or
-// the lock shows here, before any photo) -> live front-camera photo (retake
-// allowed) -> sent to employeeClockPunch -> green confirmation. Every error
-// message is the server's own plain message, or "No signal".
-// Phase 4: with no or weak signal the punch is saved on the phone and the
-// same green confirmation shows "Will sync when online" with the expected
-// site. Redo (from the Sync tab, params.redoId): PIN only, then the saved
-// punch is sent again with its original time and photo.
+// Employee App clock in / out: PIN -> live front-camera photo right away
+// (retake allowed) while the server checks the PIN; a wrong PIN or the lock
+// closes the camera and shows here -> saved on the phone -> green
+// confirmation at once, with the expected site. The phone's queue sends it
+// straight away (lib/hooks/useClockPunch.js). With no or weak signal the
+// confirmation also shows "Will sync when online". Every error message is
+// the server's own plain message, or "No signal". Redo (from the Sync tab,
+// params.redoId): PIN only, then the saved punch is sent again with its
+// original time and photo.
 // params: action, expectedSite, lastEventMs, redoId
 export default function ClockPunchScreen({ route, navigation }) {
   const params = route.params || {};
@@ -39,7 +39,6 @@ export default function ClockPunchScreen({ route, navigation }) {
   const { timezone, companyName } = useEmployeeAppConfig(companyId);
   const employeeId = linkedEmployeeId || userData?.employeeId;
   const { view } = useEmployeeSelfView(companyId, employeeId);
-  const queue = usePunchQueue(companyId, employeeId);
   // The employee's subcontractor company if they have one, otherwise the
   // company that created them.
   const company = view?.subcontractorName || companyName;
@@ -49,7 +48,6 @@ export default function ClockPunchScreen({ route, navigation }) {
     employeeId,
     expectedSite: params.expectedSite || "",
     lastEventMs: typeof params.lastEventMs === "number" ? params.lastEventMs : null,
-    queueAhead: queue.queueAhead,
     redoId,
   });
   const now = useNow(1000);
@@ -76,7 +74,7 @@ export default function ClockPunchScreen({ route, navigation }) {
   const lockedMessage = lockSeconds > 0 ? `Too many wrong PINs. Try again in ${lockSeconds} second${lockSeconds === 1 ? "" : "s"}.` : "";
   // While a lock applies, only the live countdown shows (never a stale one).
   const message = flow.lockedUntil > 0 ? lockedMessage : flow.error;
-  const sendingText = redoId ? "Sending..." : action === "in" ? "Clocking in..." : "Clocking out...";
+  const sendingText = "Sending...";
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>

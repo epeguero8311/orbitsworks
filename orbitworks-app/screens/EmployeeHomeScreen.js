@@ -85,7 +85,6 @@ export default function EmployeeHomeScreen({ navigation }) {
   const breakPunch = useBreakPunch({
     companyId,
     employeeId,
-    queueAhead: queue.queueAhead,
     lastEventMs: lastMs,
     siteName: home.shiftSiteName,
   });

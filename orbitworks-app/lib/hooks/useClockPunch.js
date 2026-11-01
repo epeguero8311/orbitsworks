@@ -1,77 +1,75 @@
-import { useCallback, useState } from "react";
-import {
-  checkPin,
-  isOnline,
-  newRequestId,
-  PIN_CHECK_TIMEOUT_MS,
-  PUNCH_TIMEOUT_MS,
-  sendPunch,
-  uploadClockPhoto,
-  withTimeout,
-} from "../employeeClockApi";
-import { clockErrorMessage, errorStep, lockSecondsLeft, NO_SIGNAL, stepAfterPinOk } from "../employeeHome";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { checkPin, isOnline, newRequestId, PIN_CHECK_TIMEOUT_MS, withTimeout } from "../employeeClockApi";
+import { clockErrorMessage, errorStep, lockSecondsLeft, NO_SIGNAL } from "../employeeHome";
 import { isSignalError, queuedTimeFor } from "../punchQueueLogic";
-import { enqueuePunch, getPunch, redoPunch, setLastSynced } from "../punchQueue";
-import { noteSignalOk, noteWeakSignal } from "../punchQueueEvents";
+import { enqueuePunch, getPunch, redoPunch } from "../punchQueue";
+import { isWeakSignal, noteSignalOk, noteWeakSignal } from "../punchQueueEvents";
 import { syncPunchQueue } from "../punchQueueSync";
+import { punchClockFields } from "../clockAnchor";
 import { outcomeOf, startPunchTimer } from "../punchTimings";
 
 const SAVE_FAILED = "Couldn't save this punch on the phone. Try again.";
 
-// Employee App clock in / out flow:
-//   PIN -> server checks the PIN -> live photo -> upload + punch -> confirmation.
-//   step: "pin" | "checking" | "camera" | "sending" | "done" | "retry" | "failed"
-// The server checks the PIN BEFORE the camera opens, so a wrong PIN or the
-// lock shows right away with no photo taken. The punch itself still sends
-// the PIN and the server checks it again - the early check can't be used to
-// skip it. One requestId for the whole attempt: a resend can't
-// double-punch (the server returns the first result). If the punch itself
-// comes back "wrong PIN" (rare - e.g. the PIN was changed in between), the
-// photo is kept and uploaded again after the new PIN passes, since the
-// server deletes a rejected punch's photo.
-//
-// Phase 4 - saved on the phone instead (confirmation shows right away,
-// result.queued = true) when:
-//   - there's no signal, or the PIN check takes over 3 s (the PIN is kept
-//     for the server to check when it syncs)
-//   - upload + punch take over 5 s, or fail for a signal reason
-//   - older punches are still in the phone's queue (queueAhead) - a new
-//     punch goes behind them so they stay in order
-// Only a real failure (wrong PIN, lock, inactive...) shows an error.
+// Employee App clock in / out flow - as fast as the supervisor app:
+//   PIN -> camera opens right away (the server checks the PIN meanwhile)
+//   -> photo -> saved on the phone -> green confirmation at once. The phone's
+//   queue (punchQueueSync.js) sends it straight away when online.
+//   step: "pin" | "camera" | "checking" | "done" | "retry" | "failed"
+//   (+ "sending" for Redo)
+// PIN check, in the background:
+//   - right PIN: the punch is saved; the server checks the PIN again when
+//     the punch arrives (the early check can't be used to skip it)
+//   - wrong PIN, lock, inactive: the camera closes and the error shows on
+//     the PIN screen, nothing is saved
+//   - no signal, or no answer within 3 s: the PIN is saved with the punch
+//     (SecureStore) and the server checks it when it syncs (Phase 4)
+//   - the photo taken before the answer: "Checking PIN..." until it comes,
+//     3 s after the PIN at most
+// "Will sync when online" shows only when offline, on weak signal, or when
+// the PIN couldn't be checked. One requestId for the whole attempt: a
+// resend can't double-punch (the server returns the first result).
 //
 // Redo mode (redoId): a saved punch failed at sync with a wrong PIN. The
 // PIN is checked online (normal 3-strike lock), then the same punch - same
 // time, same photo - is sent again from the queue. No camera.
-export function useClockPunch({ action, companyId, employeeId, expectedSite, lastEventMs, queueAhead, redoId }) {
+export function useClockPunch({ action, companyId, employeeId, expectedSite, lastEventMs, redoId }) {
   const [requestId] = useState(() => redoId || newRequestId());
   const [step, setStep] = useState("pin");
   const [pin, setPin] = useState("");
   const [photoUri, setPhotoUri] = useState(null);
-  const [pinChecked, setPinChecked] = useState(false);
   const [error, setError] = useState("");
   const [lockedUntil, setLockedUntil] = useState(0);
   const [result, setResult] = useState(null);
-  // What "Try again" repeats: the PIN check or the punch.
+  // What "Try again" repeats: the PIN check or saving the punch.
   const [retryWhat, setRetryWhat] = useState("punch");
   // Dev-build-only step timings (lib/punchTimings.js). Starts when the
   // screen opens (the Clock in / Clock out tap).
   const [timer] = useState(() => startPunchTimer(action));
+  // The running PIN check: { attempt, run: Promise<{ state, err? }> }.
+  // state: "ok" | "unchecked" (no answer - the server checks at sync) | "failed".
+  const checkRef = useRef(null);
+  const attemptRef = useRef(0);
+  // Where the screen is, for the background check to act on.
+  const stepRef = useRef("pin");
+  useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
 
   const fail = useCallback(
     async (err, what) => {
       timer.finish(outcomeOf(err));
       setError(clockErrorMessage(err, await isOnline()));
+      setPhotoUri(null);
       const next = errorStep(err);
       if (next === "pin") {
         setPin("");
         const seconds = lockSecondsLeft(err);
         setLockedUntil(seconds > 0 ? Date.now() + seconds * 1000 : 0);
         setStep("pin");
-      } else if (next === "camera" && !redoId) {
-        setPhotoUri(null);
-        setStep("camera");
-      } else if (next === "close" || next === "camera") {
+      } else if (next === "close" || (next === "camera" && redoId)) {
         setStep("failed");
+      } else if (next === "camera") {
+        setStep("camera");
       } else {
         setRetryWhat(what);
         setStep("retry");
@@ -80,23 +78,62 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
     [timer, redoId]
   );
 
-  // Keeps the punch on the phone and shows the confirmation.
+  // Starts the PIN check behind the camera.
+  const startCheck = useCallback(
+    (pinValue) => {
+      const attempt = ++attemptRef.current;
+      const run = (async () => {
+        if (!(await isOnline())) return { state: "unchecked" };
+        try {
+          await withTimeout(checkPin({ action, requestId, pin: pinValue }), PIN_CHECK_TIMEOUT_MS);
+          timer.mark("pinChecked");
+          noteSignalOk();
+          return { state: "ok" };
+        } catch (err) {
+          if (isSignalError(err)) {
+            if (err.code === "timeout") noteWeakSignal();
+            return { state: "unchecked" };
+          }
+          return { state: "failed", err };
+        }
+      })();
+      const check = { attempt, run, result: null };
+      checkRef.current = check;
+      run.then((r) => {
+        if (attemptRef.current !== attempt) return;
+        check.result = r;
+        if (r.state === "ok") setLockedUntil(0);
+        // Still framing the photo: close the camera with the error now.
+        if (r.state === "failed" && stepRef.current === "camera") fail(r.err, "check");
+      });
+    },
+    [action, requestId, timer, fail]
+  );
+
+  // Saves the punch on the phone and shows the confirmation.
   const save = useCallback(
-    async (pinValue, uri, uploaded, queuedAtMs) => {
+    async (pinValue, uri, checked) => {
       try {
-        await enqueuePunch({
-          companyId,
-          employeeId,
-          action,
-          requestId,
-          queuedAtMs,
-          siteName: expectedSite || "",
-          pin: pinValue,
-          photoUri: uri,
-          photoUploaded: uploaded,
-        });
-        timer.finish("queued");
-        setResult({ type: action, timestampMs: queuedAtMs, siteName: expectedSite || "", queued: true });
+        const queuedAtMs = queuedTimeFor(Date.now(), lastEventMs);
+        const clock = await punchClockFields();
+        const [, online] = await Promise.all([
+          enqueuePunch({
+            companyId,
+            employeeId,
+            action,
+            requestId,
+            queuedAtMs,
+            siteName: expectedSite || "",
+            pin: pinValue,
+            photoUri: uri,
+            photoUploaded: false,
+            clock,
+          }),
+          isOnline(),
+        ]);
+        timer.finish(checked ? "saved" : "saved, PIN at sync");
+        const showNote = !checked || !online || isWeakSignal();
+        setResult({ type: action, timestampMs: queuedAtMs, siteName: expectedSite || "", queued: showNote });
         setStep("done");
       } catch {
         setError(SAVE_FAILED);
@@ -104,48 +141,28 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
         setStep("retry");
       }
     },
-    [companyId, employeeId, action, requestId, expectedSite, timer]
+    [companyId, employeeId, action, requestId, expectedSite, lastEventMs, timer]
   );
 
-  const submit = useCallback(
-    async (pinValue, uri, checked) => {
+  // Photo taken: wait for the PIN answer if it isn't in yet (3 s cap from
+  // the PIN), then save - or back to the PIN on a wrong one.
+  const submitPhoto = useCallback(
+    async (uri) => {
+      timer.mark("photoTaken");
+      timer.notePhoto(uri);
+      setPhotoUri(uri);
       setError("");
-      setStep("sending");
-      const queuedAtMs = queuedTimeFor(Date.now(), lastEventMs);
-      if (!checked || queueAhead || !(await isOnline())) {
-        await save(pinValue, uri, false, queuedAtMs);
+      const check = checkRef.current;
+      // The spinner only while the PIN answer is really still out.
+      if (check && !check.result) setStep("checking");
+      const r = check ? check.result || (await check.run) : { state: "unchecked" };
+      if (r.state === "failed") {
+        await fail(r.err, "check");
         return;
       }
-      let uploaded = false;
-      let abandoned = false;
-      try {
-        const res = await withTimeout(
-          (async () => {
-            const photoPath = await uploadClockPhoto({ companyId, employeeId, requestId, localUri: uri });
-            uploaded = true;
-            timer.mark("uploaded");
-            if (abandoned) return null;
-            return sendPunch({ action, requestId, pin: pinValue, photoPath });
-          })(),
-          PUNCH_TIMEOUT_MS
-        );
-        timer.mark("punched");
-        timer.finish("ok");
-        noteSignalOk();
-        setLastSynced(companyId, employeeId, Date.now()).catch(() => {});
-        setResult(res);
-        setStep("done");
-      } catch (err) {
-        abandoned = true;
-        if (isSignalError(err)) {
-          if (err.code === "timeout") noteWeakSignal();
-          await save(pinValue, uri, uploaded, queuedAtMs);
-          return;
-        }
-        await fail(err, "punch");
-      }
+      await save(pin, uri, r.state === "ok");
     },
-    [action, companyId, employeeId, requestId, lastEventMs, queueAhead, save, fail, timer]
+    [pin, save, fail, timer]
   );
 
   // Redo: the PIN passed online -> resend the saved punch now.
@@ -178,44 +195,28 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
     [action, companyId, employeeId, requestId]
   );
 
-  const verify = useCallback(
-    async (pinValue, keptUri) => {
+  // Redo only: the PIN is checked online before anything is resent.
+  const verifyRedo = useCallback(
+    async (pinValue) => {
       setError("");
       setStep("checking");
-      const afterPin = (checked) => {
-        setPinChecked(checked);
-        if (stepAfterPinOk(!!keptUri) === "sending") submit(pinValue, keptUri, checked);
-        else setStep("camera");
-      };
-      const online = await isOnline();
-      if (redoId && !online) {
+      if (!(await isOnline())) {
         setError(NO_SIGNAL);
         setRetryWhat("check");
         setStep("retry");
         return;
       }
-      if (!online) {
-        afterPin(false);
-        return;
-      }
       try {
-        const check = checkPin({ action, requestId, pin: pinValue });
-        await (redoId ? check : withTimeout(check, PIN_CHECK_TIMEOUT_MS));
+        await checkPin({ action, requestId, pin: pinValue });
         timer.mark("pinChecked");
         noteSignalOk();
         setLockedUntil(0);
-        if (redoId) resendSaved(pinValue);
-        else afterPin(true);
+        resendSaved(pinValue);
       } catch (err) {
-        if (!redoId && isSignalError(err)) {
-          if (err.code === "timeout") noteWeakSignal();
-          afterPin(false);
-          return;
-        }
         await fail(err, "check");
       }
     },
-    [action, requestId, redoId, submit, resendSaved, fail, timer]
+    [action, requestId, resendSaved, fail, timer]
   );
 
   const pressDigit = useCallback(
@@ -225,27 +226,33 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
       setPin(next);
       if (next.length < 4) return;
       timer.mark("pinTyped");
-      verify(next, photoUri);
+      if (redoId) {
+        verifyRedo(next);
+        return;
+      }
+      setError("");
+      startCheck(next);
+      timer.mark("cameraOpen");
+      setStep("camera");
     },
-    [pin, photoUri, step, verify, timer]
+    [pin, step, redoId, verifyRedo, startCheck, timer]
   );
 
   const deleteDigit = useCallback(() => setPin((p) => p.slice(0, -1)), []);
 
-  const submitPhoto = useCallback(
-    (uri) => {
-      timer.mark("photoTaken");
-      timer.notePhoto(uri);
-      setPhotoUri(uri);
-      submit(pin, uri, pinChecked);
-    },
-    [pin, pinChecked, submit, timer]
-  );
-
-  const retry = useCallback(
-    () => (retryWhat === "check" ? verify(pin, photoUri) : submit(pin, photoUri, pinChecked)),
-    [retryWhat, pin, photoUri, pinChecked, verify, submit]
-  );
+  const retry = useCallback(() => {
+    if (redoId) {
+      verifyRedo(pin);
+      return;
+    }
+    if (retryWhat === "punch" && photoUri) {
+      save(pin, photoUri, false);
+      return;
+    }
+    setError("");
+    startCheck(pin);
+    setStep("camera");
+  }, [redoId, retryWhat, pin, photoUri, verifyRedo, save, startCheck]);
 
   return { step, pin, photoUri, error, lockedUntil, result, pressDigit, deleteDigit, submitPhoto, retry };
 }
