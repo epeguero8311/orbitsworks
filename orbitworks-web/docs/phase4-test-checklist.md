@@ -5,7 +5,7 @@ Offline punch queue (steps 1-7). Dev only: orbitworks-dev-ew. Prod is not touche
 ## Builds (Nov 1, profile employeeDev)
 
 1. Build 1 - UI-only: from tag `ui-only-build` (2b29ec3). New screens plus the dev timing readout. Used for T1 only.
-2. Build 2 - Phase 4: from `employee-app` HEAD. Used for T2-T13.
+2. Build 2 - Phase 4: from `employee-app` HEAD (includes main up to 8cce37d). Used for T2-T13 and S1-S6.
 
 ## How to run it
 
@@ -237,3 +237,93 @@ You are clocked in from T10.
 - **I check:**
   - The T1 vs T13 table per step (PIN check, upload, punch, total) for wifi, cell and airplane.
   - The airplane punch syncs once wifi is back.
+
+---
+
+## Supervisor smoke tests - main's changes (Build 2)
+
+Build 2 also carries main's supervisor work (sync speed, fast launch,
+breaks, offline employees). These are quick checks that the merge didn't
+break it. Sign out of the employee, then sign in as a supervisor or admin
+of the same dev company. Use 2-3 test employees you can clock in with a PIN.
+
+### S1. Sync speed: events first, photos after
+
+- **Tap:**
+  1. Airplane mode on.
+  2. Clock In 3 different employees (PIN + photo each).
+  3. Airplane mode off and open the Sync Queue tab.
+- **You should see:**
+  - Within a few seconds all 3 rows leave Waiting. A row can sit on the photo
+    step for a bit; it never blocks the next employee.
+  - Home shows all 3 as working.
+- **I check:**
+  - Each event landed before its photo (`photoPending` first, then
+    `photoUrl`), with the original times.
+  - The dev website log shows "Uploading" until the photo is in, then
+    "View". Never "Photo missing".
+  - Photos are 720x1280 (or 1280x720). Each event has exactly one face check
+    (one `faceCheckClaims` doc).
+
+### S2. A break keeps the clock-out site
+
+- **Tap:** For one employee clocked in from S1 (at a site): Start Break, End
+  Break, then Clock Out.
+- **You should see:** The break saves with no camera and no location prompt.
+- **I check:**
+  - The 2 break events have no site and no GPS. The website shows "-" for
+    Site, Geofence and Face check on both.
+  - The clock-out has the clock-in site and a geofence result.
+
+### S3. Offline home count and name after a restart
+
+- **Tap:**
+  1. Online, open Home. Note the active count and your name at the top.
+  2. Airplane mode on. Close the app fully (swipe it away) and reopen it.
+- **You should see:**
+  - The splash goes away within a few seconds. It doesn't hang.
+  - Home shows the same active count and your name, with an
+    "Offline - last updated" note. It is not empty and has no blank name.
+
+### S4. Offline-created employee clocks in with a PIN
+
+- **Tap:**
+  1. Still in airplane mode: create a new employee with a PIN no one else
+     uses (for example `S4 Test`).
+  2. Clock them in with that PIN (photo too).
+  3. Open the Sync Queue tab: the create and the clock-in are both listed.
+  4. Airplane mode off.
+- **You should see:** The employee syncs first, then the clock-in. Both go
+  Synced. Home shows them as working.
+- **I check:** The employee exists once, and the clock-in kept its original
+  time and points at that employee.
+
+### S5. Change a PIN from the app
+
+- **Tap:**
+  1. Online, as admin/owner: Edit Employee on `S4 Test`, set a new unique PIN, save.
+  2. Clock them out with the new PIN.
+  3. Edit them again and type a PIN another employee already has.
+  4. Taken-PIN fix-up: airplane mode on, set `S4 Test`'s PIN to a new
+     unused number (say 4321) and save. On the dev website, give a
+     different employee that same PIN. Then airplane mode off.
+- **You should see:**
+  - Step 2 works with the new PIN.
+  - Step 3: the phone refuses the PIN (already in use) and saves nothing.
+  - Step 4: a notice on the phone "S4 Test's PIN changed to NNNN" (the
+    Dashboard sync-notice badge). The supervisor Alerts tab shows nothing for it.
+- **I check:**
+  - The website Overview shows one "PIN Changed" alert, and nothing was
+    pushed.
+  - `S4 Test` ends with a unique PIN, and the phone's PIN list has it.
+
+### S6. Sync Queue shows employees
+
+Covered in S4 step 3. Also check:
+
+- **Tap:** Airplane mode on, edit `S4 Test`'s name, open the Sync Queue tab,
+  then airplane mode off.
+- **You should see:** The edit is listed (Waiting), then Synced. The name
+  updates on Home.
+
+When S1-S6 pass: archive `S4 Test` on the website.

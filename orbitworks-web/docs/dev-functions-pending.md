@@ -189,6 +189,18 @@ Phase 3 Step 6 (shrunk to this):
   effect calls `setAlerts([])` / `setLoading(false)` directly when there is
   no companyId. It was there before Phase 4; Phase 4 only touched the
   web-only alert filter in that file. Fix in the Phase 10 lint pass.
+- **Unify the employee break site with main** (decided 2026-11-01, after
+  merging main into employee-app). Main's supervisor breaks save no site,
+  GPS or face check; Employee App breaks still copy the clock-in site.
+  The website already shows "-" for break rows, so nothing looks wrong
+  today. Make employee breaks match main.
+- **Old app lint errors in files the main merge touched** (found
+  2026-11-01). 19 errors, all present before the merge on main or
+  employee-app: components/OfflineBanner.js, screens/LoadingScreen.js
+  (react-hooks/refs); lib/AuthContext.js, lib/hooks/useHomeSnapshot.js,
+  useLocalStatusOverlay.js, useSyncQueue.js, useTodayShift.js
+  (set-state-in-effect / purity); screens/supervisor/SyncQueueScreen.js
+  (unescaped quote). Fix in the Phase 10 lint pass with useAlertsFeed.js.
 - **Duplicate "Emilio Peguero" employee** (found 2026-10-28). Dev,
   jc-test-pro-dev: GZ3DKAhivqjkAw04Md9T has no punches; the real one is
   KfLB8nDz8lseZIhHEDch. Find how the duplicate got created. Don't delete it
