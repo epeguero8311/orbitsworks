@@ -230,6 +230,13 @@ async function openDb() {
     "ALTER TABLE event_queue ADD COLUMN syncedAt INTEGER",
     "ALTER TABLE pin_cache ADD COLUMN lastEventTimestamp INTEGER",
     "ALTER TABLE event_queue ADD COLUMN backedUp INTEGER NOT NULL DEFAULT 0",
+    // Sync speed-up: earliest time (ms) a failed row may be retried by an
+    // automatic drain. NULL = retry on the next drain. See queueSync.js.
+    "ALTER TABLE event_queue ADD COLUMN nextAttemptAt INTEGER",
+    // Sync speed-up: when this row's event doc reached the server (ms).
+    // Set = only the photo is left to send (syncStatus 'photoPending', or
+    // 'syncing'/'dead' while on that step). See queueSync.js sendDoc.
+    "ALTER TABLE event_queue ADD COLUMN docSentAt INTEGER",
     // Notice-before-capture (Terms Section 4.1) - the on-device moment the
     // identity-verification notice was acknowledged, in ms (Date.now()),
     // threaded through to createEmployee/updateEmployeeProfile as
@@ -237,6 +244,16 @@ async function openDb() {
     // (no photo, no notice shown).
     "ALTER TABLE employee_queue ADD COLUMN photoNoticeShownAt INTEGER",
     "ALTER TABLE employee_update_queue ADD COLUMN photoNoticeShownAt INTEGER",
+    // Offline employee create/update: when each row finished syncing (ms),
+    // for the Sync Queue list's brief "Synced" display.
+    "ALTER TABLE employee_queue ADD COLUMN syncedAt INTEGER",
+    "ALTER TABLE employee_update_queue ADD COLUMN syncedAt INTEGER",
+    // Offline PIN edit (admins/owners). Plaintext only until it syncs, then
+    // blanked - same rule as employee_queue.clientPin.
+    "ALTER TABLE employee_update_queue ADD COLUMN pin TEXT",
+    // The edited employee's name, for the Sync Queue list and notices (name
+    // is null on a PIN- or photo-only edit).
+    "ALTER TABLE employee_update_queue ADD COLUMN employeeName TEXT",
   ];
   for (const migration of migrations) {
     try {

@@ -5,14 +5,14 @@ import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import { useClockEventsByDay } from "@/lib/hooks/useClockEventsByDay";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { ClockEvent } from "@/lib/types";
-import { typeLabel, sourceLabel } from "@/lib/clockStatus";
+import { typeLabel, sourceLabel, isBreakEvent } from "@/lib/clockStatus";
 import { dateKey } from "@/lib/reportUtils";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import { GeofenceBadge } from "@/components/time/GeofenceBadge";
 import { FaceCheckBadge } from "@/components/time/FaceCheckBadge";
+import { PhotoStatusCell } from "@/components/time/PhotoStatusCell";
 import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
 import { SyncedLateTag } from "@/components/time/SyncedLateTag";
-import { clockPhotoCellLabel } from "@/lib/clockPhoto";
 
 function latestAdjustment(event: ClockEvent) {
   if (!event.adjustmentHistory || event.adjustmentHistory.length === 0) {
@@ -167,9 +167,15 @@ export default function ClockEventsDayView({
                     {event.employeeName}
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">
-                    {event.siteName}
-                    <AutoDetectedTag event={event} />
-                    <SyncedLateTag event={event} />
+                    {isBreakEvent(event.type) ? (
+                      "-"
+                    ) : (
+                      <>
+                        {event.siteName}
+                        <AutoDetectedTag event={event} />
+                        <SyncedLateTag event={event} />
+                      </>
+                    )}
                   </td>
                   <td className="px-4 py-2.5">
                     <span className={`font-medium ${typeBadge.className}`}>
@@ -201,7 +207,7 @@ export default function ClockEventsDayView({
                           : "-")}
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">
-                    {clockPhotoCellLabel(event)}
+                    <PhotoStatusCell event={event} />
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">
                     {event.note || "-"}

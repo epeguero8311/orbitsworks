@@ -27,27 +27,27 @@ export function useQueueSync() {
     // Only safe to reset 'syncing' rows back to 'pending' when no drain
     // is currently in flight - otherwise this could yank a row out from
     // under a drain that is legitimately still working on it.
-    const runDrain = async () => {
+    const runDrain = async (trigger) => {
       if (!isQueueSyncing()) {
         await resetStuckSyncs();
       }
-      drainQueue(companyId);
+      drainQueue(companyId, trigger);
     };
 
-    runDrain();
+    runDrain("login");
 
     const appStateSub = AppState.addEventListener("change", (state) => {
-      if (state === "active") runDrain();
+      if (state === "active") runDrain("foreground");
     });
 
     const netInfoSub = NetInfo.addEventListener((state) => {
-      if (state.isConnected) runDrain();
+      if (state.isConnected) runDrain("netChange");
     });
 
     const interval = setInterval(async () => {
       if (isQueueSyncing()) return;
       const count = await getPendingCount();
-      if (count > 0) runDrain();
+      if (count > 0) runDrain("poll");
     }, POLL_INTERVAL_MS);
 
     return () => {

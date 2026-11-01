@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl,
 } from "react-native";
@@ -12,6 +12,8 @@ import { useTabBarSpace } from "../../lib/hooks/useTabBarSpace";
 import { useLocalStatusOverlay } from "../../lib/hooks/useLocalStatusOverlay";
 import { useLocalEmployee } from "../../lib/hooks/useLocalEmployee";
 import { useEmployeeSyncAlertCount } from "../../lib/hooks/useEmployeeSyncAlertCount";
+import { useIsOffline } from "../../lib/hooks/useIsOffline";
+import { useHomeSnapshot } from "../../lib/hooks/useHomeSnapshot";
 import { syncPinTable } from "../../lib/pinSync";
 import { drainQueue } from "../../lib/queueSync";
 import { drainEmployeeQueue } from "../../lib/employeeQueueSync";
@@ -19,14 +21,27 @@ import OfflineBanner from "../../components/OfflineBanner";
 import Avatar from "../../components/Avatar";
 import Spinner from "../../components/Spinner";
 
+// "5:14 PM" today, "Oct 30, 5:14 PM" on an earlier day.
+function formatSavedAt(ms) {
+  const d = new Date(ms);
+  const h = d.getHours();
+  const time = `${h % 12 === 0 ? 12 : h % 12}:${String(d.getMinutes()).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+  if (d.toDateString() === new Date().toDateString()) return time;
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${time}`;
+}
+
 export default function DashboardScreen({ navigation }) {
   const { userData, currentUser, linkedEmployeeId } = useAuth();
   const { colors, isDark } = useTheme();
   const { selectedSite } = useSiteSession();
-  const { employees: liveEmployees, loading } = useTodayShift(userData?.companyId);
-  const employees = useLocalStatusOverlay(liveEmployees);
+  const { employees: liveEmployees, loading, fromCache } = useTodayShift(userData?.companyId);
   const { settings } = useCompanySettings(userData?.companyId);
-  const localSupervisor = useLocalEmployee(linkedEmployeeId);
+  // Offline restart: the linked-employee lookup in AuthContext needs the
+  // server, so fall back to the employeeId in the sign-in token.
+  const supervisorId = linkedEmployeeId ?? userData?.employeeId ?? null;
+  const localSupervisor = useLocalEmployee(supervisorId);
+  const isOffline = useIsOffline();
   const employeeSyncAlertCount = useEmployeeSyncAlertCount();
   const tabBarSpace = useTabBarSpace();
   const [refreshing, setRefreshing] = useState(false);
@@ -45,6 +60,39 @@ export default function DashboardScreen({ navigation }) {
     (userData?.role === "supervisor" || userData?.role === "admin" || userData?.role === "owner") &&
     settings.appSettings.allowAppEmployeeUpdate;
 
+  // Live Firestore data wins when it is available (it is fresher and
+  // reflects real-time status). The phone's PIN table, then the saved home
+  // snapshot, are the fallbacks for a fully offline cold start.
+  const liveReady = !loading && !fromCache;
+  const supervisor = liveEmployees.find((e) => e.id === supervisorId);
+  const liveName = supervisor?.name ?? localSupervisor?.name ?? null;
+  const livePhotoUrl = supervisor?.photoUrl ?? localSupervisor?.photoUrl ?? null;
+
+  const snapshot = useHomeSnapshot({
+    uid: currentUser?.uid,
+    companyId: userData?.companyId,
+    liveEmployees,
+    liveReady,
+    isOffline,
+    displayName: liveName,
+    photoUrl: livePhotoUrl,
+  });
+
+  // Live data couldn't come from the server (offline restart): show the
+  // last saved list instead of an empty one. Clock-ins made offline still
+  // count, because the local-queue overlay below runs on top of it.
+  const showingSaved = !!snapshot && !liveReady && (isOffline || fromCache);
+  const savedEmployees = useMemo(() => snapshot?.employees ?? [], [snapshot]);
+  const employees = useLocalStatusOverlay(showingSaved ? savedEmployees : liveEmployees);
+
+  const displayName = liveName ?? snapshot?.displayName ?? currentUser?.email ?? "";
+  const avatarPhotoUrl = livePhotoUrl ?? snapshot?.photoUrl ?? null;
+
+  const offlineNote =
+    snapshot?.savedAt && (showingSaved || isOffline)
+      ? `Offline - last updated ${formatSavedAt(snapshot.savedAt)}`
+      : null;
+
   const isNoneSite = selectedSite?.id === "none";
   const filteredEmployees =
     selectedSite && !isNoneSite
@@ -55,13 +103,6 @@ export default function DashboardScreen({ navigation }) {
 
   const clockedInCount = filteredEmployees.filter((e) => e.status === "in" || e.status === "break").length;
   const onBreakCount = filteredEmployees.filter((e) => e.status === "break").length;
-
-  // Live Firestore data wins when it is available (it is fresher and
-  // reflects real-time status). The local cache is the fallback for a
-  // fully offline cold start, before any live snapshot has arrived.
-  const supervisor = employees.find((e) => e.id === linkedEmployeeId);
-  const displayName = supervisor?.name ?? localSupervisor?.name ?? currentUser?.email ?? "";
-  const avatarPhotoUrl = supervisor?.photoUrl ?? localSupervisor?.photoUrl ?? null;
 
   const siteLabel = selectedSite ? (isNoneSite ? "No Site" : selectedSite.name) : "All Sites";
 
@@ -94,7 +135,7 @@ export default function DashboardScreen({ navigation }) {
     try {
       await Promise.all([
         syncPinTable().catch(() => {}),
-        drainQueue(userData?.companyId),
+        drainQueue(userData?.companyId, "pullRefresh"),
         drainEmployeeQueue(userData?.companyId),
       ]);
     } finally {
@@ -136,12 +177,13 @@ export default function DashboardScreen({ navigation }) {
             <Feather name="chevron-down" size={14} color="#fff" />
           </TouchableOpacity>
 
-          {loading ? (
+          {loading && !showingSaved ? (
             <View style={styles.countSpinner}><Spinner size={40} color="#fff" /></View>
           ) : (
             <Text style={styles.countNumber}>{clockedInCount}</Text>
           )}
-          <Text style={styles.countLabel}>Active employees</Text>
+          <Text style={[styles.countLabel, offlineNote && { marginBottom: 4 }]}>Active employees</Text>
+          {offlineNote ? <Text style={styles.offlineNote}>{offlineNote}</Text> : null}
 
           <TouchableOpacity style={styles.clockButton} onPress={handleClockPress} activeOpacity={0.85}>
             <Text style={[styles.clockButtonText, { color: colors.accent }]}>Clock In / Out</Text>
@@ -244,6 +286,7 @@ const styles = StyleSheet.create({
   countNumber: { color: "#fff", fontSize: 56, fontWeight: "800", textAlign: "center" },
   countSpinner: { marginVertical: 14, alignItems: "center" },
   countLabel: { color: "#fff", fontSize: 14, textAlign: "center", opacity: 0.9, marginBottom: 20 },
+  offlineNote: { color: "#fff", fontSize: 12, textAlign: "center", opacity: 0.75, marginBottom: 16 },
   clockButton: { backgroundColor: "#fff", borderRadius: 14, paddingVertical: 16, alignItems: "center" },
   clockButtonText: { fontSize: 16, fontWeight: "700" },
   sectionLabel: { fontSize: 13, fontWeight: "600", marginBottom: 10 },

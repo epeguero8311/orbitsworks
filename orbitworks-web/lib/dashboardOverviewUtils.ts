@@ -37,7 +37,9 @@ export type AlertItem = {
     | "autoClockOut"
     // Employee App Phase 4 (offline punches) - see functions/src/alerts.ts.
     | "syncWrongPin"
-    | "syncedLateApproved";
+    | "syncedLateApproved"
+    // Offline employee create/PIN edit - see createPinChangedAlert.
+    | "pinChanged";
   // Who/what this alert is about - an employee name for every alert type
   // today. A future site-level alert (no single employee involved) should
   // put the site name (or "All Sites") here instead - alertTitle() below
@@ -80,6 +82,7 @@ export const ALERT_SHORT_TAGS: Record<AlertItem["alertType"], string> = {
   autoClockOut: "Auto Clocked Out",
   syncWrongPin: "Wrong PIN at Sync",
   syncedLateApproved: "Late Punch on Approved Timesheet",
+  pinChanged: "PIN Changed",
 };
 
 // Drives the severity dot in AlertsPanel - urgent (red) for alerts that need
@@ -114,6 +117,7 @@ export const ALERT_SEVERITY: Record<AlertItem["alertType"], AlertSeverity> = {
   // Employee App Phase 4 - someone should take a look, nothing is blocked.
   syncWrongPin: "warning",
   syncedLateApproved: "warning",
+  pinChanged: "warning",
 };
 
 export function alertTitle(alert: AlertItem) {

@@ -32,6 +32,7 @@ export {
 
 export {
   onClockEventCreated,
+  onClockEventPhotoAdded,
   correctClockEvent,
   reassignClockEvent,
   assignSessionSite,

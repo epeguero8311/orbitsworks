@@ -15,6 +15,15 @@ import { isAutoDetectionActive, getSitesForEmployeePicker, detectLocalSite } fro
 import ScreenHeader from "../../components/ScreenHeader";
 import Spinner from "../../components/Spinner";
 
+// Clock photos only need to be good enough for an admin to recognize the
+// person and for the server's Rekognition face check - full resolution
+// ("Photo", the default) made them 600-900 KB, ~25-30s each on a slow
+// uplink. "1280x720" is valid on both platforms: an iOS capture preset
+// (which also sets the preview resolution there), and on Android the
+// closest supported size at or below it. Target ~100 KB at quality 0.5.
+// Employee reference photos (Create/Edit Employee) are not affected.
+const CLOCK_PICTURE_SIZE = "1280x720";
+
 export default function ClockCameraScreen({ route, navigation }) {
   const { employee } = route.params;
   const { userData, currentUser } = useAuth();
@@ -114,10 +123,15 @@ export default function ClockCameraScreen({ route, navigation }) {
       // a slow GPS fix never adds to the time this button already takes -
       // getBestEffortLocationIfPro has its own internal timeout and never
       // throws, and resolves to undefined immediately for a Core company.
+      const captureStart = Date.now();
       const [photo, location] = await Promise.all([
         cameraRef.current.takePictureAsync({ quality: 0.5 }),
         getBestEffortLocationIfPro(isPro),
       ]);
+      console.log(
+        "[sync-timing] capture",
+        JSON.stringify({ width: photo.width, height: photo.height, captureMs: Date.now() - captureStart })
+      );
 
       const currentStatus = await getCurrentLocalStatus(employee.id);
       const nextType = currentStatus === "out" ? "in" : "out";
@@ -188,7 +202,7 @@ export default function ClockCameraScreen({ route, navigation }) {
       // uploading immediately in the background. If not, useQueueSync
       // will pick it up on the next reconnect/foreground. Either way we
       // do not wait for it before confirming to the user.
-      drainQueue(userData.companyId);
+      drainQueue(userData.companyId, "clockCapture");
 
       // Guard: if the user backed out (impossible right now since back
       // is disabled while submitting, but this also covers the screen
@@ -230,7 +244,7 @@ export default function ClockCameraScreen({ route, navigation }) {
 
   return (
     <View style={styles.container}>
-      <CameraView ref={cameraRef} style={styles.camera} facing="front" />
+      <CameraView ref={cameraRef} style={styles.camera} facing="front" pictureSize={CLOCK_PICTURE_SIZE} />
 
       <TouchableOpacity
         style={[styles.backButton, submitting && styles.backButtonDisabled]}

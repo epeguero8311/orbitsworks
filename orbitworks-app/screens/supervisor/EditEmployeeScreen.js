@@ -33,9 +33,10 @@ function withTimeout(promise, ms) {
 // Update Employee (mobile) - same camera/retake/name-input shape as
 // CreateEmployeeScreen.js (copied, not shared - that screen has no
 // extractable component to import), pre-filled with the employee's
-// current name/photo. Supervisors can only change name and photo here -
-// nothing else (rate, PIN, sites, active status) is editable from this
-// screen, per spec.
+// current name/photo. Supervisors can only change name and photo here;
+// admins/owners can also set a new PIN (same permission as the web's
+// setEmployeePin). Nothing else (rate, sites, active status) is editable
+// from this screen, per spec.
 export default function EditEmployeeScreen({ navigation, route }) {
   const { employee } = route.params;
   const { userData, currentUser } = useAuth();
@@ -45,6 +46,9 @@ export default function EditEmployeeScreen({ navigation, route }) {
 
   const [name, setName] = useState(employee.name || "");
   const [nameError, setNameError] = useState(null);
+  const canEditPin = userData?.role === "admin" || userData?.role === "owner";
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState(null);
   // Unlike CreateEmployeeScreen.js (which always opens straight to the
   // camera, since there's no existing photo yet), this screen defaults to
   // showing the employee's current photo - the camera only opens once the
@@ -64,7 +68,11 @@ export default function EditEmployeeScreen({ navigation, route }) {
 
   const trimmedName = validateEmployeeName(name).trimmed;
   const nameChanged = !!validateEmployeeName(name).valid && trimmedName !== employee.name;
-  const canSubmit = !!validateEmployeeName(name).valid && (nameChanged || !!newPhotoUri) && !submitting;
+  // Blank = keep the current PIN.
+  const pinEntered = canEditPin && pin.length > 0;
+  const pinValid = !pinEntered || /^\d{4}$/.test(pin);
+  const canSubmit =
+    !!validateEmployeeName(name).valid && pinValid && (nameChanged || !!newPhotoUri || pinEntered) && !submitting;
   // CameraView's native preview surface renders black on Android when it
   // is a descendant of a ScrollView (a SurfaceView/TextureView compositing
   // issue ScrollView's clipping/recycling triggers - iOS's layer-based
@@ -129,7 +137,9 @@ export default function EditEmployeeScreen({ navigation, route }) {
 
       const { localId } = await queueUpdateEmployee({
         employeeId: employee.id,
+        employeeName: employee.name,
         name: nameChanged ? validated.trimmed : null,
+        pin: pinEntered ? pin : null,
         photoUri: newPhotoUri,
         photoNoticeShownAt: newPhotoUri ? photoNoticeShownAt : null,
         deviceId,
@@ -152,6 +162,10 @@ export default function EditEmployeeScreen({ navigation, route }) {
       // navigator's own state mid-render.
       navigation.goBack();
     } catch (err) {
+      if (err?.code === "pinTaken") {
+        setPinError(err.message);
+        return;
+      }
       console.log("Update employee failed:", err.message);
       setSubmitError("Something went wrong. Try again.");
     } finally {
@@ -203,6 +217,33 @@ export default function EditEmployeeScreen({ navigation, route }) {
           ]}
         />
         {nameError && <Text style={[styles.error, { color: colors.red }]}>{nameError}</Text>}
+
+        {canEditPin && (
+          <>
+            <Text style={[styles.label, { color: colors.subtext, marginTop: 20 }]}>New PIN</Text>
+            <TextInput
+              value={pin}
+              onChangeText={(text) => {
+                setPin(text.replace(/\D/g, "").slice(0, 4));
+                setPinError(null);
+              }}
+              placeholder="Leave blank to keep the current PIN"
+              placeholderTextColor={colors.subtext}
+              keyboardType="number-pad"
+              maxLength={4}
+              secureTextEntry
+              style={[
+                styles.input,
+                { borderColor: colors.border, color: colors.text, backgroundColor: colors.card },
+              ]}
+            />
+            {pinError ? (
+              <Text style={[styles.error, { color: colors.red }]}>{pinError}</Text>
+            ) : pinEntered && !pinValid ? (
+              <Text style={[styles.error, { color: colors.red }]}>PIN must be 4 digits</Text>
+            ) : null}
+          </>
+        )}
 
         <Text style={[styles.label, { color: colors.subtext, marginTop: 20 }]}>Reference photo</Text>
 

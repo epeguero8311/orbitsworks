@@ -6,7 +6,9 @@ import { functions, storage } from "./firebase";
 import { getDb, runExclusive } from "./db";
 import { recordEmployeeSyncAlert } from "./employeeSyncAlerts";
 import { notifyEmployeeQueueChange } from "./employeeQueueEvents";
-import { syncPinTable } from "./pinSync";
+import { syncPinTable, setLocalEmployeePin, removeLocalEmployeeFromPinCache } from "./pinSync";
+import { drainQueue } from "./queueSync";
+import { notifyQueueChange } from "./queueEvents";
 import { uploadLocalFileToStorage } from "./storageUpload";
 
 let syncing = false;
@@ -88,6 +90,7 @@ async function uploadReferencePhoto(companyId, employeeId, localUri) {
 // an offline one that changed). The caller gets the PIN back as this
 // function's return value instead of having to re-read the row afterward.
 async function syncOne(sqlite, item, companyId) {
+  const syncStart = Date.now();
   const photoUrl = await uploadReferencePhoto(companyId, item.employeeId, item.photoLocalUri);
 
   const createEmployeeFn = httpsCallable(functions, "createEmployee");
@@ -97,27 +100,38 @@ async function syncOne(sqlite, item, companyId) {
     photoUrl,
     clientPin: item.clientPin,
     photoNoticeShownAt: item.photoNoticeShownAt ?? null,
+    // When the employee was created on this phone, not when it synced.
+    clientCreatedAt: item.createdAt,
   });
   const { pin, pinChanged } = result.data;
 
   await FileSystem.deleteAsync(item.photoLocalUri, { idempotent: true });
   await runExclusive(() =>
     sqlite.runAsync(
-      "UPDATE employee_queue SET syncStatus = 'synced', clientPin = '' WHERE localId = ?",
-      [item.localId]
+      "UPDATE employee_queue SET syncStatus = 'synced', clientPin = '', syncedAt = ? WHERE localId = ?",
+      [Date.now(), item.localId]
     )
   );
 
+  // The server's PIN is the real one: point this phone's cached row at it
+  // now (the old offline PIN stops working if it changed), without waiting
+  // on the pull below, which can fail if the signal drops right here.
+  await setLocalEmployeePin(item.employeeId, pin).catch(() => {});
   if (pinChanged) {
     await recordEmployeeSyncAlert({
       employeeName: item.name,
-      message: `${item.name}'s PIN changed to ${pin} because ${item.clientPin} was already taken by the time this synced. Share the new PIN with them.`,
+      message: `${item.name}'s PIN changed to ${pin}`,
     });
   }
 
-  // Refreshes pin_cache right away so the new employee can clock in on this
-  // device immediately, instead of waiting for the next scheduled pull.
-  await syncPinTable().catch(() => {});
+  // The employee now exists on the server, so any clock events made for
+  // them while offline (held back until now - see queueSync.js) can send.
+  drainQueue(companyId, "employeeCreated");
+
+  // A fresh pull (not one already in flight that read the server before
+  // this create landed) so pin_cache matches the server.
+  await syncPinTable({ fresh: true }).catch(() => {});
+  console.log("[employee-sync] create", JSON.stringify({ localId: item.localId, ms: Date.now() - syncStart, pinChanged }));
 
   return { pin, pinChanged };
 }
@@ -138,6 +152,17 @@ async function markTerminal(sqlite, item, message) {
     employeeName: item.name,
     message: `${item.name} couldn't be created: ${message}`,
   });
+  // The employee will never exist on the server, so their offline PIN
+  // stops working here and any clock events made for them can't be saved -
+  // mark those Stuck with the reason instead of leaving them waiting.
+  await removeLocalEmployeeFromPinCache(item.employeeId).catch(() => {});
+  await runExclusive(() =>
+    sqlite.runAsync(
+      "UPDATE event_queue SET syncStatus = 'dead', lastError = ? WHERE employeeId = ? AND syncStatus IN ('pending','failed')",
+      [`invalid:${item.name} couldn't be created, so this can't be saved: ${message}`, item.employeeId]
+    )
+  );
+  notifyQueueChange();
 }
 
 export async function cleanupEmployeeQueue() {

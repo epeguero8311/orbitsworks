@@ -10,6 +10,10 @@ const AuthContext = createContext(null);
 // Online this read takes well under a second.
 const USER_DOC_TIMEOUT_MS = 4000;
 const TOKEN_TIMEOUT_MS = 1500;
+// Longest the splash waits for the server to say whether a supervisor's/
+// admin's linked employee record is still active (accountChecked). Offline
+// that answer never comes, so the app opens anyway after this.
+const ACCOUNT_CHECK_MAX_WAIT_MS = 2000;
 const TIMEOUT = new Error("timeout");
 
 function withTimeout(promise, ms) {
@@ -84,6 +88,10 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [accountDisabled, setAccountDisabled] = useState(false);
   const [linkedEmployeeId, setLinkedEmployeeId] = useState(null);
+  // uid whose account-active check has finished (server answer, error, or
+  // ACCOUNT_CHECK_MAX_WAIT_MS). App.js keeps the splash up until then, so a
+  // deactivated supervisor never sees home before Account deactivated.
+  const [accountCheckedUid, setAccountCheckedUid] = useState(null);
 
   useEffect(() => {
     // uid of the user the latest auth callback is for, so a slow users-doc
@@ -95,6 +103,40 @@ export function AuthProvider({ children }) {
 
       if (user) {
         const userDocPromise = getDoc(doc(db, "users", user.uid));
+
+        // Fast path: role + companyId are already in the ID token stored on
+        // the phone, so the app can start (and start loading company data)
+        // without waiting on the users-doc round trip - up to 4 s on a weak
+        // signal. Those token claims are exactly what firestore.rules check.
+        // The users doc still replaces this the moment it lands, same as
+        // the slow-network path below always did.
+        const claimsData = await cachedClaimsUserData(user);
+        if (activeUid !== user.uid) return;
+        if (claimsData) {
+          tagSentryUser(user, claimsData);
+          setUserData(claimsData);
+          setCurrentUser(user);
+          setLoading(false);
+          userDocPromise
+            .then((snap) => {
+              if (activeUid !== user.uid || !snap.exists()) return;
+              const full = snap.data();
+              tagSentryUser(user, full);
+              setUserData(full);
+            })
+            .catch((error) => {
+              console.log("Error fetching user data:", error);
+              // Offline cold start: expected, the claims above already cover it.
+              if (error?.code === "unavailable") return;
+              Sentry.captureException(error, {
+                tags: { area: "auth-fetch-user-doc" },
+                contexts: { auth: { uid: user.uid } },
+              });
+            });
+          return;
+        }
+
+        // No usable claims on the phone: wait for the users doc as before.
         let data = null;
         let timedOut = false;
         try {
@@ -143,6 +185,7 @@ export function AuthProvider({ children }) {
         setUserData(null);
         setAccountDisabled(false);
         setLinkedEmployeeId(null);
+        setAccountCheckedUid(null);
         Sentry.setUser(null);
       }
 
@@ -159,14 +202,19 @@ export function AuthProvider({ children }) {
   // refresh. firestore.rules lets an employee run this exact query on their
   // own doc only.
   useEffect(() => {
+    if (!currentUser) return;
+    const uid = currentUser.uid;
     if (
-      !currentUser ||
       !userData ||
       (userData.role !== "supervisor" && userData.role !== "admin" && userData.role !== "employee") ||
       !userData.companyId
     ) {
+      // No linked-employee check for this account: nothing to wait for.
+      setAccountCheckedUid(uid);
       return;
     }
+    const markChecked = () => setAccountCheckedUid(uid);
+    const maxWait = setTimeout(markChecked, ACCOUNT_CHECK_MAX_WAIT_MS);
 
     // employees doc ID is never assumed to equal the linked auth uid - a
     // supervisor promoted-in-place keeps their original employee doc ID,
@@ -191,8 +239,10 @@ export function AuthProvider({ children }) {
         if (status.disabled === null) return;
         if (!status.employeeId) setLinkedEmployeeId(null);
         setAccountDisabled(status.disabled);
+        markChecked();
       },
       (error) => {
+        markChecked();
         console.log("Employee status listener error:", error);
         Sentry.captureException(error, {
           tags: { area: "auth-employee-listener" },
@@ -203,7 +253,10 @@ export function AuthProvider({ children }) {
       }
     );
 
-    return unsubscribe;
+    return () => {
+      clearTimeout(maxWait);
+      unsubscribe();
+    };
   }, [currentUser, userData]);
 
   const signOutUser = async () => {
@@ -214,7 +267,8 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const value = { currentUser, userData, loading, accountDisabled, linkedEmployeeId, signOutUser };
+  const accountChecked = !!currentUser && accountCheckedUid === currentUser.uid;
+  const value = { currentUser, userData, loading, accountDisabled, accountChecked, linkedEmployeeId, signOutUser };
 
   return (
     <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

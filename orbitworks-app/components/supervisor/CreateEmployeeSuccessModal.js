@@ -31,7 +31,7 @@ export default function CreateEmployeeSuccessModal({ visible, name, pin, photoUr
 
           {offline && (
             <Text style={[styles.offlineNote, { color: colors.subtext }]}>
-              Saved offline, will sync when connected.
+              Saved offline, will sync when connected. Their PIN already works on this phone.
             </Text>
           )}
 

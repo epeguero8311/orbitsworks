@@ -8,20 +8,21 @@ import { useTheme } from "../../lib/ThemeContext";
 import { useSiteSession } from "../../lib/SiteSessionContext";
 import { useTodayShift } from "../../lib/hooks/useTodayShift";
 import { useLocalStatusOverlay } from "../../lib/hooks/useLocalStatusOverlay";
-import { useCompanySettings } from "../../lib/hooks/useCompanySettings";
 import { queueBreakEvent } from "../../lib/clockQueue";
 import { drainQueue } from "../../lib/queueSync";
-import { getBestEffortLocationIfPro } from "../../lib/location";
 import ScreenHeader from "../../components/ScreenHeader";
 import Avatar from "../../components/Avatar";
 import Spinner from "../../components/Spinner";
+
+// On break sorts before working - same pattern as EmployeeListScreen's
+// in/out ordering.
+const STATUS_SORT_ORDER = { break: 0, in: 1 };
 
 export default function BreaksEmployeeListScreen({ navigation, route }) {
   const authorizedBy = route?.params?.authorizedBy;
   const { userData, currentUser } = useAuth();
   const { colors } = useTheme();
   const { selectedSite } = useSiteSession();
-  const { isPro } = useCompanySettings(userData?.companyId);
   const { employees: liveEmployees, loading } = useTodayShift(userData?.companyId);
   const employees = useLocalStatusOverlay(liveEmployees);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -37,7 +38,9 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
         : isNoneSite
         ? employees.filter((e) => !e.assignedSiteIds || e.assignedSiteIds.length === 0)
         : employees;
-    return bySite.filter((e) => e.status === "in" || e.status === "break");
+    return bySite
+      .filter((e) => e.status === "in" || e.status === "break")
+      .sort((a, b) => STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status]);
   }, [employees, selectedSite, isNoneSite]);
 
   const toggleSelect = (id) => {
@@ -57,9 +60,7 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
     if (targets.length === 0 || submitting) return;
     setSubmitting(true);
     try {
-      // One fix for the whole batch, not one per employee - a GPS fix
-      // doesn't change from employee to employee in the same action.
-      const location = await getBestEffortLocationIfPro(isPro);
+      // Breaks record no site and no location - see queueBreakEvent.
       for (const emp of targets) {
         await queueBreakEvent({
           employee: emp,
@@ -67,12 +68,9 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
           createdByUid: currentUser?.uid,
           companyId: userData?.companyId,
           authorizedBy,
-          siteId: selectedSite && !isNoneSite ? selectedSite.id : null,
-          siteName: selectedSite && !isNoneSite ? selectedSite.name : "Not specified",
-          location,
         });
       }
-      drainQueue(userData.companyId);
+      drainQueue(userData.companyId, "breaks");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSelectedIds((prev) => prev.filter((id) => !targets.some((t) => t.id === id)));
     } catch (err) {

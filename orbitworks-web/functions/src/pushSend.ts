@@ -26,6 +26,8 @@ const ALERT_TITLE: Record<AlertDoc["alertType"], string> = {
   // functions/src/employeeClockQueued.ts and clockEvents.ts).
   syncWrongPin: "Wrong PIN at Sync",
   syncedLateApproved: "Late Punch on Approved Timesheet",
+  // Never sent either - written via createAlertIfNew (createPinChangedAlert).
+  pinChanged: "PIN Changed",
 };
 
 // Sends one alert to every registered, notification-enabled device on the

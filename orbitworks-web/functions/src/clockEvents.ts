@@ -1,5 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { onDocumentCreated, type FirestoreEvent } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentUpdated, type FirestoreEvent } from "firebase-functions/v2/firestore";
 import { defineBoolean } from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import { Timestamp } from "firebase-admin/firestore";
@@ -319,18 +319,61 @@ export const onClockEventCreated = onDocumentCreated(
     const finalSiteId = siteWasResolved ? resolvedSiteId : ((data.siteId as string | null | undefined) ?? null);
     const finalSiteName = siteWasResolved ? (resolvedSiteName ?? "") : ((data.siteName as string | undefined) ?? "");
 
-    await employeesRef
-      .doc(employeeId)
-      .update({
-        lastEventType: data.type,
-        lastEventTimestamp: data.timestamp ?? admin.firestore.FieldValue.serverTimestamp(),
-        lastEventSiteId: finalSiteId,
-        lastEventSiteName: finalSiteName,
-      })
-      .catch(() => {
+    // Ordering guard (sync speed step 4): the mobile app now sends several
+    // employees' events in parallel, and any phone can deliver an older
+    // offline punch after a newer one has already landed. Only move
+    // lastEventType forward - an event older than the stored
+    // lastEventTimestamp must never overwrite a newer status (that would
+    // e.g. flip someone who clocked out back to "in"). In a transaction so
+    // two events for one employee landing together can't both pass the
+    // check and finish in the wrong order. Equal timestamps still apply,
+    // same as before. An event with no timestamp keeps the old behavior
+    // (always applies, server time).
+    //
+    // Compares (and stores) the event's EFFECTIVE time - adjustedTimestamp
+    // ?? timestamp, the same rule autoClockOut/autoBreak/clockStatus use -
+    // so the stored lastEventTimestamp is always on the same basis as what
+    // the next event is compared against.
+    const eventTs = ((data.adjustedTimestamp as admin.firestore.Timestamp | undefined) ??
+      (data.timestamp as admin.firestore.Timestamp | undefined)) as admin.firestore.Timestamp | undefined;
+    await db
+      .runTransaction(async (tx) => {
+        const employeeRef = employeesRef.doc(employeeId);
+        const employeeSnap = await tx.get(employeeRef);
         // Employee doc may not exist in edge cases (e.g. deleted between
-        // event write and this trigger firing) - safe to ignore, this
+        // event write and this trigger firing) - nothing to update, this
         // field is a denormalized convenience, not the source of truth.
+        if (!employeeSnap.exists) return;
+        const stored = employeeSnap.get("lastEventTimestamp") as admin.firestore.Timestamp | null | undefined;
+        if (
+          eventTs &&
+          typeof eventTs.toMillis === "function" &&
+          stored &&
+          typeof stored.toMillis === "function" &&
+          eventTs.toMillis() < stored.toMillis()
+        ) {
+          console.info("lastEventType kept: older event arrived after a newer one", {
+            companyId,
+            eventId: event.params.eventId,
+            employeeId,
+            eventType: data.type,
+            eventMs: eventTs.toMillis(),
+            storedMs: stored.toMillis(),
+          });
+          return;
+        }
+        // Breaks have nothing to do with site: they keep the clock-in's
+        // site as the employee's current site, so the clock-out after a
+        // break can still check its geofence against it.
+        const isBreak = data.type === "breakStart" || data.type === "breakEnd";
+        tx.update(employeeRef, {
+          lastEventType: data.type,
+          lastEventTimestamp: eventTs ?? admin.firestore.FieldValue.serverTimestamp(),
+          ...(isBreak ? {} : { lastEventSiteId: finalSiteId, lastEventSiteName: finalSiteName }),
+        });
+      })
+      .catch((err) => {
+        console.warn("Failed to update employee lastEventType", { companyId, eventId: event.params.eventId, error: String(err) });
       });
 
     if (siteWasResolved || resolvedGeofenceApplicable) {
@@ -689,10 +732,39 @@ export const onClockEventCreated = onDocumentCreated(
     // No source filter: every source with a clock photo goes through it,
     // including "employeeApp" (Pro + clock photo + reference selfie = check;
     // no selfie or Core = no check).
+    // claim: the mobile app now attaches the photo after the doc (sync
+    // speed step 3), so onClockEventPhotoAdded below may also see it -
+    // the claim makes sure only one of the two runs the check. For an
+    // event created without a photo this returns early (no photoUrl yet)
+    // and onClockEventPhotoAdded does the check once the photo lands.
     try {
-      await checkFaceMatch(companyId, event.params.eventId);
+      await checkFaceMatch(companyId, event.params.eventId, { claim: true });
     } catch (err) {
       console.warn("Face check failed", { eventId: event.params.eventId, companyId, error: String(err) });
+    }
+  }
+);
+
+// Face check for a photo that arrives after its clock event (sync speed
+// step 3: the mobile app writes the event doc first with photoPending:
+// true and no photoUrl, uploads the photo, then merges photoUrl in).
+// Fires on every clock event update, so it exits on the first line for
+// anything but "photoUrl went from absent/empty to set". Old app versions
+// write photoUrl at create time, which never matches here - their check
+// stays in onClockEventCreated, exactly as before.
+export const onClockEventPhotoAdded = onDocumentUpdated(
+  {
+    document: "companies/{companyId}/clockEvents/{eventId}",
+    secrets: [REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY],
+  },
+  async (event) => {
+    const before = event.data?.before.data() as { photoUrl?: string | null } | undefined;
+    const after = event.data?.after.data() as { photoUrl?: string | null; faceCheck?: unknown } | undefined;
+    if (!after?.photoUrl || before?.photoUrl || after.faceCheck) return;
+    try {
+      await checkFaceMatch(event.params.companyId, event.params.eventId, { claim: true });
+    } catch (err) {
+      console.warn("Face check failed", { eventId: event.params.eventId, companyId: event.params.companyId, error: String(err) });
     }
   }
 );

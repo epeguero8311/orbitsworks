@@ -2,10 +2,11 @@
 
 import { ClockEvent } from "@/lib/types";
 import { effectiveDate, sourceLabel } from "@/lib/clockEventDetailUtils";
-import { faceCheckLabel } from "@/lib/clockStatus";
+import { faceCheckLabel, photoStatus } from "@/lib/clockStatus";
 import { EventLocation } from "@/components/time/EventLocation";
 import { GeofenceDetail } from "@/components/time/GeofenceDetail";
 import { ClockPhoto } from "@/components/time/ClockPhoto";
+import { clockPhotoState } from "@/lib/clockPhoto";
 import { ReferencePhoto } from "@/components/time/ReferencePhoto";
 
 export function EventSide({
@@ -55,6 +56,19 @@ export function EventSide({
   }
 
   const badge = sourceLabel(event.source);
+  // Shown in place of the photo while it is still uploading or never
+  // arrived. Otherwise ClockPhoto shows the photo, "Photo removed"
+  // (retention sweep) or "No photo recorded".
+  const photoState = photoStatus(event);
+  const photoNotice =
+    clockPhotoState(event) === "removed"
+      ? null
+      : photoState === "pending"
+        ? "Photo uploading from the phone"
+        : photoState === "missing"
+          ? "Photo was taken but never arrived"
+          : null;
+  const noPhotoClass = photoState === "missing" ? "text-red-700" : "text-gray-600";
   const faceBadge = faceCheckLabel(event.faceCheck);
   // Admin/supervisor only, per spec - the whole Time Tracking page this
   // modal opens from is already admin/owner-only (supervisors are
@@ -91,7 +105,13 @@ export function EventSide({
           <div>
             <p className="mb-1 text-center text-xs text-gray-500">Clock photo</p>
             <div className="aspect-square w-full overflow-hidden rounded-md bg-gray-100">
-              <ClockPhoto event={event} alt={`${label} proof photo`} />
+              {photoNotice ? (
+                <div className={`flex h-full w-full items-center justify-center px-2 text-center text-xs ${noPhotoClass}`}>
+                  {photoNotice}
+                </div>
+              ) : (
+                <ClockPhoto event={event} alt={`${label} proof photo`} />
+              )}
             </div>
           </div>
           <div>
@@ -103,7 +123,13 @@ export function EventSide({
         </div>
       ) : (
         <div className="mt-3 aspect-square w-full overflow-hidden rounded-md bg-gray-100">
-          <ClockPhoto event={event} alt={`${label} proof photo`} />
+          {photoNotice ? (
+            <div className={`flex h-full w-full items-center justify-center px-2 text-center text-xs ${noPhotoClass}`}>
+              {photoNotice}
+            </div>
+          ) : (
+            <ClockPhoto event={event} alt={`${label} proof photo`} />
+          )}
         </div>
       )}
 

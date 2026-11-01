@@ -258,6 +258,14 @@ export interface ClockEvent {
     | "employeeApp";
   note?: string;
   photoUrl?: string;
+  // Mobile sync (app versions after 1.1.2): the event doc is written
+  // first and its photo attached a moment later. photoPending is true
+  // until photoUrl arrives. photoMissing means the photo was taken but
+  // lost on the phone before it could upload. Both absent on older
+  // events and on sources that never take a photo. See photoStatus()
+  // in lib/clockStatus.ts.
+  photoPending?: boolean;
+  photoMissing?: boolean;
   // Raw device coordinates, captured client-side (mobile app / temp link
   // page) alongside the photo - never blocks a clock event on failure.
   // undefined means this event predates the Geolocation feature (or is a
@@ -447,7 +455,11 @@ export type MobileAlertType =
   // syncedLateApproved: a queued punch synced into a timesheet that was
   // already approved (per event).
   | "syncWrongPin"
-  | "syncedLateApproved";
+  | "syncedLateApproved"
+  // Offline employee create/PIN edit: the phone's PIN was taken by the
+  // time it synced and the server assigned a new one. Admin/owner web
+  // Overview only, never pushed, filtered out of the mobile Alerts tab.
+  | "pinChanged";
 
 export interface MobileAlert {
   id: string;

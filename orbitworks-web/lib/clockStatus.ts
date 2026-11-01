@@ -17,6 +17,13 @@ export function deriveStatus(type: ClockEvent["type"] | undefined): ClockStatus 
   return STATUS_BY_EVENT_TYPE[type] ?? "out";
 }
 
+// Breaks have nothing to do with site, geofence or face check - the log
+// shows "-" for all three, including for older break events that were
+// saved with a "Not specified" site.
+export function isBreakEvent(type: ClockEvent["type"] | undefined): boolean {
+  return type === "breakStart" || type === "breakEnd";
+}
+
 export function typeLabel(type: ClockEvent["type"]): { text: string; className: string } {
   switch (type) {
     case "in":
@@ -57,6 +64,29 @@ export function sourceLabel(source: ClockEvent["source"]): { text: string; class
     default:
       return { text: "Unknown", className: "bg-gray-50 text-gray-600" };
   }
+}
+
+// A photo still "pending" this long after the clock event is treated as
+// never arriving. The phone normally attaches it within seconds to a few
+// minutes; it only retries while the app is open, so a long gap means
+// the phone stopped trying (app deleted, phone lost, upload gave up).
+export const PHOTO_OVERDUE_MS = 6 * 60 * 60 * 1000;
+
+export type PhotoStatus = "ready" | "pending" | "missing" | "none";
+
+// Where a clock event's photo stands. "missing" covers both an explicit
+// photoMissing flag from the phone and a photo that stayed pending past
+// PHOTO_OVERDUE_MS. "none" = this event never had a photo (break,
+// override, admin entry, or an old event recorded without one).
+export function photoStatus(event: ClockEvent, nowMs: number = Date.now()): PhotoStatus {
+  if (event.photoUrl) return "ready";
+  if (event.photoMissing) return "missing";
+  if (event.photoPending) {
+    const tsMs = event.timestamp ? event.timestamp.toDate().getTime() : null;
+    if (tsMs != null && nowMs - tsMs > PHOTO_OVERDUE_MS) return "missing";
+    return "pending";
+  }
+  return "none";
 }
 
 // Face Verification (Pro). Unlike sourceLabel/typeLabel above, "not

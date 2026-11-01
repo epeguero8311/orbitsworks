@@ -116,14 +116,11 @@ export async function queueClockEvent({
       employeeId: employee.id,
       employeeName: employee.name,
       companyId,
-      siteId,
-      siteName,
       type: "breakEnd",
       source: "autoBreakEnd",
       createdByUid,
       subcontractorId: employee.subcontractorId ?? null,
       subcontractorName: employee.subcontractorName ?? null,
-      location,
       clientTimestamp: now - 1,
       createdAt: now,
     });
@@ -155,7 +152,10 @@ export async function queueClockEvent({
   return nextType;
 }
 
-export async function queueBreakEvent({ employee, type, createdByUid, companyId, authorizedBy, siteId, siteName, location }) {
+// Breaks have nothing to do with location or face: no site, no GPS fix,
+// no photo. The employee's current site stays whatever their clock-in set
+// (see getCurrentLocalSite), so the clock-out still checks its own location.
+export async function queueBreakEvent({ employee, type, createdByUid, companyId, authorizedBy }) {
   // An inactive employee can still end a break they were already on (part
   // of closing their session out), but never start a new one.
   if (type === "breakStart" && employee.active === false) {
@@ -168,8 +168,6 @@ export async function queueBreakEvent({ employee, type, createdByUid, companyId,
     employeeId: employee.id,
     employeeName: employee.name,
     companyId,
-    siteId,
-    siteName,
     type,
     source: "supervisorPin",
     authorizedById: authorizedBy?.id ?? null,
@@ -177,7 +175,6 @@ export async function queueBreakEvent({ employee, type, createdByUid, companyId,
     createdByUid,
     subcontractorId: employee.subcontractorId ?? null,
     subcontractorName: employee.subcontractorName ?? null,
-    location,
     clientTimestamp: now,
     createdAt: now,
   });
@@ -287,14 +284,11 @@ export async function queueOverrideClockOut({
       employeeId: employee.id,
       employeeName: employee.name,
       companyId,
-      siteId,
-      siteName,
       type: "breakEnd",
       source: "autoBreakEnd",
       createdByUid,
       subcontractorId: employee.subcontractorId ?? null,
       subcontractorName: employee.subcontractorName ?? null,
-      location,
       clientTimestamp: now - 1,
       createdAt: now,
     });

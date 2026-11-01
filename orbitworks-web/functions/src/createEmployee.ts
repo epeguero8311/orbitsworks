@@ -1,16 +1,31 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db, isOverActiveCap, isOverTotalCap, EmployeeCapFields } from "./shared";
+import { createPinChangedAlert } from "./alerts";
 
 // Mirrors orbitworks-app/lib/validators/createEmployee.js's JUNK_PINS - keep
 // both in sync by hand (no shared package across the app/web boundary, same
 // convention as isProPlan/FREE_EMPLOYEE_CAP elsewhere in this file's siblings).
-const JUNK_PINS = new Set([
+export const JUNK_PINS = new Set([
   "0000", "1111", "2222", "3333", "4444", "5555", "6666", "7777", "8888", "9999",
   "1234", "4321", "0123", "1212", "2580",
 ]);
 
 export const NAME_MAX_LENGTH = 100;
+
+// How far back a phone's own "this happened at" time is trusted for an
+// offline create/edit. Anything older, in the future, or missing falls back
+// to server time - a wrong phone clock must never put an edit far in the
+// past or ahead of edits that really came later.
+const MAX_CLIENT_TIME_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function clientTimeOrNow(value: unknown): admin.firestore.Timestamp {
+  const now = Date.now();
+  if (typeof value === "number" && Number.isFinite(value) && value <= now && value >= now - MAX_CLIENT_TIME_AGE_MS) {
+    return admin.firestore.Timestamp.fromMillis(value);
+  }
+  return admin.firestore.Timestamp.fromMillis(now);
+}
 // Shape of a client-generated Firestore auto-ID (doc(collection(...)).id) -
 // see employeeQueue.js on the app side for where this is created. Also
 // reused by updateEmployee.ts for the updateId it validates (same
@@ -99,6 +114,9 @@ export const createEmployee = onCall(async (request) => {
     typeof data.photoNoticeShownAt === "number" && Number.isFinite(data.photoNoticeShownAt)
       ? data.photoNoticeShownAt
       : null;
+  // When the employee was created on the phone (offline creates can sync
+  // much later). Older app builds don't send it -> server time, as before.
+  const createdAt = clientTimeOrNow(data.clientCreatedAt);
 
   if (!EMPLOYEE_ID_REGEX.test(employeeId)) {
     throw new HttpsError("invalid-argument", "Invalid employeeId.");
@@ -177,7 +195,10 @@ export const createEmployee = onCall(async (request) => {
     assignedSiteIds: [],
     pin,
     createdByUid: uid,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt,
+    syncedAt: admin.firestore.FieldValue.serverTimestamp(),
+    // Per-field edit times for last-edit-wins (see updateEmployeeProfile).
+    fieldEditedAt: { name: createdAt, photoUrl: createdAt, pin: createdAt },
     ...(photoNoticeShownAtMs
       ? { photoNoticeAck: { uid, shownAt: admin.firestore.Timestamp.fromMillis(photoNoticeShownAtMs) } }
       : {}),
@@ -189,5 +210,10 @@ export const createEmployee = onCall(async (request) => {
   );
   await batch.commit();
 
-  return { employeeId, pin, pinChanged: clientPin != null && pin !== clientPin };
+  const pinChanged = clientPin != null && pin !== clientPin;
+  if (pinChanged) {
+    await createPinChangedAlert(companyId, employeeId, name, pin, employeeId, admin.firestore.Timestamp.now());
+  }
+
+  return { employeeId, pin, pinChanged };
 });

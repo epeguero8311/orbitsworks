@@ -5,7 +5,40 @@ import { getDb } from "../db";
 import { subscribeQueueChange } from "../queueEvents";
 import { drainQueue, isQueueSyncing, retryQueueItem } from "../queueSync";
 import { drainEmployeeQueue } from "../employeeQueueSync";
+import { drainEmployeeUpdateQueue } from "../employeeUpdateQueueSync";
+import { subscribeEmployeeQueueChange } from "../employeeQueueEvents";
 import { syncPinTable } from "../pinSync";
+
+// Employee creates/updates shown in the same list as clock events.
+// 'rejected' is their final "won't retry" state (clock events use 'dead').
+function employeeRows(creates, updates) {
+  return [
+    ...creates.map((r) => ({
+      localId: `employee-create-${r.localId}`,
+      kind: "employee",
+      type: "employeeCreate",
+      employeeId: r.employeeId,
+      employeeName: r.name,
+      clientTimestamp: r.createdAt,
+      syncStatus: r.syncStatus,
+      attempts: r.attempts,
+      lastError: r.lastError,
+      syncedAt: r.syncedAt,
+    })),
+    ...updates.map((r) => ({
+      localId: `employee-update-${r.localId}`,
+      kind: "employee",
+      type: "employeeUpdate",
+      employeeId: r.employeeId,
+      employeeName: r.employeeName || r.name || "Employee",
+      clientTimestamp: r.createdAt,
+      syncStatus: r.syncStatus,
+      attempts: r.attempts,
+      lastError: r.lastError,
+      syncedAt: r.syncedAt,
+    })),
+  ];
+}
 
 // How long a 'synced' row stays visible in the Sync Queue list after it
 // finishes, purely for display - separate from queueSync.js's own
@@ -36,10 +69,26 @@ export function useSyncQueue() {
   const refresh = useCallback(async () => {
     try {
       const sqlite = await getDb();
-      const result = await sqlite.getAllAsync(
-        "SELECT * FROM event_queue ORDER BY clientTimestamp DESC"
+      const [events, creates, updates] = await Promise.all([
+        sqlite.getAllAsync("SELECT * FROM event_queue ORDER BY clientTimestamp DESC"),
+        sqlite.getAllAsync("SELECT * FROM employee_queue"),
+        sqlite.getAllAsync("SELECT * FROM employee_update_queue"),
+      ]);
+      // A clock event for an employee whose create hasn't synced yet waits
+      // for it (queueSync.js) - flagged so the list can say so.
+      const waitingFor = new Set(
+        (creates ?? [])
+          .filter((r) => ["pending", "syncing", "failed"].includes(r.syncStatus))
+          .map((r) => r.employeeId)
       );
-      setRows(result ?? []);
+      const clockRows = (events ?? []).map((r) => ({
+        ...r,
+        kind: "clock",
+        waitingForEmployee: r.syncStatus === "pending" && waitingFor.has(r.employeeId),
+      }));
+      const merged = [...clockRows, ...employeeRows(creates ?? [], updates ?? [])];
+      merged.sort((a, b) => b.clientTimestamp - a.clientTimestamp);
+      setRows(merged);
     } catch (e) {
       // A read failure here should empty the list, not crash the tab.
       setRows([]);
@@ -52,6 +101,7 @@ export function useSyncQueue() {
     refresh();
 
     const unsubscribeQueue = subscribeQueueChange(refresh);
+    const unsubscribeEmployeeQueue = subscribeEmployeeQueueChange(refresh);
     const netSub = NetInfo.addEventListener((state) => {
       setOnline(state.isConnected !== false && state.isInternetReachable !== false);
     });
@@ -61,6 +111,7 @@ export function useSyncQueue() {
 
     return () => {
       unsubscribeQueue();
+      unsubscribeEmployeeQueue();
       netSub();
     };
   }, [refresh]);
@@ -78,7 +129,12 @@ export function useSyncQueue() {
   }, [rows, now]);
 
   const items = rows.filter(
-    (r) => !(r.syncStatus === "synced" && r.syncedAt && now - r.syncedAt >= SYNCED_DISPLAY_MS)
+    (r) =>
+      !(
+        r.syncStatus === "synced" &&
+        // Employee rows synced by an older build have no syncedAt - hide them.
+        (r.syncedAt ? now - r.syncedAt >= SYNCED_DISPLAY_MS : r.kind === "employee")
+      )
   );
 
   // A full, two-way sync, not just the device's own outbound queue -
@@ -88,17 +144,17 @@ export function useSyncQueue() {
   // was pressed, since nothing ever pulled fresh server state back down.
   // syncPinTable() is what actually refreshes pin_cache.lastEventType/
   // lastEventTimestamp that getCurrentLocalStatus (clockStatusLocal.js)
-  // compares against - drainQueue's own `syncing` guard still makes the
-  // push half a no-op if a drain is already running, so this never opens
-  // a second concurrent flush there.
+  // compares against. If a drain is already running, drainQueue wakes it
+  // (and clears retry backoff) rather than starting a second one.
   const syncNow = useCallback(async () => {
     if (!companyId) return;
     setPulling(true);
     try {
       await Promise.all([
         syncPinTable().catch(() => {}),
-        drainQueue(companyId),
+        drainQueue(companyId, "syncNow"),
         drainEmployeeQueue(companyId).catch(() => {}),
+        drainEmployeeUpdateQueue(companyId).catch(() => {}),
       ]);
     } finally {
       setPulling(false);
@@ -112,7 +168,7 @@ export function useSyncQueue() {
   const retry = useCallback(
     async (localId) => {
       await retryQueueItem(localId);
-      if (companyId) drainQueue(companyId);
+      if (companyId) drainQueue(companyId, "retry");
     },
     [companyId]
   );

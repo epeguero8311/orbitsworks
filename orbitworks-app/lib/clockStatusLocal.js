@@ -53,7 +53,8 @@ export async function getCurrentLocalSite(employeeId) {
   const db = await getDb();
 
   const queuedRow = await db.getFirstAsync(
-    `SELECT siteId, siteName, clientTimestamp FROM event_queue WHERE employeeId = ? ORDER BY clientTimestamp DESC LIMIT 1`,
+    // Only clock in/out set the current site - breaks never change it.
+    `SELECT siteId, siteName, clientTimestamp FROM event_queue WHERE employeeId = ? AND type IN ('in', 'out') ORDER BY clientTimestamp DESC LIMIT 1`,
     [employeeId]
   );
   const cacheRow = await db.getFirstAsync(

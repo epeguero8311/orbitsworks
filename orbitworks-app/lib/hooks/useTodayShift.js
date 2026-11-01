@@ -1,25 +1,42 @@
-import { useEffect, useRef, useState } from "react";
-import { collection, doc, getDoc, query, where, onSnapshot } from "firebase/firestore";
+import { createContext, createElement, useContext, useEffect, useMemo, useState } from "react";
+import { collection, query, where, orderBy, limit, onSnapshot, Timestamp } from "firebase/firestore";
 import { db } from "../firebase";
-import { deriveStatus } from "../clockStatus";
+import { useAuth } from "../AuthContext";
+import { markLaunch, noteLaunchCount } from "../launchTiming";
+import {
+  buildShiftStatus,
+  employeesNeedingLatest,
+  eventTime,
+  startOfYesterday,
+} from "../todayShiftStatus";
 
-function startOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-export function useTodayShift(companyId) {
+// Live employee list with each employee's current in/break/out status.
+//
+// Reads (all live):
+//   - employees (all; active ones are listed, inactive ones only while their
+//     session is still open so they can be clocked OUT)
+//   - clockEvents since the start of yesterday (the window)
+//   - for each listed employee with nothing in the window: their newest
+//     clockEvent (employeeId + timestamp desc, limit 1)
+//   - active jobSites
+// Status rules and why this equals "newest event ever": todayShiftStatus.js.
+// This used to read every clockEvent the company ever had (1.5k+ docs,
+// ~2.6 MB on every cold start).
+//
+// loading stays true until every one of those has answered, so a status is
+// never shown from a half-loaded set.
+//
+// One shared set of listeners for the whole app (TodayShiftProvider in
+// App.js), started as soon as the signed-in company is known - i.e. while
+// the splash is still up - instead of once per screen after it.
+function useTodayShiftListeners(companyId) {
   const [employees, setEmployees] = useState([]);
   const [sites, setSites] = useState([]);
   const [todayInEvents, setTodayInEvents] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // Docs for inactive-but-still-open employees, fetched on demand outside
-  // the active==true listener below (id -> doc data, or "pending" while
-  // in flight). Deactivation should auto-close a session the moment it
-  // happens, so this only ever fills in for the safety-net/backfill case.
-  const inactiveOpenDocsRef = useRef({});
+  // True when what's shown didn't come from the server (offline: Firestore
+  // here is memory-only, so after a restart that means an empty list).
+  const [fromCache, setFromCache] = useState(false);
 
   useEffect(() => {
     if (!companyId) {
@@ -27,119 +44,107 @@ export function useTodayShift(companyId) {
       setSites([]);
       setTodayInEvents([]);
       setLoading(false);
+      setFromCache(false);
       return;
     }
+    setLoading(true);
 
-    inactiveOpenDocsRef.current = {};
-
-    let employeesData = [];
-    let eventsData = [];
-    // loading only clears once BOTH listeners have delivered their
-    // first snapshot - applyStatus can fire from either one first
-    // (whichever resolves faster), and computing status against a
-    // still-empty employeesData/eventsData array on that first race
-    // is what caused the "0 then jumps to real count" flash.
+    let activeEmployees = [];
+    let inactiveEmployees = [];
+    let windowEvents = [];
     let employeesReady = false;
     let eventsReady = false;
+    let employeesFromCache = false;
+    let eventsFromCache = false;
+    let stopped = false;
+    // employeeId -> { type, ts } | null (no events at all). Missing = not
+    // answered yet.
+    const latestById = {};
+    const latestUnsubs = new Map();
 
-    const applyStatus = () => {
-      const todayStart = startOfToday();
-      const latestEventByEmployee = {};
-      // Unlike latestEventByEmployee (today-only, used for status of
-      // employees already in employeesData), this covers all time - it's
-      // what lets an inactive employee whose session has been open since
-      // before today still be found as "open" below.
-      const latestEventAllTime = {};
-      const todayIns = [];
+    const eventsRef = collection(db, "companies", companyId, "clockEvents");
 
-      eventsData.forEach((evt) => {
-        const ts = evt.timestamp?.toDate ? evt.timestamp.toDate() : null;
-        if (!ts) return;
-        if (ts >= todayStart && evt.type === "in") {
-          todayIns.push({ employeeId: evt.employeeId, timestamp: ts });
+    const watchLatest = (employeeId) => {
+      const q = query(eventsRef, where("employeeId", "==", employeeId), orderBy("timestamp", "desc"), limit(1));
+      return onSnapshot(
+        q,
+        (snap) => {
+          const first = snap.empty ? null : snap.docs[0].data();
+          const ts = first ? eventTime(first) : null;
+          latestById[employeeId] = first && ts ? { type: first.type, ts } : null;
+          apply();
+        },
+        (error) => {
+          console.log("[useTodayShift] latest-event listener error:", error.code, error.message);
+          latestById[employeeId] = null;
+          apply();
         }
-        const existingAll = latestEventAllTime[evt.employeeId];
-        if (!existingAll || ts > existingAll.ts) {
-          latestEventAllTime[evt.employeeId] = { type: evt.type, ts };
-        }
-        if (ts < todayStart) return;
-        const existing = latestEventByEmployee[evt.employeeId];
-        if (!existing || ts > existing.ts) {
-          latestEventByEmployee[evt.employeeId] = { type: evt.type, ts };
-        }
-      });
-
-      // A deactivated employee with a still-open session must still be
-      // clockable OUT (never back in) - the active==true employees query
-      // below excludes them, so they're found here instead, from the
-      // clockEvents listener alone, and their doc fetched separately.
-      const activeIds = new Set(employeesData.map((e) => e.id));
-      const openInactiveIds = Object.keys(latestEventAllTime).filter(
-        (id) => latestEventAllTime[id].type !== "out" && !activeIds.has(id)
       );
+    };
 
-      openInactiveIds.forEach((id) => {
-        if (inactiveOpenDocsRef.current[id]) return;
-        inactiveOpenDocsRef.current[id] = "pending";
-        getDoc(doc(db, "companies", companyId, "employees", id))
-          .then((snap) => {
-            if (!snap.exists()) return;
-            inactiveOpenDocsRef.current[id] = { id: snap.id, ...snap.data() };
-            applyStatus();
-          })
-          .catch((error) => {
-            delete inactiveOpenDocsRef.current[id];
-            console.log("[useTodayShift] inactive employee fetch error:", error.message);
-          });
-      });
+    const apply = () => {
+      if (stopped || !employeesReady || !eventsReady) return;
 
-      const extraInactive = openInactiveIds
-        .map((id) => inactiveOpenDocsRef.current[id])
-        .filter((entry) => entry && entry !== "pending");
-
-      const merged = [...employeesData, ...extraInactive].map((emp) => ({
-        ...emp,
-        status: deriveStatus(
-          (latestEventByEmployee[emp.id] || latestEventAllTime[emp.id])?.type
-        ),
-      }));
-
-      setEmployees(merged);
-      setTodayInEvents(todayIns);
-
-      if (employeesReady && eventsReady) {
-        setLoading(false);
+      const needed = employeesNeedingLatest(activeEmployees, inactiveEmployees, windowEvents);
+      const neededSet = new Set(needed);
+      for (const id of needed) {
+        if (!latestUnsubs.has(id)) latestUnsubs.set(id, watchLatest(id));
       }
+      for (const [id, unsub] of latestUnsubs) {
+        if (!neededSet.has(id)) {
+          unsub();
+          latestUnsubs.delete(id);
+          delete latestById[id];
+        }
+      }
+      // Wait for every newest-event answer before showing any status.
+      if (!needed.every((id) => id in latestById)) return;
+
+      const result = buildShiftStatus({ activeEmployees, inactiveEmployees, windowEvents, latestById });
+      setEmployees(result.employees);
+      setTodayInEvents(result.todayIns);
+      setFromCache(employeesFromCache || eventsFromCache);
+      setLoading(false);
+      noteLaunchCount("windowEvents", windowEvents.length);
+      noteLaunchCount("latestQueries", needed.length);
+      markLaunch("homeData");
     };
 
     const employeesRef = collection(db, "companies", companyId, "employees");
-    const employeesQuery = query(employeesRef, where("active", "==", true));
     const unsubEmployees = onSnapshot(
-      employeesQuery,
+      employeesRef,
       (snap) => {
-        employeesData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        activeEmployees = all.filter((e) => e.active === true);
+        inactiveEmployees = all.filter((e) => e.active !== true);
+        employeesFromCache = snap.metadata.fromCache;
         employeesReady = true;
-        applyStatus();
+        apply();
       },
       (error) => {
         console.log("[useTodayShift] employees listener error:", error.code, error.message);
+        employeesFromCache = true;
         employeesReady = true;
-        applyStatus();
+        apply();
       }
     );
 
-    const eventsRef = collection(db, "companies", companyId, "clockEvents");
+    // Fixed at mount: if the app stays open past midnight the window just
+    // gets a little bigger, the status stays right.
+    const windowQuery = query(eventsRef, where("timestamp", ">=", Timestamp.fromDate(startOfYesterday())));
     const unsubEvents = onSnapshot(
-      query(eventsRef),
+      windowQuery,
       (snap) => {
-        eventsData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        windowEvents = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        eventsFromCache = snap.metadata.fromCache;
         eventsReady = true;
-        applyStatus();
+        apply();
       },
       (error) => {
         console.log("[useTodayShift] events listener error:", error.code, error.message);
+        eventsFromCache = true;
         eventsReady = true;
-        applyStatus();
+        apply();
       }
     );
 
@@ -156,11 +161,37 @@ export function useTodayShift(companyId) {
     );
 
     return () => {
+      stopped = true;
       unsubEmployees();
       unsubEvents();
       unsubSites();
+      for (const unsub of latestUnsubs.values()) unsub();
+      latestUnsubs.clear();
     };
   }, [companyId]);
 
-  return { employees, sites, todayInEvents, loading };
+  return { employees, sites, todayInEvents, loading, fromCache };
+}
+
+const EMPTY = { employees: [], sites: [], todayInEvents: [], loading: true, fromCache: false };
+const TodayShiftContext = createContext(EMPTY);
+
+export function TodayShiftProvider({ children }) {
+  const { currentUser, userData } = useAuth();
+  const { employees, sites, todayInEvents, loading, fromCache } = useTodayShiftListeners(
+    // Supervisor/admin only - an Employee App login cannot read the whole
+    // company list (rules) and never shows it.
+    currentUser && userData?.role !== "employee" ? userData?.companyId : null
+  );
+  const value = useMemo(
+    () => ({ employees, sites, todayInEvents, loading, fromCache }),
+    [employees, sites, todayInEvents, loading, fromCache]
+  );
+  return createElement(TodayShiftContext.Provider, { value }, children);
+}
+
+// Screens keep calling useTodayShift(companyId); the data comes from the
+// shared provider, which always follows the signed-in user's company.
+export function useTodayShift() {
+  return useContext(TodayShiftContext);
 }

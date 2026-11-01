@@ -43,7 +43,7 @@ export default function OverrideReasonScreen({ navigation, route }) {
         reason: trimmed,
         location,
       });
-      drainQueue(userData.companyId);
+      drainQueue(userData.companyId, "override");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       navigation.navigate("MainTabs");
     } catch (err) {

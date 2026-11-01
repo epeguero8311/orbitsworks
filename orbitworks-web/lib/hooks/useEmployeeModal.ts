@@ -348,6 +348,12 @@ export function useEmployeeModal({
         updates.photoUrl = await getDownloadURL(photoRef);
       }
 
+      // Last-edit-wins with offline phone edits (updateEmployeeProfile):
+      // record when name/photo were actually changed here, so an older
+      // offline edit that syncs later doesn't overwrite this one.
+      if (name.trim() !== (employee.name ?? "")) updates["fieldEditedAt.name"] = serverTimestamp();
+      if (updates.photoUrl) updates["fieldEditedAt.photoUrl"] = serverTimestamp();
+
       await updateDoc(employeeRef, updates);
 
       // isAdmin/isSupervisor/linkedUserId are role-like fields, blocked

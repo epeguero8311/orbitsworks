@@ -14,6 +14,7 @@ import { useLocationPermission } from "../../lib/hooks/useLocationPermission";
 import { useTabBarSpace } from "../../lib/hooks/useTabBarSpace";
 import ScreenHeader from "../../components/ScreenHeader";
 import DeviceNameRow from "../../components/supervisor/DeviceNameRow";
+import LaunchTimingRow from "../../components/LaunchTimingRow";
 
 const APP_VERSION = Constants.expoConfig?.version ?? "-";
 
@@ -121,6 +122,8 @@ export default function SettingsScreen() {
           <Text style={[styles.infoLabel, { color: colors.subtext }]}>App version</Text>
           <Text style={[styles.infoValue, { color: colors.text }]}>{APP_VERSION}</Text>
         </View>
+
+        <LaunchTimingRow />
 
         <TouchableOpacity style={styles.logoutButton} onPress={() => signOut(auth)}>
           <Feather name="log-out" size={16} color="#ef4444" />

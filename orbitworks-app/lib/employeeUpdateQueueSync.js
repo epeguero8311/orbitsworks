@@ -7,6 +7,7 @@ import { getDb, runExclusive } from "./db";
 import { recordEmployeeSyncAlert } from "./employeeSyncAlerts";
 import { notifyEmployeeQueueChange } from "./employeeQueueEvents";
 import { uploadLocalFileToStorage } from "./storageUpload";
+import { syncPinTable, setLocalEmployeePin } from "./pinSync";
 
 let syncing = false;
 
@@ -43,7 +44,10 @@ const TERMINAL_CODES = new Set([
   "functions/not-found",
   "functions/invalid-argument",
   "functions/permission-denied",
+  "functions/resource-exhausted",
 ]);
+
+const FIELD_LABEL = { name: "name", photo: "photo", pin: "PIN" };
 
 async function uploadUpdatePhoto(companyId, employeeId, updateId, localUri) {
   const info = await withTimeout(
@@ -77,24 +81,49 @@ async function syncOne(sqlite, item, companyId) {
     : undefined;
 
   const updateEmployeeProfileFn = httpsCallable(functions, "updateEmployeeProfile");
-  await updateEmployeeProfileFn({
+  const result = await updateEmployeeProfileFn({
     employeeId: item.employeeId,
     updateId: item.updateId,
     ...(item.name ? { name: item.name } : {}),
+    ...(item.pin ? { pin: item.pin } : {}),
     ...(photoUrl ? { photoUrl, photoNoticeShownAt: item.photoNoticeShownAt ?? null } : {}),
     deviceId: item.deviceId,
     updatedByName: item.updatedByName,
+    // When the edit was made on this phone - the server keeps whichever
+    // edit of each field was made last, not whichever synced last.
+    clientEditedAt: item.createdAt,
   });
+  const { pin, pinChanged, skippedFields } = result.data ?? {};
 
   if (item.photoLocalUri) {
     await FileSystem.deleteAsync(item.photoLocalUri, { idempotent: true });
   }
   await runExclusive(() =>
     sqlite.runAsync(
-      "UPDATE employee_update_queue SET syncStatus = 'synced' WHERE localId = ?",
-      [item.localId]
+      "UPDATE employee_update_queue SET syncStatus = 'synced', pin = NULL, syncedAt = ? WHERE localId = ?",
+      [Date.now(), item.localId]
     )
   );
+
+  const employeeName = item.name || item.employeeName || "An employee";
+  if (item.pin && pin) {
+    // The server's PIN is the real one (a duplicate was swapped for a new
+    // PIN, or a newer web edit kept its own) - this phone matches it now.
+    await setLocalEmployeePin(item.employeeId, pin).catch(() => {});
+  }
+  if (pinChanged) {
+    await recordEmployeeSyncAlert({ employeeName, message: `${employeeName}'s PIN changed to ${pin}` });
+  }
+  if (Array.isArray(skippedFields) && skippedFields.length > 0) {
+    const fields = skippedFields.map((f) => FIELD_LABEL[f] ?? f).join(" and ");
+    await recordEmployeeSyncAlert({
+      employeeName,
+      message: `Your change to ${employeeName}'s ${fields} wasn't saved - it was changed somewhere else after your edit.`,
+    });
+  }
+  if (item.pin || (Array.isArray(skippedFields) && skippedFields.length > 0)) {
+    await syncPinTable({ fresh: true }).catch(() => {});
+  }
 }
 
 async function markTerminal(sqlite, item, message) {
@@ -108,9 +137,17 @@ async function markTerminal(sqlite, item, message) {
     )
   );
   await recordEmployeeSyncAlert({
-    employeeName: item.name || "An employee",
+    employeeName: item.name || item.employeeName || "An employee",
     message: `An employee update couldn't be saved: ${message}`,
   });
+  // A rejected PIN edit must not keep working on this phone - pull the
+  // server's PINs back down (no-op offline; the next pull fixes it).
+  if (item.pin) {
+    await runExclusive(() =>
+      sqlite.runAsync("UPDATE employee_update_queue SET pin = NULL WHERE localId = ?", [item.localId])
+    );
+    await syncPinTable({ fresh: true }).catch(() => {});
+  }
 }
 
 export async function cleanupEmployeeUpdateQueue() {

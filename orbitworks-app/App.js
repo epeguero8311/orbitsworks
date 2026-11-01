@@ -1,3 +1,5 @@
+// First import on purpose: its load time is "JS start" for launch timing.
+import { markLaunch } from "./lib/launchTiming";
 import { useEffect, useState, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -8,6 +10,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
 import { ThemeProvider, useTheme } from "./lib/ThemeContext";
 import { SiteSessionProvider } from "./lib/SiteSessionContext";
+import { TodayShiftProvider } from "./lib/hooks/useTodayShift";
 import { usePinTableSync } from "./lib/hooks/usePinTableSync";
 import { useQueueSync } from "./lib/hooks/useQueueSync";
 import { useEmployeeQueueSync } from "./lib/hooks/useEmployeeQueueSync";
@@ -206,7 +209,7 @@ function SupervisorBackgroundSync() {
 }
 
 function RootNavigator() {
-  const { currentUser, userData, loading, accountDisabled } = useAuth();
+  const { currentUser, userData, loading, accountDisabled, accountChecked } = useAuth();
   const { isDark } = useTheme();
   const [splashAnimationDone, setSplashAnimationDone] = useState(false);
   const [navReady, setNavReady] = useState(false);
@@ -227,11 +230,24 @@ function RootNavigator() {
     onNativeSplashHandoff();
   }, [onNativeSplashHandoff]);
 
+  useEffect(() => {
+    if (!loading) markLaunch("authReady");
+  }, [loading]);
+
   if (!splashAnimationDone) {
+    // Hide once sign-in is known and the server has said whether the
+    // account is still active - see accountChecked.
+    const splashReady = !loading && (!currentUser || accountChecked);
     return (
       <>
         {backgroundSync}
-        <LoadingScreen ready={!loading} onFinish={() => setSplashAnimationDone(true)} />
+        <LoadingScreen
+          ready={splashReady}
+          onFinish={() => {
+            markLaunch("splashHidden");
+            setSplashAnimationDone(true);
+          }}
+        />
       </>
     );
   }
@@ -289,7 +305,9 @@ export default Sentry.wrap(function App() {
       <ThemeProvider>
         <AuthProvider>
           <SiteSessionProvider>
-            <RootNavigator />
+            <TodayShiftProvider>
+              <RootNavigator />
+            </TodayShiftProvider>
           </SiteSessionProvider>
         </AuthProvider>
       </ThemeProvider>

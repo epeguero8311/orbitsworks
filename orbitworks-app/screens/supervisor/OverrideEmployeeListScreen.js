@@ -104,7 +104,7 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
         siteName,
         location,
       });
-      drainQueue(userData.companyId);
+      drainQueue(userData.companyId, "override");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       navigation.navigate("MainTabs");
     } catch (err) {
