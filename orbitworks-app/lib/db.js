@@ -244,6 +244,16 @@ async function openDb() {
     // (no photo, no notice shown).
     "ALTER TABLE employee_queue ADD COLUMN photoNoticeShownAt INTEGER",
     "ALTER TABLE employee_update_queue ADD COLUMN photoNoticeShownAt INTEGER",
+    // Offline employee create/update: when each row finished syncing (ms),
+    // for the Sync Queue list's brief "Synced" display.
+    "ALTER TABLE employee_queue ADD COLUMN syncedAt INTEGER",
+    "ALTER TABLE employee_update_queue ADD COLUMN syncedAt INTEGER",
+    // Offline PIN edit (admins/owners). Plaintext only until it syncs, then
+    // blanked - same rule as employee_queue.clientPin.
+    "ALTER TABLE employee_update_queue ADD COLUMN pin TEXT",
+    // The edited employee's name, for the Sync Queue list and notices (name
+    // is null on a PIN- or photo-only edit).
+    "ALTER TABLE employee_update_queue ADD COLUMN employeeName TEXT",
   ];
   for (const migration of migrations) {
     try {

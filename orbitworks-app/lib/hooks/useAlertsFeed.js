@@ -60,7 +60,9 @@ export function useAlertsFeed() {
         setAlerts(
           snapshot.docs
             .map((d) => ({ id: d.id, ...d.data() }))
-            .filter((a) => a.alertType !== "autoClockOut")
+            // pinChanged is web-only too - the phone shows its own local
+            // notice for it (employeeSyncAlerts).
+            .filter((a) => a.alertType !== "autoClockOut" && a.alertType !== "pinChanged")
         );
         setLoading(false);
         noteLaunchCount("alerts", snapshot.size);

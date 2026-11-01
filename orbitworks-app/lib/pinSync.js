@@ -4,7 +4,7 @@ import { functions } from "./firebase";
 import { getDb, runExclusive } from "./db";
 import { notifyPinTableChange } from "./pinEvents";
 
-async function hashPin(pin) {
+export async function hashPin(pin) {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, pin);
 }
 
@@ -20,13 +20,113 @@ async function hashPin(pin) {
 // already running just awaits that same run instead of starting a
 // second overlapping transaction.
 let inFlightSync = null;
+let rerunAfterInFlight = null;
 
-export async function syncPinTable() {
-  if (inFlightSync) return inFlightSync;
+// { fresh: true } = the caller just changed something on the server (an
+// employee create/edit synced) and needs a pull that STARTS after that, not
+// one already in flight that may have read the server before the change.
+export async function syncPinTable({ fresh = false } = {}) {
+  if (inFlightSync) {
+    if (!fresh) return inFlightSync;
+    if (!rerunAfterInFlight) {
+      rerunAfterInFlight = inFlightSync
+        .catch(() => {})
+        .then(() => {
+          rerunAfterInFlight = null;
+          return syncPinTable();
+        });
+    }
+    return rerunAfterInFlight;
+  }
   inFlightSync = doSyncPinTable().finally(() => {
     inFlightSync = null;
   });
   return inFlightSync;
+}
+
+// This phone's own employee changes that haven't reached the server yet:
+// offline-created employees (so their PIN works right away) and offline PIN
+// edits (so the new PIN works and the old one doesn't). pin_cache is rebuilt
+// from the server on every pull, so these are re-applied on top each time,
+// inside the same transaction. Hashing happens here, before the caller opens
+// its transaction. A PIN that now collides with another employee's server
+// PIN is left out - the server gives that employee a new PIN on sync.
+async function readPendingLocalEmployees(db) {
+  const creates = await db.getAllAsync(
+    `SELECT employeeId, name, photoLocalUri, clientPin FROM employee_queue
+     WHERE syncStatus IN ('pending','syncing','failed') AND clientPin != ''`
+  );
+  const pinEdits = await db.getAllAsync(
+    `SELECT employeeId, pin FROM employee_update_queue
+     WHERE syncStatus IN ('pending','syncing','failed') AND pin IS NOT NULL AND pin != ''
+     ORDER BY createdAt ASC`
+  );
+  return {
+    creates: await Promise.all(creates.map(async (c) => ({ ...c, hashedPin: await hashPin(c.clientPin) }))),
+    pinEdits: await Promise.all(pinEdits.map(async (e) => ({ ...e, hashedPin: await hashPin(e.pin) }))),
+  };
+}
+
+async function pinHeldByOther(db, hashedPin, employeeId) {
+  const row = await db.getFirstAsync(
+    "SELECT employeeId FROM pin_cache WHERE hashedPin = ? AND employeeId != ?",
+    [hashedPin, employeeId]
+  );
+  return !!row;
+}
+
+async function insertLocalCreate(db, { employeeId, name, photoLocalUri, hashedPin }) {
+  if (await pinHeldByOther(db, hashedPin, employeeId)) return;
+  await db.runAsync(
+    `INSERT OR IGNORE INTO pin_cache
+      (employeeId, hashedPin, name, jobTitle, photoUrl, assignedSiteIds, isSupervisor, active, lastEventType, lastEventTimestamp, lastEventSiteId, lastEventSiteName, subcontractorId, subcontractorName, updatedAt)
+     VALUES (?, ?, ?, NULL, ?, '[]', 0, 1, NULL, NULL, NULL, NULL, NULL, NULL, ?)`,
+    [employeeId, hashedPin, name, photoLocalUri ?? null, Date.now()]
+  );
+}
+
+async function applyLocalPin(db, employeeId, hashedPin) {
+  if (await pinHeldByOther(db, hashedPin, employeeId)) return;
+  await db.runAsync("UPDATE pin_cache SET hashedPin = ? WHERE employeeId = ?", [hashedPin, employeeId]);
+}
+
+async function applyPendingLocalEmployees(db, pending) {
+  for (const c of pending.creates) await insertLocalCreate(db, c);
+  for (const e of pending.pinEdits) await applyLocalPin(db, e.employeeId, e.hashedPin);
+}
+
+// Adds an offline-created employee to pin_cache right away so their PIN
+// works on this phone before the create syncs.
+export async function addLocalEmployeeToPinCache({ employeeId, name, photoLocalUri, pin }) {
+  const db = await getDb();
+  const hashedPin = await hashPin(pin);
+  await runExclusive(() => insertLocalCreate(db, { employeeId, name, photoLocalUri, hashedPin }));
+  notifyPinTableChange();
+}
+
+// Points an employee's cached PIN at a new value (an offline PIN edit, or
+// the server's replacement PIN after a duplicate) - the old PIN stops
+// working on this phone immediately.
+export async function setLocalEmployeePin(employeeId, pin) {
+  const db = await getDb();
+  const hashedPin = await hashPin(pin);
+  await runExclusive(() => applyLocalPin(db, employeeId, hashedPin));
+  notifyPinTableChange();
+}
+
+// Drops an offline-created employee whose create was rejected for good.
+export async function removeLocalEmployeeFromPinCache(employeeId) {
+  const db = await getDb();
+  await runExclusive(() => db.runAsync("DELETE FROM pin_cache WHERE employeeId = ?", [employeeId]));
+  notifyPinTableChange();
+}
+
+// Local duplicate check: is this PIN already used by any other employee
+// this phone knows about (server list plus its own unsynced changes)?
+export async function isPinUsedLocally(pin, exceptEmployeeId = null) {
+  const db = await getDb();
+  const hashedPin = await hashPin(pin);
+  return pinHeldByOther(db, hashedPin, exceptEmployeeId ?? "");
 }
 
 async function doSyncPinTable() {
@@ -46,6 +146,7 @@ async function doSyncPinTable() {
   // across N round trips to expo-crypto. Shrinks the window other writers
   // on this connection (employee_queue updates, etc.) could collide with.
   const hashedPins = await Promise.all(employees.map((emp) => hashPin(emp.pin)));
+  const pendingLocal = await readPendingLocalEmployees(db);
 
   // All of this app's SQLite writes go through runExclusive (see db.js)
   // so this transaction and the sync_meta writes after it never actually
@@ -80,6 +181,7 @@ async function doSyncPinTable() {
           ]
         );
       }
+      await applyPendingLocalEmployees(db, pendingLocal);
 
       // Geofencing (Pro) Part 3 - see lib/geofenceCheck.js for how this
       // cache is read. Advisory only: never trusted as the authoritative

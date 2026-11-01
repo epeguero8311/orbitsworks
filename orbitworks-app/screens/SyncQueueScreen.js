@@ -7,7 +7,14 @@ import ScreenHeader from "../components/ScreenHeader";
 import DevSyncFaultPanel from "../components/DevSyncFaultPanel";
 import Spinner from "../components/Spinner";
 
-const ACTION_LABEL = { in: "Clock In", out: "Clock Out", breakStart: "Break Start", breakEnd: "Break End" };
+const ACTION_LABEL = {
+  in: "Clock In",
+  out: "Clock Out",
+  breakStart: "Break Start",
+  breakEnd: "Break End",
+  employeeCreate: "New Employee",
+  employeeUpdate: "Employee Update",
+};
 // photoPending: the clock event itself is already on the server; only its
 // photo is still uploading (see queueSync.js sendDoc/sendPhoto).
 const STATUS_LABEL = {
@@ -17,6 +24,8 @@ const STATUS_LABEL = {
   synced: "Synced",
   failed: "Failed",
   dead: "Stuck",
+  // Employee create/update the server refused for good (won't retry).
+  rejected: "Not saved",
 };
 
 function statusColor(status, colors) {
@@ -24,6 +33,7 @@ function statusColor(status, colors) {
   if (status === "photoPending") return colors.accent;
   if (status === "failed") return colors.red;
   if (status === "dead") return colors.red;
+  if (status === "rejected") return colors.red;
   if (status === "syncing") return colors.accent;
   return colors.dotOff;
 }
@@ -66,7 +76,7 @@ export default function SyncQueueScreen() {
           the DevSyncFaultPanel import's usage - is dead code a release
           build's minifier removes. See lib/syncFaults.js for the full
           guarantee and the production checklist for how to verify it. */}
-      {__DEV__ && <DevSyncFaultPanel items={items} />}
+      {__DEV__ && <DevSyncFaultPanel items={items.filter((i) => i.kind === "clock")} />}
 
       <View style={[styles.statusBar, { borderBottomColor: colors.border }]}>
         <View style={styles.statusLeft}>
@@ -100,7 +110,9 @@ export default function SyncQueueScreen() {
               <View style={styles.statusWrap}>
                 <View style={[styles.statusDot, { backgroundColor: statusColor(item.syncStatus, colors) }]} />
                 <Text style={[styles.statusLabel, { color: colors.subtext }]}>
-                  {STATUS_LABEL[item.syncStatus] ?? item.syncStatus}
+                  {item.waitingForEmployee
+                    ? "Waiting for employee"
+                    : STATUS_LABEL[item.syncStatus] ?? item.syncStatus}
                 </Text>
               </View>
             </View>
@@ -126,6 +138,11 @@ export default function SyncQueueScreen() {
                   <Text style={[styles.retry, { color: colors.accent }]}>Retry</Text>
                 </TouchableOpacity>
               </View>
+            )}
+            {item.syncStatus === "rejected" && (
+              <Text style={[styles.failedReason, { color: colors.red, marginTop: 6 }]} numberOfLines={3}>
+                {describeError(item.lastError)}
+              </Text>
             )}
             {item.syncStatus === "dead" && (
               <View style={styles.failedRow}>

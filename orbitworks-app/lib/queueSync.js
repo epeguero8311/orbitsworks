@@ -853,6 +853,25 @@ async function readDocHeads(sqlite) {
   }
 }
 
+// Employees created on this phone whose create hasn't reached the server
+// yet. Their clock events wait: the server rejects a clock event for an
+// employee that doesn't exist, and onClockEventCreated could not update
+// their status either. employeeQueueSync.js wakes the drain the moment a
+// create lands, and marks these events Stuck if the create is rejected.
+// Returns an empty set if the read fails - nothing is held rather than
+// everything.
+export async function readPendingCreateEmployeeIds(sqlite) {
+  try {
+    const rows = await sqlite.getAllAsync(
+      "SELECT employeeId FROM employee_queue WHERE syncStatus IN ('pending','syncing','failed')"
+    );
+    return new Set(rows.map((r) => r.employeeId));
+  } catch (err) {
+    Sentry.captureException(err, { tags: { area: "queueSync", step: "pendingCreates" } });
+    return new Set();
+  }
+}
+
 function wakePump(p) {
   p.wakeRequested = true;
   if (p.wake) {
@@ -984,6 +1003,7 @@ async function runPump(p, companyId) {
       p.wakeRequested = false;
       const ready = await readPendingItems(sqlite);
       const heads = await readDocHeads(sqlite);
+      const waitingForCreate = await readPendingCreateEmployeeIds(sqlite);
 
       // Event docs: one lane per employee, in order.
       const byEmployee = new Map();
@@ -995,6 +1015,7 @@ async function runPump(p, companyId) {
       for (const [employeeId, items] of byEmployee) {
         if (lanes.size >= MAX_PARALLEL_EMPLOYEES) break;
         if (lanes.has(employeeId)) continue;
+        if (waitingForCreate.has(employeeId)) continue;
         // Held: this employee's oldest unsent doc is not ready (backoff,
         // or left 'syncing' until resetStuckSyncs). Their newer events
         // wait; the phone still shows the newest one (useLocalStatusOverlay).

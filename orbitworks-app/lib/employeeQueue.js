@@ -6,6 +6,7 @@ import { getDb } from "./db";
 import { makeLocalId } from "./clockQueue";
 import { notifyEmployeeQueueChange } from "./employeeQueueEvents";
 import { randomNonJunkPin } from "./validators/createEmployee";
+import { addLocalEmployeeToPinCache } from "./pinSync";
 
 async function hashPin(pin) {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, pin);
@@ -70,6 +71,11 @@ export async function queueCreateEmployee({ name, photoUri, createdByUid, compan
      VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
     [localId, employeeId, name, photoLocalUri, clientPin, createdByUid, now, photoNoticeShownAt ?? null]
   );
+  // Their PIN works on this phone right away, before the create syncs.
+  // Clock events made for them wait in the queue until it has (see
+  // queueSync.js's pending-create hold), so they attach to this same
+  // employeeId once the server has the employee.
+  await addLocalEmployeeToPinCache({ employeeId, name, photoLocalUri, pin: clientPin });
   notifyEmployeeQueueChange();
 
   return { localId, employeeId, pin: clientPin };
