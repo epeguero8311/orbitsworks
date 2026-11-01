@@ -168,6 +168,9 @@ export interface Employee {
   // Set only when joinedVia is "qr" - the JoinCode's stable codeId (kept
   // across regenerate), never its token: the employee can read this doc.
   joinCodeId?: string | null;
+  // Set only when joinedVia is "invite" - the EmployeeInvite's stable
+  // inviteId, never its token (same reason as joinCodeId).
+  employeeInviteId?: string | null;
   // QR sign-up only (functions/src/joinCompany.ts, server-written): ids of
   // existing employees in this company with the same name + dob. A flag
   // for the Employees page - sign-up is never blocked by it.
@@ -187,17 +190,59 @@ export interface EmployeeConsentRecord {
   uid: string;
   employeeId: string;
   companyId: string;
-  joinCodeId: string;
+  // QR sign-up: the code's codeId. Email invite: null.
+  joinCodeId: string | null;
+  // Email invite: the invite's inviteId (never the token). QR: unset.
+  employeeInviteId?: string | null;
   privacyPolicyVersion: string;
   privacyAcceptedAt: Timestamp;
   biometricConsentVersion: string;
   biometricConsentAt: Timestamp;
-  source: "qrSignup";
+  source: "qrSignup" | "emailInvite";
   faceDataDeletedAt: Timestamp | null;
   faceDataDeletedReason?: "employeeDeleted" | "signupRolledBack" | "coreDowngrade";
 }
 
-export type EmployeeJoinedVia = "admin" | "qr";
+// "invite" = Phase 3B email invite.
+export type EmployeeJoinedVia = "admin" | "qr" | "invite";
+
+// ---- Employee App email invites (Phase 3B) ----
+// employeeInvites/{token} - server-written only (functions/src/
+// employeeInviteTypes.ts has the server copy; keep both in sync by hand).
+// The doc id is the secret link token ({site}/i/{token}); admins/owners of
+// the company can read it for Copy link.
+export type EmployeeInviteStatus = "pending" | "accepted" | "revoked";
+// "expired" is never stored: pending + expiresAt in the past.
+export type EmployeeInviteDisplayStatus = EmployeeInviteStatus | "expired";
+export type EmployeeInviteKind = "existingEmployee" | "newPerson";
+
+export interface EmployeeInvite {
+  id: string; // the token (doc id)
+  inviteId: string;
+  companyId: string;
+  kind: EmployeeInviteKind;
+  email: string;
+  // existingEmployee: the row being linked. newPerson: null until
+  // accepted, then the row it created.
+  employeeId: string | null;
+  // existingEmployee only: the row's name when the invite was sent.
+  employeeName: string | null;
+  // newPerson only; null = no site until an admin assigns one.
+  siteId: string | null;
+  status: EmployeeInviteStatus;
+  invitedByUid: string;
+  createdAt: Timestamp | null;
+  expiresAt: Timestamp;
+  acceptedAt: Timestamp | null;
+  acceptedByUid: string | null;
+  revokedAt: Timestamp | null;
+  revokedByUid: string | null;
+  emailStatus: "pending" | "sent" | "failed";
+  emailSentAt: Timestamp | null;
+  emailError: string | null;
+  lastEmailAttemptAt: Timestamp | null;
+  resendCount: number;
+}
 
 export interface Invite {
   id: string;

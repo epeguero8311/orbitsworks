@@ -12,7 +12,8 @@ import { db } from "./shared";
 // appAccess: true - the one field that says "has an employee-app login".
 
 export type LoginRole = "admin" | "supervisor" | "employee";
-export type EmployeeJoinedVia = "admin" | "qr";
+// "invite" = Phase 3B email invite (employeeInviteTypes.ts).
+export type EmployeeJoinedVia = "admin" | "qr" | "invite";
 
 // Single place that decides which role claim a linked employee doc maps
 // to. Admin wins, then supervisor. With both toggles off, a login that came
