@@ -201,6 +201,17 @@ Phase 3 Step 6 (shrunk to this):
   useLocalStatusOverlay.js, useSyncQueue.js, useTodayShift.js
   (set-state-in-effect / purity); screens/supervisor/SyncQueueScreen.js
   (unescaped quote). Fix in the Phase 10 lint pass with useAlertsFeed.js.
+- **phoneClockOff only catches a clock set back** (decided 2026-11-01,
+  fast punches ec726c0). The expected time uses expo-device uptime, which
+  pauses while the phone sleeps, so it can only lag the real time and the
+  check is one-sided (functions/src/employeeClockQueued.ts,
+  isPhoneClockOff). A clock set AHEAD is not flagged - e.g. a padded
+  offline clock-out that syncs after its fake time only gets the "Synced
+  late" tag (the server's 2 min future limit only stops it if it syncs
+  before that time). Fix: a small native module with a clock that keeps
+  counting during sleep (iOS mach_continuous_time, Android
+  SystemClock.elapsedRealtime) plus a boot id for restarts, then make the
+  expected-time check two-sided. Needs a new build.
 - **Duplicate "Emilio Peguero" employee** (found 2026-10-28). Dev,
   jc-test-pro-dev: GZ3DKAhivqjkAw04Md9T has no punches; the real one is
   KfLB8nDz8lseZIhHEDch. Find how the duplicate got created. Don't delete it
