@@ -7,5 +7,6 @@ node_modules/
 *.log
 *.aab
 *.ipa
+/test/dev-e2e/creds.json
 
 service-account/
