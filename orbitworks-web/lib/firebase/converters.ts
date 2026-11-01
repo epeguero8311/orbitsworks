@@ -8,6 +8,7 @@ import type {
   Device,
   EmployeeAlert,
   EmployeeAppConfig,
+  EmployeeInvite,
   EmployeePinLock,
   EmployeeSelfView,
   Invite,
@@ -42,3 +43,5 @@ export const employeeAlertConverter = makeConverter<EmployeeAlert>();
 export const employeeAppConfigConverter = makeConverter<EmployeeAppConfig & { id: string }>();
 export const employeeSelfViewConverter = makeConverter<EmployeeSelfView>();
 export const employeePinLockConverter = makeConverter<EmployeePinLock>();
+// Read-only on the client: employeeInvites are written only by the server.
+export const employeeInviteConverter = makeConverter<EmployeeInvite>();

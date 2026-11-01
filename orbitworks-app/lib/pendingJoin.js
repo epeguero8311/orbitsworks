@@ -1,19 +1,29 @@
 import Constants from "expo-constants";
 
-// The crew code token waiting to be used for sign-up. Kept in memory only:
-// never in navigation params (those can show up in Sentry breadcrumbs),
-// never on disk, never logged. Cleared on use or cancel.
+// The sign-up link waiting to be used: a crew code (kind "qr") or an
+// email invite (kind "invite", Phase 3B). Kept in memory only: never in
+// navigation params (those can show up in Sentry breadcrumbs), never on
+// disk, never logged. Cleared on use or cancel.
 
 let pendingToken = null;
+let pendingKind = "qr";
 const listeners = new Set();
 
-export function setPendingJoinToken(token) {
+// kind is set before listeners run, so a listener reading
+// getPendingJoinKind() always sees the kind that goes with the token.
+export function setPendingJoinToken(token, kind = "qr") {
   pendingToken = token;
+  pendingKind = token && kind === "invite" ? "invite" : "qr";
   listeners.forEach((fn) => fn(pendingToken));
 }
 
 export function getPendingJoinToken() {
   return pendingToken;
+}
+
+// "qr" or "invite" for the pending token ("qr" when there is none).
+export function getPendingJoinKind() {
+  return pendingKind;
 }
 
 export function clearPendingJoinToken() {
