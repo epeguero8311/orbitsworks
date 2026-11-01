@@ -213,8 +213,9 @@ Phase 3 Step 6 (shrunk to this):
   SystemClock.elapsedRealtime) plus a boot id for restarts, then make the
   expected-time check two-sided. Needs a new build.
 - **Phase 4 smoke tests not run at the Phase 4 close** (decided
-  2026-11-01, fast close). Phase 4 closed on T2, T3, T5, T14, T16 and
-  S1-S6 (build 17). Still to run, from orbitworks-web/docs/phase4-test-checklist.md:
+  2026-11-01, fast close). The fast-close set (T2, T3, T5, T14, T16,
+  S1-S6) moved to the first build of the next phase - see the Phase 5
+  list. Still to run, from orbitworks-web/docs/phase4-test-checklist.md:
   T4 (weak signal, 2-min rule), T6 (queue pauses behind a failed punch),
   T7 (Remove a "Not recorded" punch), T8 (inactive while queued), T9
   (sign-out warning), T10 (late punch into an approved timesheet alert),
@@ -228,6 +229,16 @@ Phase 3 Step 6 (shrunk to this):
   until then.
 
 ## Phase 5 to-do (Hours)
+
+- **Rerun on the first build of the next phase** (decided 2026-11-01,
+  Phase 4 code-complete). Not run on build 17 (no results reported), so
+  NOT marked OK: T2, T3, T5, T14, T16 and S1-S6 from
+  orbitworks-web/docs/phase4-test-checklist.md. The first Phase 5 build
+  carries the success overlay fix (ed39756: the green overlay covers
+  before the screen behind changes) - check it on every T test. Dev-side
+  note only: build 17 online punches (employee Rocio, 2026-11-01
+  18:49-18:53 UTC) already landed with server time (0.1-0.8 s before
+  createdAt) and no queued / syncedLate / phoneClockOff.
 
 - **Wire the History tabs to real clock events** (decided 2026-10-29).
   `screens/employee/EmployeeHistoryScreen.js` and
