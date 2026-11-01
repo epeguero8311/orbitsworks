@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   collection,
+  doc,
   onSnapshot,
   addDoc,
   query,
   where,
   serverTimestamp,
   Timestamp,
+  writeBatch,
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/lib/firebase";
@@ -18,10 +20,24 @@ import { ALERT_ACTION_LOOKBACK_DAYS, type AlertItem } from "@/lib/dashboardOverv
 
 const LOOKBACK_DAYS = ALERT_ACTION_LOOKBACK_DAYS;
 
+// Firestore's limit on writes in one batch.
+const MAX_BATCH_WRITES = 500;
+
 export function useAlertActions() {
   const { userData, currentUser } = useAuth();
-  const [resolvedKeys, setResolvedKeys] = useState<Set<string>>(new Set());
+  const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
+  // Keys Ignore all has hidden but the server hasn't confirmed yet. The
+  // listener below only sees a record once the server has stamped its
+  // resolvedAt, so without this every alert would wait for the save.
+  const [pendingKeys, setPendingKeys] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+
+  const resolvedKeys = useMemo(() => {
+    if (pendingKeys.size === 0) return savedKeys;
+    const all = new Set(savedKeys);
+    pendingKeys.forEach((k) => all.add(k));
+    return all;
+  }, [savedKeys, pendingKeys]);
 
   useEffect(() => {
     if (!userData?.companyId) return;
@@ -45,7 +61,14 @@ export function useAlertActions() {
           const data = d.data() as Omit<AlertActionRecord, "id">;
           if (data.alertKey) keys.add(data.alertKey);
         });
-        setResolvedKeys(keys);
+        setSavedKeys(keys);
+        // Once the server has confirmed a hidden key, the saved set covers
+        // it - stop tracking it as pending.
+        setPendingKeys((prev) => {
+          if (prev.size === 0) return prev;
+          const next = new Set([...prev].filter((k) => !keys.has(k)));
+          return next.size === prev.size ? prev : next;
+        });
         setLoading(false);
       },
       (err) => {
@@ -56,6 +79,25 @@ export function useAlertActions() {
 
     return unsubscribe;
   }, [userData?.companyId]);
+
+  // One alertActions record - the same fields whether it's written alone
+  // (recordAlertAction) or as part of Ignore all's batch.
+  function alertActionRecord(
+    alert: AlertItem,
+    status: "ignored" | "resolved",
+    actionTaken?: "clockOut" | "editTime" | "endBreak" | "confirmedMatch"
+  ) {
+    return {
+      alertKey: alert.key,
+      alertType: alert.alertType,
+      employeeId: alert.employeeId,
+      status,
+      ...(actionTaken ? { actionTaken } : {}),
+      resolvedByUid: currentUser!.uid,
+      resolvedByName: currentUser!.displayName || currentUser!.email || "Admin",
+      resolvedAt: serverTimestamp(),
+    };
+  }
 
   async function recordAlertAction(
     alert: AlertItem,
@@ -69,16 +111,7 @@ export function useAlertActions() {
       userData.companyId,
       "alertActions"
     );
-    await addDoc(actionsRef, {
-      alertKey: alert.key,
-      alertType: alert.alertType,
-      employeeId: alert.employeeId,
-      status,
-      ...(actionTaken ? { actionTaken } : {}),
-      resolvedByUid: currentUser.uid,
-      resolvedByName: currentUser.displayName || currentUser.email || "Admin",
-      resolvedAt: serverTimestamp(),
-    });
+    await addDoc(actionsRef, alertActionRecord(alert, status, actionTaken));
   }
 
   async function ignoreAlert(alert: AlertItem) {
@@ -94,12 +127,36 @@ export function useAlertActions() {
     await recordAlertAction(alert, "resolved", "confirmedMatch");
   }
 
-  // Dismisses every alert currently visible in one go. Reuses the same
-  // per-alert persistence ignoreAlert already writes (one alertActions doc
-  // per key) rather than a separate dismissal mechanism, so a newly
-  // generated alert (a key not in this list) still shows up normally.
+  // Dismisses every alert currently visible in one action. Writes the same
+  // per-alert records ignoreAlert does (one alertActions doc per key, same
+  // fields), so history and the date/week-scoped keys work unchanged and a
+  // newly generated alert (a key not in this list) still shows up normally.
+  //
+  // All of them are hidden at once, right away, and saved in one batch -
+  // all or nothing: if it fails, none are ignored and they all come back.
+  // Past Firestore's 500-writes-per-batch limit (rare) the list is saved in
+  // back-to-back batches; a batch that fails brings back its alerts and
+  // every later batch's, and earlier batches stay ignored.
   async function ignoreAll(alerts: AlertItem[]) {
-    await Promise.all(alerts.map((alert) => recordAlertAction(alert, "ignored")));
+    if (!userData?.companyId || !currentUser || alerts.length === 0) return;
+    const companyId = userData.companyId;
+    const keys = alerts.map((a) => a.key);
+    setPendingKeys((prev) => new Set([...prev, ...keys]));
+
+    for (let start = 0; start < alerts.length; start += MAX_BATCH_WRITES) {
+      const chunk = alerts.slice(start, start + MAX_BATCH_WRITES);
+      const batch = writeBatch(db);
+      for (const alert of chunk) {
+        batch.set(doc(collection(db, "companies", companyId, "alertActions")), alertActionRecord(alert, "ignored"));
+      }
+      try {
+        await batch.commit();
+      } catch (err) {
+        const unsaved = new Set(keys.slice(start));
+        setPendingKeys((prev) => new Set([...prev].filter((k) => !unsaved.has(k))));
+        throw err;
+      }
+    }
   }
 
   async function clockOutFromAlert(alert: AlertItem) {
