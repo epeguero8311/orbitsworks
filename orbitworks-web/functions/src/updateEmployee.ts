@@ -1,7 +1,8 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db } from "./shared";
-import { requireCreatorAuth, EMPLOYEE_ID_REGEX, NAME_MAX_LENGTH } from "./createEmployee";
+import { requireCreatorAuth, EMPLOYEE_ID_REGEX, NAME_MAX_LENGTH, clientTimeOrNow } from "./createEmployee";
+import { reservePinOrReplacement } from "./pins";
 import { DEVICE_ID_REGEX } from "./clockEvents";
 import {
   REKOGNITION_ACCESS_KEY_ID,
@@ -11,7 +12,7 @@ import {
   storagePathFromDownloadUrl,
   compareReferencePhotos,
 } from "./rekognition";
-import { createEmployeeUpdatedAlert } from "./alerts";
+import { createEmployeeUpdatedAlert, createPinChangedAlert } from "./alerts";
 
 const UPDATED_BY_NAME_MAX_LENGTH = 100;
 const RETAINED_PHOTO_MS = 30 * 24 * 60 * 60 * 1000;
@@ -24,8 +25,11 @@ type UpdateEmployeeCompany = {
 type UpdateEmployeeDoc = {
   name?: string;
   photoUrl?: string;
+  pin?: string;
   active?: boolean;
   lastUpdateId?: string;
+  lastPinUpdateId?: string;
+  fieldEditedAt?: { name?: admin.firestore.Timestamp; photoUrl?: admin.firestore.Timestamp; pin?: admin.firestore.Timestamp };
   faceReference?: { status?: string; photoUrl?: string };
 };
 
@@ -71,6 +75,16 @@ export const updateEmployeeProfile = onCall(
       typeof data.photoNoticeShownAt === "number" && Number.isFinite(data.photoNoticeShownAt)
         ? data.photoNoticeShownAt
         : null;
+    // PIN edit (admins/owners only - same permission as the web's
+    // setEmployeePin). Goes through the pins reservation index like every
+    // other PIN write; a PIN another employee already holds is replaced
+    // with a new unique one rather than rejected, since an offline phone
+    // already let the person use it.
+    const pin = data.pin !== undefined && data.pin !== null ? String(data.pin).trim() : undefined;
+    const role = request.auth?.token.role as string | undefined;
+    // When the edit was made on the phone, for last-edit-wins below. Older
+    // app builds don't send it -> server time (sync time), as before.
+    const editedAt = clientTimeOrNow(data.clientEditedAt);
     const updatedByNameRaw = typeof data.updatedByName === "string" ? data.updatedByName.trim() : "";
     const updatedByName = updatedByNameRaw.slice(0, UPDATED_BY_NAME_MAX_LENGTH) || "A supervisor";
 
@@ -94,7 +108,15 @@ export const updateEmployeeProfile = onCall(
         throw new HttpsError("invalid-argument", "photoUrl does not match the expected path.");
       }
     }
-    if (name === undefined && photoUrl === undefined) {
+    if (pin !== undefined) {
+      if (role !== "admin" && role !== "owner") {
+        throw new HttpsError("permission-denied", "Only admins can change PINs.");
+      }
+      if (!/^\d{4}$/.test(pin)) {
+        throw new HttpsError("invalid-argument", "PIN must be exactly 4 digits.");
+      }
+    }
+    if (name === undefined && photoUrl === undefined && pin === undefined) {
       throw new HttpsError("invalid-argument", "Nothing to update.");
     }
 
@@ -114,7 +136,12 @@ export const updateEmployeeProfile = onCall(
     // updateId instead (every field of a genuine edit could legitimately
     // repeat a prior value, so updateId is the only safe replay key here).
     if (employee.lastUpdateId === updateId) {
-      return { employeeId, updated: true };
+      return {
+        employeeId,
+        updated: true,
+        ...(pin !== undefined ? { pin: employee.pin, pinChanged: employee.pin !== pin } : {}),
+        skippedFields: [],
+      };
     }
 
     const companySnap = await db.collection("companies").doc(companyId).get();
@@ -126,14 +153,64 @@ export const updateEmployeeProfile = onCall(
       throw new HttpsError("failed-precondition", "Subscription is past due.");
     }
 
-    const nameChanged = name !== undefined && name !== employee.name;
-    const photoChanged = photoUrl !== undefined && photoUrl !== employee.photoUrl;
+    // Last edit wins, per field, by when each edit was MADE (not when it
+    // synced): if this field was edited somewhere else after this edit
+    // happened (e.g. on the web while the phone was offline), keep that
+    // newer value and skip this one. fieldEditedAt is written by every
+    // edit path (here, createEmployee, setEmployeePin, the web edit form);
+    // a field with no recorded time has nothing newer to protect.
+    const isStale = (field: "name" | "photoUrl" | "pin") => {
+      const t = employee.fieldEditedAt?.[field];
+      return !!t && typeof t.toMillis === "function" && t.toMillis() > editedAt.toMillis();
+    };
+    const skippedFields: ("name" | "photo" | "pin")[] = [];
+    if (name !== undefined && name !== employee.name && isStale("name")) skippedFields.push("name");
+    if (photoUrl !== undefined && photoUrl !== employee.photoUrl && isStale("photoUrl")) skippedFields.push("photo");
+    if (pin !== undefined && pin !== employee.pin && isStale("pin")) skippedFields.push("pin");
+
+    const nameChanged = name !== undefined && name !== employee.name && !skippedFields.includes("name");
+    const photoChanged =
+      photoUrl !== undefined && photoUrl !== employee.photoUrl && !skippedFields.includes("photo");
+
+    // PIN first, in its own reservation transaction. lastPinUpdateId makes
+    // a retry of this same edit (e.g. the name/photo write below failed
+    // after the PIN landed) skip the PIN step instead of reserving again.
+    let pinResult: { pin: string; changed: boolean } | null = null;
+    if (pin !== undefined && !skippedFields.includes("pin")) {
+      if (employee.lastPinUpdateId === updateId) {
+        pinResult = { pin: employee.pin ?? pin, changed: employee.pin !== pin };
+      } else if (pin !== employee.pin) {
+        pinResult = await reservePinOrReplacement(companyId, employeeId, pin, editedAt, {
+          lastPinUpdateId: updateId,
+        });
+        if (pinResult.changed) {
+          await createPinChangedAlert(
+            companyId,
+            employeeId,
+            name ?? employee.name ?? "An employee",
+            pinResult.pin,
+            updateId,
+            admin.firestore.Timestamp.now()
+          );
+        }
+      }
+    }
+    const pinFields =
+      pin === undefined
+        ? {}
+        : skippedFields.includes("pin")
+        ? { pin: employee.pin, pinChanged: false }
+        : { pin: pinResult?.pin ?? employee.pin, pinChanged: !!pinResult?.changed };
     const changedFields: ("name" | "photo")[] = [
       ...(nameChanged ? (["name"] as const) : []),
       ...(photoChanged ? (["photo"] as const) : []),
     ];
     if (changedFields.length === 0) {
-      return { employeeId, updated: true };
+      if (pin !== undefined || skippedFields.length > 0) {
+        // Still record that this edit was handled, so a retry replays.
+        await employeeRef.update({ lastUpdateId: updateId }).catch(() => {});
+      }
+      return { employeeId, updated: true, ...pinFields, skippedFields };
     }
 
     const oldPhotoUrl = photoChanged ? employee.photoUrl ?? null : null;
@@ -177,8 +254,8 @@ export const updateEmployeeProfile = onCall(
 
     const batch = db.batch();
     batch.update(employeeRef, {
-      ...(nameChanged ? { name } : {}),
-      ...(photoChanged ? { photoUrl } : {}),
+      ...(nameChanged ? { name, "fieldEditedAt.name": editedAt } : {}),
+      ...(photoChanged ? { photoUrl, "fieldEditedAt.photoUrl": editedAt } : {}),
       ...(photoChanged && photoNoticeShownAtMs
         ? { photoNoticeAck: { uid, shownAt: admin.firestore.Timestamp.fromMillis(photoNoticeShownAtMs) } }
         : {}),
@@ -207,11 +284,13 @@ export const updateEmployeeProfile = onCall(
       retainedPhotoExpiresAt:
         photoChanged && oldPhotoPath ? admin.firestore.Timestamp.fromMillis(Date.now() + RETAINED_PHOTO_MS) : null,
       retainedPhotoDeletedAt: null,
+      // When the edit was made on the phone (createdAt is when it synced).
+      editedAt,
     });
     await batch.commit();
 
     await createEmployeeUpdatedAlert(companyId, employeeId, employeeName, updateId, changedFields, severity, now);
 
-    return { employeeId, updated: true };
+    return { employeeId, updated: true, ...pinFields, skippedFields };
   }
 );

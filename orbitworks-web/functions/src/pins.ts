@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db } from "./shared";
+import { JUNK_PINS } from "./createEmployee";
 
 // --- PIN uniqueness (server-side, transactional) ---
 //
@@ -14,17 +15,27 @@ import { db } from "./shared";
 // assigned (used only by reserveNewPin, for the moment between claiming a
 // pin and the caller's own batch finishing employee creation).
 
+// editedAt: when this PIN edit was made (an offline phone edit passes its
+// own edit time; everything else passes "now"). Stored as
+// fieldEditedAt.pin so a later-syncing older offline edit can tell it lost
+// (see updateEmployeeProfile's last-edit-wins check). avoidJunk skips the
+// guessable PINs for auto-generated candidates.
 export async function reservePinForEmployee(
   companyId: string,
   employeeId: string,
-  desiredPin: string | null
+  desiredPin: string | null,
+  opts: { editedAt?: admin.firestore.Timestamp; avoidJunk?: boolean; extraFields?: Record<string, unknown> } = {}
 ): Promise<string> {
   const employeeRef = db.collection("companies").doc(companyId).collection("employees").doc(employeeId);
   const pinsRef = db.collection("companies").doc(companyId).collection("pins");
   const maxAttempts = desiredPin ? 1 : 20;
+  const editedAt = opts.editedAt ?? admin.firestore.Timestamp.now();
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const candidate = desiredPin ?? Math.floor(1000 + Math.random() * 9000).toString();
+    let candidate = desiredPin ?? Math.floor(1000 + Math.random() * 9000).toString();
+    while (!desiredPin && opts.avoidJunk && JUNK_PINS.has(candidate)) {
+      candidate = Math.floor(1000 + Math.random() * 9000).toString();
+    }
     const candidateRef = pinsRef.doc(candidate);
 
     const taken = await db.runTransaction(async (tx) => {
@@ -54,7 +65,7 @@ export async function reservePinForEmployee(
         employeeId,
         updatedAt: admin.firestore.Timestamp.now(),
       });
-      tx.update(employeeRef, { pin: candidate });
+      tx.update(employeeRef, { ...opts.extraFields, pin: candidate, "fieldEditedAt.pin": editedAt });
       return false;
     });
 
@@ -68,6 +79,28 @@ export async function reservePinForEmployee(
   }
 
   throw new HttpsError("resource-exhausted", "Could not generate a unique PIN. Try again.");
+}
+
+// Offline PIN edit (mobile): tries the PIN the phone chose, and if another
+// employee already holds it, gives this employee a new unique (non-junk)
+// PIN instead of failing - the phone already let the person use the
+// offline PIN, so the sync has to land somewhere. Same reservation index
+// and transaction as every other PIN write.
+export async function reservePinOrReplacement(
+  companyId: string,
+  employeeId: string,
+  desiredPin: string,
+  editedAt: admin.firestore.Timestamp,
+  extraFields: Record<string, unknown> = {}
+): Promise<{ pin: string; changed: boolean }> {
+  try {
+    const pin = await reservePinForEmployee(companyId, employeeId, desiredPin, { editedAt, extraFields });
+    return { pin, changed: false };
+  } catch (err) {
+    if (!(err instanceof HttpsError) || err.code !== "already-exists") throw err;
+  }
+  const pin = await reservePinForEmployee(companyId, employeeId, null, { editedAt, avoidJunk: true, extraFields });
+  return { pin, changed: true };
 }
 
 // Claims a PIN for an employee that does not exist yet (acceptInvite

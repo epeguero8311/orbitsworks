@@ -381,7 +381,11 @@ export type MobileAlertType =
   // createAlertIfNew, bypassing maybeCreateAndPush). Keyed per shift
   // (eventId = the clock-in event's id), same convention as
   // clockedInOutsideGeofence/siteMismatch above.
-  | "autoClockOut";
+  | "autoClockOut"
+  // Offline employee create/PIN edit: the phone's PIN was taken by the
+  // time it synced and the server assigned a new one. Admin/owner web
+  // Overview only, never pushed, filtered out of the mobile Alerts tab.
+  | "pinChanged";
 
 export interface MobileAlert {
   id: string;

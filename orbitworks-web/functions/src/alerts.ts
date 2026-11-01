@@ -42,6 +42,13 @@ export const ALERT_TYPES = [
   // maybeCreateAndPush) so it never pushes, and excluded client-side from
   // the mobile Alerts tab (useAlertsFeed.js).
   "autoClockOut",
+  // Offline employee create/PIN edit (mobile) - the phone's PIN was already
+  // taken when it synced, so the server gave the employee a new one. Admin/
+  // owner web Overview only, never pushed, excluded from the mobile Alerts
+  // tab (useAlertsFeed.js) - the phone shows its own local notice instead.
+  // Keyed per sync operation (eventId = the create's employeeId or the
+  // edit's updateId), so each change is its own alert.
+  "pinChanged",
 ] as const;
 
 export type AlertType = (typeof ALERT_TYPES)[number];
@@ -71,6 +78,7 @@ export const ALERT_SEVERITY: Record<AlertType, "urgent" | "warning" | "info"> = 
   employeeUpdated: "warning",
   // Yellow per spec - informational, never blocks anything.
   autoClockOut: "warning",
+  pinChanged: "warning",
 };
 
 // The untrusted-input boundary for alert generation: validates every id
@@ -204,6 +212,7 @@ const ALERT_ID_PREFIX: Record<AlertType, string> = {
   // branch in createAlertIfNew below) - same convention as
   // clockedInOutsideGeofence/siteMismatch.
   autoClockOut: "autoout",
+  pinChanged: "pinchanged",
 };
 
 function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string): string {
@@ -242,7 +251,8 @@ export async function createAlertIfNew(input: AlertInput, occurredAt: Timestamp)
   const subjectId =
     data.alertType === "clockedInOutsideGeofence" ||
     data.alertType === "siteMismatch" ||
-    data.alertType === "autoClockOut"
+    data.alertType === "autoClockOut" ||
+    data.alertType === "pinChanged"
       ? data.eventId ?? data.employeeId ?? "company"
       : data.employeeId ?? data.siteId ?? "company";
   const alertId = buildAlertId(data.alertType, subjectId, data.dateKey);
@@ -1047,3 +1057,38 @@ export const checkPeriodicAlerts = onSchedule("every 15 minutes", async () => {
     }
   }
 });
+
+// Offline employee create/PIN edit (mobile): the PIN the phone handed out
+// offline was already taken by the time it synced, so the server assigned a
+// new one. Written straight through createAlertIfNew (same as autoClockOut's
+// alert) rather than behind ALERTS_FEED_ENABLED/TEST_COMPANY_IDS - an admin
+// has to learn the employee's real PIN somewhere, so this is not a beta
+// feed item. Never throws: a failed alert write must not fail the sync.
+export async function createPinChangedAlert(
+  companyId: string,
+  employeeId: string,
+  employeeName: string,
+  newPin: string,
+  operationId: string,
+  occurredAt: Timestamp
+): Promise<void> {
+  try {
+    await createAlertIfNew(
+      {
+        companyId,
+        alertType: "pinChanged",
+        employeeId,
+        employeeName,
+        siteId: null,
+        siteName: null,
+        message: `Offline PIN for ${employeeName} was a duplicate and changed to ${newPin}`,
+        eventId: operationId,
+        employeeUpdateId: null,
+        dateKey: localDateKey(occurredAt.toDate()),
+      },
+      occurredAt
+    );
+  } catch (err) {
+    console.warn("pinChanged alert write failed", { companyId, employeeId, error: String(err) });
+  }
+}

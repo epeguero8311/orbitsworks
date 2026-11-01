@@ -22,6 +22,8 @@ const ALERT_TITLE: Record<AlertDoc["alertType"], string> = {
   // via createAlertIfNew directly, never through sendPushForAlert. Present
   // only so this Record stays exhaustive over AlertDoc["alertType"].
   autoClockOut: "Auto Clocked Out",
+  // Never sent either - written via createAlertIfNew (createPinChangedAlert).
+  pinChanged: "PIN Changed",
 };
 
 // Sends one alert to every registered, notification-enabled device on the
