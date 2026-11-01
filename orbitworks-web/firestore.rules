@@ -388,7 +388,7 @@ service cloud.firestore {
         allow create: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
-          !request.resource.data.keys().hasAny(['faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'possibleDuplicateOf']) &&
+          !request.resource.data.keys().hasAny(['faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf']) &&
           underTotalCap(companyId) &&
           (request.resource.data.active != true || (underCap(companyId) && notPastDue(companyId)));
 
@@ -408,7 +408,7 @@ service cloud.firestore {
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId']) &&
+            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId']) &&
           (
             request.resource.data.active != true ||
             resource.data.active == true ||
@@ -790,6 +790,22 @@ service cloud.firestore {
     // token is the doc id, so a readable collection would leak live codes.
     match /joinCodes/{token} {
       allow read, write: if false;
+    }
+
+    // Employee App email invites (Phase 3B). The doc id is the secret link
+    // token. Every write goes through the invite Cloud Functions (Admin
+    // SDK, bypasses rules): create, resend, revoke, remove, and the
+    // one-time accept. No client, including admins, writes these.
+    // Admins/owners may read their OWN company's invites (the Employees
+    // page list and Copy link) - unlike joinCodes, which are read through
+    // an API route. A list query must filter on companyId == their claim,
+    // or it is denied. Supervisors, employees and signed-out users get
+    // nothing; the app reads an invite only through getInviteInfo.
+    match /employeeInvites/{token} {
+      allow read: if request.auth != null &&
+        isAdminOrOwner() &&
+        request.auth.token.companyId == resource.data.get('companyId', '');
+      allow write: if false;
     }
 
     match /invites/{inviteId} {
