@@ -21,6 +21,17 @@ export { joinCompany } from "./joinCompany";
 
 export { getJoinInfo } from "./getJoinInfo";
 
+// Employee App email invites (Phase 3B).
+export {
+  createEmployeeInvite,
+  onEmployeeInviteCreated,
+  resendEmployeeInvite,
+  revokeEmployeeInvite,
+  removeEmployeeInvite,
+} from "./employeeInvites";
+export { getInviteInfo } from "./getInviteInfo";
+export { acceptEmployeeInvite } from "./acceptEmployeeInvite";
+
 export { updateEmployeeProfile } from "./updateEmployee";
 
 export {

@@ -3,12 +3,12 @@
 // this ships to prod.
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
-import { randomUUID } from "crypto";
 import { db } from "./shared";
 import { reserveNonJunkPin } from "./createEmployee";
 import { linkEmployeeLogin } from "./employeeAccess";
 import { BIOMETRIC_CONSENT_VERSION, PRIVACY_POLICY_VERSION } from "./consentVersions";
 import { decodeSelfie, joinCompanySchema, JoinCompanyInput, normalizeName } from "./joinCompanyValidators";
+import { copySelfieToPhoto, deleteStorageFile, isProPlan, overSeatCaps, releaseSignupPin, saveSelfieFile } from "./lib/signupShared";
 
 // ---- Employee App: QR sign-up (joinCompany) ----
 //
@@ -94,11 +94,8 @@ export interface CompanyData {
   totalEmployeeCap?: number | null;
 }
 
-// Duplicated from lib/stripe/tiers.ts's isProPlan, same as rekognition.ts.
-// past_due keeps its pro_ planTier, so it counts as Pro here.
-function isProPlan(planTier: string | undefined | null): boolean {
-  return !!planTier && planTier.startsWith("pro_");
-}
+// isProPlan (lib/signupShared.ts): past_due keeps its pro_ planTier, so it
+// counts as Pro here.
 
 // Same split as getPublicJoinState in lib/joinCodes/server.ts: revoked /
 // expired / unknown -> "no longer active"; full / no seats / not Pro / total
@@ -114,10 +111,7 @@ export function codeProblem(
   if (code.expiresAt && code.expiresAt.toMillis() <= nowMs) return "inactive";
   if (!company || !isProPlan(company.planTier)) return "accountProblem";
   if (code.userLimit !== null && (code.joinedCount ?? 0) >= code.userLimit) return "accountProblem";
-  const cap = company.employeeCap ?? null;
-  if (cap !== null && cap - counts.active <= 0) return "accountProblem";
-  const totalCap = company.totalEmployeeCap ?? null;
-  if (totalCap !== null && totalCap - counts.total <= 0) return "accountProblem";
+  if (overSeatCaps(company, counts)) return "accountProblem";
   return null;
 }
 
@@ -166,14 +160,6 @@ const paths = (companyId: string, employeeId: string) => ({
   reference: `companies/${companyId}/employees/${employeeId}/reference.jpg`,
 });
 
-async function deleteFile(path: string) {
-  try {
-    await admin.storage().bucket().file(path).delete();
-  } catch (err) {
-    if ((err as { code?: number }).code !== 404) throw err;
-  }
-}
-
 // Undo everything a failed sign-up wrote. Each step is separate so one
 // failure can't stop the rest. joinedCount is only given back if the
 // transaction committed (it's the only place it was bumped).
@@ -182,17 +168,12 @@ async function rollback(r: Rollback) {
   const steps: [string, () => Promise<unknown>][] = [
     ["rollback:files", async () => {
       const p = paths(r.companyId, r.employeeId);
-      await deleteFile(p.reference);
-      await deleteFile(p.selfie);
+      await deleteStorageFile(p.reference);
+      await deleteStorageFile(p.selfie);
     }],
     ["rollback:pin", async () => {
       if (!r.pin) return;
-      const pinRef = companyRef.collection("pins").doc(r.pin);
-      await db.runTransaction(async (tx) => {
-        const snap = await tx.get(pinRef);
-        const holder = snap.exists ? (snap.get("employeeId") as string | null) : undefined;
-        if (snap.exists && (holder === null || holder === r.employeeId)) tx.delete(pinRef);
-      });
+      await releaseSignupPin(r.companyId, r.pin, r.employeeId);
     }],
     ["rollback:employee", async () => {
       if (!r.committed) return;
@@ -371,20 +352,16 @@ export async function runJoinCompany(raw: unknown, hooks: JoinHooks = {}): Promi
     step = "selfie";
     const consent = await consentRef.get();
     if (!consent.exists || !consent.get("biometricConsentAt")) throw new Error("consent record missing");
-    const bucket = admin.storage().bucket();
     const p = paths(companyId, employeeId);
     r.faceFileWritten = true;
-    await bucket.file(p.selfie).save(selfie, { contentType: "image/jpeg", resumable: false });
+    await saveSelfieFile(p.selfie, selfie);
     checkpoint("selfie");
 
     step = "reference";
-    const downloadToken = randomUUID();
-    await bucket.file(p.selfie).copy(bucket.file(p.reference));
-    await bucket.file(p.reference).setMetadata({ contentType: "image/jpeg", metadata: { firebaseStorageDownloadTokens: downloadToken } });
+    const photoUrl = await copySelfieToPhoto(p.selfie, p.reference);
     checkpoint("reference");
 
     step = "photoUrl";
-    const photoUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(p.reference)}?alt=media&token=${downloadToken}`;
     await employeeRef.update({ photoUrl });
     checkpoint("photoUrl");
 

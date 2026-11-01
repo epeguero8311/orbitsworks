@@ -1,3 +1,5 @@
+import "server-only";
+
 import Stripe from "stripe";
 
 // Lazily initialized so importing this module never throws at build time.

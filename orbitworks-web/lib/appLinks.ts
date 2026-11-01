@@ -1,8 +1,8 @@
 import "server-only";
 
 // Universal links (iOS) and App Links (Android) for crew code QR links
-// (/j/{token}). Built from server env vars so each site only advertises
-// its own apps:
+// (/j/{token}) and email invite links (/i/{token}, Phase 3B). Built from
+// server env vars so each site only advertises its own apps:
 //   APP_LINKS_IOS_APP_IDS      comma list of TEAMID.bundle.id
 //   APP_LINKS_ANDROID_PACKAGE  e.g. com.orbitworks.app.dev
 //   APP_LINKS_ANDROID_SHA256   comma list of signing cert fingerprints
@@ -28,7 +28,15 @@ export function buildAppleAppSiteAssociation(rawIds: string | undefined): AppleA
   if (ids.length === 0) return null;
   return {
     applinks: {
-      details: [{ appIDs: ids, components: [{ "/": "/j/*", comment: "Crew code links" }] }],
+      details: [
+        {
+          appIDs: ids,
+          components: [
+            { "/": "/j/*", comment: "Crew code links" },
+            { "/": "/i/*", comment: "Email invite links" },
+          ],
+        },
+      ],
     },
   };
 }

@@ -37,11 +37,15 @@ export interface LinkEmployeeLoginInput {
   email: string;
   joinedVia: EmployeeJoinedVia;
   joinCodeId?: string | null;
+  // Required when joinedVia is "invite": the invite's stable inviteId,
+  // never its token (the employee can read their own employee doc).
+  employeeInviteId?: string | null;
 }
 
 // Gives an EXISTING employee doc an Employee App login. Phase 2's QR
-// sign-up (and functions/scripts/devCreateEmployeeLogin.js on dev) call
-// this after creating/finding the employee doc and the Auth user.
+// sign-up, Phase 3B's email invite (acceptEmployeeInvite.ts) and
+// functions/scripts/devCreateEmployeeLogin.js on dev call this after
+// creating/finding the employee doc and the Auth user.
 //
 // Idempotent for the same uid/employee pair (a retry after a partial
 // failure just rewrites the same values). Refuses to touch an employee
@@ -55,6 +59,9 @@ export async function linkEmployeeLogin(input: LinkEmployeeLoginInput): Promise<
   }
   if (joinedVia === "qr" && !input.joinCodeId) {
     throw new HttpsError("invalid-argument", "joinCodeId is required when joinedVia is qr.");
+  }
+  if (joinedVia === "invite" && !input.employeeInviteId) {
+    throw new HttpsError("invalid-argument", "employeeInviteId is required when joinedVia is invite.");
   }
 
   const employeeRef = db.collection("companies").doc(companyId).collection("employees").doc(employeeId);
@@ -107,6 +114,8 @@ export async function linkEmployeeLogin(input: LinkEmployeeLoginInput): Promise<
     appAccess: true,
     joinedVia,
     joinCodeId: joinedVia === "qr" ? input.joinCodeId ?? null : null,
+    // Only written for invites, so QR / admin links keep their exact shape.
+    ...(joinedVia === "invite" ? { employeeInviteId: input.employeeInviteId ?? null } : {}),
   });
   await batch.commit();
 

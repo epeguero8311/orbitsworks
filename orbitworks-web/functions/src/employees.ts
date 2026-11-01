@@ -12,6 +12,7 @@ import {
 import { reserveNewPin } from "./pins";
 import { storagePathFromDownloadUrl } from "./rekognition";
 import { loginRoleFor } from "./employeeAccess";
+import { pendingInviteRefsForRow } from "./employeeInvites";
 
 // Creates the employee doc and reserves its PIN entirely server-side
 // (Admin SDK transaction via reserveNewPin, same primitive acceptInvite
@@ -630,6 +631,11 @@ async function deleteEmployeeRecord(
     for (const inviteDoc of invitesSnap.docs) {
       batch.delete(inviteDoc.ref);
     }
+  }
+  // Employee App "Invite to app" invites for this row (Phase 3B): revoke
+  // any still pending, so the link dies with the row.
+  for (const ref of await pendingInviteRefsForRow(callerCompanyId, employeeId)) {
+    batch.update(ref, { status: "revoked", revokedAt: admin.firestore.FieldValue.serverTimestamp(), revokedByUid: callerUid });
   }
   batch.delete(employeeRef);
   await batch.commit();

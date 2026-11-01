@@ -177,6 +177,14 @@ Phase 3 Step 6 (shrunk to this):
   Auth users). Before prod they need per-IP / per-token limits and App
   Check. Each has a `TODO(Phase 10): RATE LIMIT` marker at the top of its
   file (decided 2026-11-01: invites match QR for now, no limit yet).
+- **Email invite duplicate check has no lock** (decided 2026-11-01, Phase
+  3B). `createEmployeeInvite` / `resendEmployeeInvite`
+  (functions/src/employeeInvites.ts) check "no other live invite for this
+  email / this row" with plain queries, so two admins inviting the same
+  email at the same instant could both get a pending invite. Sign-up stays
+  safe (Firebase Auth allows one login per email; the second accept gets
+  "email already in use"). Fix: a lock doc per company+email (and per row)
+  written in the same transaction as the invite.
 - **Find why EAS Updates don't reach the dev app** (found 2026-10-28).
   Update 01a1833d never showed on build 11; builds 10 and 11 are affected
   (channel employee-dev, runtime 1.1.2). Until fixed, JS changes for the dev

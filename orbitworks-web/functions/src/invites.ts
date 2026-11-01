@@ -2,11 +2,11 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db } from "./shared";
-import { resend, RESEND_API_KEY } from "./lib/resend";
+import { RESEND_API_KEY } from "./lib/resend";
 import { buildInviteEmail } from "./emailTemplates/inviteEmail";
 import { checkInviteRateLimit, canResendEmail } from "./lib/inviteRateLimit";
-
-const APP_BASE_URL = "https://orbitsworks.com";
+import { supervisorJoinLink, NO_SITE_FOR_PROJECT } from "./lib/appUrls";
+import { recordInviteEmailFailure, sendInviteEmailAndRecord } from "./lib/inviteEmailDelivery";
 
 type InviteData = {
   email?: string;
@@ -29,7 +29,12 @@ async function deliverInviteEmail(inviteRef: admin.firestore.DocumentReference, 
   const companyName = companyData?.name || "your company";
   const companyLogoUrl = companyData?.logoUrl ?? undefined;
 
-  const joinLink = `${APP_BASE_URL}/join?email=${encodeURIComponent(invite.email)}`;
+  // Dev site on dev, orbitsworks.com on prod (lib/appUrls.ts).
+  const joinLink = supervisorJoinLink(invite.email);
+  if (!joinLink) {
+    await recordInviteEmailFailure(inviteRef, NO_SITE_FOR_PROJECT);
+    return;
+  }
 
   const { subject, html } = buildInviteEmail({
     companyName,
@@ -38,37 +43,7 @@ async function deliverInviteEmail(inviteRef: admin.firestore.DocumentReference, 
     companyLogoUrl,
   });
 
-  try {
-    const { error } = await resend.emails.send({
-      from: "OrbitsWorks <noreply@send.orbitsworks.com>",
-      replyTo: "epeguero8311@gmail.com",
-      to: invite.email,
-      subject,
-      html,
-    });
-
-    if (error) {
-      await inviteRef.update({
-        emailStatus: "failed",
-        emailError: error.message,
-        lastEmailAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      return;
-    }
-
-    await inviteRef.update({
-      emailStatus: "sent",
-      emailSentAt: admin.firestore.FieldValue.serverTimestamp(),
-      lastEmailAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
-      emailError: null,
-    });
-  } catch (err) {
-    await inviteRef.update({
-      emailStatus: "failed",
-      emailError: err instanceof Error ? err.message : String(err),
-      lastEmailAttemptAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-  }
+  await sendInviteEmailAndRecord(inviteRef, { to: invite.email, subject, html });
 }
 
 // Fires once per invite doc (client creates it directly via addDoc), sends
