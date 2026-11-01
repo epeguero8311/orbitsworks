@@ -212,6 +212,16 @@ Phase 3 Step 6 (shrunk to this):
   counting during sleep (iOS mach_continuous_time, Android
   SystemClock.elapsedRealtime) plus a boot id for restarts, then make the
   expected-time check two-sided. Needs a new build.
+- **Phase 4 smoke tests not run at the Phase 4 close** (decided
+  2026-11-01, fast close). Phase 4 closed on T2, T3, T5, T14, T16 and
+  S1-S6 (build 17). Still to run, from orbitworks-web/docs/phase4-test-checklist.md:
+  T4 (weak signal, 2-min rule), T6 (queue pauses behind a failed punch),
+  T7 (Remove a "Not recorded" punch), T8 (inactive while queued), T9
+  (sign-out warning), T10 (late punch into an approved timesheet alert),
+  T11 (badge + Sync Now), T12 (face check on smaller photos), T13
+  ("after" timings) and T15 (phone clock set back -> phoneClockOff). T1
+  (build 15 "before" timings) was skipped, so T13 has no T1 baseline:
+  compare with the build 16 timings instead, or drop the comparison.
 - **Duplicate "Emilio Peguero" employee** (found 2026-10-28). Dev,
   jc-test-pro-dev: GZ3DKAhivqjkAw04Md9T has no punches; the real one is
   KfLB8nDz8lseZIhHEDch. Find how the duplicate got created. Don't delete it
