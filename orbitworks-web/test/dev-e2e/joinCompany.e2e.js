@@ -199,9 +199,19 @@ const isoYearsAgo = (years, dayShift = 0) => {
   return d.toISOString().slice(0, 10);
 };
 
+// The Pro fixture keeps real test employees (Phase 4 etc.), so fixed caps
+// of 15/20 can already be full. During the run the caps sit well above the
+// live counts (HEADROOM); cleanup puts back exactly what was there before.
+let ORIG_CAPS = null;
+const HEADROOM = {};
+
 async function main() {
   selfieB64 = await makeSelfie();
-  await co(PRO).update({ planTier: "pro_tier1", employeeCap: 15, totalEmployeeCap: 20, subscriptionStatus: "active" });
+  const before = (await co(PRO).get()).data() || {};
+  ORIG_CAPS = { employeeCap: before.employeeCap ?? 15, totalEmployeeCap: before.totalEmployeeCap ?? 20 };
+  HEADROOM.employeeCap = (await liveActive(PRO)) + 50;
+  HEADROOM.totalEmployeeCap = (await liveTotal(PRO)) + 50;
+  await co(PRO).update({ planTier: "pro_tier1", ...HEADROOM, subscriptionStatus: "active" });
   await co(CORE).update({ planTier: "core2_tier1" });
   await co(PRO).collection("subcontractors").doc("sub-jc-inactive").set({ name: "Inactive Sub", active: false, createdAt: FieldValue.serverTimestamp() });
 
@@ -259,12 +269,12 @@ async function main() {
   const tSeats = await makeCode(PRO);
   await co(PRO).update({ employeeCap: await liveActive(PRO) });
   await expectError("No seats left", tSeats, "noseats", {}, "accountProblem", E.accountProblem);
-  await co(PRO).update({ employeeCap: 15 });
+  await co(PRO).update({ employeeCap: HEADROOM.employeeCap });
 
   const tTotal = await makeCode(PRO);
   await co(PRO).update({ totalEmployeeCap: await liveTotal(PRO) });
   await expectError("Total employee record cap reached", tTotal, "totalcap", {}, "accountProblem", E.accountProblem);
-  await co(PRO).update({ totalEmployeeCap: 20 });
+  await co(PRO).update({ totalEmployeeCap: HEADROOM.totalEmployeeCap });
 
   await expectError("Core company", await makeCode(CORE), "core", {}, "accountProblem", E.accountProblem);
   await expectError("Subcontractor not on the code", await makeCode(PRO), "badsub", { subcontractorId: "sub-bolt" }, "subcontractor", E.subcontractor);
@@ -378,7 +388,7 @@ async function main() {
     const cap = (await co(PRO).get()).get("employeeCap");
     check("Deployed race: exactly one wins, other gets account problem", [x, y].filter((r) => r.ok).length === 1 && [x, y].some((r) => r.reason === "accountProblem"), JSON.stringify([x.reason || "ok", y.reason || "ok"]));
     check("Deployed race: active employees = cap", (await liveActive(PRO)) === cap);
-    await co(PRO).update({ employeeCap: 15 });
+    await co(PRO).update({ employeeCap: HEADROOM.employeeCap });
   }
 
   // ---------------- Right-to-delete (deployed deleteEmployee) ----------------
@@ -437,7 +447,7 @@ async function cleanup() {
     for (const d of consents.docs) if (codeIds.includes(d.get("joinCodeId"))) await d.ref.delete();
   }
   await co(PRO).collection("subcontractors").doc("sub-jc-inactive").delete();
-  await co(PRO).update({ planTier: "pro_tier1", employeeCap: 15, totalEmployeeCap: 20, subscriptionStatus: "active" });
+  await co(PRO).update({ planTier: "pro_tier1", ...(ORIG_CAPS || { employeeCap: 15, totalEmployeeCap: 20 }), subscriptionStatus: "active" });
   await co(CORE).update({ planTier: "core2_tier1" });
 }
 

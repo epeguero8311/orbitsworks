@@ -27,6 +27,22 @@ async function employee(companyId, id, data) {
   if (!(await ref.get()).exists) await ref.set({ active: true, assignedSiteIds: [], hourlyRate: 20, createdAt: FieldValue.serverTimestamp(), ...data });
 }
 
+// emp-core-plain: active, PIN, on Core Site, no login. Created once with a
+// free PIN reserved in companies/{CORE}/pins (never touched again, so a
+// test that links it to a login isn't undone by a rerun).
+async function corePlainRow() {
+  const co = db.collection("companies").doc(CORE);
+  const ref = co.collection("employees").doc("emp-core-plain");
+  if ((await ref.get()).exists) return;
+  let pin = null;
+  for (const candidate of ["6274", "5813", "7392", "8461", "9135"]) {
+    if (!(await co.collection("pins").doc(candidate).get()).exists) { pin = candidate; break; }
+  }
+  if (!pin) throw new Error("no free PIN for emp-core-plain");
+  await co.collection("pins").doc(pin).set({ employeeId: "emp-core-plain", updatedAt: FieldValue.serverTimestamp() });
+  await ref.set({ name: "JC Core Plain", active: true, assignedSiteIds: ["site-core"], hourlyRate: 20, pin, subcontractorId: null, subcontractorName: null, createdAt: FieldValue.serverTimestamp() });
+}
+
 async function login(key, role, companyId, extraClaims = {}) {
   const email = `${key}@orbitworks-dev-test.invalid`;
   if (!creds[key]) creds[key] = { email, password: crypto.randomBytes(12).toString("base64url") };
@@ -55,9 +71,15 @@ async function login(key, role, companyId, extraClaims = {}) {
   await employee(PRO, "emp-worker", { name: "JC Worker", appAccess: true, joinedVia: "admin" });
   await employee(PRO, "emp-plain", { name: "JC Plain" });
 
+  // Phase 3B (email invites) on Core: a subcontractor for the sign-up
+  // dropdown, and a plain PIN-only row (no login) for "Invite to app".
+  await db.collection("companies").doc(CORE).collection("subcontractors").doc("sub-core-acme").set({ name: "Core Acme Labor", contactName: "", email: "", phone: "", address: "", active: true, createdAt: FieldValue.serverTimestamp() }, { merge: true });
+  await corePlainRow();
+
   await login("jc-pro-admin", "admin", PRO);
   await login("jc-pro-owner", "owner", PRO);
   await login("jc-core-admin", "admin", CORE);
+  await login("jc-core-owner", "owner", CORE);
   const supUid = await login("jc-pro-supervisor", "supervisor", PRO, { employeeId: "emp-sup" });
   const empUid = await login("jc-pro-employee", "employee", PRO, { employeeId: "emp-worker" });
   await db.collection("companies").doc(PRO).collection("employees").doc("emp-sup").update({ linkedUserId: supUid });
