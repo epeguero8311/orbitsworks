@@ -15,7 +15,8 @@ const SAVE_FAILED = "Couldn't save this punch on the phone. Try again.";
 //   -> photo -> saved on the phone -> green confirmation at once. The phone's
 //   queue (punchQueueSync.js) sends it straight away when online.
 //   step: "pin" | "camera" | "checking" | "done" | "retry" | "failed"
-//   (+ "sending" for Redo)
+//   (+ "sending" for Redo). result set = the green overlay shows; the step
+//   moves to "done" only once it is opaque (overlayShown).
 // PIN check, in the background:
 //   - right PIN: the punch is saved; the server checks the PIN again when
 //     the punch arrives (the early check can't be used to skip it)
@@ -133,8 +134,9 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
         ]);
         timer.finish(checked ? "saved" : "saved, PIN at sync");
         const showNote = !checked || !online || isWeakSignal();
+        // The green overlay shows now; the step under it stays as it is
+        // (the photo) until the overlay is opaque - see overlayShown.
         setResult({ type: action, timestampMs: queuedAtMs, siteName: expectedSite || "", queued: showNote });
-        setStep("done");
       } catch {
         setError(SAVE_FAILED);
         setRetryWhat("punch");
@@ -146,8 +148,12 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
 
   // Photo taken: wait for the PIN answer if it isn't in yet (3 s cap from
   // the PIN), then save - or back to the PIN on a wrong one.
+  const submittingRef = useRef(false);
   const submitPhoto = useCallback(
     async (uri) => {
+      // A second "Use photo" tap before the overlay is up does nothing.
+      if (submittingRef.current) return;
+      submittingRef.current = true;
       timer.mark("photoTaken");
       timer.notePhoto(uri);
       setPhotoUri(uri);
@@ -157,10 +163,13 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
       if (check && !check.result) setStep("checking");
       const r = check ? check.result || (await check.run) : { state: "unchecked" };
       if (r.state === "failed") {
+        submittingRef.current = false;
         await fail(r.err, "check");
         return;
       }
       await save(pin, uri, r.state === "ok");
+      // Saved: the overlay is up. Not saved: "Try again" saves again.
+      submittingRef.current = false;
     },
     [pin, save, fail, timer]
   );
@@ -185,7 +194,6 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
           siteName: item ? item.siteName : "",
           queued,
         });
-        setStep("done");
       } catch {
         setError(SAVE_FAILED);
         setRetryWhat("check");
@@ -254,5 +262,9 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
     setStep("camera");
   }, [redoId, retryWhat, pin, photoUri, verifyRedo, save, startCheck]);
 
-  return { step, pin, photoUri, error, lockedUntil, result, pressDigit, deleteDigit, submitPhoto, retry };
+  // The green overlay fully covers the screen: only now does the screen
+  // under it change (camera released), so nothing shows through the fade.
+  const overlayShown = useCallback(() => setStep("done"), []);
+
+  return { step, pin, photoUri, error, lockedUntil, result, pressDigit, deleteDigit, submitPhoto, retry, overlayShown };
 }

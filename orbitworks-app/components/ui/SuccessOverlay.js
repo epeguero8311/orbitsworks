@@ -1,9 +1,11 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Modal, View, Text, Image, Pressable, StyleSheet, useWindowDimensions } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { lightColors as colors, radii, spacing, fontSizes } from "../../lib/theme";
 
 const AUTO_CLOSE_MS = 3000;
+// The Modal's fade-in, rounded up (iOS ~0.3 s, Android a little less).
+const FADE_MS = 350;
 
 // Full-screen green success message (clock in/out, break start/end): check
 // mark, title, time, site and an optional photo thumbnail. Closes on any
@@ -15,16 +17,53 @@ const AUTO_CLOSE_MS = 3000;
 // status bar, tab bar and system bars included - wherever it's rendered.
 // Sizing it with absoluteFill inside a screen only covers that screen's
 // content area, which is what left gaps before.
-export default function SuccessOverlay({ visible = true, title, timeLabel, siteName, note, photoUri, onClose }) {
+//
+// onShown: called once the fade-in is over and the green fully covers the
+// screen - the later of the Modal's onShow and FADE_MS (fallback 2x FADE_MS
+// if onShow never fires). The screen underneath must not change before
+// then, or it shows through the fade (same rule as the supervisor app's
+// ClockConfirmScreen, which covers first and changes nothing underneath).
+export default function SuccessOverlay({ visible = true, title, timeLabel, siteName, note, photoUri, onClose, onShown }) {
   // Explicit window size as well as flex, so the green can never shrink to
   // its content even if the Modal's own container comes up short.
   const { width, height } = useWindowDimensions();
+  const startRef = useRef(0);
+  const firedRef = useRef(false);
+  const onShownRef = useRef(onShown);
+  const timersRef = useRef([]);
+
+  useEffect(() => {
+    onShownRef.current = onShown;
+  }, [onShown]);
+
+  const fire = useCallback(() => {
+    if (firedRef.current) return;
+    firedRef.current = true;
+    if (onShownRef.current) onShownRef.current();
+  }, []);
 
   useEffect(() => {
     if (!visible) return undefined;
     const timer = setTimeout(onClose, AUTO_CLOSE_MS);
     return () => clearTimeout(timer);
   }, [visible, onClose]);
+
+  useEffect(() => {
+    if (!visible) return undefined;
+    startRef.current = Date.now();
+    firedRef.current = false;
+    const timers = timersRef.current;
+    timers.push(setTimeout(fire, FADE_MS * 2));
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.length = 0;
+    };
+  }, [visible, fire]);
+
+  const handleShow = useCallback(() => {
+    const left = Math.max(0, FADE_MS - (Date.now() - startRef.current));
+    timersRef.current.push(setTimeout(fire, left));
+  }, [fire]);
 
   return (
     <Modal
@@ -33,6 +72,7 @@ export default function SuccessOverlay({ visible = true, title, timeLabel, siteN
       animationType="fade"
       statusBarTranslucent
       navigationBarTranslucent
+      onShow={handleShow}
       onRequestClose={onClose}
     >
       <StatusBar style="light" />

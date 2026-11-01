@@ -54,20 +54,38 @@ export default function ClockPunchScreen({ route, navigation }) {
   const lockSeconds = flow.lockedUntil > now ? Math.ceil((flow.lockedUntil - now) / 1000) : 0;
   const close = useCallback(() => navigation.goBack(), [navigation]);
 
+  // The green overlay shows as soon as the punch is saved. Whatever was on
+  // screen (the photo preview, or "Checking PIN...") stays under it until
+  // it is opaque (flow.overlayShown -> step "done"), so nothing changes
+  // behind the fade. Always <>{body}{overlay}</>, so the camera isn't
+  // remounted when the overlay appears.
+  const overlay = flow.result ? (
+    <PunchConfirmation
+      title={DONE_TITLES[flow.result.type] ?? TITLES[action]}
+      timeLabel={formatClockTime(flow.result.timestampMs, timezone)}
+      siteName={siteLabel(flow.result.siteName)}
+      note={flow.result.queued ? WILL_SYNC_NOTE : null}
+      photoUri={flow.photoUri}
+      onClose={close}
+      onShown={flow.overlayShown}
+    />
+  ) : null;
+
   if (flow.step === "camera") {
-    return <PunchCamera onUse={flow.submitPhoto} onCancel={close} />;
+    return (
+      <>
+        <PunchCamera onUse={flow.submitPhoto} onCancel={close} />
+        {overlay}
+      </>
+    );
   }
 
-  if (flow.step === "done" && flow.result) {
+  if (flow.step === "done") {
     return (
-      <PunchConfirmation
-        title={DONE_TITLES[flow.result.type] ?? TITLES[action]}
-        timeLabel={formatClockTime(flow.result.timestampMs, timezone)}
-        siteName={siteLabel(flow.result.siteName)}
-        note={flow.result.queued ? WILL_SYNC_NOTE : null}
-        photoUri={flow.photoUri}
-        onClose={close}
-      />
+      <>
+        <View style={[styles.container, { backgroundColor: colors.background }]} />
+        {overlay}
+      </>
     );
   }
 
@@ -77,53 +95,56 @@ export default function ClockPunchScreen({ route, navigation }) {
   const sendingText = "Sending...";
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScreenHeader title={redoId ? `Redo ${TITLES[action]}` : TITLES[action]} onBack={flow.step === "sending" ? undefined : close} />
-      <ConnectionBanner style={styles.banner} />
-      <View style={styles.content}>
-        {flow.step === "sending" ? (
-          <View style={styles.center}>
-            <Spinner size={32} color={colors.accent} />
-            <Text style={[styles.sending, { color: colors.subtext }]}>{sendingText}</Text>
-          </View>
-        ) : null}
+    <>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <ScreenHeader title={redoId ? `Redo ${TITLES[action]}` : TITLES[action]} onBack={flow.step === "sending" ? undefined : close} />
+        <ConnectionBanner style={styles.banner} />
+        <View style={styles.content}>
+          {flow.step === "sending" ? (
+            <View style={styles.center}>
+              <Spinner size={32} color={colors.accent} />
+              <Text style={[styles.sending, { color: colors.subtext }]}>{sendingText}</Text>
+            </View>
+          ) : null}
 
-        {flow.step === "checking" ? (
-          <View style={styles.center}>
-            <Spinner size={32} color={colors.accent} />
-            <Text style={[styles.sending, { color: colors.subtext }]}>Checking PIN...</Text>
-          </View>
-        ) : null}
+          {flow.step === "checking" ? (
+            <View style={styles.center}>
+              <Spinner size={32} color={colors.accent} />
+              <Text style={[styles.sending, { color: colors.subtext }]}>Checking PIN...</Text>
+            </View>
+          ) : null}
 
-        {flow.step === "pin" ? (
-          <>
-            {company ? (
-              <View style={[styles.companyPill, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Building2Icon size={13} color={colors.accent} />
-                <Text style={[styles.companyPillText, { color: colors.accent }]} numberOfLines={1}>
-                  {company}
-                </Text>
-              </View>
-            ) : null}
-            <Text style={[styles.title, { color: colors.text }]}>{redoId ? "Type your PIN again" : "Enter your PIN"}</Text>
-            <PinPad length={flow.pin.length} onDigit={flow.pressDigit} onDelete={flow.deleteDigit} disabled={lockSeconds > 0} />
-          </>
-        ) : null}
+          {flow.step === "pin" ? (
+            <>
+              {company ? (
+                <View style={[styles.companyPill, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Building2Icon size={13} color={colors.accent} />
+                  <Text style={[styles.companyPillText, { color: colors.accent }]} numberOfLines={1}>
+                    {company}
+                  </Text>
+                </View>
+              ) : null}
+              <Text style={[styles.title, { color: colors.text }]}>{redoId ? "Type your PIN again" : "Enter your PIN"}</Text>
+              <PinPad length={flow.pin.length} onDigit={flow.pressDigit} onDelete={flow.deleteDigit} disabled={lockSeconds > 0} />
+            </>
+          ) : null}
 
-        {message && flow.step !== "sending" && flow.step !== "checking" ? <Text style={[styles.error, { color: colors.red }]}>{message}</Text> : null}
+          {message && flow.step !== "sending" && flow.step !== "checking" ? <Text style={[styles.error, { color: colors.red }]}>{message}</Text> : null}
 
-        {flow.step === "retry" ? (
-          <TouchableOpacity style={[styles.button, { backgroundColor: colors.accent }]} onPress={flow.retry}>
-            <Text style={styles.buttonText}>Try again</Text>
-          </TouchableOpacity>
-        ) : null}
-        {flow.step === "failed" || flow.step === "retry" ? (
-          <TouchableOpacity style={styles.link} onPress={close}>
-            <Text style={[styles.linkText, { color: colors.accent }]}>{redoId ? "Back" : "Back to Home"}</Text>
-          </TouchableOpacity>
-        ) : null}
+          {flow.step === "retry" ? (
+            <TouchableOpacity style={[styles.button, { backgroundColor: colors.accent }]} onPress={flow.retry}>
+              <Text style={styles.buttonText}>Try again</Text>
+            </TouchableOpacity>
+          ) : null}
+          {flow.step === "failed" || flow.step === "retry" ? (
+            <TouchableOpacity style={styles.link} onPress={close}>
+              <Text style={[styles.linkText, { color: colors.accent }]}>{redoId ? "Back" : "Back to Home"}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
-    </View>
+      {overlay}
+    </>
   );
 }
 

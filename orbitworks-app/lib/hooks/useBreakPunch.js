@@ -33,8 +33,11 @@ export function useBreakPunch({ companyId, employeeId, lastEventMs, siteName }) 
     setError("");
   }, []);
 
+  // Resolves true once the break is saved (the green overlay then shows).
+  // The confirm box stays up under the overlay until it is opaque
+  // (overlayShown), so nothing changes behind the fade.
   const confirm = useCallback(async () => {
-    if (!pending || !requestId) return;
+    if (!pending || !requestId || sending || result) return false;
     const action = pending;
     setSending(true);
     setError("");
@@ -49,17 +52,25 @@ export function useBreakPunch({ companyId, employeeId, lastEventMs, siteName }) 
         isOnline(),
       ]);
       timer.finish("saved");
-      setPending(null);
       setResult({ type: action, timestampMs: queuedAtMs, siteName: siteName || "", queued: !online || isWeakSignal() });
+      return true;
     } catch {
       timer.finish("saveFailed");
       setError(SAVE_FAILED);
+      return false;
     } finally {
       setSending(false);
     }
-  }, [pending, requestId, lastEventMs, companyId, employeeId, siteName]);
+  }, [pending, requestId, sending, result, lastEventMs, companyId, employeeId, siteName]);
 
-  const clearResult = useCallback(() => setResult(null), []);
+  // The overlay is opaque: close the confirm box behind it.
+  const overlayShown = useCallback(() => setPending(null), []);
 
-  return { pending, sending, error, result, ask, cancel, confirm, clearResult };
+  // Overlay closed (tap or 3 s) - also before it was fully shown.
+  const clearResult = useCallback(() => {
+    setResult(null);
+    setPending(null);
+  }, []);
+
+  return { pending, sending, error, result, ask, cancel, confirm, clearResult, overlayShown };
 }

@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { View, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../lib/AuthContext";
@@ -101,6 +101,31 @@ export default function EmployeeHomeScreen({ navigation }) {
     [navigation, breakPunch, homeSite, home.shiftSiteName, lastMs]
   );
 
+  // Break success: Home keeps showing what it showed at the confirm tap
+  // until the green overlay is opaque, so the new status never shows
+  // through the fade (the confirm box also stays up until then - see
+  // useBreakPunch). Released when the overlay is shown or closed, or if
+  // saving failed.
+  const [held, setHeld] = useState(null);
+  const shown = held || { home, hours };
+  const onConfirmBreak = async () => {
+    if (held) return;
+    setHeld({ home, hours });
+    const ok = await breakPunch.confirm();
+    if (!ok) setHeld(null);
+  };
+  // Stable (the overlay's 3 s auto-close restarts if onClose changes, and
+  // Home re-renders every second while a timer runs).
+  const { overlayShown, clearResult } = breakPunch;
+  const onOverlayShown = useCallback(() => {
+    overlayShown();
+    setHeld(null);
+  }, [overlayShown]);
+  const onOverlayClose = useCallback(() => {
+    clearResult();
+    setHeld(null);
+  }, [clearResult]);
+
   if (loading || !events.loaded) {
     return (
       <View style={styles.center}>
@@ -122,19 +147,19 @@ export default function EmployeeHomeScreen({ navigation }) {
         />
         <View style={styles.gapLarge} />
         <StatusCard
-          homeState={home}
+          homeState={shown.home}
           nowMs={now}
-          startedLabel={home.shiftInMs ? formatClockTime(home.shiftInMs, timezone) : null}
+          startedLabel={shown.home.shiftInMs ? formatClockTime(shown.home.shiftInMs, timezone) : null}
           maxBreakMinutes={breakSettings?.maxBreakMinutes}
         />
         <View style={styles.gap} />
         {active ? (
-          <ClockButtons buttons={buttonsFor(home.status, active)} onPress={onPress} disabled={breakPunch.sending} />
+          <ClockButtons buttons={buttonsFor(shown.home.status, active)} onPress={onPress} disabled={breakPunch.sending || !!held} />
         ) : (
           <InactiveNotice />
         )}
         <View style={styles.gap} />
-        <HoursSummary todayMs={hours.todayMs} weekMs={hours.weekMs} />
+        <HoursSummary todayMs={shown.hours.todayMs} weekMs={shown.hours.weekMs} />
       </ScrollView>
 
       <ConfirmModal
@@ -143,8 +168,8 @@ export default function EmployeeHomeScreen({ navigation }) {
         confirmLabel={BREAK_LABELS[breakPunch.pending] ?? "OK"}
         confirmTone="orange"
         error={breakPunch.error}
-        busy={breakPunch.sending}
-        onConfirm={breakPunch.confirm}
+        busy={breakPunch.sending || !!done}
+        onConfirm={onConfirmBreak}
         onCancel={breakPunch.cancel}
       />
       {done ? (
@@ -153,7 +178,8 @@ export default function EmployeeHomeScreen({ navigation }) {
           timeLabel={formatClockTime(done.timestampMs, timezone)}
           siteName={siteLabel(done.siteName)}
           note={done.queued ? WILL_SYNC_NOTE : null}
-          onClose={breakPunch.clearResult}
+          onClose={onOverlayClose}
+          onShown={onOverlayShown}
         />
       ) : null}
     </View>
