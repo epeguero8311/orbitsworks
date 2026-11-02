@@ -5,7 +5,7 @@ import { Feather } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "../lib/firebase";
-import { clearPendingJoinToken, getPendingJoinToken, subscribePendingJoin } from "../lib/pendingJoin";
+import { clearPendingJoinToken, getPendingJoinKind, getPendingJoinToken, subscribePendingJoin } from "../lib/pendingJoin";
 import { useJoinInfo } from "../lib/hooks/useJoinInfo";
 import { useJoinSubmit } from "../lib/hooks/useJoinSubmit";
 import { validateEmail, validateFullName } from "../lib/validators/joinSignup";
@@ -19,8 +19,12 @@ import JoinDetailsStep from "./join/JoinDetailsStep";
 import JoinWelcomeStep from "./join/JoinWelcomeStep";
 import { joinStyles as s, BLUE } from "./join/joinStyles";
 
-// Crew code sign-up. Reached from a scan (in-app scanner or phone camera
-// link); the token is read from lib/pendingJoin.js (memory only).
+// Sign-up for a crew code (kind "qr": in-app scanner or phone camera link)
+// or an email invite (kind "invite", Phase 3B: the /i/ link in the email).
+// The token and kind are read from lib/pendingJoin.js (memory only). Both
+// kinds use these same steps; only the calls and wording differ. On an
+// invite only the company is preset, the subcontractor dropdown starts on
+// the company, and the email must be the invited one (checked server-side).
 //
 // One screen runs every step in its own state - no nav params - so the
 // password, birthday, selfie and PIN never land in navigation state or
@@ -37,7 +41,7 @@ import { joinStyles as s, BLUE } from "./join/joinStyles";
 // Welcome screen) stays mounted until Done's sign-in.
 const SCRUB_KEYS = ["email", "password", "birthday", "doneEmail", "donePassword"];
 
-const EMPTY_FORM = {
+const EMPTY_FORM = Object.freeze({
   fullName: "",
   email: "",
   password: "",
@@ -48,7 +52,14 @@ const EMPTY_FORM = {
   subcontractorId: undefined,
   birthday: { mm: "", dd: "", yyyy: "" },
   selfie: null, // { uri, base64 }
-};
+});
+
+// Invite: the dropdown starts on the company (null) instead of unpicked.
+function emptyForm(kind) {
+  return kind === "invite" ? { ...EMPTY_FORM, subcontractorId: null } : EMPTY_FORM;
+}
+
+const INVITE_EMAIL_HINT = "Use the email address your invite was sent to.";
 
 function deleteLocalPhoto(selfie) {
   if (selfie && selfie.uri) FileSystem.deleteAsync(selfie.uri, { idempotent: true }).catch(() => {});
@@ -56,11 +67,14 @@ function deleteLocalPhoto(selfie) {
 
 export default function JoinStartScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const [token, setToken] = useState(getPendingJoinToken());
-  const { phase, info, reload, markInactive } = useJoinInfo(token);
-  const { sending, submit } = useJoinSubmit();
+  // Token and kind change together (setPendingJoinToken sets both before
+  // telling listeners), so they're kept as one value.
+  const [link, setLink] = useState(() => ({ token: getPendingJoinToken(), kind: getPendingJoinKind() }));
+  const { token, kind } = link;
+  const { phase, info, reload, markInactive } = useJoinInfo(token, kind);
+  const { sending, submit } = useJoinSubmit(kind);
   const [step, setStep] = useState("account");
-  const [form, setForm] = useState(EMPTY_FORM);
+  const [form, setForm] = useState(() => emptyForm(kind));
   const [notice, setNotice] = useState(null);
   const [emailError, setEmailError] = useState(null);
   const [submitError, setSubmitError] = useState(null);
@@ -72,7 +86,7 @@ export default function JoinStartScreen({ navigation }) {
   const cancelHomeWatch = useRef(null);
   const [signingIn, setSigningIn] = useState(false);
 
-  useEffect(() => subscribePendingJoin(setToken), []);
+  useEffect(() => subscribePendingJoin((t) => setLink({ token: t, kind: getPendingJoinKind() })), []);
 
   const update = useCallback((patch) => {
     setForm((f) => ({ ...f, ...patch }));
@@ -207,7 +221,7 @@ export default function JoinStartScreen({ navigation }) {
       credsRef.current = { email: email.value, password: form.password };
       setScrubValue("doneEmail", email.value);
       setScrubValue("donePassword", form.password);
-      setForm(EMPTY_FORM);
+      setForm(emptyForm(kind));
       setResult({ pin: res.pin, companyName: res.companyName || info.companyName });
       setStep("welcome");
       return;
@@ -263,8 +277,8 @@ export default function JoinStartScreen({ navigation }) {
       </View>
     );
   }
-  if (!token) return <JoinStatusView phase="inactive" onExit={exit} />;
-  if (phase !== "active" || !info) return <JoinStatusView phase={phase} onRetry={reload} onExit={exit} />;
+  if (!token) return <JoinStatusView phase="inactive" onExit={exit} source={kind} />;
+  if (phase !== "active" || !info) return <JoinStatusView phase={phase} onRetry={reload} onExit={exit} source={kind} />;
   if (step === "camera") return <SelfieCamera onCaptured={onCaptured} onCancel={() => setStep("details")} />;
 
   const isAccount = step === "account";
@@ -290,6 +304,7 @@ export default function JoinStartScreen({ navigation }) {
             onToggleConsent={toggleConsent}
             notice={notice}
             emailError={emailError}
+            emailHint={kind === "invite" ? INVITE_EMAIL_HINT : null}
             onContinue={() => {
               setNotice(null);
               setStep("details");

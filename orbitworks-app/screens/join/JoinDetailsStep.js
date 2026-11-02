@@ -9,7 +9,9 @@ import { joinStyles as s, BLUE } from "./joinStyles";
 
 // Screen 2: who you work for, birthday, live selfie, then Submit.
 // The dropdown only shows when the code lists subcontractors; otherwise the
-// person joins the company itself (subcontractorId null).
+// person joins the company itself (subcontractorId null). The invite flow
+// starts the dropdown on the company (subcontractorId null in the form);
+// the crew code flow starts unpicked (undefined) so they must choose.
 export default function JoinDetailsStep({ info, form, update, onOpenCamera, onSubmit, sending, submitError }) {
   const [errors, setErrors] = useState({});
   const hasSubs = info.subcontractors.length > 0;
@@ -50,7 +52,7 @@ export default function JoinDetailsStep({ info, form, update, onOpenCamera, onSu
       {errors.birthday ? <Text style={s.fieldError}>{errors.birthday}</Text> : null}
 
       <Text style={s.label}>Selfie</Text>
-      <Text style={[s.hint, { marginTop: 0, marginBottom: 10 }]}>Used to check it's you when you clock in.</Text>
+      <Text style={[s.hint, { marginTop: 0, marginBottom: 10 }]}>{"Used to check it's you when you clock in."}</Text>
       {form.selfie ? (
         <View style={styles.previewRow}>
           <Image source={{ uri: form.selfie.uri }} style={styles.preview} />

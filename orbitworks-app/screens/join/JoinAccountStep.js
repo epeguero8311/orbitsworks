@@ -9,7 +9,9 @@ import { joinStyles as s } from "./joinStyles";
 // unchecked and both are required. A box counts as checked only for the
 // exact version that was on screen when it was ticked (see JoinStartScreen),
 // so new consent text from the server un-ticks it.
-export default function JoinAccountStep({ info, form, update, privacyChecked, biometricChecked, onToggleConsent, notice, emailError, onContinue }) {
+// emailHint: extra line under Email (the invite flow: it must be the
+// address the invite was sent to; the server checks it).
+export default function JoinAccountStep({ info, form, update, privacyChecked, biometricChecked, onToggleConsent, notice, emailError, onContinue, emailHint = null }) {
   const [errors, setErrors] = useState({});
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
@@ -72,7 +74,7 @@ export default function JoinAccountStep({ info, form, update, privacyChecked, bi
         returnKeyType="next"
         onSubmitEditing={() => passwordRef.current?.focus()}
       />
-      {shownEmailError ? <Text style={s.fieldError}>{shownEmailError}</Text> : null}
+      {shownEmailError ? <Text style={s.fieldError}>{shownEmailError}</Text> : emailHint ? <Text style={s.hint}>{emailHint}</Text> : null}
 
       <Text style={s.label}>Password</Text>
       <TextInput

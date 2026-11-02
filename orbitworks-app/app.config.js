@@ -49,7 +49,11 @@ function devOverrides(config) {
         {
           action: "VIEW",
           autoVerify: true,
-          data: [{ scheme: "https", host, pathPrefix: "/j/" }],
+          // /j/ = crew code (QR), /i/ = email invite (Phase 3B).
+          data: [
+            { scheme: "https", host, pathPrefix: "/j/" },
+            { scheme: "https", host, pathPrefix: "/i/" },
+          ],
           category: ["BROWSABLE", "DEFAULT"],
         },
       ],
