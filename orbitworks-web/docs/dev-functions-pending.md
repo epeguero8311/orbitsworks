@@ -237,6 +237,12 @@ Phase 3 Step 6 (shrunk to this):
   jc-test-pro-dev: GZ3DKAhivqjkAw04Md9T has no punches; the real one is
   KfLB8nDz8lseZIhHEDch. Find how the duplicate got created. Don't delete it
   until then.
+- **Android assetlinks.json** (found 2026-11-01, Phase 3B step 7). The
+  site serves no /.well-known/assetlinks.json, so on Android the https
+  sign-up links (/j/ crew codes and /i/ email invites) open in the browser
+  instead of the app, even though app.config.js has autoVerify intent
+  filters for both. The page's "Open in the app" button still works. Add
+  it (dev and prod package + signing cert fingerprints) before release.
 
 ## Phase 5 to-do (Hours)
 
