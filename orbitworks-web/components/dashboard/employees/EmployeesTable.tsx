@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { Employee, JobSite, Job, Subcontractor } from "@/lib/types";
+import type { Employee, EmployeeInvite, JobSite, Job, Subcontractor } from "@/lib/types";
 import { UpgradeToast } from "@/components/UpgradeToast";
 import { EmployeeRoleTag } from "@/components/dashboard/employees/EmployeeRoleTag";
+import { EmployeeInviteStatusPill } from "@/components/dashboard/employees/EmployeeInviteStatusPill";
 
 // Falls back to an initial instead of the browser's broken-image icon
 // when photoUrl points at a Storage object that is missing, empty, or
@@ -45,6 +46,7 @@ export function EmployeesTable({
   // Leaving it undefined suppresses the "/ max" suffix so nothing breaks
   // in the meantime.
   employeeLimit,
+  invitesByEmployee,
 }: {
   employees: Employee[];
   sites: JobSite[];
@@ -55,6 +57,8 @@ export function EmployeesTable({
   onSelect: (employee: Employee) => void;
   onToggleActive: (employeeId: string, active: boolean) => Promise<void>;
   employeeLimit?: number;
+  // Phase 3B: each row's latest Employee App invite (status pill).
+  invitesByEmployee?: Map<string, EmployeeInvite>;
 }) {
   const [showUpgradeToast, setShowUpgradeToast] = useState(false);
   const [showPastDueToast, setShowPastDueToast] = useState(false);
@@ -217,6 +221,7 @@ export function EmployeesTable({
                       <EmployeeAvatar photoUrl={employee.photoUrl} name={employee.name} />
                       {employee.name}
                       <EmployeeRoleTag employee={employee} />
+                      {!employee.appAccess && <EmployeeInviteStatusPill invite={invitesByEmployee?.get(employee.id)} />}
                       {/* Face Verification (Pro) - "bad" takes priority
                           over "no pfp" since a bad pfp usually still has
                           a photoUrl set (it's bad because DetectFaces

@@ -23,6 +23,13 @@ export function employeeInviteLink(token: string, baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/i/${encodeURIComponent(token)}`;
 }
 
+// Which rows get "Invite to app" (decision J1) - same rule as
+// rowCanBeInvited in functions/src/lib/employeeInviteChecks.ts, which is
+// the real check. Rows with supervisor/admin access use those invites.
+export function rowCanBeInvited(row: { active?: boolean; linkedUserId?: string | null; appAccess?: boolean; isSupervisor?: boolean; isAdmin?: boolean }): boolean {
+  return row.active === true && !row.linkedUserId && !row.appAccess && !row.isSupervisor && !row.isAdmin;
+}
+
 // Live (blocks a new invite for the same person) = pending and not expired.
 export function isLiveInvite(invite: Pick<EmployeeInvite, "status" | "expiresAt">, nowMs: number = Date.now()): boolean {
   return inviteDisplayStatus(invite, nowMs) === "pending";
@@ -47,3 +54,7 @@ export function latestInviteByEmployee(invites: EmployeeInvite[], nowMs: number 
   }
   return out;
 }
+
+// Shown instead of the invite buttons on plans that can't send them. Same
+// wording as the server's refusal.
+export const INVITE_PLAN_MESSAGE = "Email invites need an active Core or Pro plan.";

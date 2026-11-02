@@ -6,7 +6,8 @@ import { EmployeeDetailsFields } from "@/components/dashboard/employees/Employee
 import { EmployeeSitesField } from "@/components/dashboard/employees/EmployeeSitesField";
 import { EmployeeCompanyField } from "@/components/dashboard/employees/EmployeeCompanyField";
 import { EmployeeDeleteSection } from "@/components/dashboard/employees/EmployeeDeleteSection";
-import type { Employee, JobSite, Job, Subcontractor } from "@/lib/types";
+import { EmployeeAppInviteSection, type EmployeeAppInviteApi } from "@/components/dashboard/employees/EmployeeAppInviteSection";
+import type { Employee, EmployeeInvite, JobSite, Job, Subcontractor } from "@/lib/types";
 
 export function EmployeeModal({
   employee,
@@ -16,6 +17,9 @@ export function EmployeeModal({
   companyName,
   companyId,
   onClose,
+  appInvite,
+  appInviteApi,
+  appInvitePlanOk,
 }: {
   employee: Employee;
   sites: JobSite[];
@@ -24,6 +28,10 @@ export function EmployeeModal({
   companyName: string;
   companyId: string;
   onClose: () => void;
+  // Phase 3B: this row's latest Employee App invite + the invite actions.
+  appInvite: EmployeeInvite | undefined;
+  appInviteApi: EmployeeAppInviteApi;
+  appInvitePlanOk: boolean | null;
 }) {
   const m = useEmployeeModal({ employee, jobs, subcontractors, companyName, companyId, onClose });
 
@@ -95,6 +103,8 @@ export function EmployeeModal({
           dob={m.dob}
           onDobChange={m.setDob}
         />
+
+        <EmployeeAppInviteSection employee={employee} invite={appInvite} api={appInviteApi} planOk={appInvitePlanOk} />
 
         <EmployeeSitesField
           sites={sites}

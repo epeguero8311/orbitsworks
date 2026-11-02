@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
-import { isProPlan } from "@/lib/stripe/tiers";
+import { isCoreOrProPlan, isProPlan } from "@/lib/stripe/tiers";
 import type { ExportSettings } from "@/lib/types";
 
 export type AttendanceRules = {
@@ -147,6 +147,9 @@ export function useCompanySettings() {
   const { userData } = useAuth();
   const [settings, setSettings] = useState<CompanySettings>(DEFAULT_SETTINGS);
   const [isPro, setIsPro] = useState(false);
+  // Email invites (Phase 3B): Core or Pro, not past_due. Same rule as the
+  // server's companyCanUseInvites; the server still enforces it.
+  const [canUseInvites, setCanUseInvites] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -155,6 +158,7 @@ export function useCompanySettings() {
     const unsubscribe = onSnapshot(companyRef, (snapshot) => {
       const data = snapshot.exists() ? snapshot.data() : {};
       setIsPro(isProPlan(data.planTier as string | undefined));
+      setCanUseInvites(isCoreOrProPlan(data.planTier as string | undefined) && data.subscriptionStatus !== "past_due");
       setSettings({
         name: data.name ?? null,
         logoUrl: data.logoUrl ?? null,
@@ -194,5 +198,5 @@ export function useCompanySettings() {
     return unsubscribe;
   }, [userData?.companyId]);
 
-  return { settings, isPro, loading };
+  return { settings, isPro, canUseInvites, loading };
 }
