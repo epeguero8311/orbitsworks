@@ -654,16 +654,21 @@ function employeeWriteEvent(c, before, after) {
   };
 }
 
-test("self view: copies only safe fields - never the PIN, rate, dob or email", async () => {
+test("self view: copies only safe fields plus email and dob - never the PIN, rate or face fields", async () => {
   const c = "ec-view";
-  await seed(c, { employee: { joinCodeId: "code-9", lastEventType: "in", lastEventSiteId: "site1", lastEventSiteName: "Site One" } });
+  const faceReference = { faceId: "face-123", photoUrl: "https://example.com/face.jpg" };
+  const rateHistory = [{ rate: 20, from: "2026-01-01" }];
+  await seed(c, { employee: { joinCodeId: "code-9", lastEventType: "in", lastEventSiteId: "site1", lastEventSiteName: "Site One", faceReference, rateHistory } });
   const emp = (await db.doc(`companies/${c}/employees/emp1`).get()).data();
   await funcs.syncEmployeeSelfView.run(employeeWriteEvent(c, undefined, emp));
   const view = (await db.doc(`companies/${c}/employeeSelfViews/emp1`).get()).data();
-  for (const banned of ["pin", "hourlyRate", "dob", "email", "faceReference", "rateHistory"]) {
+  for (const banned of ["pin", "hourlyRate", "faceReference", "rateHistory"]) {
     assert.equal(view[banned], undefined, banned);
   }
   assert.ok(!JSON.stringify(view).includes(PIN));
+  assert.ok(!JSON.stringify(view).includes("face-123"));
+  assert.equal(view.email, "ana@example.com");
+  assert.equal(view.dob, "1990-01-01");
   assert.equal(view.name, "Ana");
   assert.equal(view.active, true);
   assert.equal(view.linkedUserId, "uid1");
@@ -697,6 +702,25 @@ test("self view: updates on a real change, skips a PIN-only change, deleted with
   await empRef.delete();
   await funcs.syncEmployeeSelfView.run(employeeWriteEvent(c, emp, undefined));
   assert.equal((await viewRef.get()).exists, false);
+});
+
+test("self view: email and dob are null when missing, and an email-only change updates the view", async () => {
+  const c = "ec-view-contact";
+  await seed(c);
+  const empRef = db.doc(`companies/${c}/employees/emp1`);
+  const viewRef = db.doc(`companies/${c}/employeeSelfViews/emp1`);
+  await empRef.update({ email: admin.firestore.FieldValue.delete(), dob: "" });
+  const bare = (await empRef.get()).data();
+  await funcs.syncEmployeeSelfView.run(employeeWriteEvent(c, undefined, bare));
+  let view = (await viewRef.get()).data();
+  assert.equal(view.email, null);
+  assert.equal(view.dob, null);
+
+  await empRef.update({ email: "new@example.com", dob: "1991-02-03" });
+  await funcs.syncEmployeeSelfView.run(employeeWriteEvent(c, bare, { ...bare, email: "new@example.com", dob: "1991-02-03" }));
+  view = (await viewRef.get()).data();
+  assert.equal(view.email, "new@example.com");
+  assert.equal(view.dob, "1991-02-03");
 });
 
 test("self view: create and link events delivered out of order still end linked", async () => {

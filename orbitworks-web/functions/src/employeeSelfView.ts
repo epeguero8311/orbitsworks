@@ -9,7 +9,9 @@ import { db } from "./shared";
 // companies/{companyId}/employeeSelfViews/{employeeId} in sync with ONLY the
 // fields the employee's own app needs. It is an allowlist on purpose: a new
 // field on the employee doc never leaks here by accident. NEVER add the PIN,
-// hourly rate, dob, email, rate history or face fields.
+// hourly rate, rate history or face fields. email and dob were added in
+// Phase 5 for the employee's own Settings tab (only that employee's login
+// can read this doc).
 //
 // Re-runs on every employee doc write (admin edits, deactivation, and the
 // lastEvent* fields onClockEventCreated writes after every punch). Writes
@@ -35,6 +37,8 @@ export function buildEmployeeSelfView(employee: EmployeeData) {
   const lastTs = employee.lastEventTimestamp instanceof admin.firestore.Timestamp ? employee.lastEventTimestamp : null;
   return {
     name: typeof employee.name === "string" ? employee.name : "",
+    email: strOrNull(employee.email),
+    dob: strOrNull(employee.dob),
     photoUrl: strOrNull(employee.photoUrl),
     active: employee.active === true,
     assignedSiteIds: assigned,
