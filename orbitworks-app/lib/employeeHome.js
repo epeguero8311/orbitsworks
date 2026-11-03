@@ -173,43 +173,71 @@ function applyAutoBreak(grossMs, realBreakMs, hasClockOut, automaticBreakMinutes
   return { breakMs, netMs: grossMs - breakMs };
 }
 
+// The shifts in a list of events, oldest first (Home's hours and the
+// History tab both use this, so they always agree). A shift starts at each
+// clock-in and closes at the next clock-out. A clock-in followed by another
+// clock-in (or nothing) stays open. Real break time = each breakStart to
+// its breakEnd inside the shift; a break never ended doesn't count as
+// break. A closed shift's netMs = length minus real breaks minus the auto
+// break. Punches before any clock-in are "orphans" (not in any shift).
+//   -> { shifts: [{ inEvent, events, inMs, outMs, closed, shiftMs, breakMs, netMs }], orphans }
+function walkShifts(events, breaks) {
+  const autoMin = Number(breaks && breaks.automaticBreakMinutes) || 0;
+  const minShift = Number(breaks && breaks.minimumShiftHours) || 0;
+  const shifts = [];
+  const orphans = [];
+  let current = null;
+  let openBreakStart = null;
+  for (const event of sortEvents(events)) {
+    const ts = effectiveMs(event);
+    if (event.type === "in") {
+      current = { inEvent: event, events: [event], inMs: ts, outMs: null, closed: false, shiftMs: 0, breakMs: 0, netMs: 0 };
+      shifts.push(current);
+      openBreakStart = null;
+      continue;
+    }
+    if (!current) {
+      orphans.push(event);
+      continue;
+    }
+    current.events.push(event);
+    if (event.type === "breakStart") {
+      if (openBreakStart == null) openBreakStart = ts;
+    } else if (event.type === "breakEnd") {
+      if (openBreakStart != null) {
+        if (ts - openBreakStart > 0) current.breakMs += ts - openBreakStart;
+        openBreakStart = null;
+      }
+    } else if (event.type === "out") {
+      const duration = ts - current.inMs;
+      current.outMs = ts;
+      current.closed = true;
+      if (duration > 0) {
+        const { breakMs, netMs } = applyAutoBreak(duration, current.breakMs, true, autoMin, minShift);
+        current.shiftMs = duration;
+        current.breakMs = breakMs;
+        current.netMs = netMs;
+      } else {
+        current.breakMs = 0;
+      }
+      current = null;
+      openBreakStart = null;
+    }
+  }
+  return { shifts, orphans };
+}
+
 // Today's and this week's hours from CLOSED shifts only, each counted on its
 // clock-in day: shift length minus real breaks minus the auto break.
 function computeHours(events, nowMs, timeZone, breaks) {
-  const autoMin = Number(breaks && breaks.automaticBreakMinutes) || 0;
-  const minShift = Number(breaks && breaks.minimumShiftHours) || 0;
   const today = dayKey(nowMs, timeZone);
   const week = weekKey(nowMs, timeZone);
   let todayMs = 0;
   let weekMs = 0;
-
-  let pendingIn = null;
-  let openBreakStart = null;
-  let breakMs = 0;
-  for (const event of sortEvents(events)) {
-    const ts = effectiveMs(event);
-    if (event.type === "in") {
-      pendingIn = ts;
-      openBreakStart = null;
-      breakMs = 0;
-    } else if (event.type === "breakStart") {
-      if (pendingIn != null && openBreakStart == null) openBreakStart = ts;
-    } else if (event.type === "breakEnd") {
-      if (openBreakStart != null) {
-        if (ts - openBreakStart > 0) breakMs += ts - openBreakStart;
-        openBreakStart = null;
-      }
-    } else if (event.type === "out" && pendingIn != null) {
-      const duration = ts - pendingIn;
-      if (duration > 0) {
-        const { netMs } = applyAutoBreak(duration, breakMs, true, autoMin, minShift);
-        if (weekKey(pendingIn, timeZone) === week) weekMs += netMs;
-        if (dayKey(pendingIn, timeZone) === today) todayMs += netMs;
-      }
-      pendingIn = null;
-      openBreakStart = null;
-      breakMs = 0;
-    }
+  for (const shift of walkShifts(events, breaks).shifts) {
+    if (!shift.closed) continue;
+    if (weekKey(shift.inMs, timeZone) === week) weekMs += shift.netMs;
+    if (dayKey(shift.inMs, timeZone) === today) todayMs += shift.netMs;
   }
   return { todayMs, weekMs };
 }
@@ -323,6 +351,7 @@ module.exports = {
   deriveHomeState,
   buttonsFor,
   applyAutoBreak,
+  walkShifts,
   computeHours,
   formatTimer,
   formatTimerDigits,

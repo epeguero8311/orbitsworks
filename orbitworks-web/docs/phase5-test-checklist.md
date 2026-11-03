@@ -23,6 +23,9 @@ tests are added as each layer lands.
 |---|---|---|---|
 | D1 | Done when: a comment typed offline shows next to the right shift on the dev website after sync | | |
 | C1 | Offline clock-in, offline comment, offline clock-out, then online: all three sync, comment next to that shift | | |
+| H1 | History: this week Monday to today, hours match Home, day off shows 0m / No activity | | |
+| H2 | History day: every punch and break; In progress today; Missing clock-out in orange | | |
+| H3 | History tags: Will sync (offline punch), Synced late (synced 5+ min late) | | |
 
 ---
 
@@ -51,3 +54,28 @@ tests are added as each layer lands.
   - The clock-in and clock-out events exist (`queued: true`), in that order.
   - Exactly one `shiftNotes` doc for the comment (doc id = the comment's id), `clockEventId` = the clock-in's id, `madeAtMs` between the clock-in and clock-out times.
   - The comment shows next to that shift on the dev website.
+
+## H1. History: this week
+
+- **Tap:** History tab, any day this week after a few shifts.
+- **You should see:**
+  - One row per day from Monday to today, today on top. A day off shows 0m and "No activity".
+  - Today's hours and the week's total match Home's hours (closed shifts only, auto break included).
+- **I check:** the clock events for this week add up to the hours shown.
+
+## H2. History: one day
+
+- **Tap:**
+  1. Clock in today, start and end a break. Open History, tap Today.
+  2. On a test day with a clock-in and no clock-out (an admin can set one up on the dev website), tap that day.
+- **You should see:**
+  - Today: every punch and break in order, then "In progress".
+  - The other day: its punches, then "Missing clock-out" in orange, and 0m for that shift.
+
+## H3. History: sync tags
+
+- **Tap:**
+  1. Airplane mode on. Start a break. Open History, Today.
+  2. Wait 5+ minutes, airplane mode off, let it sync. Open History, Today again.
+- **You should see:** the break start is tagged "Will sync" while offline, then "Synced late" after it syncs.
+- **I check:** that event has `queued: true` and `syncedLate: true`.

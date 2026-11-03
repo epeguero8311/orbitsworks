@@ -267,6 +267,8 @@ function foldQueuedEvents(serverEvents, items, companyId, employeeId, nowMs) {
       siteName: i.siteName || "",
       queued: true,
       localStatus: i.status,
+      // History tags a punch that failed for good "Not synced" (Phase 5).
+      localFailKind: i.failKind || null,
     }));
   if (extra.length === 0) return serverEvents;
   return [...serverEvents, ...extra];
