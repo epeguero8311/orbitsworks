@@ -12,6 +12,8 @@
 //   - a resend first checks if the comment is already there (no duplicates)
 //   - a comment whose clock-in failed for good, or that the rules refuse,
 //     ends "Not synced" - it never stops punches or other comments
+//   - a comment refused because of its time (fast phone clock) is sent
+//     once more without the time (runCommentSend)
 
 const { toMs } = require("./employeeHome");
 const { SYNCED_KEEP_MS } = require("./punchQueueLogic");
@@ -101,6 +103,64 @@ function commentDoc(comment, { uid, clockIn }) {
   return doc;
 }
 
+// The send steps for one comment, with the server calls passed in (so the
+// whole flow runs under `node --test`; lib/commentQueueSync.js passes the
+// real Firestore calls). io:
+//   uid            - the signed-in login (createdByUid)
+//   exists()       - is the comment's doc already on the server?
+//   readClockIn()  - the clock-in as the server has it, or null
+//   create(fields) - create the comment's doc (always the same doc id)
+// Returns { result: "synced", timeDropped } | { result: "failed", reason }
+// | { result: "waiting" } (signal problem - try again later).
+//
+// Fast phone clock: the rule refuses a comment time more than 2 min ahead
+// of the server. So when a comment WITH a time is refused (and isn't
+// already there), it is sent ONCE more without the time - same doc id. If
+// that is refused too, it is Not synced for good (e.g. not the employee's
+// shift). "Already there?" is checked before the retry and before Not
+// synced, so a lost reply never makes a duplicate or a false Not synced.
+async function runCommentSend(comment, io) {
+  try {
+    // A resend: an earlier try may have landed with its reply lost.
+    if (comment.attempts > 0 && (await io.exists())) return { result: "synced", timeDropped: false };
+    const clockIn = await io.readClockIn();
+    if (!clockIn) return { result: "failed", reason: "clockInMissing" };
+    let fields;
+    try {
+      fields = commentDoc(comment, { uid: io.uid, clockIn });
+    } catch {
+      // The saved note no longer passes the checks - it never will.
+      return { result: "failed", reason: "invalid" };
+    }
+
+    try {
+      await io.create(fields);
+      return { result: "synced", timeDropped: false };
+    } catch (err) {
+      if (commentErrorKind(err) !== "refused") return { result: "waiting" };
+    }
+    // Refused. A create on an id that is already there counts as an
+    // update, which the rules never allow - so check first.
+    if (await io.exists()) return { result: "synced", timeDropped: false };
+    if (!("madeAtMs" in fields)) return { result: "failed", reason: "refused" };
+
+    // The one retry, without the comment time.
+    const withoutTime = { ...fields };
+    delete withoutTime.madeAtMs;
+    try {
+      await io.create(withoutTime);
+      return { result: "synced", timeDropped: true };
+    } catch (err) {
+      if (commentErrorKind(err) !== "refused") return { result: "waiting" };
+    }
+    if (await io.exists()) return { result: "synced", timeDropped: true };
+    return { result: "failed", reason: "refused" };
+  } catch {
+    // exists() / readClockIn() couldn't reach the server.
+    return { result: "waiting" };
+  }
+}
+
 // The checked fields of a new comment (the Comments screen's input).
 // madeAtMs defaults to now. Throws with the shared validator's message.
 function newCommentFields(input, nowMs) {
@@ -125,6 +185,7 @@ module.exports = {
   commentErrorKind,
   clampMadeAtMs,
   commentDoc,
+  runCommentSend,
   newCommentFields,
   commentsToDrop,
 };

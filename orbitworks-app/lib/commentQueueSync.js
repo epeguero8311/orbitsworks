@@ -2,7 +2,7 @@ import { auth } from "./firebase";
 import { isOnline } from "./employeeClockApi";
 import { listAllPunches } from "./punchQueue";
 import { withTimeout } from "./punchQueueLogic";
-import { commentDoc, commentErrorKind, commentsToSend } from "./commentQueueLogic";
+import { commentsToSend, runCommentSend } from "./commentQueueLogic";
 import {
   cleanupCommentQueue,
   listAllComments,
@@ -20,11 +20,8 @@ import { commentExistsOnServer, createShiftComment, readClockInFromServer } from
 // Per comment, oldest first:
 //   clock-in still on the phone      -> left Waiting (next run)
 //   clock-in failed for good         -> Not synced
-//   a resend                         -> already on the server? Synced
-//   clock-in not on the server       -> Not synced
-//   create accepted                  -> Synced
-//   refused by the rules             -> already there? Synced : Not synced
-//   signal / timeout                 -> back to Waiting, stop this run
+//   then the send steps in runCommentSend (lib/commentQueueLogic.js):
+//   synced / Not synced / back to Waiting (signal - stop this run)
 // A Not synced comment never stops the others or the punches.
 
 const CALL_TIMEOUT_MS = 20000;
@@ -49,47 +46,24 @@ export async function drainComments(companyId, employeeId) {
 
 // false = stop this run (signal problem; the comment is Waiting again).
 async function sendOne(comment, uid) {
-  const { companyId, requestId } = comment;
+  const { companyId, requestId, clockEventId } = comment;
   await markCommentSyncing(requestId);
-  try {
-    // A resend: an earlier try may have landed with its reply lost.
-    if (comment.attempts > 0 && (await withTimeout(commentExistsOnServer(companyId, requestId), CALL_TIMEOUT_MS))) {
-      await markCommentSynced(requestId);
-      return true;
-    }
-    const clockIn = await withTimeout(readClockInFromServer(companyId, comment.clockEventId), CALL_TIMEOUT_MS);
-    if (!clockIn) {
-      await markCommentFailed(requestId, "clockInMissing");
-      return true;
-    }
-    let fields;
-    try {
-      fields = commentDoc(comment, { uid, clockIn });
-    } catch {
-      // The saved note no longer passes the checks - it never will.
-      await markCommentFailed(requestId, "invalid");
-      return true;
-    }
-    await withTimeout(createShiftComment(companyId, requestId, fields), CALL_TIMEOUT_MS);
+  const io = {
+    uid,
+    exists: () => withTimeout(commentExistsOnServer(companyId, requestId), CALL_TIMEOUT_MS),
+    readClockIn: () => withTimeout(readClockInFromServer(companyId, clockEventId), CALL_TIMEOUT_MS),
+    // Always the comment's own doc id, so no try can make a second comment.
+    create: (fields) => withTimeout(createShiftComment(companyId, requestId, fields), CALL_TIMEOUT_MS),
+  };
+  const out = await runCommentSend(comment, io);
+  if (out.result === "synced") {
     await markCommentSynced(requestId);
     return true;
-  } catch (err) {
-    if (commentErrorKind(err) !== "refused") {
-      await markCommentWaiting(requestId);
-      return false;
-    }
-    // Refused: a create on an id that is already there counts as an
-    // update, which the rules never allow - so check before Not synced.
-    try {
-      if (await withTimeout(commentExistsOnServer(companyId, requestId), CALL_TIMEOUT_MS)) {
-        await markCommentSynced(requestId);
-        return true;
-      }
-    } catch {
-      await markCommentWaiting(requestId);
-      return false;
-    }
-    await markCommentFailed(requestId, "refused");
+  }
+  if (out.result === "failed") {
+    await markCommentFailed(requestId, out.reason);
     return true;
   }
+  await markCommentWaiting(requestId);
+  return false;
 }

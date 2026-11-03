@@ -205,6 +205,136 @@ test("new comment: checked with the shared validator, trimmed, time = now when n
   assert.throws(() => c.newCommentFields({ note: "hi", clockEventId: "" }, NOW), /Shift is required/);
 });
 
+// ---- the send steps (runCommentSend) ----
+
+const refused = () => Object.assign(new Error("Missing or insufficient permissions."), { code: "permission-denied" });
+const offline = () => Object.assign(new Error("Failed to get document because the client is offline."), { code: "unavailable" });
+const CLOCK_IN = { timestamp: ts(NOW - 2 * HOUR), siteId: "site1", siteName: "Site One" };
+
+// A fake server. create(fields) answers with the next item in `creates`
+// (an error to throw, or "ok"); exists() with the next item in `exists`
+// (true/false or an error). Every call is recorded.
+function fakeIo({ creates = ["ok"], exists = [false], clockIn = CLOCK_IN } = {}) {
+  const calls = { create: [], exists: 0, readClockIn: 0 };
+  const io = {
+    uid: "uid1",
+    async exists() {
+      calls.exists += 1;
+      const next = exists.length > 1 ? exists.shift() : exists[0];
+      if (next instanceof Error) throw next;
+      return next;
+    },
+    async readClockIn() {
+      calls.readClockIn += 1;
+      if (clockIn instanceof Error) throw clockIn;
+      return clockIn;
+    },
+    async create(fields) {
+      calls.create.push(fields);
+      const next = creates.length > 1 ? creates.shift() : creates[0];
+      if (next instanceof Error) throw next;
+    },
+  };
+  return { io, calls };
+}
+
+test("send: first try lands -> synced, one create with the comment time, no existence check", async () => {
+  const { io, calls } = fakeIo();
+  assert.deepEqual(await c.runCommentSend(comment(), io), { result: "synced", timeDropped: false });
+  assert.equal(calls.create.length, 1);
+  assert.equal(calls.create[0].madeAtMs, NOW - HOUR);
+  assert.equal(calls.exists, 0);
+});
+
+test("send: a resend that already landed -> synced without creating again", async () => {
+  const { io, calls } = fakeIo({ exists: [true] });
+  assert.deepEqual(await c.runCommentSend(comment({ attempts: 1 }), io), { result: "synced", timeDropped: false });
+  assert.equal(calls.create.length, 0);
+});
+
+test("send: fast phone clock -> refused with the time, lands without it on the one retry", async () => {
+  // The rule refuses madeAtMs > server time + 2 min; without the field it passes.
+  const { io, calls } = fakeIo({ creates: [refused(), "ok"], exists: [false] });
+  const out = await c.runCommentSend(comment({ madeAtMs: NOW + HOUR }), io);
+  assert.deepEqual(out, { result: "synced", timeDropped: true });
+  assert.equal(calls.create.length, 2, "exactly one retry");
+  assert.equal(calls.create[0].madeAtMs, NOW + HOUR);
+  assert.equal("madeAtMs" in calls.create[1], false, "retry has no time");
+  // Same comment otherwise (the doc id is the comment's requestId on both).
+  const { madeAtMs, ...rest } = calls.create[0];
+  assert.equal(madeAtMs, NOW + HOUR);
+  assert.deepEqual(calls.create[1], rest);
+  assert.equal(calls.exists, 1, "'already there?' checked before the retry");
+});
+
+test("send: refused for another reason (other employee's shift) -> retry also refused -> Not synced, exactly one retry", async () => {
+  const { io, calls } = fakeIo({ creates: [refused()], exists: [false] });
+  const out = await c.runCommentSend(comment(), io);
+  assert.deepEqual(out, { result: "failed", reason: "refused" });
+  assert.equal(calls.create.length, 2, "exactly one retry");
+  assert.equal("madeAtMs" in calls.create[0], true);
+  assert.equal("madeAtMs" in calls.create[1], false);
+  assert.equal(calls.exists, 2, "checked before the retry and before Not synced");
+});
+
+test("send: refused, but the first try had landed -> synced, no retry", async () => {
+  const { io, calls } = fakeIo({ creates: [refused()], exists: [true] });
+  assert.deepEqual(await c.runCommentSend(comment(), io), { result: "synced", timeDropped: false });
+  assert.equal(calls.create.length, 1);
+});
+
+test("send: refused, the retry's reply lost but it landed -> synced", async () => {
+  const { io, calls } = fakeIo({ creates: [refused(), refused()], exists: [false, true] });
+  assert.deepEqual(await c.runCommentSend(comment(), io), { result: "synced", timeDropped: true });
+  assert.equal(calls.create.length, 2);
+});
+
+test("send: refused with no comment time -> no retry, Not synced", async () => {
+  const { io, calls } = fakeIo({ creates: [refused()], exists: [false] });
+  assert.deepEqual(await c.runCommentSend(comment({ madeAtMs: null }), io), { result: "failed", reason: "refused" });
+  assert.equal(calls.create.length, 1);
+});
+
+test("send: signal problems -> waiting (create, the check, the retry, the clock-in read)", async () => {
+  let r = fakeIo({ creates: [offline()] });
+  assert.deepEqual(await c.runCommentSend(comment(), r.io), { result: "waiting" });
+  assert.equal(r.calls.create.length, 1);
+
+  r = fakeIo({ creates: [refused()], exists: [offline()] });
+  assert.deepEqual(await c.runCommentSend(comment(), r.io), { result: "waiting" });
+  assert.equal(r.calls.create.length, 1, "no retry when the check couldn't run");
+
+  r = fakeIo({ creates: [refused(), offline()], exists: [false] });
+  assert.deepEqual(await c.runCommentSend(comment(), r.io), { result: "waiting" });
+  assert.equal(r.calls.create.length, 2);
+
+  r = fakeIo({ clockIn: offline() });
+  assert.deepEqual(await c.runCommentSend(comment(), r.io), { result: "waiting" });
+  assert.equal(r.calls.create.length, 0);
+
+  r = fakeIo({ exists: [offline()] });
+  assert.deepEqual(await c.runCommentSend(comment({ attempts: 2 }), r.io), { result: "waiting" });
+});
+
+test("send: clock-in not on the server -> Not synced, nothing created", async () => {
+  const { io, calls } = fakeIo({ clockIn: null });
+  assert.deepEqual(await c.runCommentSend(comment(), io), { result: "failed", reason: "clockInMissing" });
+  assert.equal(calls.create.length, 0);
+});
+
+test("send: saved note no longer valid -> Not synced, nothing created", async () => {
+  const { io, calls } = fakeIo();
+  assert.deepEqual(await c.runCommentSend(comment({ note: "  " }), io), { result: "failed", reason: "invalid" });
+  assert.equal(calls.create.length, 0);
+});
+
+test("send: the written doc has the server clock-in's site and this login's uid", async () => {
+  const { io, calls } = fakeIo();
+  await c.runCommentSend(comment(), io);
+  assert.equal(calls.create[0].siteId, "site1");
+  assert.equal(calls.create[0].createdByUid, "uid1");
+});
+
 // ---- cleanup ----
 
 test("cleanup: synced comments drop 4 days after syncing; waiting and Not synced stay", () => {
