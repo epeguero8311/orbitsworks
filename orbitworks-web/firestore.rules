@@ -217,16 +217,18 @@ service cloud.firestore {
     }
 
     // Employee App comment on one of the employee's own shifts. Reuses
-    // shiftNotes (site-level supervisor notes) with three extra fields;
-    // clockEventId must be the employee's own clock-in event. Bounds match
-    // lib/validators/shiftNote.ts.
+    // shiftNotes (site-level supervisor notes) with a few extra fields;
+    // clockEventId must be the employee's own clock-in event. The shift
+    // does NOT have to be open: a comment typed offline can arrive after the
+    // employee (or auto clock-out) clocked out. Bounds match
+    // lib/validators/shiftNote.ts and orbitworks-app/lib/validators/shiftComment.js.
     function isValidEmployeeShiftNoteCreate(companyId) {
       let data = request.resource.data;
       return isSelfEmployee(companyId) &&
         isLinkedSelf(companyId) &&
         data.keys().hasOnly([
           'note', 'siteId', 'siteName', 'createdByUid', 'createdByName',
-          'timestamp', 'employeeId', 'clockEventId', 'source'
+          'timestamp', 'employeeId', 'clockEventId', 'source', 'madeAtMs'
         ]) &&
         data.employeeId == myEmployeeId() &&
         data.createdByUid == request.auth.uid &&
@@ -237,7 +239,33 @@ service cloud.firestore {
         data.timestamp == request.time &&
         data.clockEventId is string &&
         get(/databases/$(database)/documents/companies/$(companyId)/clockEvents/$(data.clockEventId)).data.get('employeeId', '') == myEmployeeId() &&
-        get(/databases/$(database)/documents/companies/$(companyId)/clockEvents/$(data.clockEventId)).data.get('type', '') == 'in';
+        get(/databases/$(database)/documents/companies/$(companyId)/clockEvents/$(data.clockEventId)).data.get('type', '') == 'in' &&
+        isValidShiftNoteMadeAt(companyId, data);
+    }
+
+    // madeAtMs (Phase 5): when the employee typed the comment, by the phone's
+    // clock. Optional - older app builds never send it. When sent: a whole
+    // number, at or after the EARLIEST of the clock-in's queuedAtMs (if
+    // set), timestamp and adjustedTimestamp (if set) - so a comment typed
+    // offline is never refused because its clock-in synced later or an
+    // admin moved the clock-in - and at most 2 min after server time (same
+    // margin as queued punches, QUEUED_MAX_FUTURE_MS). ">= earliest of the
+    // three" is written as ">= any one of them" (same meaning, no min()).
+    function isValidShiftNoteMadeAt(companyId, data) {
+      return !('madeAtMs' in data) || (
+        data.madeAtMs is int &&
+        data.madeAtMs <= request.time.toMillis() + 120000 &&
+        isAtOrAfterClockIn(
+          data.madeAtMs,
+          get(/databases/$(database)/documents/companies/$(companyId)/clockEvents/$(data.clockEventId)).data
+        )
+      );
+    }
+
+    function isAtOrAfterClockIn(madeAtMs, clockIn) {
+      return madeAtMs >= clockIn.timestamp.toMillis() ||
+        madeAtMs >= clockIn.get('adjustedTimestamp', clockIn.timestamp).toMillis() ||
+        madeAtMs >= clockIn.get('queuedAtMs', clockIn.timestamp.toMillis());
     }
 
     function isOwnReadStateUpdate() {
@@ -686,6 +714,11 @@ service cloud.firestore {
         // match an employee token (admin/owner or supervisor only).
         allow get, list: if isSelfEmployee(companyId) &&
           resource.data.employeeId == myEmployeeId();
+        // Phase 5: a get of an id that doesn't exist yet answers "not
+        // found" instead of permission-denied, so the app's comment queue
+        // can check "is my comment already there?" before a resend (ids
+        // are random; a missing doc reveals nothing). Lists are unchanged.
+        allow get: if isSelfEmployee(companyId) && resource == null;
         allow create: if isValidEmployeeShiftNoteCreate(companyId);
         allow write: if request.auth != null &&
           request.auth.token.companyId == companyId &&

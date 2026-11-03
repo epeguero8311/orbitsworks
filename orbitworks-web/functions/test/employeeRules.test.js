@@ -486,6 +486,187 @@ test("PASS: employee comments on their own shift", async () => {
   );
 });
 
+// ---- Phase 5: comment time (madeAtMs) ----
+// The rule: optional; when sent, a whole number, at or after the EARLIEST
+// of the clock-in's queuedAtMs / timestamp / adjustedTimestamp, and at most
+// 2 min after server time. The shift does not have to be open.
+const MIN = 60 * 1000;
+const HOUR = 60 * MIN;
+
+async function seedEvent(companyId, id, data) {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "companies", companyId, "clockEvents", id), data);
+  });
+}
+
+// A clock-in for Ana at inMs (server-written fields only, like employeeClockPunch).
+function clockInA(inMs, extra = {}) {
+  return {
+    employeeId: "empA",
+    employeeName: "Ana",
+    siteId: "site1",
+    siteName: "Site 1",
+    type: "in",
+    source: "employeeApp",
+    timestamp: Timestamp.fromMillis(inMs),
+    createdAt: Timestamp.fromMillis(inMs),
+    createdByUid: "uidA",
+    ...extra,
+  };
+}
+
+function commentA(clockEventId, extra = {}) {
+  return {
+    note: "Gate was locked, waited 20 min",
+    siteId: "site1",
+    siteName: "Site 1",
+    employeeId: "empA",
+    clockEventId,
+    source: "employeeApp",
+    createdByUid: "uidA",
+    createdByName: "Ana",
+    timestamp: serverTimestamp(),
+    ...extra,
+  };
+}
+
+function addComment(context, companyId, id, data) {
+  return setDoc(doc(context.firestore(), "companies", companyId, "shiftNotes", id), data);
+}
+
+test("madeAtMs PASS: typed after the clock-in, before now", async () => {
+  const inMs = Date.now() - 2 * HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs));
+  await assertSucceeds(addComment(employeeA(), A, "c1", commentA("in-1", { madeAtMs: inMs + 30 * MIN })));
+});
+
+test("madeAtMs PASS: exactly the clock-in time", async () => {
+  const inMs = Date.now() - HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs));
+  await assertSucceeds(addComment(employeeA(), A, "c1", commentA("in-1", { madeAtMs: inMs })));
+});
+
+test("madeAtMs FAIL: too early (before the clock-in)", async () => {
+  const inMs = Date.now() - HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs));
+  await assertFails(addComment(employeeA(), A, "c1", commentA("in-1", { madeAtMs: inMs - 1 })));
+  await assertFails(addComment(employeeA(), A, "c2", commentA("in-1", { madeAtMs: inMs - HOUR })));
+});
+
+test("madeAtMs: future - up to 2 min ahead of server time passes, more fails", async () => {
+  const inMs = Date.now() - HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs));
+  await assertSucceeds(addComment(employeeA(), A, "c-ok", commentA("in-1", { madeAtMs: Date.now() + MIN })));
+  await assertFails(addComment(employeeA(), A, "c-far", commentA("in-1", { madeAtMs: Date.now() + 3 * MIN })));
+  await assertFails(addComment(employeeA(), A, "c-way", commentA("in-1", { madeAtMs: Date.now() + 24 * HOUR })));
+});
+
+test("madeAtMs FAIL: not a whole number", async () => {
+  const inMs = Date.now() - HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs));
+  for (const [i, bad] of [inMs + 0.5, String(inMs + MIN), null, true].entries()) {
+    await assertFails(addComment(employeeA(), A, `c${i}`, commentA("in-1", { madeAtMs: bad })));
+  }
+});
+
+test("madeAtMs PASS: no madeAtMs at all (older app builds)", async () => {
+  const inMs = Date.now() - HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs));
+  await assertSucceeds(addComment(employeeA(), A, "c1", commentA("in-1")));
+});
+
+test("madeAtMs PASS: offline clock-in synced late, comment typed before the sync time", async () => {
+  // Punched offline 3 h ago, reached the server 10 min ago (Phase 4 queued
+  // event: timestamp = punch time, createdAt = arrival). Comment typed
+  // offline 2 h ago - before the clock-in reached the server.
+  const inMs = Date.now() - 3 * HOUR;
+  const syncedMs = Date.now() - 10 * MIN;
+  await seedEvent(A, "in-1", clockInA(inMs, { queued: true, syncedLate: true, createdAt: Timestamp.fromMillis(syncedMs) }));
+  await assertSucceeds(addComment(employeeA(), A, "c1", commentA("in-1", { madeAtMs: Date.now() - 2 * HOUR })));
+});
+
+test("madeAtMs PASS: admin moved the clock-in later than the comment", async () => {
+  const inMs = Date.now() - 3 * HOUR;
+  const madeAtMs = inMs + 30 * MIN;
+  await seedEvent(A, "in-1", clockInA(inMs, { adjustedTimestamp: Timestamp.fromMillis(inMs + HOUR) }));
+  await assertSucceeds(addComment(employeeA(), A, "c1", commentA("in-1", { madeAtMs })));
+});
+
+test("madeAtMs: admin moved the clock-in earlier - the earlier time counts, before both fails", async () => {
+  const inMs = Date.now() - 2 * HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs, { adjustedTimestamp: Timestamp.fromMillis(inMs - HOUR) }));
+  await assertSucceeds(addComment(employeeA(), A, "c1", commentA("in-1", { madeAtMs: inMs - 30 * MIN })));
+  await assertFails(addComment(employeeA(), A, "c2", commentA("in-1", { madeAtMs: inMs - 2 * HOUR })));
+});
+
+test("madeAtMs PASS: queuedAtMs on the clock-in (if ever stored) counts as the earliest", async () => {
+  const inMs = Date.now() - HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs, { queuedAtMs: inMs - 10 * MIN }));
+  await assertSucceeds(addComment(employeeA(), A, "c1", commentA("in-1", { madeAtMs: inMs - 5 * MIN })));
+  await assertFails(addComment(employeeA(), A, "c2", commentA("in-1", { madeAtMs: inMs - 20 * MIN })));
+});
+
+test("comment PASS: shift already clocked out (by the employee or auto clock-out)", async () => {
+  const inMs = Date.now() - 10 * HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs));
+  await seedEvent(A, "out-1", { ...clockInA(inMs + 8 * HOUR), type: "out" });
+  await seedEvent(A, "in-2", clockInA(inMs + 9 * HOUR));
+  await seedEvent(A, "out-2", { ...clockInA(inMs + 9.5 * HOUR), type: "out", source: "autoClockOut", createdByUid: null });
+  await assertSucceeds(addComment(employeeA(), A, "c1", commentA("in-1", { madeAtMs: inMs + 9 * HOUR })));
+  await assertSucceeds(addComment(employeeA(), A, "c2", commentA("in-2", { madeAtMs: Date.now() - MIN })));
+});
+
+test("comment FAIL: on another employee's shift (valid time)", async () => {
+  const inMs = Date.now() - HOUR;
+  await seedEvent(A, "in-ben", { ...clockInA(inMs), employeeId: "empB", employeeName: "Ben", createdByUid: "uidB" });
+  await assertFails(addComment(employeeA(), A, "c1", commentA("in-ben", { madeAtMs: inMs + MIN })));
+  // Pretending to be Ben doesn't help either.
+  await assertFails(addComment(employeeA(), A, "c2", commentA("in-ben", { madeAtMs: inMs + MIN, employeeId: "empB" })));
+});
+
+test("comment FAIL: employee in another company", async () => {
+  const inMs = Date.now() - HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs));
+  await seedEvent(B, "in-x", { ...clockInA(inMs), employeeId: "empX", employeeName: "Xena", createdByUid: "uidX" });
+  const xena = testEnv.authenticatedContext("uidX", { role: "employee", companyId: B, employeeId: "empX" });
+  // Company B's employee writing into company A (on A's or B's event).
+  await assertFails(addComment(xena, A, "c1", commentA("in-1", { employeeId: "empX", createdByUid: "uidX", madeAtMs: inMs + MIN })));
+  await assertFails(addComment(xena, A, "c2", commentA("in-x", { employeeId: "empX", createdByUid: "uidX", madeAtMs: inMs + MIN })));
+  // Company A's employee writing into company B.
+  await assertFails(addComment(employeeA(), B, "c3", commentA("in-x", { madeAtMs: inMs + MIN })));
+  // Control: Xena on her own shift in her own company passes.
+  await assertSucceeds(addComment(xena, B, "c4", commentA("in-x", { employeeId: "empX", createdByUid: "uidX", madeAtMs: inMs + MIN })));
+});
+
+test("comment FAIL: clock-in that doesn't exist, or isn't a clock-in", async () => {
+  const inMs = Date.now() - HOUR;
+  await seedEvent(A, "brk-1", { ...clockInA(inMs), type: "breakStart" });
+  await assertFails(addComment(employeeA(), A, "c1", commentA("no-such-event", { madeAtMs: inMs + MIN })));
+  await assertFails(addComment(employeeA(), A, "c2", commentA("brk-1", { madeAtMs: inMs + MIN })));
+});
+
+test("comment FAIL: extra field, client-chosen timestamp, or a retry that overwrites", async () => {
+  const inMs = Date.now() - HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs));
+  await assertFails(addComment(employeeA(), A, "c1", commentA("in-1", { madeAtMs: inMs + MIN, edited: true })));
+  await assertFails(addComment(employeeA(), A, "c2", commentA("in-1", { timestamp: Timestamp.fromMillis(inMs + MIN) })));
+  // Same id twice (a resend): the second is an update, which employees can't do.
+  await assertSucceeds(addComment(employeeA(), A, "c3", commentA("in-1", { madeAtMs: inMs + MIN })));
+  await assertFails(addComment(employeeA(), A, "c3", commentA("in-1", { madeAtMs: inMs + MIN })));
+  // ...but the employee can read their own comment back (the queue's "already there?" check).
+  await assertSucceeds(getDoc(doc(employeeA().firestore(), "companies", A, "shiftNotes", "c3")));
+});
+
+test("comment queue check: a not-yet-written id reads as 'not found'; others' notes stay hidden", async () => {
+  const db = employeeA().firestore();
+  const missing = await assertSucceeds(getDoc(doc(db, "companies", A, "shiftNotes", "never-written")));
+  if (missing.exists()) throw new Error("expected no doc");
+  await assertFails(getDoc(doc(db, "companies", A, "shiftNotes", "noteB")));
+  await assertFails(getDoc(doc(db, "companies", A, "shiftNotes", "supNote")));
+  await assertFails(getDoc(doc(db, "companies", B, "shiftNotes", "never-written")));
+  await assertFails(getDocs(collection(db, "companies", A, "shiftNotes")));
+});
+
 test("PASS: employee reads their assigned site and the employee app config", async () => {
   const db = employeeA().firestore();
   await assertSucceeds(getDoc(doc(db, "companies", A, "jobSites", "site1")));
