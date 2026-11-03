@@ -753,6 +753,12 @@ export interface ShiftNote {
   employeeId?: string;
   clockEventId?: string;
   source?: "employeeApp";
+  // Employee App Phase 5: when the employee typed the comment, by the
+  // phone's clock (millis). A comment typed offline syncs later, so
+  // timestamp (server time) is when it arrived; this is when it was made.
+  // firestore.rules: at or after the clock-in's effective time, at most
+  // 2 min after server time.
+  madeAtMs?: number;
 }
 
 // ---- Employee App (self-service) ----
@@ -858,11 +864,15 @@ export interface EmployeeAppConfig {
 // safe copy of one employee doc for that employee's own app login. The
 // employee doc itself holds the plain-text PIN, so employee logins can't
 // read it (firestore.rules); they read this instead. Written only by
-// syncEmployeeSelfView (functions/src/employeeSelfView.ts). NEVER add the
-// PIN, hourly rate, dob or email here.
+// syncEmployeeSelfView (functions/src/employeeSelfView.ts). Only that
+// employee's own login can read it. NEVER add the PIN, hourly rate, rate
+// history or face fields here. email and dob were added in Phase 5 for the
+// employee's own Settings tab.
 export interface EmployeeSelfView {
   id: string; // the employeeId
   name: string;
+  email: string | null;
+  dob: string | null; // "YYYY-MM-DD", same as the employee doc
   photoUrl: string | null;
   active: boolean;
   assignedSiteIds: string[];
