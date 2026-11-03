@@ -26,6 +26,8 @@ export const AUTO_CLOCK_OUT_ENABLED = defineBoolean("AUTO_CLOCK_OUT_ENABLED", { 
 // those companies while testing, so flipping the master switch on doesn't
 // immediately affect every real customer. Remove/clear this once testing
 // is done - it's a temporary safety net, not a permanent feature.
+// Does NOT apply to Auto Clock-Out (autoClockOut.ts) - that runs for every
+// company with its own Settings toggle on.
 export const TEST_COMPANY_IDS = defineString("TEST_COMPANY_IDS", { default: "" });
 
 export function isCompanyInTestScope(companyId: string): boolean {
