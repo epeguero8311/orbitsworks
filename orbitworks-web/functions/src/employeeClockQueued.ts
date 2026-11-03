@@ -60,7 +60,9 @@ export function isPhoneClockOff(input: { queuedAtMs: number; eventMs: number; fa
 
 export const NOT_RECORDED_MESSAGE = "Not recorded, tell your admin.";
 export const COULDNT_SYNC_MESSAGE = "Couldn't sync, please speak to your supervisor.";
-export const QUEUED_WRONG_PIN_MESSAGE = "Wrong PIN. Type your PIN again to send this punch.";
+// The phone checks the PIN before saving (lib/pinVerifier.ts), so a wrong
+// PIN at sync means an admin changed it while the phone was offline (E1).
+export const QUEUED_WRONG_PIN_MESSAGE = "Your PIN was changed. Type your new PIN to send this punch.";
 
 // null = the time is fine, else the reason the punch is rejected for good.
 export function queuedTimeProblem(queuedAtMs: number, nowMs: number): "tooOld" | "badTime" | null {

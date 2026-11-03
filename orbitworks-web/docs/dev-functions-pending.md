@@ -141,6 +141,30 @@ Phase 3 Step 6 (shrunk to this):
   `onEmployeePhotoWrite` does for a passing selfie). 0 or 2+ faces -> leave
   it. Report counts only. Pro companies only (Core never runs checks).
 
+## Rule: dev matches prod (2026-11-02)
+
+Dev (orbitworks-dev-ew) runs every function prod runs, with prod's
+settings, plus the employee-app changes. Nothing new on dev may contradict
+prod. Checked 2026-11-02 (read-only on prod): prod 45 functions, dev 59 -
+all 45 on dev with the same triggers and schedules, the extra 14 are
+employee-app. Settings: DEVICE_TRACKING_ENABLED and
+PUSH_NOTIFICATIONS_ENABLED turned on for dev to match prod (they were off).
+TEST_COMPANY_IDS stays empty on dev (every dev company is a test company).
+Auto clock-out runs on dev every 5 minutes; it did nothing because every
+dev company had it off - now on (12 h) for jc-test-pro-dev and
+jc-test-core-dev.
+
+## Fix on main before Phase 5 (decide first)
+
+- **Prod TEST_COMPANY_IDS limits alerts AND auto clock-out to ShipMate**
+  (found 2026-11-02, read-only). Prod's functions/.env.orbitworks-7ef59 has
+  TEST_COMPANY_IDS=qdLsh075T743sGEKyZs7 (ShipMate, our own company).
+  functions/src/autoClockOut.ts checks isCompanyInTestScope, so on prod
+  only ShipMate gets auto clock-out, even when another company turns it on
+  in Settings > Automations. The alerts feed is limited the same way. Fix
+  on main (clear it, or stop autoClockOut using it), not on this branch.
+  Not touched.
+
 ## Phase 10 to-do list (before the real release)
 
 - **Write temp link API tests** (added 2026-10-24). There are none today, in
@@ -237,6 +261,19 @@ Phase 3 Step 6 (shrunk to this):
   jc-test-pro-dev: GZ3DKAhivqjkAw04Md9T has no punches; the real one is
   KfLB8nDz8lseZIhHEDch. Find how the duplicate got created. Don't delete it
   until then.
+- **Prod instance cap left over from old deploys** (found 2026-11-02).
+  About 40 older prod functions have maxInstances 20; it isn't in our code
+  (no maxInstances / setGlobalOptions anywhere), newer prod functions and
+  all of dev have none. Decide whether to put a cap in code for all.
+- **Stored PIN check value can be cracked off a phone** (decided
+  2026-11-02, A1). The phone keeps a salted SHA-256 of the employee's own
+  PIN in SecureStore. A 4-digit PIN has 10,000 options, so anyone who gets
+  that value off an unlocked phone could find the PIN in seconds. The
+  server still checks every punch. Same risk class as the supervisor
+  app's pin_cache (unsalted SHA-256, SQLite).
+- **Phone PIN lock resets on reinstall** (2026-11-02, L1). The 3-wrong /
+  1-minute lock is saved in SecureStore, so a restart keeps it, but
+  deleting the app clears it (they'd also need to sign in again).
 - **Android assetlinks.json** (found 2026-11-01, Phase 3B step 7). The
   site serves no /.well-known/assetlinks.json, so on Android the https
   sign-up links (/j/ crew codes and /i/ email invites) open in the browser

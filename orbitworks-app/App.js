@@ -20,6 +20,7 @@ import { usePushRegistration } from "./lib/hooks/usePushRegistration";
 import { useAlertsFeed } from "./lib/hooks/useAlertsFeed";
 import { usePunchQueue } from "./lib/hooks/usePunchQueue";
 import { usePunchQueueSync } from "./lib/hooks/usePunchQueueSync";
+import { usePinVerifierSync } from "./lib/hooks/usePinVerifierSync";
 import { navigationRef } from "./lib/navigationRef";
 import FloatingTabBar from "./components/FloatingTabBar";
 import LoginScreen from "./screens/LoginScreen";
@@ -166,6 +167,7 @@ function EmployeeTabs() {
   const companyId = userData?.companyId;
   const employeeId = linkedEmployeeId || userData?.employeeId;
   usePunchQueueSync(companyId, employeeId);
+  usePinVerifierSync(companyId, employeeId);
   const { badge } = usePunchQueue(companyId, employeeId);
   return (
     <EmployeeTab.Navigator

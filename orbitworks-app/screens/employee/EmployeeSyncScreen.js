@@ -24,10 +24,12 @@ const CONNECTION = {
 };
 
 // Employee App Sync tab: this employee's punches saved on the phone
-// (lib/punchQueue.js) - Waiting, Syncing, Synced (kept 24 h) or Failed -
-// with Last synced and Sync now. A Failed row offers one action: Redo
-// (wrong PIN: type it again, the same punch is resent) or Remove (it can't
-// be recorded - the confirm says so and to tell the supervisor).
+// (lib/punchQueue.js) - Waiting, Syncing, Synced or Failed - with Last
+// synced and Sync now. Synced rows show for today and the 2 days before
+// (company time zone); Waiting, Syncing and Failed always show. A Failed
+// row offers one action: Redo (an admin changed the PIN while the phone
+// was offline: type the new one, the same punch is resent) or Remove (it
+// can't be recorded - the confirm says so and to tell the supervisor).
 export default function EmployeeSyncScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -35,7 +37,7 @@ export default function EmployeeSyncScreen({ navigation }) {
   const companyId = userData?.companyId;
   const employeeId = linkedEmployeeId || userData?.employeeId;
   const { timezone } = useEmployeeAppConfig(companyId);
-  const queue = usePunchQueue(companyId, employeeId);
+  const queue = usePunchQueue(companyId, employeeId, timezone);
   const connection = CONNECTION[useConnectionBanner().kind || "online"];
   const now = useNow(60000);
   const [syncing, setSyncing] = useState(false);

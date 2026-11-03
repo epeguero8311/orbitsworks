@@ -5,22 +5,20 @@ import { ref } from "firebase/storage";
 import { functions, storage } from "./firebase";
 import { uploadLocalFileToStorage } from "./storageUpload";
 import { photoPathFor } from "./employeeHome";
-import { PIN_CHECK_TIMEOUT_MS, withTimeout } from "./punchQueueLogic";
 import { withAnchor } from "./clockAnchor";
 
 // Employee App: calls to the server for clock in/out/breaks and the Home
 // site. The PIN is sent over TLS with the punch. Every punch is saved on
 // the phone first (lib/punchQueue.js) and sent by the queue right away -
 // its PIN is kept in SecureStore only until it syncs (24 h at most) and is
-// never logged. The PIN check runs while the camera is open; after 3 s with
-// no answer the server checks the PIN when the punch syncs instead.
+// never logged. The PIN is checked on the phone first (lib/pinCheck.js);
+// the server checks it again when the punch arrives.
 // The queue's sends (punchQueueSync.js) use the callable's 30 s.
 // Every successful punch call saves server time + uptime (clockAnchor.js).
 
 const punchFn = httpsCallable(functions, "employeeClockPunch", { timeout: 30000 });
 const homeSiteFn = httpsCallable(functions, "getEmployeeHomeSite", { timeout: 15000 });
 
-export { PIN_CHECK_TIMEOUT_MS, withTimeout };
 
 // One id per punch attempt. Reused for retries of the same punch, so a reply
 // lost to bad signal can never create a second event.
@@ -46,15 +44,6 @@ export async function uploadClockPhoto({ companyId, employeeId, requestId, local
   const path = photoPathFor(companyId, employeeId, requestId);
   await uploadLocalFileToStorage(ref(storage, path), localUri, "image/jpeg", { foreground: true });
   return path;
-}
-
-// Clock in/out: the server checks the PIN while the camera is open (same
-// wrong-PIN count and lock as an online punch). Resolves { pinOk: true };
-// a wrong PIN, the lock or an inactive account reject like a punch would.
-// Nothing is written - the punch itself checks the PIN again.
-export async function checkPin({ action, requestId, pin }) {
-  const res = await withAnchor(() => punchFn({ action, requestId, pin, checkPinOnly: true }));
-  return res.data;
 }
 
 // -> EmployeeClockPunchResult (see the website's lib/types.ts).

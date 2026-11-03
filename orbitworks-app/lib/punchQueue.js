@@ -144,7 +144,7 @@ export function markWaiting(requestId) {
   return update(requestId, "status = 'waiting'", []);
 }
 
-// Synced: the PIN and the local photo are deleted, the row stays 24 h.
+// Synced: the PIN and the local photo are deleted, the row stays 4 days.
 export async function markSynced(requestId, siteName) {
   const item = await getPunch(requestId);
   await deletePin(requestId);
@@ -188,7 +188,7 @@ export async function removePunch(requestId) {
 
 // Housekeeping for every employee on this phone (signed in or not):
 // deletes PINs that are 24 h old or no longer needed, drops synced rows
-// after 24 h, and (startup only) puts a punch left "Syncing" by a killed
+// after 4 days, and (startup only) puts a punch left "Syncing" by a killed
 // app back to Waiting.
 export async function cleanupPunchQueue({ resetSyncing = false } = {}) {
   const now = Date.now();

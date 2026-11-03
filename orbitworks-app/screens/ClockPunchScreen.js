@@ -13,7 +13,6 @@ import PinPad from "../components/employee/PinPad";
 import PunchCamera from "../components/employee/PunchCamera";
 import PunchConfirmation from "../components/employee/PunchConfirmation";
 import ConnectionBanner from "../components/employee/ConnectionBanner";
-import Spinner from "../components/Spinner";
 import Building2Icon from "../components/icons/Building2Icon";
 
 const TITLES = { in: "Clock In", out: "Clock Out" };
@@ -55,8 +54,8 @@ export default function ClockPunchScreen({ route, navigation }) {
   const close = useCallback(() => navigation.goBack(), [navigation]);
 
   // The green overlay shows as soon as the punch is saved. Whatever was on
-  // screen (the photo preview, or "Checking PIN...") stays under it until
-  // it is opaque (flow.overlayShown -> step "done"), so nothing changes
+  // screen (the photo preview, or Redo's PIN pad) stays under it until it
+  // is opaque (flow.overlayShown -> step "done"), so nothing changes
   // behind the fade. Always <>{body}{overlay}</>, so the camera isn't
   // remounted when the overlay appears.
   const overlay = flow.result ? (
@@ -92,28 +91,13 @@ export default function ClockPunchScreen({ route, navigation }) {
   const lockedMessage = lockSeconds > 0 ? `Too many wrong PINs. Try again in ${lockSeconds} second${lockSeconds === 1 ? "" : "s"}.` : "";
   // While a lock applies, only the live countdown shows (never a stale one).
   const message = flow.lockedUntil > 0 ? lockedMessage : flow.error;
-  const sendingText = "Sending...";
 
   return (
     <>
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <ScreenHeader title={redoId ? `Redo ${TITLES[action]}` : TITLES[action]} onBack={flow.step === "sending" ? undefined : close} />
+        <ScreenHeader title={redoId ? `Redo ${TITLES[action]}` : TITLES[action]} onBack={close} />
         <ConnectionBanner style={styles.banner} />
         <View style={styles.content}>
-          {flow.step === "sending" ? (
-            <View style={styles.center}>
-              <Spinner size={32} color={colors.accent} />
-              <Text style={[styles.sending, { color: colors.subtext }]}>{sendingText}</Text>
-            </View>
-          ) : null}
-
-          {flow.step === "checking" ? (
-            <View style={styles.center}>
-              <Spinner size={32} color={colors.accent} />
-              <Text style={[styles.sending, { color: colors.subtext }]}>Checking PIN...</Text>
-            </View>
-          ) : null}
-
           {flow.step === "pin" ? (
             <>
               {company ? (
@@ -129,7 +113,7 @@ export default function ClockPunchScreen({ route, navigation }) {
             </>
           ) : null}
 
-          {message && flow.step !== "sending" && flow.step !== "checking" ? <Text style={[styles.error, { color: colors.red }]}>{message}</Text> : null}
+          {message ? <Text style={[styles.error, { color: colors.red }]}>{message}</Text> : null}
 
           {flow.step === "retry" ? (
             <TouchableOpacity style={[styles.button, { backgroundColor: colors.accent }]} onPress={flow.retry}>
@@ -152,8 +136,6 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   banner: { marginHorizontal: 24, marginTop: 8 },
   content: { alignItems: "center", paddingTop: 24, paddingHorizontal: 24 },
-  center: { alignItems: "center", marginTop: 60 },
-  sending: { marginTop: 12, fontSize: 15 },
   // Same pill as the site tag on the supervisor PIN screen.
   companyPill: {
     flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14,

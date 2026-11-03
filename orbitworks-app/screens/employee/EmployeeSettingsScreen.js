@@ -15,6 +15,7 @@ import TabPage from "../../components/ui/TabPage";
 import ListRow from "../../components/ui/ListRow";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import DevPunchTimings from "../../components/employee/DevPunchTimings";
+import { forgetPinVerifier } from "../../lib/pinCheck";
 
 // The PIN itself is never kept on the phone for display.
 const PIN_MASK = "****";
@@ -50,7 +51,9 @@ export default function EmployeeSettingsScreen() {
     ["Notifications", notifications, setNotifications],
     ["Location", location, setLocation],
   ];
-  const onLogout = () => (queue.badge > 0 ? setConfirmLogout(true) : signOutUser());
+  // Log out drops this phone's PIN check value first (lib/pinCheck.js).
+  const logOut = () => forgetPinVerifier(companyId, employeeId).finally(signOutUser);
+  const onLogout = () => (queue.badge > 0 ? setConfirmLogout(true) : logOut());
   const notSynced = `${queue.badge} punch${queue.badge === 1 ? " is" : "es are"} not synced yet`;
 
   return (
@@ -115,7 +118,7 @@ export default function EmployeeSettingsScreen() {
         cancelLabel="Stay signed in"
         onConfirm={() => {
           setConfirmLogout(false);
-          signOutUser();
+          logOut();
         }}
         onCancel={() => setConfirmLogout(false)}
       />

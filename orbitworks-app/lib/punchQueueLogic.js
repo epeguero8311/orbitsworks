@@ -15,7 +15,6 @@ const SECOND_MS = 1000;
 const HOUR_MS = 60 * 60 * SECOND_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-const PIN_CHECK_TIMEOUT_MS = 3 * SECOND_MS;
 const PUNCH_TIMEOUT_MS = 5 * SECOND_MS;
 // Fast sync (same as the server's FAST_SYNC_MAX_MS): a punch sent within
 // this long gets server time minus its wait and looks like an online punch.
@@ -30,11 +29,19 @@ const BADGE_DELAY_MS = 10 * SECOND_MS;
 // recorded, and a saved PIN is deleted.
 const QUEUED_MAX_AGE_MS = DAY_MS;
 const PIN_KEEP_MS = DAY_MS;
-const SYNCED_KEEP_MS = DAY_MS;
+// Sync tab (decided 2026-11-02, S1): Synced rows show for today and the 2
+// days before, by punch time in the company's time zone (Wednesday shows
+// Monday-Wednesday). Waiting / Syncing / Failed rows always show. The phone
+// keeps Synced rows 4 days by the clock, so a row that window shows is
+// never deleted early (cleanup doesn't know the time zone).
+const SYNC_TAB_DAYS = 3;
+const SYNCED_KEEP_MS = 4 * DAY_MS;
 
 const NOT_RECORDED_MESSAGE = "Not recorded, tell your admin.";
 const COULDNT_SYNC_MESSAGE = "Couldn't sync, please speak to your supervisor.";
-const WRONG_PIN_MESSAGE = "Wrong PIN. Type your PIN again to send this punch.";
+// The phone checks the PIN before saving (lib/pinVerifier.js), so a wrong
+// PIN at sync means an admin changed it while the phone was offline (E1).
+const WRONG_PIN_MESSAGE = "Your PIN was changed. Type your new PIN to send this punch.";
 const WILL_SYNC_NOTE = "Will sync when online";
 
 // status: "waiting" | "syncing" | "synced" | "failed"
@@ -205,10 +212,20 @@ function hasQueueAhead(items, companyId, employeeId) {
   return badgeCount(items, companyId, employeeId) > 0;
 }
 
-// Sync tab rows, newest first. Synced rows stay 24 h.
-function visibleItems(items, companyId, employeeId, nowMs) {
+// "YYYY-MM-DD" of the first day the Sync tab shows: 2 calendar days
+// before today in timeZone (undefined = the phone's own zone).
+function syncWindowStartKey(nowMs, timeZone) {
+  const [y, m, d] = dayKey(nowMs, timeZone).split("-").map(Number);
+  const start = new Date(Date.UTC(y, m - 1, d - (SYNC_TAB_DAYS - 1)));
+  return start.toISOString().slice(0, 10);
+}
+
+// Sync tab rows, newest first: every unsynced row, plus Synced rows made
+// today or in the 2 days before (company time zone).
+function visibleItems(items, companyId, employeeId, nowMs, timeZone) {
+  const startKey = syncWindowStartKey(nowMs, timeZone);
   return mine(items, companyId, employeeId)
-    .filter((i) => i.status !== "synced" || nowMs - (i.syncedAt || 0) < SYNCED_KEEP_MS)
+    .filter((i) => i.status !== "synced" || dayKey(i.queuedAtMs, timeZone) >= startKey)
     .sort((a, b) => byQueuedTime(b, a));
 }
 
@@ -222,7 +239,7 @@ function pinsToDelete(items, nowMs) {
     .map((i) => i.requestId);
 }
 
-// Synced rows to drop from the phone (any employee): 24 h after syncing.
+// Synced rows to drop from the phone (any employee): 4 days after syncing.
 function syncedToDrop(items, nowMs) {
   return items.filter((i) => i.status === "synced" && nowMs - (i.syncedAt || 0) >= SYNCED_KEEP_MS).map((i) => i.requestId);
 }
@@ -302,7 +319,6 @@ module.exports = {
   STATUS_TONES,
   formatWhen,
   eventsForCache,
-  PIN_CHECK_TIMEOUT_MS,
   PUNCH_TIMEOUT_MS,
   FAST_SYNC_MAX_MS,
   CLOCKS_AGREE_MS,
@@ -310,6 +326,7 @@ module.exports = {
   QUEUED_MAX_AGE_MS,
   PIN_KEEP_MS,
   SYNCED_KEEP_MS,
+  SYNC_TAB_DAYS,
   NOT_RECORDED_MESSAGE,
   COULDNT_SYNC_MESSAGE,
   WRONG_PIN_MESSAGE,
@@ -328,6 +345,7 @@ module.exports = {
   badgeCount,
   nextBadgeChangeMs,
   hasQueueAhead,
+  syncWindowStartKey,
   visibleItems,
   pinsToDelete,
   syncedToDrop,

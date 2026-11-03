@@ -721,3 +721,49 @@ test("self view: create and link events delivered out of order still end linked"
   assert.equal(view.active, true);
   assert.equal(view.name, "Ana");
 });
+
+// ===================== getMyPinVerifier (PIN check on the phone) =====================
+
+const { createHash } = require("node:crypto");
+const verifier = (c, auth = employeeAuth(c), data = {}) => funcs.getMyPinVerifier.run({ data, auth, rawRequest: {} });
+const phoneHash = (salt, pin) => createHash("sha256").update(`${salt}:${pin}`, "utf8").digest("hex");
+
+test("pin verifier: salted hash of the employee's own PIN, never the PIN", async () => {
+  const c = "ec-ver-ok";
+  await seed(c);
+  const a = await verifier(c);
+  assert.equal(a.status, "ok");
+  assert.equal(a.v, 1);
+  assert.match(a.salt, /^[A-Za-z0-9_-]{22}$/);
+  assert.equal(a.hash, phoneHash(a.salt, PIN));
+  assert.notEqual(a.hash, phoneHash(a.salt, "9999"));
+  assert.ok(!JSON.stringify(a).includes(PIN));
+  const b = await verifier(c);
+  assert.notEqual(a.salt, b.salt, "a new salt every time");
+});
+
+test("pin verifier: a PIN changed on the website gives the new hash", async () => {
+  const c = "ec-ver-change";
+  await seed(c);
+  await db.doc(`companies/${c}/employees/emp1`).update({ pin: "4321" });
+  const v = await verifier(c);
+  assert.equal(v.hash, phoneHash(v.salt, "4321"));
+});
+
+test("pin verifier: inactive and no-PIN employees", async () => {
+  const c = "ec-ver-states";
+  await seed(c, { employee: { active: false } });
+  assert.deepEqual(await verifier(c), { status: "inactive" });
+  await db.doc(`companies/${c}/employees/emp1`).update({ active: true, pin: admin.firestore.FieldValue.delete() });
+  assert.deepEqual(await verifier(c), { status: "noPin" });
+});
+
+test("pin verifier: rejects signed out, wrong role, unlinked login and any input", async () => {
+  const c = "ec-ver-auth";
+  await seed(c, { employee: { linkedUserId: "someoneElse" } });
+  await assert.rejects(verifier(c), reasonIs("wrongAccount"));
+  await assert.rejects(verifier(c, employeeAuth(c, { role: "supervisor" })), reasonIs("wrongAccount"));
+  await assert.rejects(verifier(c, null), reasonIs("notSignedIn"));
+  await db.doc(`companies/${c}/employees/emp1`).update({ linkedUserId: "uid1" });
+  await assert.rejects(verifier(c, employeeAuth(c), { employeeId: "emp2" }), reasonIs("invalid"));
+});

@@ -8,13 +8,15 @@ const EMPTY = { all: [], rows: [], badge: 0, open: 0, nextChangeMs: null, paused
 // Employee App Phase 4: this employee's punches kept on the phone, re-read
 // whenever the queue changes.
 //   all          - every saved punch (for Home's status)
-//   rows         - the Sync tab list, newest first (Synced stay 24 h)
+//   rows         - the Sync tab list, newest first: every unsynced punch,
+//                  plus Synced ones from today and the 2 days before in
+//                  timeZone (the company's; undefined = the phone's)
 //   badge        - Failed, plus Waiting + Syncing once 10 s old (Sync tab
 //                  badge - a punch that syncs in a second never shows)
 //   queueAhead   - punches are still waiting on the phone
 //   paused       - the oldest unsent punch failed for good
 //   lastSyncedMs - when the server last accepted a punch from this phone
-export function usePunchQueue(companyId, employeeId) {
+export function usePunchQueue(companyId, employeeId, timeZone) {
   const [state, setState] = useState(EMPTY);
 
   const load = useCallback(async () => {
@@ -26,7 +28,7 @@ export function usePunchQueue(companyId, employeeId) {
       const nowMs = Date.now();
       setState({
         all,
-        rows: visibleItems(items, companyId, employeeId, nowMs),
+        rows: visibleItems(items, companyId, employeeId, nowMs, timeZone),
         badge: badgeCount(items, companyId, employeeId, nowMs),
         open: badgeCount(items, companyId, employeeId),
         nextChangeMs: nextBadgeChangeMs(items, companyId, employeeId, nowMs),
@@ -37,7 +39,7 @@ export function usePunchQueue(companyId, employeeId) {
     } catch {
       setState((prev) => ({ ...prev, loaded: true }));
     }
-  }, [companyId, employeeId]);
+  }, [companyId, employeeId, timeZone]);
 
   useEffect(() => {
     if (!companyId || !employeeId) return undefined;

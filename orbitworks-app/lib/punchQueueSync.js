@@ -24,6 +24,7 @@ import {
   setLastSynced,
 } from "./punchQueue";
 import { noteSignalOk, noteWeakSignal } from "./punchQueueEvents";
+import { refreshPinVerifier } from "./pinCheck";
 
 // Employee App Phase 4 - sends the signed-in employee's saved punches,
 // oldest first, one at a time. Another employee's punches on this phone are
@@ -87,6 +88,9 @@ async function drain(companyId, employeeId) {
 
 async function fail(item, kind, reason) {
   await markFailed(item.requestId, kind, reason, failMessage(kind));
+  // Wrong PIN at sync = an admin changed it: get the new one, so Redo and
+  // new punches check against it.
+  if (kind === "redo") refreshPinVerifier(item.companyId, item.employeeId).catch(() => {});
 }
 
 async function waitFor(item) {

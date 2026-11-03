@@ -2,7 +2,8 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { timingSafeEqual, randomUUID } from "crypto";
 import { db } from "./shared";
-import { employeeClockPunchSchema, EmployeeClockAction } from "./employeeClockValidators";
+import { employeeClockPunchSchema, getMyPinVerifierSchema, EmployeeClockAction } from "./employeeClockValidators";
+import { makePinVerifier, PinVerifierResult } from "./lib/pinVerifier";
 import {
   COULDNT_SYNC_MESSAGE,
   NOT_RECORDED_MESSAGE,
@@ -502,4 +503,28 @@ export const getEmployeeHomeSite = onCall(async (request) => {
 
   const site = await resolveEmployeeSite(companyId, employee);
   return { siteId: site.siteId, siteName: site.siteId ? site.siteName : null };
+});
+
+// ---- Employee App: the PIN check value for the phone (getMyPinVerifier) ----
+//
+// The signed-in employee's OWN PIN as a salted hash (lib/pinVerifier.ts),
+// so the phone can check a typed PIN at once, online or offline. Same
+// account check as the punch (role employee, claims, still linked to this
+// login). Never returns the PIN itself, never logs anything about it. The
+// phone asks on sign-in, app open, reconnect and after a wrong PIN at sync
+// (an admin changed it).
+export const getMyPinVerifier = onCall(async (request): Promise<PinVerifierResult> => {
+  if (!request.auth) throw clockError("notSignedIn");
+  const role = request.auth.token.role as string | undefined;
+  const companyId = request.auth.token.companyId as string | undefined;
+  const employeeId = request.auth.token.employeeId as string | undefined;
+  if (role !== "employee" || !companyId || !employeeId) throw clockError("wrongAccount");
+  const parsed = getMyPinVerifierSchema.safeParse(request.data ?? {});
+  if (!parsed.success) throw clockError("invalid");
+
+  const employeeSnap = await db.collection("companies").doc(companyId).collection("employees").doc(employeeId).get();
+  const employee = employeeSnap.data() as EmployeeDoc | undefined;
+  if (!employee || employee.linkedUserId !== request.auth.uid) throw clockError("wrongAccount");
+  if (employee.active !== true) return { status: "inactive" };
+  return makePinVerifier(employee.pin);
 });

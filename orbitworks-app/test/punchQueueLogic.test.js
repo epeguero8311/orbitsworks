@@ -71,7 +71,7 @@ test("signal errors save the online punch; real errors don't", () => {
 test("messages and the one action per Failed row", () => {
   assert.equal(q.failMessage("notRecorded"), "Not recorded, tell your admin.");
   assert.equal(q.failMessage("couldntSync"), "Couldn't sync, please speak to your supervisor.");
-  assert.match(q.failMessage("redo"), /Wrong PIN/);
+  assert.equal(q.failMessage("redo"), "Your PIN was changed. Type your new PIN to send this punch.");
   assert.equal(q.rowAction(item({ status: "failed", failKind: "redo" })), "redo");
   assert.equal(q.rowAction(item({ status: "failed", failKind: "notRecorded" })), "remove");
   assert.equal(q.rowAction(item({ status: "failed", failKind: "couldntSync" })), "remove");
@@ -139,13 +139,35 @@ test("badge counts Waiting + Syncing + Failed; new punches queue behind them", (
   assert.equal(q.hasQueueAhead([item({ status: "synced", syncedAt: NOW })], C, E), false);
 });
 
-test("Sync tab: newest first, synced rows stay 24 h", () => {
-  const old = item({ status: "synced", queuedAtMs: NOW - 30 * HOUR, syncedAt: NOW - 25 * HOUR });
+test("Sync tab: newest first, synced rows for today and the 2 days before (company zone)", () => {
+  // NOW = Sun Nov 1 2026, 10:00 AM in Chicago -> shows Fri Oct 30 to Sun Nov 1.
+  const TZ = "America/Chicago";
+  assert.equal(q.syncWindowStartKey(NOW, TZ), "2026-10-30");
+  const friEarly = item({ status: "synced", queuedAtMs: Date.parse("2026-10-30T05:30:00Z"), syncedAt: NOW - 50 * HOUR }); // Fri 12:30 AM CT
+  const thuLate = item({ status: "synced", queuedAtMs: Date.parse("2026-10-30T04:30:00Z"), syncedAt: NOW - 50 * HOUR }); // Thu 11:30 PM CT
   const recent = item({ status: "synced", queuedAtMs: NOW - 3 * HOUR, syncedAt: NOW - 2 * HOUR });
   const waiting = item({ queuedAtMs: NOW - MIN });
-  const rows = q.visibleItems([old, recent, waiting], C, E, NOW);
-  assert.deepEqual(rows.map((r) => r.requestId), [waiting.requestId, recent.requestId]);
-  assert.deepEqual(q.syncedToDrop([old, recent, waiting], NOW), [old.requestId]);
+  const oldFailed = item({ status: "failed", failKind: "notRecorded", queuedAtMs: NOW - 9 * 24 * HOUR });
+  const oldWaiting = item({ status: "waiting", queuedAtMs: NOW - 6 * 24 * HOUR });
+  const rows = q.visibleItems([friEarly, thuLate, recent, waiting, oldFailed, oldWaiting], C, E, NOW, TZ);
+  assert.deepEqual(
+    rows.map((r) => r.requestId),
+    [waiting.requestId, recent.requestId, friEarly.requestId, oldWaiting.requestId, oldFailed.requestId]
+  );
+});
+
+test("Sync tab: a Wednesday shows Monday to Wednesday", () => {
+  const wed = Date.parse("2026-11-04T18:00:00Z"); // Wed noon in Chicago
+  assert.equal(q.syncWindowStartKey(wed, "America/Chicago"), "2026-11-02");
+  assert.equal(q.syncWindowStartKey(Date.parse("2026-03-01T12:00:00Z"), "UTC"), "2026-02-27");
+});
+
+test("cleanup keeps synced rows 4 days, so nothing the Sync tab shows is deleted", () => {
+  const old = item({ status: "synced", queuedAtMs: NOW - 98 * HOUR, syncedAt: NOW - 97 * HOUR });
+  const kept = item({ status: "synced", queuedAtMs: NOW - 70 * HOUR, syncedAt: NOW - 70 * HOUR });
+  const waiting = item({ queuedAtMs: NOW - MIN });
+  assert.deepEqual(q.syncedToDrop([old, kept, waiting], NOW), [old.requestId]);
+  assert.ok(q.SYNCED_KEEP_MS >= (q.SYNC_TAB_DAYS + 1) * 24 * HOUR - 1);
 });
 
 // ---- 24 h PIN cleanup ----

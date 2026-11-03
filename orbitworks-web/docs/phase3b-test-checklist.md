@@ -1,7 +1,14 @@
 # Employee App Phase 3B - email invite test checklist
 
-First 3B build: profile employeeDev (com.orbitworks.app.dev, ASC 6826363680).
-Dev only (orbitworks-dev-ew). Run in order, one at a time; reply "done B#".
+Profile employeeDev (com.orbitworks.app.dev, ASC 6826363680). Dev only
+(orbitworks-dev-ew). Run in order, one at a time; reply "done B#".
+
+## Status (2026-11-02)
+
+The first 3B build (TestFlight build 19, employee-app 7edec8b) went on the
+phone. No test was reported passed. Everything below (B1-B11, N1-N6, and
+the Phase 4 leftovers) runs on the NEXT phase's first build. Mark a test
+here only after it is reported passed.
 
 Website: https://orbitsworks-backend--orbitworks-dev-ew.us-central1.hosted.app
 Core owner: jc-core-owner (password in test/dev-e2e/creds.json).
@@ -10,9 +17,10 @@ Gmail covers every test that needs a fresh email.
 
 ## Before the 3B tests
 
-Phase 4 leftovers from phase4-test-checklist.md on the same build (it has
-the success overlay fix ed39756): T2, T3 (airplane), T5, T14, T16, then
-S1-S6.
+Phase 4 leftovers from phase4-test-checklist.md on the same build: T2, T3
+(airplane), T16, then S1-S6. T5 and T14 are replaced by N1 and N2 below
+(the PIN is now checked on the phone, so a wrong PIN never reaches the
+camera or the queue).
 
 ## 3B tests
 
@@ -59,6 +67,51 @@ S1-S6.
   else's photo (or any face),
   then Invite to app at you+pro@gmail.com. Sign up on the phone. Clock in:
   the face check passes against your new selfie.
+
+## New tests (2026-11-02 changes, next phase's first build)
+
+Start each one clocked out unless it says otherwise. Same Pro test employee.
+
+- N1. Wrong PIN caught on the phone, online and offline.
+  1. Online: Clock In, type a WRONG PIN. Expect: the error at once on the
+     PIN pad ("Wrong PIN. 2 tries left before a 1-minute lock."), the
+     camera never opens, nothing on the Sync tab.
+  2. Airplane mode on: Clock In with a WRONG PIN. Same: error at once, no
+     camera, nothing saved.
+  3. Still offline: the correct PIN. Camera opens right after the 4th digit,
+     green after the photo with "Will sync when online". Airplane off: the
+     row goes Synced.
+- N2. Lock offline, survives a restart.
+  1. Airplane mode on. Clock In with 3 wrong PINs. Expect "1 try left",
+     then "Too many wrong PINs. Try again in 60 seconds." with the
+     countdown, PIN pad disabled.
+  2. Kill the app and reopen it (still offline), open Clock In: the
+     countdown is still running.
+  3. After it ends, the correct PIN works.
+- N3. PIN changed on the website while the phone is offline (E1).
+  1. Airplane mode on. Clock In with the CURRENT PIN (green, Will sync).
+  2. On the website, change this employee's PIN.
+  3. Airplane off. Expect: the Sync row turns Failed with "Your PIN was
+     changed. Type your new PIN to send this punch." and Redo.
+  4. Redo, type the NEW PIN. Expect: green at once (no "Checking PIN...",
+     no "Sending..."), the original time; the row goes Synced. Website: the
+     clock-in at the original time with its photo.
+  5. Next Clock Out: the NEW PIN works, the OLD one gets "Wrong PIN".
+- N4. No "Checking PIN..." anywhere. During N1-N3 and a normal online
+  Clock In / Clock Out, "Checking PIN..." and "Sending..." never show.
+- N5. Sync tab: today and the 2 days before. Needs punches from 3+ days
+  ago still on the phone (run this 3 days after N1-N3, same phone, no
+  reinstall). Expect: Synced rows only from today and the 2 days before
+  (company time zone); an older Failed row (if any) still shows.
+- N6. Auto clock-out on dev (now on for jc-test-pro-dev and
+  jc-test-core-dev, 12 h).
+  1. Website, jc-test-pro-dev: Settings > Automations > Auto clock-out,
+     set max hours to 1. Save.
+  2. Clock In on the phone. Wait 1 h 10 min (app can be closed).
+  3. Expect: the website shows an automatic clock-out at 1 h after the
+     clock-in, and the Auto clock-out alert. The phone's Home shows clocked
+     out after it refreshes.
+  4. Set max hours back to 12.
 
 ## Covered by the dev e2e, not by hand
 

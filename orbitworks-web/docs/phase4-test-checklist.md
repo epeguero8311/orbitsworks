@@ -2,6 +2,14 @@
 
 Offline punch queue (steps 1-7) + fast punches (every punch is saved on the phone first, green screen at once). Dev only: orbitworks-dev-ew. Prod is not touched.
 
+**Status 2026-11-02:** build 19 (3B) went on the phone; no T or S test was
+reported passed. T2, T3, T16 and S1-S6 move to the next phase's first build.
+The PIN is now checked on the phone (phase3b-test-checklist.md N1-N4), so:
+T5 and T14 are replaced by N1-N3 (a wrong PIN never reaches the camera or
+the queue; Redo is only for a PIN changed on the website while offline);
+T6 (Phase 10 list) needs that same "PIN changed" setup instead of a wrong
+PIN. T4 no longer shows "Checking PIN...".
+
 ## Builds (profile employeeDev)
 
 1. Build 1 - UI-only: from tag `ui-only-build` (2b29ec3), build 15. New screens plus the dev timing readout. Used for T1 only.
