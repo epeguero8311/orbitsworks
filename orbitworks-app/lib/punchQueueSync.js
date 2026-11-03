@@ -25,6 +25,7 @@ import {
 } from "./punchQueue";
 import { noteSignalOk, noteWeakSignal } from "./punchQueueEvents";
 import { refreshPinVerifier } from "./pinCheck";
+import { drainComments } from "./commentQueueSync";
 
 // Employee App Phase 4 - sends the signed-in employee's saved punches,
 // oldest first, one at a time. Another employee's punches on this phone are
@@ -66,7 +67,14 @@ export function syncPunchQueue(companyId, employeeId) {
     try {
       do {
         again = false;
-        await drain(companyId, employeeId);
+        // Phase 5: comments go right after the punches, in the same run.
+        // Each side's problems stay its own: a paused or failing punch
+        // queue never holds back comments, and comments never touch punches.
+        try {
+          await drain(companyId, employeeId);
+        } finally {
+          await drainComments(companyId, employeeId).catch(() => {});
+        }
       } while (again);
     } finally {
       running = null;

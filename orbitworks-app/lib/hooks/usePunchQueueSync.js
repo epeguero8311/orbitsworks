@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { AppState } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
 import { cleanupPunchQueue } from "../punchQueue";
+import { cleanupCommentQueue } from "../commentQueue";
 import { subscribeSyncKick } from "../punchQueueEvents";
 import { isPunchSyncRunning, syncPunchQueue } from "../punchQueueSync";
 
@@ -14,7 +15,9 @@ const RETRY_EVERY_MS = 30000;
 //   - when a punch is saved or redone
 //   - when the connection comes back, or the app comes to the front
 //   - every 30 s while signed in (cheap when nothing is waiting)
-// Only this employee's punches are sent (lib/punchQueueSync.js).
+// Only this employee's punches are sent (lib/punchQueueSync.js). Phase 5:
+// the same runs also send the employee's shift comments, right after the
+// punches (lib/commentQueueSync.js).
 export function usePunchQueueSync(companyId, employeeId) {
   useEffect(() => {
     if (!companyId || !employeeId) return undefined;
@@ -25,9 +28,10 @@ export function usePunchQueueSync(companyId, employeeId) {
     };
 
     if (!isPunchSyncRunning()) {
-      cleanupPunchQueue({ resetSyncing: true })
-        .catch(() => {})
-        .finally(sync);
+      Promise.all([
+        cleanupPunchQueue({ resetSyncing: true }).catch(() => {}),
+        cleanupCommentQueue({ resetSyncing: true }).catch(() => {}),
+      ]).finally(sync);
     } else {
       sync();
     }

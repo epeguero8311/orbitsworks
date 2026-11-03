@@ -11,6 +11,10 @@ import * as SQLite from "expo-sqlite";
 //   failKind: redo | notRecorded | couldntSync (when failed)
 //   photoUploaded: 1 once the photo is in Storage for this attempt
 // punch_meta: small key/value rows (Last synced per employee).
+// comment_queue (Phase 5): one row per shift comment (lib/commentQueue.js).
+// requestId is also the shiftNotes doc id, so a resend can never write a
+// second comment.
+//   status: waiting | syncing | synced | failed (failed = Not synced)
 
 let dbPromise = null;
 
@@ -65,6 +69,22 @@ async function openDb() {
     CREATE TABLE IF NOT EXISTS punch_meta (
       key TEXT PRIMARY KEY,
       value TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS comment_queue (
+      requestId TEXT PRIMARY KEY,
+      companyId TEXT NOT NULL,
+      employeeId TEXT NOT NULL,
+      clockEventId TEXT NOT NULL,
+      note TEXT NOT NULL,
+      madeAtMs INTEGER NOT NULL,
+      createdByName TEXT,
+      status TEXT NOT NULL DEFAULT 'waiting',
+      failReason TEXT,
+      failMessage TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      createdAt INTEGER NOT NULL,
+      syncedAt INTEGER
     );
   `);
   // Added after Phase 4 (lib/clockAnchor.js): the punch's uptime, expected
