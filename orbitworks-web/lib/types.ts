@@ -352,6 +352,10 @@ export interface ClockEvent {
   // made (see functions/src/employeeClockQueued.ts). The event time never
   // trusts it for a fast sync. Field only for now - website tag in Phase 10.
   phoneClockOff?: boolean;
+  // Employee App Phase 5: a queued punch made with the PIN that was right
+  // at its time, which an admin changed before it synced (EmployeePinHistory).
+  // Field only, no website tag yet.
+  oldPinAccepted?: boolean;
   authorizedById?: string;
   authorizedByName?: string;
   createdByUid?: string;
@@ -895,6 +899,25 @@ export interface EmployeePinLock {
   id: string; // the employeeId
   failedCount: number;
   lockedUntil: Timestamp | null;
+  updatedAt: Timestamp;
+}
+
+// companies/{companyId}/employeePinHistory/{employeeId} - server-only (no
+// client access). The employee's earlier PINs from the last 24 h, as salted
+// hashes, each with the time it was active (functions/src/lib/pinHistory.ts).
+// A punch saved offline with the PIN that was right at that moment still
+// syncs after an admin changed the PIN. Written by reservePinForEmployee.
+export interface EmployeePinHistoryEntry {
+  salt: string;
+  hash: string; // sha256_hex(salt + ":" + pin), same as the PIN verifier
+  fromMs: number; // when this PIN became active (0 = not known)
+  untilMs: number; // when it was changed (server time)
+}
+
+export interface EmployeePinHistory {
+  id: string; // the employeeId
+  entries: EmployeePinHistoryEntry[];
+  lastChangeMs: number; // when the current PIN became active
   updatedAt: Timestamp;
 }
 
