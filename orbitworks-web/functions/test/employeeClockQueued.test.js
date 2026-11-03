@@ -407,6 +407,130 @@ test("queued: from the 5th wrong PIN in 24 h queued punches are blocked; online 
   assert.equal(later.status, "out");
 });
 
+// ===================== queued: PIN changed before it synced (Phase 5, no Redo) =====================
+
+const historyDoc = (c) => db.doc(`companies/${c}/employeePinHistory/emp1`);
+const adminAuth = (c) => ({ uid: "admin1", token: { role: "admin", companyId: c } });
+const setPin = (c, pin) => funcs.setEmployeePin.run({ data: { employeeId: "emp1", pin }, auth: adminAuth(c), rawRequest: {} });
+
+test("PIN change: the old PIN is kept as a salted hash with server times; the same PIN adds nothing", async () => {
+  const c = "q-hist-write";
+  await seed(c);
+  await setPin(c, PIN);
+  assert.equal((await historyDoc(c).get()).exists, false);
+  const before = Date.now();
+  await setPin(c, "5678");
+  const hist = (await historyDoc(c).get()).data();
+  assert.equal(hist.entries.length, 1);
+  const [e] = hist.entries;
+  assert.ok(e.untilMs >= before && e.untilMs <= Date.now());
+  assert.equal(hist.lastChangeMs, e.untilMs);
+  assert.ok(typeof e.salt === "string" && e.hash.length === 64);
+  assert.ok(!JSON.stringify(hist).includes(PIN) && !JSON.stringify(hist).includes("5678"));
+  await setPin(c, "9012");
+  const two = (await historyDoc(c).get()).data();
+  assert.equal(two.entries.length, 2);
+  assert.equal(two.entries[1].fromMs, e.untilMs);
+});
+
+test("queued: PIN changed after the punch was made -> syncs at its own time, oldPinAccepted, not a wrong PIN", async () => {
+  const c = "q-hist-old";
+  await seed(c);
+  const madeMs = Date.now() - HOUR;
+  await setPin(c, "5678");
+  const res = await queuedPunch(c, "in", madeMs);
+  assert.equal(res.status, "in");
+  const [ev] = await events(c);
+  assert.equal(ev.timestamp.toMillis(), madeMs);
+  assert.equal(ev.queued, true);
+  assert.equal(ev.oldPinAccepted, true);
+  assert.equal((await failDoc(c).get()).exists, false);
+  assert.equal((await alertsOf(c, "syncWrongPin")).length, 0);
+  // The new PIN on a later punch: a normal punch, no marker.
+  await queuedPunch(c, "out", Date.now() - MIN, { pin: "5678" });
+  const out = (await events(c)).find((x) => x.type === "out");
+  assert.equal(out.oldPinAccepted, undefined);
+});
+
+test("queued: old PIN on a punch made AFTER the change -> refused for good, Couldn't sync, counted", async (t) => {
+  const c = "q-hist-after";
+  await seed(c);
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-29T15:00:00Z") });
+  const changeMs = Date.now();
+  await setPin(c, "5678");
+  t.mock.timers.tick(10 * MIN);
+  const requestId = randomUUID();
+  await assert.rejects(queuedPunch(c, "in", changeMs + 5 * MIN, { requestId }), (err) => {
+    reasonIs("wrongPin")(err);
+    assert.equal(err.message, COULDNT_SYNC);
+    assert.equal(err.details.queued, true);
+    return true;
+  });
+  assert.equal((await events(c)).length, 0);
+  assert.equal((await failDoc(c).get()).data().failures.length, 1);
+  assert.ok(deleted.includes(`companies/${c}/clockEvents/emp1/${requestId}.jpg`));
+});
+
+test("queued: PIN changed twice while offline -> each punch needs the PIN of its own time", async (t) => {
+  const c = "q-hist-twice";
+  await seed(c);
+  t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-29T15:00:00Z") });
+  const T0 = Date.now();
+  await setPin(c, "5678");
+  t.mock.timers.tick(HOUR);
+  await setPin(c, "9012");
+  t.mock.timers.tick(HOUR);
+  assert.equal((await queuedPunch(c, "in", T0 - 30 * MIN)).status, "in");
+  await assert.rejects(queuedPunch(c, "out", T0 + 30 * MIN), reasonIs("wrongPin"));
+  assert.equal((await queuedPunch(c, "out", T0 + 30 * MIN, { pin: "5678" })).status, "out");
+  await assert.rejects(queuedPunch(c, "in", T0 + 90 * MIN, { pin: "5678" }), reasonIs("wrongPin"));
+  assert.equal((await queuedPunch(c, "in", T0 + 90 * MIN, { pin: "9012" })).status, "in");
+  const evs = await events(c);
+  assert.equal(evs.length, 3);
+  assert.deepEqual(evs.filter((x) => x.oldPinAccepted).length, 2);
+  assert.equal((await failDoc(c).get()).data().failures.length, 2);
+});
+
+test("queued: old PIN refused when the phone clock was set back; the current PIN still works", async () => {
+  const c = "q-hist-clockoff";
+  await seed(c);
+  const madeMs = Date.now() - HOUR;
+  await setPin(c, "5678");
+  // expectedAtMs 10 min after the phone's time = the clock was set back.
+  await assert.rejects(queuedPunch(c, "in", madeMs, { extra: { expectedAtMs: madeMs + 10 * MIN } }), reasonIs("wrongPin"));
+  const res = await queuedPunch(c, "in", madeMs, { pin: "5678", extra: { expectedAtMs: madeMs + 10 * MIN } });
+  assert.equal(res.status, "in");
+  const [ev] = await events(c);
+  assert.equal(ev.phoneClockOff, true);
+  assert.equal(ev.oldPinAccepted, undefined);
+});
+
+test("queued fast sync: the server's time decides which PIN was right", async () => {
+  const c = "q-hist-fast";
+  await seed(c);
+  await setPin(c, "5678");
+  // The phone claims an hour ago, but the punch waited only 30 s: made after the change.
+  await assert.rejects(queuedPunch(c, "in", Date.now() - HOUR, { extra: { waitMs: 30 * 1000 } }), reasonIs("wrongPin"));
+
+  const c2 = "q-hist-fast2";
+  await seed(c2);
+  await setPin(c2, "5678");
+  // Waited 90 s and the change was moments ago: made before it.
+  const res = await queuedPunch(c2, "in", Date.now() - 90 * 1000, { extra: { waitMs: 90 * 1000 } });
+  assert.equal(res.status, "in");
+  const [ev] = await events(c2);
+  assert.equal(ev.oldPinAccepted, true);
+  assert.equal(ev.queued, undefined, "a fast sync still looks like an online punch");
+});
+
+test("online punch: only the current PIN, the old one is a normal wrong PIN", async () => {
+  const c = "q-hist-online";
+  await seed(c);
+  await setPin(c, "5678");
+  await assert.rejects(punch(c, "in"), (err) => reasonIs("wrongPin")(err) && err.details.attemptsLeft === 2);
+  assert.equal((await punch(c, "in", { pin: "5678" })).status, "in");
+});
+
 // ===================== trigger: late punch into an approved timesheet =====================
 
 async function approveShift(c, clockInId) {

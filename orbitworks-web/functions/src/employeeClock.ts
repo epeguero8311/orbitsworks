@@ -4,6 +4,8 @@ import { timingSafeEqual, randomUUID } from "crypto";
 import { db } from "./shared";
 import { employeeClockPunchSchema, getMyPinVerifierSchema, EmployeeClockAction } from "./employeeClockValidators";
 import { makePinVerifier, PinVerifierResult } from "./lib/pinVerifier";
+import { queuedPinCheck, readPinHistory } from "./lib/pinHistory";
+import { pinHistoryRef } from "./pins";
 import {
   COULDNT_SYNC_MESSAGE,
   NOT_RECORDED_MESSAGE,
@@ -57,9 +59,11 @@ import {
 //
 // Queued punch (queuedAtMs set - Phase 4, see employeeClockQueued.ts): same
 // steps, except the time window check, the PIN checked without the 3-strike
-// lock, a later punch already recorded rejects it, and the event keeps the
-// phone's time with queued: true (plus syncedLate: true if it arrived 5+
-// minutes late). Online punches (no queuedAtMs) are unchanged.
+// lock (and the PIN that was right at the punch's time still passes after
+// an admin changed it - Phase 5, oldPinAccepted: true), a later punch
+// already recorded rejects it, and the event keeps the phone's time with
+// queued: true (plus syncedLate: true if it arrived 5+ minutes late).
+// Online punches (no queuedAtMs) are unchanged: current PIN only.
 //
 // Never log the PIN, photo URL or names - log() prints a step and a code.
 
@@ -367,12 +371,28 @@ export const employeeClockPunch = onCall(async (request) => {
   }
 
   let photoUrl: string | null = null;
+  let oldPinAccepted = false;
   if (isInOut && queued) {
-    // 5q. PIN for a queued punch: no 3-strike lock, own 24 h count + cap
+    // 5q. PIN for a queued punch: no 3-strike lock, own 24 h count + cap.
+    // The current PIN, or the one that was right at the punch's own time
+    // (the same time the event gets, below; a fast sync = server time).
     if (await isSyncBlocked(companyId, employeeId, nowMs)) return reject(clockError("syncBlocked", COULDNT_SYNC_MESSAGE));
-    if (!pinMatches(input.pin as string, employee.pin)) {
-      await recordSyncWrongPin(companyId, employeeId, employee.name ?? "", nowMs);
-      return reject(clockError("wrongPin", QUEUED_WRONG_PIN_MESSAGE, { queued: true }));
+    const currentMatches = pinMatches(input.pin as string, employee.pin);
+    if (!currentMatches) {
+      const eventMs = fast ? nowMs - (input.waitMs as number) : queuedEventMs(input.queuedAtMs as number, nowMs);
+      const result = queuedPinCheck({
+        pin: input.pin as string,
+        currentMatches,
+        history: readPinHistory((await pinHistoryRef(companyId, employeeId).get()).data()),
+        eventMs,
+        nowMs,
+        phoneClockOff: isPhoneClockOff({ queuedAtMs: input.queuedAtMs as number, eventMs, fast, expectedAtMs: input.expectedAtMs }),
+      });
+      if (result !== "old") {
+        await recordSyncWrongPin(companyId, employeeId, employee.name ?? "", nowMs);
+        return reject(clockError("wrongPin", QUEUED_WRONG_PIN_MESSAGE, { queued: true }));
+      }
+      oldPinAccepted = true;
     }
   }
   if (isInOut && !queued) {
@@ -466,6 +486,7 @@ export const employeeClockPunch = onCall(async (request) => {
       if (queued && isPhoneClockOff({ queuedAtMs: input.queuedAtMs as number, eventMs, fast, expectedAtMs: input.expectedAtMs })) {
         data.phoneClockOff = true;
       }
+      if (oldPinAccepted) data.oldPinAccepted = true;
       tx.create(eventRef, data);
       tx.update(employeeRef, { lastPunchRequestId: input.requestId, lastPunchAt: timestamp });
       return { kind: "written", data: data as EventData };

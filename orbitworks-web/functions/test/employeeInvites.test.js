@@ -662,6 +662,16 @@ test("deleteEmployee revokes the row's pending invite", async () => {
   assert.equal((await runGetInviteInfo({ token })).status, "inactive");
 });
 
+test("deleteEmployee also deletes the row's PIN history (Phase 5)", async () => {
+  const c = newCompany();
+  await seed(c);
+  await createRow(c, email("delhist"));
+  const hist = db.doc(`companies/${c}/employeePinHistory/row1`);
+  await hist.set({ entries: [{ salt: "s", hash: "h", fromMs: 0, untilMs: Date.now() }], lastChangeMs: Date.now() });
+  await funcs.deleteEmployee.run({ data: { employeeId: "row1" }, auth: { uid: "uidAdmin-" + c, token: { role: "admin", companyId: c } }, rawRequest: {} });
+  assert.equal((await hist.get()).exists, false);
+});
+
 // ================= QR regression (shared sign-up steps) =================
 
 async function seedQr(c) {

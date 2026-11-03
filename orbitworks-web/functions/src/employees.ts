@@ -9,7 +9,7 @@ import {
   isOverTotalCap,
   EmployeeCapFields,
 } from "./shared";
-import { reserveNewPin } from "./pins";
+import { pinHistoryRef, reserveNewPin } from "./pins";
 import { storagePathFromDownloadUrl } from "./rekognition";
 import { loginRoleFor } from "./employeeAccess";
 import { pendingInviteRefsForRow } from "./employeeInvites";
@@ -622,6 +622,8 @@ async function deleteEmployeeRecord(
       db.collection("companies").doc(callerCompanyId).collection("pins").doc(employee.pin)
     );
   }
+  // Phase 5: the earlier PINs go with the employee.
+  batch.delete(pinHistoryRef(callerCompanyId, employeeId));
   if (email) {
     const invitesSnap = await db
       .collection("invites")

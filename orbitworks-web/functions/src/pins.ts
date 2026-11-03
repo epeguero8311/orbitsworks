@@ -2,6 +2,12 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db } from "./shared";
 import { JUNK_PINS } from "./createEmployee";
+import { addPinChange, readPinHistory } from "./lib/pinHistory";
+
+// Earlier PINs (Phase 5, lib/pinHistory.ts). Server-only.
+export function pinHistoryRef(companyId: string, employeeId: string) {
+  return db.collection("companies").doc(companyId).collection("employeePinHistory").doc(employeeId);
+}
 
 // --- PIN uniqueness (server-side, transactional) ---
 //
@@ -20,6 +26,9 @@ import { JUNK_PINS } from "./createEmployee";
 // fieldEditedAt.pin so a later-syncing older offline edit can tell it lost
 // (see updateEmployeeProfile's last-edit-wins check). avoidJunk skips the
 // guessable PINs for auto-generated candidates.
+// Every real change also keeps the old PIN in employeePinHistory, in the
+// same transaction, ended at the server's time (not editedAt), so a punch
+// saved offline before the change still syncs (lib/pinHistory.ts).
 export async function reservePinForEmployee(
   companyId: string,
   employeeId: string,
@@ -43,7 +52,7 @@ export async function reservePinForEmployee(
       if (!employeeSnap.exists) {
         throw new HttpsError("not-found", "Employee not found.");
       }
-      const employee = employeeSnap.data() as { pin?: string };
+      const employee = employeeSnap.data() as { pin?: string; fieldEditedAt?: { pin?: admin.firestore.Timestamp } };
       const oldPin = employee.pin ?? null;
 
       if (oldPin === candidate) {
@@ -57,9 +66,17 @@ export async function reservePinForEmployee(
           return true;
         }
       }
+      const historyRef = pinHistoryRef(companyId, employeeId);
+      const historySnap = oldPin ? await tx.get(historyRef) : null;
 
       if (oldPin) {
         tx.delete(pinsRef.doc(oldPin));
+        // Phase 5: the old PIN stays valid for punches made before now
+        // (server time - see lib/pinHistory.ts).
+        const nowMs = Date.now();
+        const setMs = employee.fieldEditedAt?.pin?.toMillis?.() ?? 0;
+        const history = addPinChange(readPinHistory(historySnap?.data()), oldPin, nowMs, setMs);
+        tx.set(historyRef, { ...history, updatedAt: admin.firestore.Timestamp.fromMillis(nowMs) });
       }
       tx.set(candidateRef, {
         employeeId,

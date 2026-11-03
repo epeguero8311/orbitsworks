@@ -9,11 +9,15 @@ import { createAlertIfNew } from "./alerts";
 // made it. employeeClockPunch (employeeClock.ts) then:
 //   - rejects it for good if that time is over 24 h ago (tooOld) or more
 //     than 2 minutes in the future (badTime)
-//   - in/out: checks the PIN WITHOUT the 3-strike lock. A wrong PIN here is
-//     counted per employee over 24 h: the 3rd alerts the admin
-//     (syncWrongPin, once per day), and from the 5th every further queued
-//     punch for that employee fails for good (syncBlocked) until the wrong
-//     PINs are 24 h old. That cap stops the queue being used to guess PINs.
+//   - in/out: checks the PIN WITHOUT the 3-strike lock. The current PIN
+//     passes; so does the PIN that was right at the punch's own time if an
+//     admin changed it since (Phase 5, lib/pinHistory.ts - the event gets
+//     oldPinAccepted: true; no Redo). Any other PIN is refused for good
+//     ("Couldn't sync") and counted per employee over 24 h: the 3rd alerts
+//     the admin (syncWrongPin, once per day), and from the 5th every further
+//     queued punch for that employee fails for good (syncBlocked) until the
+//     wrong PINs are 24 h old. That cap stops the queue being used to guess
+//     PINs.
 //   - rejects it for good if a later punch is already recorded
 //     (superseded - e.g. an auto clock-out ran first)
 //   - writes it with the phone's time (never later than now) and
@@ -60,9 +64,9 @@ export function isPhoneClockOff(input: { queuedAtMs: number; eventMs: number; fa
 
 export const NOT_RECORDED_MESSAGE = "Not recorded, tell your admin.";
 export const COULDNT_SYNC_MESSAGE = "Couldn't sync, please speak to your supervisor.";
-// The phone checks the PIN before saving (lib/pinVerifier.ts), so a wrong
-// PIN at sync means an admin changed it while the phone was offline (E1).
-export const QUEUED_WRONG_PIN_MESSAGE = "Your PIN was changed. Type your new PIN to send this punch.";
+// A queued punch whose PIN was never right at its time (Phase 5, Q4 A:
+// no Redo - the punch can only be removed, like any other refusal).
+export const QUEUED_WRONG_PIN_MESSAGE = COULDNT_SYNC_MESSAGE;
 
 // null = the time is fine, else the reason the punch is rejected for good.
 export function queuedTimeProblem(queuedAtMs: number, nowMs: number): "tooOld" | "badTime" | null {

@@ -119,6 +119,23 @@ test("update: free PIN is kept as-is, no alert", async () => {
   assert.equal((await alertsOfType("pinChanged")).length, 0);
 });
 
+// Phase 5 (Q6 A): the old PIN's end time is when the change landed on the
+// server, not the phone's earlier edit time.
+test("update: offline PIN edit keeps the old PIN in history until the server time it landed", async () => {
+  const setMs = Date.now() - 60 * 60 * 1000;
+  await seedEmployee("emp5aaaaaaaa", { pin: "2468", fieldEditedAt: { pin: admin.firestore.Timestamp.fromMillis(setMs) } });
+  const before = Date.now();
+  await funcs.updateEmployeeProfile.run({
+    auth: auth("admin"),
+    data: { employeeId: "emp5aaaaaaaa", updateId: "update00000009", pin: "9173", clientEditedAt: Date.now() - 10 * 60 * 1000 },
+  });
+  const hist = (await companyRef().collection("employeePinHistory").doc("emp5aaaaaaaa").get()).data();
+  assert.equal(hist.entries.length, 1);
+  assert.equal(hist.entries[0].fromMs, setMs);
+  assert.ok(hist.entries[0].untilMs >= before && hist.entries[0].untilMs <= Date.now());
+  assert.ok(!JSON.stringify(hist).includes("2468"));
+});
+
 test("update: supervisors can't change PINs", async () => {
   await seedEmployee("emp3aaaaaaaa", { pin: "2468" });
   await assert.rejects(
