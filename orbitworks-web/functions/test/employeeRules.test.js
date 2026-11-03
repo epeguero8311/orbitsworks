@@ -327,6 +327,25 @@ test("FAIL: nobody on a client reads or writes wrong-PIN-at-sync counts", async 
   }
 });
 
+// Phase 5: earlier PINs (lib/pinHistory.ts) - server-only, even for admins
+// (they can see the current PIN, never the old hashes).
+test("FAIL: nobody on a client reads or writes PIN history", async () => {
+  await testEnv.withSecurityRulesDisabled((c) =>
+    setDoc(doc(c.firestore(), "companies", A, "employeePinHistory", "empA"), {
+      entries: [{ salt: "s", hash: "h", fromMs: 0, untilMs: Date.now() }],
+      lastChangeMs: Date.now(),
+    })
+  );
+  for (const ctx of [employeeA(), adminA(), supervisorA()]) {
+    const r = doc(ctx.firestore(), "companies", A, "employeePinHistory", "empA");
+    await assertFails(getDoc(r));
+    await assertFails(getDocs(collection(ctx.firestore(), "companies", A, "employeePinHistory")));
+    await assertFails(setDoc(r, { entries: [], lastChangeMs: 0 }));
+    await assertFails(updateDoc(r, { entries: [] }));
+    await assertFails(deleteDoc(r));
+  }
+});
+
 test("FAIL: deactivated employee clocks in", async () => {
   await testEnv.withSecurityRulesDisabled((c) =>
     updateDoc(doc(c.firestore(), "companies", A, "employees", "empA"), { active: false })

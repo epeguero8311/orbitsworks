@@ -363,6 +363,14 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // Employee App Phase 5: earlier PINs from the last 24 h as salted
+      // hashes (functions/src/lib/pinHistory.ts), so a punch saved offline
+      // with the PIN that was right at that moment still syncs. Server-only,
+      // even for admins.
+      match /employeePinHistory/{employeeId} {
+        allow read, write: if false;
+      }
+
       match /jobSites/{siteId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
