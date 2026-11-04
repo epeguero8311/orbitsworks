@@ -24,14 +24,11 @@ const DONE_TITLES = { in: "Clocked in", out: "Clocked out" };
 // confirmation at once, with the expected site. The phone's queue sends it
 // straight away (lib/hooks/useClockPunch.js). With no or weak signal the
 // confirmation also shows "Will sync when online". Every error message is
-// the server's own plain message, or "No signal". Redo (from the Sync tab,
-// params.redoId): PIN only, then the saved punch is sent again with its
-// original time and photo.
-// params: action, expectedSite, lastEventMs, redoId
+// the server's own plain message, or "No signal". (Phase 5: no Redo.)
+// params: action, expectedSite, lastEventMs
 export default function ClockPunchScreen({ route, navigation }) {
   const params = route.params || {};
   const action = params.action === "out" ? "out" : "in";
-  const redoId = params.redoId || null;
   const { userData, linkedEmployeeId } = useAuth();
   const { colors } = useTheme();
   const companyId = userData?.companyId;
@@ -47,14 +44,13 @@ export default function ClockPunchScreen({ route, navigation }) {
     employeeId,
     expectedSite: params.expectedSite || "",
     lastEventMs: typeof params.lastEventMs === "number" ? params.lastEventMs : null,
-    redoId,
   });
   const now = useNow(1000);
   const lockSeconds = flow.lockedUntil > now ? Math.ceil((flow.lockedUntil - now) / 1000) : 0;
   const close = useCallback(() => navigation.goBack(), [navigation]);
 
   // The green overlay shows as soon as the punch is saved. Whatever was on
-  // screen (the photo preview, or Redo's PIN pad) stays under it until it
+  // screen (the photo preview) stays under it until it
   // is opaque (flow.overlayShown -> step "done"), so nothing changes
   // behind the fade. Always <>{body}{overlay}</>, so the camera isn't
   // remounted when the overlay appears.
@@ -95,7 +91,7 @@ export default function ClockPunchScreen({ route, navigation }) {
   return (
     <>
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <ScreenHeader title={redoId ? `Redo ${TITLES[action]}` : TITLES[action]} onBack={close} />
+        <ScreenHeader title={TITLES[action]} onBack={close} />
         <ConnectionBanner style={styles.banner} />
         <View style={styles.content}>
           {flow.step === "pin" ? (
@@ -108,7 +104,7 @@ export default function ClockPunchScreen({ route, navigation }) {
                   </Text>
                 </View>
               ) : null}
-              <Text style={[styles.title, { color: colors.text }]}>{redoId ? "Type your PIN again" : "Enter your PIN"}</Text>
+              <Text style={[styles.title, { color: colors.text }]}>Enter your PIN</Text>
               <PinPad length={flow.pin.length} onDigit={flow.pressDigit} onDelete={flow.deleteDigit} disabled={lockSeconds > 0} />
             </>
           ) : null}
@@ -122,7 +118,7 @@ export default function ClockPunchScreen({ route, navigation }) {
           ) : null}
           {flow.step === "failed" || flow.step === "retry" ? (
             <TouchableOpacity style={styles.link} onPress={close}>
-              <Text style={[styles.linkText, { color: colors.accent }]}>{redoId ? "Back" : "Back to Home"}</Text>
+              <Text style={[styles.linkText, { color: colors.accent }]}>Back to Home</Text>
             </TouchableOpacity>
           ) : null}
         </View>

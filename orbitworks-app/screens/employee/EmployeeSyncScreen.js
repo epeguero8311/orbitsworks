@@ -27,10 +27,10 @@ const CONNECTION = {
 // (lib/punchQueue.js) - Waiting, Syncing, Synced or Failed - with Last
 // synced and Sync now. Synced rows show for today and the 2 days before
 // (company time zone); Waiting, Syncing and Failed always show. A Failed
-// row offers one action: Redo (an admin changed the PIN while the phone
-// was offline: type the new one, the same punch is resent) or Remove (it
-// can't be recorded - the confirm says so and to tell the supervisor).
-export default function EmployeeSyncScreen({ navigation }) {
+// row offers Remove (it can't be recorded - the confirm says so and to tell
+// the supervisor). Phase 5: no Redo - a punch made with the PIN that was
+// right at the time syncs even if an admin changed the PIN since.
+export default function EmployeeSyncScreen() {
   const { colors } = useTheme();
   const styles = useStyles();
   const { userData, linkedEmployeeId } = useAuth();
@@ -50,11 +50,6 @@ export default function EmployeeSyncScreen({ navigation }) {
       .catch(() => {})
       .finally(() => setSyncing(false));
   }, [companyId, employeeId]);
-
-  const redo = useCallback(
-    (item) => navigation.navigate("ClockPunch", { action: item.action, redoId: item.requestId }),
-    [navigation]
-  );
 
   const confirmRemove = useCallback(async () => {
     if (!removing) return;
@@ -106,7 +101,6 @@ export default function EmployeeSyncScreen({ navigation }) {
               whenLabel={formatWhen(item.queuedAtMs, now, timezone)}
               siteName={siteLabel(item.siteName)}
               divider={i < queue.rows.length - 1}
-              onRedo={redo}
               onRemove={setRemoving}
             />
           ))}
