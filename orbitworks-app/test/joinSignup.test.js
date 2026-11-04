@@ -89,6 +89,46 @@ test("parseJoinInfo: inactive, active, and junk", () => {
   assert.equal(v.parseJoinInfo({ status: "active" }), null);
   assert.equal(v.parseJoinInfo(null), null);
   assert.equal(v.parseJoinInfo({ ...active, minSignupAge: "16" }), null);
+  assert.equal(v.parseJoinInfo(active).prefill, null);
+});
+
+// ---- Phase 5d: invite autofill ----
+
+const ACTIVE = {
+  status: "active", companyName: "Acme", subcontractors: [{ id: "subA", name: "Bolt" }],
+  privacyPolicyVersion: "p", biometricConsentVersion: "b", biometricConsentText: "t", minSignupAge: 16,
+};
+
+test("5d parsePrefill: clean prefill kept, email lowercased", () => {
+  const info = v.parseJoinInfo({ ...ACTIVE, prefill: { email: " Pat@Example.com", fullName: " Pat Row ", birthday: "1990-01-31", subcontractorId: "subA" } });
+  assert.deepEqual(info.prefill, { email: "pat@example.com", fullName: "Pat Row", birthday: "1990-01-31", subcontractorId: "subA" });
+});
+
+test("5d parsePrefill: bad email or junk -> no prefill, info still usable (empty form)", () => {
+  for (const prefill of [null, "x", 5, {}, { email: "nope" }, { email: 12 }, { fullName: "Pat Row" }]) {
+    const info = v.parseJoinInfo({ ...ACTIVE, prefill });
+    assert.equal(info.status, "active", JSON.stringify(prefill));
+    assert.equal(info.prefill, null, JSON.stringify(prefill));
+  }
+});
+
+test("5d parsePrefill: bad optional fields become null", () => {
+  const p = v.parsePrefill({ email: "a@b.co", fullName: "A", birthday: "03/04/1990", subcontractorId: "../x" });
+  assert.deepEqual(p, { email: "a@b.co", fullName: null, birthday: null, subcontractorId: null });
+});
+
+test("5d applyPrefill: fills name, email, birthday boxes, listed subcontractor", () => {
+  const empty = { fullName: "", email: "", password: "", subcontractorId: null, birthday: { mm: "", dd: "", yyyy: "" } };
+  const out = v.applyPrefill(empty, { email: "a@b.co", fullName: "Pat Row", birthday: "1990-01-31", subcontractorId: "subA" }, ACTIVE.subcontractors);
+  assert.deepEqual(out, { fullName: "Pat Row", email: "a@b.co", password: "", subcontractorId: "subA", birthday: { mm: "01", dd: "31", yyyy: "1990" } });
+  assert.deepEqual(v.checkBirthday(out.birthday, 16, NOW), { ok: true, iso: "1990-01-31" });
+});
+
+test("5d applyPrefill: unknown fields stay as they were; unlisted subcontractor ignored", () => {
+  const empty = { fullName: "", email: "", subcontractorId: null, birthday: { mm: "", dd: "", yyyy: "" } };
+  const out = v.applyPrefill(empty, { email: "new@b.co", fullName: null, birthday: null, subcontractorId: "gone" }, ACTIVE.subcontractors);
+  assert.deepEqual(out, { ...empty, email: "new@b.co" });
+  assert.equal(v.applyPrefill(empty, null), empty);
 });
 
 test("sentryScrub: blanks registered values in nested strings, leaves numbers", () => {

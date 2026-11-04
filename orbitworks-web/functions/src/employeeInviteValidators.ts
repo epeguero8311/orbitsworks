@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { emailField, idField, joinCompanySchema, joinTokenField } from "./joinCompanyValidators";
+import { emailField, employeeNameField, idField, isRealPastDate, joinCompanySchema, joinTokenField } from "./joinCompanyValidators";
 
 // ---- Employee App email invite inputs (Phase 3B) ----
 //
@@ -35,6 +35,21 @@ export const getInviteInfoSchema = z.object({ token: inviteTokenField });
 // the token means an invite instead of a crew code.
 export const acceptEmployeeInviteSchema = joinCompanySchema.extend({ token: inviteTokenField });
 export type AcceptEmployeeInviteInput = z.infer<typeof acceptEmployeeInviteSchema>;
+
+// Phase 5d: the autofill getInviteInfo sends (types: InvitePrefill). Built
+// from the server's own docs, then cleaned with this before it leaves:
+// a bad email drops the whole prefill (the app shows the empty form); any
+// other bad field just becomes null (that box starts empty).
+export const invitePrefillSchema = z.object({
+  email: emailField,
+  fullName: employeeNameField.nullable().catch(null),
+  birthday: z
+    .string()
+    .refine((v) => isRealPastDate(v))
+    .nullable()
+    .catch(null),
+  subcontractorId: idField.nullable().catch(null),
+});
 
 // Error reasons the app maps to screens (details.reason on the HttpsError).
 // The app's lib/validators/joinSignup.js mapJoinError knows these names.

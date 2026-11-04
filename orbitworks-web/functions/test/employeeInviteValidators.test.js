@@ -108,3 +108,42 @@ test("inviteDisplayStatus: pending past expiry shows expired, others unchanged",
   assert.equal(inviteDisplayStatus({ status: "accepted", expiresAt: at(1) }, 1000), "accepted");
   assert.equal(inviteDisplayStatus({ status: "revoked", expiresAt: at(1) }, 1000), "revoked");
 });
+
+// ---- Phase 5d: invite autofill ----
+
+test("5d name edit: accept trims the typed name, same limits as website names (2-100)", () => {
+  const r = v.acceptEmployeeInviteSchema.safeParse(acceptInput({ fullName: "  Patricia Row  " }));
+  assert.ok(r.success);
+  assert.equal(r.data.fullName, "Patricia Row");
+  for (const fullName of ["", "   ", "A", " A ", "x".repeat(101), 42, null]) {
+    assert.equal(ok(v.acceptEmployeeInviteSchema, acceptInput({ fullName })), false, String(fullName));
+  }
+  assert.ok(ok(v.acceptEmployeeInviteSchema, acceptInput({ fullName: "x".repeat(100) })));
+});
+
+test("5d prefill: clean values pass through, email lowercased + trimmed", () => {
+  const r = v.invitePrefillSchema.safeParse({ email: " Pat@Example.COM ", fullName: " Pat Row ", birthday: "1990-01-31", subcontractorId: "subA" });
+  assert.ok(r.success);
+  assert.deepEqual(r.data, { email: "pat@example.com", fullName: "Pat Row", birthday: "1990-01-31", subcontractorId: "subA" });
+});
+
+test("5d prefill: a bad email drops the whole prefill", () => {
+  for (const email of ["", "not-an-email", null, undefined, 7]) {
+    assert.equal(v.invitePrefillSchema.safeParse({ email, fullName: "Pat Row", birthday: null, subcontractorId: null }).success, false, String(email));
+  }
+});
+
+test("5d prefill: bad optional fields become null, never junk", () => {
+  const r = v.invitePrefillSchema.safeParse({ email: "a@b.co", fullName: "x".repeat(101), birthday: "2023-02-30", subcontractorId: "../x" });
+  assert.ok(r.success);
+  assert.deepEqual(r.data, { email: "a@b.co", fullName: null, birthday: null, subcontractorId: null });
+  const future = v.invitePrefillSchema.parse({ email: "a@b.co", fullName: "A", birthday: "2999-01-01", subcontractorId: 5 });
+  assert.deepEqual(future, { email: "a@b.co", fullName: null, birthday: null, subcontractorId: null });
+  const missing = v.invitePrefillSchema.parse({ email: "a@b.co" });
+  assert.deepEqual(missing, { email: "a@b.co", fullName: null, birthday: null, subcontractorId: null });
+});
+
+test("5d prefill: unknown keys are never passed on", () => {
+  const r = v.invitePrefillSchema.parse({ email: "a@b.co", fullName: null, birthday: null, subcontractorId: null, pin: "4821", phone: "555" });
+  assert.deepEqual(Object.keys(r).sort(), ["birthday", "email", "fullName", "subcontractorId"]);
+});

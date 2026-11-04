@@ -131,6 +131,51 @@ function mapJoinError(err, source = "qr") {
   return { kind: "retry", message: CONNECTION };
 }
 
+// ---- Email invite autofill (Phase 5d) ----
+//
+// getInviteInfo may send prefill: { email, fullName, birthday,
+// subcontractorId } (see InvitePrefill in the functions package). It comes
+// from the server's own records, never from the link. Anything odd is
+// dropped: a bad email drops the whole prefill (empty form, as before 5d),
+// any other bad field just leaves that box empty.
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+function parsePrefill(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const email = validateEmail(raw.email);
+  if (typeof raw.email !== "string" || !email.ok) return null;
+  const name = typeof raw.fullName === "string" ? validateFullName(raw.fullName) : null;
+  return {
+    email: email.value,
+    fullName: name && name.ok ? name.value : null,
+    birthday: typeof raw.birthday === "string" && ISO_DATE_RE.test(raw.birthday) ? raw.birthday : null,
+    subcontractorId: typeof raw.subcontractorId === "string" && ID_RE.test(raw.subcontractorId) ? raw.subcontractorId : null,
+  };
+}
+
+// "1995-03-04" -> the three birthday boxes, or null.
+function birthdayBoxesFromIso(iso) {
+  const m = typeof iso === "string" ? ISO_DATE_RE.exec(iso) : null;
+  if (!m) return null;
+  return { mm: m[2], dd: m[3], yyyy: m[1] };
+}
+
+// The sign-up form with the invite's prefill filled in. Fields the invite
+// doesn't know keep what the form had (empty). The subcontractor is only
+// used if it is in the list on screen.
+function applyPrefill(form, prefill, subcontractors = []) {
+  if (!prefill) return form;
+  const next = { ...form, email: prefill.email };
+  if (prefill.fullName) next.fullName = prefill.fullName;
+  const boxes = birthdayBoxesFromIso(prefill.birthday);
+  if (boxes) next.birthday = boxes;
+  if (prefill.subcontractorId && subcontractors.some((x) => x.id === prefill.subcontractorId)) {
+    next.subcontractorId = prefill.subcontractorId;
+  }
+  return next;
+}
+
 // getJoinInfo's answer, checked before the screens use it. Anything
 // unexpected is treated like a network error (Retry), never as a dead code.
 function parseJoinInfo(data) {
@@ -154,6 +199,8 @@ function parseJoinInfo(data) {
     biometricConsentVersion: data.biometricConsentVersion,
     biometricConsentText: data.biometricConsentText,
     minSignupAge: data.minSignupAge,
+    // Invite only (Phase 5d). null for crew codes, older servers or junk.
+    prefill: parsePrefill(data.prefill),
   };
 }
 
@@ -172,4 +219,7 @@ module.exports = {
   selfieTooLarge,
   mapJoinError,
   parseJoinInfo,
+  parsePrefill,
+  birthdayBoxesFromIso,
+  applyPrefill,
 };

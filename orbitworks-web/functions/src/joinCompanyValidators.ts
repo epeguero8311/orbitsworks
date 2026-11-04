@@ -60,13 +60,19 @@ const selfieField = z
   .max(SELFIE_MAX_BASE64, "That photo is too large. Retake it.")
   .regex(/^[A-Za-z0-9+/]+={0,2}$/, "That photo couldn't be read. Retake it.");
 
+// A person's name as typed at sign-up. Same limits the website and the
+// app's employee edits use (trimmed, at most NAME_MAX_LENGTH - see
+// createEmployee / updateEmployeeProfile), plus at least 2 characters.
+// Also used for the name an email invite saves to an existing row (5d).
+export const employeeNameField = z
+  .string()
+  .trim()
+  .min(2, "Enter your full name.")
+  .max(NAME_MAX_LENGTH, "That name is too long.");
+
 export const joinCompanySchema = z.object({
   token: joinTokenField,
-  fullName: z
-    .string()
-    .trim()
-    .min(2, "Enter your full name.")
-    .max(NAME_MAX_LENGTH, "That name is too long."),
+  fullName: employeeNameField,
   email: emailField,
   password: z.string().min(8, "Password must be at least 8 characters.").max(128, "That password is too long."),
   privacyAccepted: z.literal(true, "You must accept the Privacy Policy."),
