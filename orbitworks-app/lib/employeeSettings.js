@@ -3,7 +3,8 @@
 // test/employeeSettings.test.js can run it under `node --test` (same
 // pattern as historyDays.js).
 //   - photo, name, email, birthday, subcontractor: the employee's own self
-//     view (employeeSelfViews, server-written, no PIN / rate / face)
+//     view (employeeSelfViews, server-written, no PIN / rate / face). No
+//     email there -> the login's own email (decided 2026-11-03)
 //   - company: the company that created them (useEmployeeAppConfig)
 //   - job site: the assigned jobSites docs, comma-separated
 //   - Update: the first 8 characters of the OTA update id, or "Built-in"
@@ -55,13 +56,13 @@ function updateLabel(update) {
 }
 
 // The rows Settings shows. Only these fields - nothing else from the self
-// view is ever passed on.
-function buildSettingsInfo({ view, companyName, sites, update }) {
+// view is ever passed on. loginEmail = the signed-in login's email.
+function buildSettingsInfo({ view, companyName, sites, update, loginEmail }) {
   const v = view || {};
   return {
     photoUrl: textOr(v.photoUrl, null),
     name: textOr(v.name, ""),
-    email: textOr(v.email, NOT_SET),
+    email: textOr(v.email, textOr(loginEmail, NOT_SET)),
     birthday: formatBirthday(v.dob),
     company: textOr(companyName, ""),
     subcontractor: subcontractorLabel(view),

@@ -89,6 +89,17 @@ test("settings info: nothing loaded yet -> safe placeholders, never undefined", 
   });
 });
 
+// Decided 2026-11-03: no email on the self view -> the login's own email.
+test("settings info: email falls back to the login's email; Not set only when both are missing", () => {
+  const base = { view, companyName: "Acme", sites, update: null };
+  assert.equal(s.buildSettingsInfo({ ...base, loginEmail: "login@example.com" }).email, "ana@example.com", "self view wins");
+  assert.equal(s.buildSettingsInfo({ ...base, view: { ...view, email: null }, loginEmail: "login@example.com" }).email, "login@example.com");
+  assert.equal(s.buildSettingsInfo({ ...base, view: { ...view, email: "" }, loginEmail: "login@example.com" }).email, "login@example.com");
+  assert.equal(s.buildSettingsInfo({ ...base, view: null, loginEmail: "login@example.com" }).email, "login@example.com", "self view not in yet");
+  assert.equal(s.buildSettingsInfo({ ...base, view: { ...view, email: null }, loginEmail: null }).email, "Not set");
+  assert.equal(s.buildSettingsInfo({ ...base, view: { ...view, email: null } }).email, "Not set");
+});
+
 test("settings info: the self view never shows a PIN or rate, even if one slipped in", () => {
   const info = s.buildSettingsInfo({ view: { ...view, pin: "1234", hourlyRate: 25 }, companyName: "Acme", sites, update: null });
   assert.ok(!JSON.stringify(info).includes("1234"));

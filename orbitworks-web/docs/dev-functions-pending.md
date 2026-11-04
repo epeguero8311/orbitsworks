@@ -235,6 +235,12 @@ jc-test-core-dev.
   useLocalStatusOverlay.js, useSyncQueue.js, useTodayShift.js
   (set-state-in-effect / purity); screens/supervisor/SyncQueueScreen.js
   (unescaped quote). Fix in the Phase 10 lint pass with useAlertsFeed.js.
+- **Old lint error in `orbitworks-app/lib/hooks/useLocationPermission.js`**
+  (found 2026-11-03, Phase 5c). `react-hooks/set-state-in-effect`: the
+  effect calls `refresh()` (which sets state) directly on mount. Not
+  touched in Phase 5 (Settings reuses it as-is); the new
+  useNotificationPermission.js avoids the pattern (state set only in the
+  promise callback). Fix in the Phase 10 lint pass.
 - **phoneClockOff only catches a clock set back** (decided 2026-11-01,
   fast punches ec726c0). The expected time uses expo-device uptime, which
   pauses while the phone sleeps, so it can only lag the real time and the
