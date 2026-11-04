@@ -5,15 +5,12 @@ import { ACTION_LABELS, rowAction, STATUS_LABELS, STATUS_TONES } from "../../lib
 import ListRow from "../ui/ListRow";
 import StatusPill from "../ui/StatusPill";
 
-const ACTION_BUTTONS = { redo: "Redo", remove: "Remove" };
-
 // One punch on the Sync tab: what it was, when and where ("Today, 9:05 AM
-// - Main St"), and its status. A Failed row also shows why, and the one
-// action that fits: Redo (wrong PIN) or Remove (can't be recorded).
-export default function SyncRow({ item, whenLabel, siteName, divider, onRedo, onRemove }) {
+// - Main St"), and its status. A Failed row also shows why, and Remove
+// (Phase 5: no Redo - a failed punch can never be sent again).
+export default function SyncRow({ item, whenLabel, siteName, divider, onRemove }) {
   const styles = useStyles();
-  const action = rowAction(item);
-  const onAction = action === "redo" ? onRedo : onRemove;
+  const canRemove = rowAction(item) === "remove";
   const sub = siteName ? `${whenLabel} - ${siteName}` : whenLabel;
 
   return (
@@ -23,14 +20,14 @@ export default function SyncRow({ item, whenLabel, siteName, divider, onRedo, on
       {item.status === "failed" ? (
         <View style={styles.failBox}>
           {item.failMessage ? <Text style={styles.failText}>{item.failMessage}</Text> : null}
-          {action ? (
+          {canRemove ? (
             <Pressable
-              style={({ pressed }) => [styles.button, action === "remove" && styles.removeButton, pressed && styles.pressed]}
-              onPress={() => onAction(item)}
+              style={({ pressed }) => [styles.button, pressed && styles.pressed]}
+              onPress={() => onRemove(item)}
               accessibilityRole="button"
-              accessibilityLabel={ACTION_BUTTONS[action]}
+              accessibilityLabel="Remove"
             >
-              <Text style={[styles.buttonText, action === "remove" && styles.removeText]}>{ACTION_BUTTONS[action]}</Text>
+              <Text style={styles.buttonText}>Remove</Text>
             </Pressable>
           ) : null}
         </View>
@@ -47,13 +44,11 @@ const useStyles = makeStyles((colors) => ({
   button: {
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: colors.accent,
+    borderColor: colors.redStrong,
     paddingHorizontal: spacing.lg,
     minHeight: 34,
     justifyContent: "center",
   },
-  removeButton: { borderColor: colors.redStrong },
-  buttonText: { fontSize: fontSizes.sm, fontWeight: "700", color: colors.accent },
-  removeText: { color: colors.redStrong },
+  buttonText: { fontSize: fontSizes.sm, fontWeight: "700", color: colors.redStrong },
   pressed: { opacity: 0.6 },
 }));
