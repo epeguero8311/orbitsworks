@@ -36,8 +36,11 @@ import { storagePathFromDownloadUrl } from "./rekognition";
 // Any failure after step 3 rolls everything back, including putting the
 // invite back to pending and restoring an existing row's old fields.
 //
-// Existing row (decision I1): its name, PIN, sites, rate and history stay.
-// Birthday is saved, the subcontractor becomes what they picked (logged in
+// Existing row (decision I1): its PIN, sites, rate and history stay.
+// Name (Phase 5d): the app prefills the row's name and lets the person
+// edit it; if the typed name differs it is saved to the row (same rules as
+// website names, via employeeNameField) with fieldEditedAt.name, so the
+// website shows it and older offline edits lose to it. Birthday is saved, the subcontractor becomes what they picked (logged in
 // subcontractorHistory when it changes), the selfie becomes the photo (and
 // so the face reference on Pro). Pro: the old photo file is deleted once
 // the sign-up fully succeeds (step 8). Core: the old file is kept.
@@ -108,6 +111,8 @@ const paths = (companyId: string, employeeId: string, inviteId: string, existing
 // Existing-row fields this sign-up may change, saved so rollback can put
 // them back exactly (undefined = the field wasn't there).
 const RESTORE_FIELDS = [
+  "name",
+  "fieldEditedAt",
   "dob",
   "subcontractorId",
   "subcontractorName",
@@ -329,6 +334,12 @@ export async function runAcceptEmployeeInvite(raw: unknown, hooks: AcceptHooks =
         pin = typeof rowData.pin === "string" ? rowData.pin : "";
         r.before = Object.fromEntries(RESTORE_FIELDS.map((k) => [k, rowData[k]]));
         const update: Record<string, unknown> = { dob: input.birthday };
+        // 5d: a name edited on the sign-up form goes to the row.
+        const nameChanged = input.fullName !== String(rowData.name ?? "").trim();
+        if (nameChanged) {
+          update.name = input.fullName;
+          update["fieldEditedAt.name"] = now;
+        }
         const prevSubId = (rowData.subcontractorId as string | null | undefined) ?? null;
         if (prevSubId !== input.subcontractorId) {
           update.subcontractorId = input.subcontractorId;
@@ -339,7 +350,7 @@ export async function runAcceptEmployeeInvite(raw: unknown, hooks: AcceptHooks =
             newSubcontractorId: input.subcontractorId,
             newSubcontractorName: subName,
             changedByUid: uid,
-            changedByName: String(rowData.name ?? ""),
+            changedByName: nameChanged ? input.fullName : String(rowData.name ?? ""),
             changedAt: admin.firestore.Timestamp.now(),
             reason: "Picked at app sign-up (email invite)",
           });

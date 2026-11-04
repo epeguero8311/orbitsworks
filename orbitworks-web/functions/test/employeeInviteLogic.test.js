@@ -7,6 +7,7 @@ const assert = require("node:assert/strict");
 const { inviteProblem, rowCanBeInvited, companyCanUseInvites } = require("../lib/lib/employeeInviteChecks");
 const { isCorePlan, isProPlan, isCoreOrProPlan, overSeatCaps } = require("../lib/lib/signupShared");
 const appUrls = require("../lib/lib/appUrls");
+const { buildInvitePrefill } = require("../lib/lib/invitePrefill");
 const { buildEmployeeInviteEmail, escapeHtml } = require("../lib/emailTemplates/employeeInviteEmail");
 
 const NOW = 1_000_000;
@@ -113,4 +114,27 @@ test("email: company name and link are escaped, subject has no line breaks, ASCI
   assert.ok(html.includes("expires in 7 days"));
   assert.equal(/[^\x00-\x7F]/.test(html + subject), false);
   assert.equal(escapeHtml(`'"<>&`), "&#39;&quot;&lt;&gt;&amp;");
+});
+
+// ---- Phase 5d: invite autofill ----
+
+test("5d buildInvitePrefill: existing row -> email, name, dob, listed subcontractor", () => {
+  const p = buildInvitePrefill({
+    invite: { kind: "existingEmployee", email: "pat@example.com" },
+    row: { name: "Pat Row", dob: "1990-01-31", subcontractorId: "subA", pin: "4821", phone: "555" },
+    subcontractorIds: ["subA"],
+  });
+  assert.deepEqual(p, { email: "pat@example.com", fullName: "Pat Row", birthday: "1990-01-31", subcontractorId: "subA" });
+});
+
+test("5d buildInvitePrefill: newPerson -> email only, even if a row is passed", () => {
+  const p = buildInvitePrefill({ invite: { kind: "newPerson", email: "new@example.com" }, row: { name: "Someone", dob: "1990-01-31" }, subcontractorIds: [] });
+  assert.deepEqual(p, { email: "new@example.com", fullName: null, birthday: null, subcontractorId: null });
+});
+
+test("5d buildInvitePrefill: unlisted subcontractor, junk fields -> null; bad email -> no prefill", () => {
+  const p = buildInvitePrefill({ invite: { kind: "existingEmployee", email: "a@b.co" }, row: { name: 5, dob: "nope", subcontractorId: "gone" }, subcontractorIds: ["subA"] });
+  assert.deepEqual(p, { email: "a@b.co", fullName: null, birthday: null, subcontractorId: null });
+  assert.equal(buildInvitePrefill({ invite: { kind: "newPerson", email: "" }, subcontractorIds: [] }), null);
+  assert.equal(buildInvitePrefill({ invite: { kind: "newPerson", email: undefined }, subcontractorIds: [] }), null);
 });

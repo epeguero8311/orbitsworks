@@ -238,7 +238,7 @@ test("create existingEmployee: J1 rows only, one pending per row", async () => {
 
 // ================= getInviteInfo =================
 
-test("getInviteInfo: active shows company + active subcontractors, never the email", async () => {
+test("getInviteInfo: active shows company + active subcontractors; newPerson prefill is the email only (5d)", async () => {
   const c = newCompany();
   await seed(c);
   const mail = email("info");
@@ -247,8 +247,11 @@ test("getInviteInfo: active shows company + active subcontractors, never the ema
   assert.equal(info.status, "active");
   assert.equal(info.companyName, "Co " + c);
   assert.deepEqual(info.subcontractors, [{ id: "subA", name: "Acme" }]);
-  assert.equal(JSON.stringify(info).includes(mail), false);
-  assert.deepEqual(Object.keys(info).sort(), ["biometricConsentText", "biometricConsentVersion", "companyName", "minSignupAge", "privacyPolicyVersion", "status", "subcontractors"]);
+  assert.deepEqual(Object.keys(info).sort(), ["biometricConsentText", "biometricConsentVersion", "companyName", "minSignupAge", "prefill", "privacyPolicyVersion", "status", "subcontractors"]);
+  assert.deepEqual(info.prefill, { email: mail, fullName: null, birthday: null, subcontractorId: null });
+  // Nothing else from the invite or company leaks.
+  const json = JSON.stringify(info);
+  for (const secret of [token, "site1", "uidAdmin", "pending"]) assert.equal(json.includes(secret), false, secret);
 });
 
 test("getInviteInfo: inactive for bad token, missing, expired, revoked, plan, row unusable, seats full", async () => {
@@ -445,16 +448,17 @@ for (const step of ["authUser", "pin", "transaction", "link", "selfie", "referen
 
 // ================= accept: existing row =================
 
-test("accept existing row (Pro): links the SAME row, keeps name/PIN/sites/rate, saves dob + subcontractor", async () => {
+test("accept existing row (Pro): links the SAME row, keeps PIN/sites/rate, saves dob + subcontractor", async () => {
   const c = newCompany();
   const co = await seed(c, { plan: "pro_tier1" });
   const mail = email("rowok");
   const { token, inviteId } = await createRow(c, mail);
-  const res = await runAcceptEmployeeInvite(acceptInput(token, mail, { fullName: "Typed Other Name", subcontractorId: "subA" }));
+  const res = await runAcceptEmployeeInvite(acceptInput(token, mail, { fullName: "Pat Row", subcontractorId: "subA" }));
   assert.equal(res.employeeId, "row1");
   assert.equal(res.pin, "4821");
   const row = (await co.collection("employees").doc("row1").get()).data();
   assert.equal(row.name, "Pat Row");
+  assert.equal(row.fieldEditedAt, undefined, "unchanged name -> no edit stamp");
   assert.equal(row.pin, "4821");
   assert.equal(row.hourlyRate, 22);
   assert.deepEqual(row.assignedSiteIds, ["site1"]);
@@ -586,6 +590,101 @@ for (const step of ["transaction", "link", "photoUrl"]) {
     assert.equal(inv.employeeId, "row1");
     assert.ok(await noAuthUser(mail));
     assert.equal([...files.keys()].some((k) => k.startsWith(`companies/${c}/`)), false);
+  });
+}
+
+// ================= Phase 5d: invite autofill =================
+
+test("5d getInviteInfo: existing row prefill = invited email + row name, dob, active subcontractor", async () => {
+  const c = newCompany();
+  const co = await seed(c);
+  await co.collection("employees").doc("row1").update({ dob: "1990-01-31", subcontractorId: "subA", subcontractorName: "Acme", phone: "555-0100" });
+  const mail = email("pre");
+  const { token } = await createRow(c, mail.toUpperCase());
+  const info = await runGetInviteInfo({ token });
+  assert.equal(info.status, "active");
+  assert.deepEqual(info.prefill, { email: mail, fullName: "Pat Row", birthday: "1990-01-31", subcontractorId: "subA" });
+  const json = JSON.stringify(info);
+  for (const secret of ["4821", "555-0100", "row1", "old.jpg", token]) assert.equal(json.includes(secret), false, secret);
+});
+
+test("5d getInviteInfo: row's subcontractor inactive or bad dob -> those fields null", async () => {
+  const c = newCompany();
+  const co = await seed(c);
+  await co.collection("employees").doc("row1").update({ dob: "1990-02-30", subcontractorId: "subOff" });
+  const mail = email("pre2");
+  const { token } = await createRow(c, mail);
+  const info = await runGetInviteInfo({ token });
+  assert.deepEqual(info.prefill, { email: mail, fullName: "Pat Row", birthday: null, subcontractorId: null });
+});
+
+test("5d getInviteInfo: expired, used, revoked or wrong token -> inactive, no prefill", async () => {
+  const c = newCompany();
+  const co = await seed(c);
+  await co.collection("employees").doc("row1").update({ dob: "1990-01-31" });
+  const mail = email("pre3");
+  const { token } = await createRow(c, mail);
+  const expectInactive = async (t) => assert.deepEqual(await runGetInviteInfo({ token: t }), { status: "inactive" });
+  await expectInactive(randomBytes(32).toString("base64url"));
+  await expectInactive(token.slice(0, -1) + (token.endsWith("A") ? "B" : "A"));
+  await db.collection("employeeInvites").doc(token).update({ expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() - 1) });
+  await expectInactive(token);
+  await db.collection("employeeInvites").doc(token).update({ expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 86400000) });
+  assert.equal((await runGetInviteInfo({ token })).status, "active");
+  await runAcceptEmployeeInvite(acceptInput(token, mail));
+  await expectInactive(token);
+  const n = (await createNew(c, email("pre3n"))).token;
+  await invites.runRevokeEmployeeInvite(adminReq(c, { token: n }));
+  await expectInactive(n);
+});
+
+test("5d accept: edited name is saved to the row, the login and the edit stamp", async () => {
+  const c = newCompany();
+  const co = await seed(c);
+  const mail = email("rename");
+  const { token } = await createRow(c, mail);
+  await runAcceptEmployeeInvite(acceptInput(token, mail, { fullName: "  Patricia Row  " }));
+  const row = (await co.collection("employees").doc("row1").get()).data();
+  assert.equal(row.name, "Patricia Row");
+  assert.ok(row.fieldEditedAt && row.fieldEditedAt.name && typeof row.fieldEditedAt.name.toMillis === "function");
+  assert.equal(row.pin, "4821");
+  const user = await admin.auth().getUserByEmail(mail);
+  assert.equal(user.displayName, "Patricia Row");
+  assert.equal((await db.collection("users").doc(user.uid).get()).get("name"), "Patricia Row");
+});
+
+test("5d accept: an invalid edited name is refused before any login; row name unchanged", async () => {
+  const c = newCompany();
+  const co = await seed(c);
+  const mail = email("badname");
+  const { token } = await createRow(c, mail);
+  for (const fullName of ["A", "   ", "x".repeat(101)]) {
+    await expectHttpsError(runAcceptEmployeeInvite(acceptInput(token, mail, { fullName })), "invalid-argument", "invalid");
+  }
+  assert.ok(await noAuthUser(mail));
+  assert.equal((await co.collection("employees").doc("row1").get()).get("name"), "Pat Row");
+  assert.equal((await inviteDoc(token)).status, "pending");
+});
+
+test("5d accept: locked email still enforced server-side (prefill can't be bypassed)", async () => {
+  const c = newCompany();
+  await seed(c);
+  const mail = email("lock");
+  const { token } = await createRow(c, mail);
+  await expectHttpsError(runAcceptEmployeeInvite(acceptInput(token, email("other"), { fullName: "Pat Row" })), "invalid-argument", "emailMismatch");
+  assert.equal((await inviteDoc(token)).status, "pending");
+});
+
+for (const step of ["transaction", "photoUrl"]) {
+  test(`5d accept rollback after ${step}: edited name is put back exactly`, async () => {
+    const c = newCompany();
+    const co = await seed(c);
+    await co.collection("employees").doc("row1").update({ "fieldEditedAt.pin": admin.firestore.Timestamp.fromMillis(1000) });
+    const before = (await co.collection("employees").doc("row1").get()).data();
+    const mail = email("rnrb-" + step.toLowerCase());
+    const { token } = await createRow(c, mail);
+    await expectHttpsError(runAcceptEmployeeInvite(acceptInput(token, mail, { fullName: "New Name" }), { failAt: step }), "internal", "generic");
+    assert.deepEqual((await co.collection("employees").doc("row1").get()).data(), before);
   });
 }
 

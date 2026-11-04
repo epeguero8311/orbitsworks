@@ -6,9 +6,10 @@ import { db } from "./shared";
 import { CONSENT_VERSIONS } from "./consentVersions";
 import { getInviteInfoSchema } from "./employeeInviteValidators";
 import { MIN_SIGNUP_AGE } from "./joinCompanyValidators";
-import { EmployeeInviteDoc } from "./employeeInviteTypes";
+import { EmployeeInviteDoc, InviteInfoResult } from "./employeeInviteTypes";
 import { inviteProblem, InviteCompany, InviteEmployeeRow } from "./lib/employeeInviteChecks";
-import type { JoinInfoResult, JoinInfoSubcontractor } from "./getJoinInfo";
+import { buildInvitePrefill, PrefillRow } from "./lib/invitePrefill";
+import type { JoinInfoSubcontractor } from "./getJoinInfo";
 
 // ---- Employee App: what an email invite link shows before sign-up ----
 //
@@ -20,8 +21,13 @@ import type { JoinInfoResult, JoinInfoSubcontractor } from "./getJoinInfo";
 //     existing row inactive or already linked. The reason is never sent.
 // A Firestore failure throws a plain "internal" (the app offers Retry).
 //
-// Never returns the invited email, counts, caps, ids or anything about
-// other employees (decision M1). Never logs the token.
+// Phase 5d autofill: the active answer also carries prefill (the invited
+// email, plus the row's name / birthday / subcontractor for "Invite to
+// app") - see lib/invitePrefill.ts. This replaces decision M1's "never the
+// email": the link is a 256-bit secret mailed to that address, and the app
+// shows the email read-only. Still sent ONLY for a usable invite (inactive
+// says nothing), and still never counts, caps, PIN, phone, rate, other
+// ids or anything about other employees. Never logs the token.
 //
 // Subcontractors: the company's own active ones (decision N1); the app
 // adds "the company itself" as the default.
@@ -30,14 +36,14 @@ export interface InviteInfoHooks {
   beforeLookup?: () => Promise<void>;
 }
 
-const INACTIVE: JoinInfoResult = { status: "inactive" };
+const INACTIVE: InviteInfoResult = { status: "inactive" };
 
 function log(step: string, err: unknown) {
   const code = (err as { code?: unknown } | undefined)?.code;
   console.error("[getInviteInfo] failed", { step, code: typeof code === "string" || typeof code === "number" ? code : "unknown" });
 }
 
-export async function runGetInviteInfo(raw: unknown, hooks: InviteInfoHooks = {}): Promise<JoinInfoResult> {
+export async function runGetInviteInfo(raw: unknown, hooks: InviteInfoHooks = {}): Promise<InviteInfoResult> {
   const parsed = getInviteInfoSchema.safeParse(raw);
   if (!parsed.success) return INACTIVE;
 
@@ -62,7 +68,7 @@ export async function runGetInviteInfo(raw: unknown, hooks: InviteInfoHooks = {}
         : Promise.resolve(undefined),
     ]);
     const company = companySnap.exists ? (companySnap.data() as InviteCompany) : undefined;
-    const row = rowSnap && rowSnap.exists ? (rowSnap.data() as InviteEmployeeRow) : undefined;
+    const row = rowSnap && rowSnap.exists ? (rowSnap.data() as InviteEmployeeRow & PrefillRow) : undefined;
     if (inviteProblem({ invite, company, row, counts })) return INACTIVE;
 
     const subsSnap = await companyRef.collection("subcontractors").get();
@@ -80,6 +86,8 @@ export async function runGetInviteInfo(raw: unknown, hooks: InviteInfoHooks = {}
       biometricConsentVersion: CONSENT_VERSIONS.biometricConsentVersion,
       biometricConsentText: CONSENT_VERSIONS.biometricConsentText,
       minSignupAge: MIN_SIGNUP_AGE,
+      // null if it couldn't be built - the app shows the empty form.
+      prefill: buildInvitePrefill({ invite, row, subcontractorIds: subcontractors.map((x) => x.id) }),
     };
   } catch (err) {
     log("lookup", err);
