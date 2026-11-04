@@ -1,6 +1,9 @@
 "use client";
 
 import { ClockEvent } from "@/lib/types";
+import { useAuth } from "@/lib/AuthContext";
+import { useShiftCommentsByClockIn } from "@/lib/hooks/useShiftCommentsByClockIn";
+import { clockInIds, commentsForEvent } from "@/lib/shiftComments";
 import { effectiveDate, sourceLabel } from "@/lib/clockEventDetailUtils";
 import { faceCheckLabel, photoStatus } from "@/lib/clockStatus";
 import { EventLocation } from "@/components/time/EventLocation";
@@ -8,6 +11,7 @@ import { GeofenceDetail } from "@/components/time/GeofenceDetail";
 import { ClockPhoto } from "@/components/time/ClockPhoto";
 import { clockPhotoState } from "@/lib/clockPhoto";
 import { ReferencePhoto } from "@/components/time/ReferencePhoto";
+import { ShiftCommentsNote } from "@/components/time/ShiftCommentsNote";
 
 export function EventSide({
   label,
@@ -42,6 +46,11 @@ export function EventSide({
   showHistoryId: string | null;
   onToggleHistory: (id: string | null) => void;
 }) {
+  // Employee comments on this shift (Clock in side only).
+  const { userData } = useAuth();
+  const { commentsByClockIn } = useShiftCommentsByClockIn(userData?.companyId, clockInIds(event ? [event] : []));
+  const comments = commentsForEvent(commentsByClockIn, event);
+
   if (!event) {
     const emptyMessage =
       label === "Clock out" ? "Still clocked in" : "No matching clock in";
@@ -157,6 +166,12 @@ export function EventSide({
 
       {event.note && (
         <p className="mt-2 text-xs text-gray-600">Note: {event.note}</p>
+      )}
+
+      {comments.length > 0 && (
+        <div className="mt-2">
+          <ShiftCommentsNote comments={comments} />
+        </div>
       )}
 
       {isShowingHistory && hasHistory && (

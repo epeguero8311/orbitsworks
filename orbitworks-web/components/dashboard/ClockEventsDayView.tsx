@@ -4,6 +4,8 @@ import { useState } from "react";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import { useClockEventsByDay } from "@/lib/hooks/useClockEventsByDay";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
+import { useShiftCommentsByClockIn } from "@/lib/hooks/useShiftCommentsByClockIn";
+import { clockInIds, commentsForEvent } from "@/lib/shiftComments";
 import { ClockEvent } from "@/lib/types";
 import { typeLabel, sourceLabel, isBreakEvent } from "@/lib/clockStatus";
 import { dateKey } from "@/lib/reportUtils";
@@ -13,6 +15,7 @@ import { FaceCheckBadge } from "@/components/time/FaceCheckBadge";
 import { PhotoStatusCell } from "@/components/time/PhotoStatusCell";
 import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
 import { SyncedLateTag } from "@/components/time/SyncedLateTag";
+import { EventNoteCell } from "@/components/time/ShiftCommentsNote";
 
 function latestAdjustment(event: ClockEvent) {
   if (!event.adjustmentHistory || event.adjustmentHistory.length === 0) {
@@ -35,6 +38,8 @@ export default function ClockEventsDayView({
     currentDate
   );
   const { isPro } = useCompanySettings();
+  // Employee comments shown in each clock-in row's Note cell.
+  const { commentsByClockIn, error: commentsError } = useShiftCommentsByClockIn(companyId, clockInIds(allEvents));
   const events =
     outsideGeofenceOnly ? allEvents.filter((e) => e.geofenceStatus === "outside") : allEvents;
 
@@ -120,6 +125,8 @@ export default function ClockEventsDayView({
           </label>
         </div>
       )}
+
+      {commentsError && <p className="border-b border-gray-200 px-4 py-2 text-xs text-red-600">{commentsError}</p>}
 
       {error ? (
         <p className="p-4 text-sm text-red-600">{error}</p>
@@ -210,7 +217,7 @@ export default function ClockEventsDayView({
                     <PhotoStatusCell event={event} />
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">
-                    {event.note || "-"}
+                    <EventNoteCell event={event} comments={commentsForEvent(commentsByClockIn, event)} />
                   </td>
                   <td className="px-4 py-2.5">
                     <GeofenceBadge event={event} />

@@ -10,6 +10,8 @@ import { useSites } from "@/lib/hooks/useSites";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useEmployeeTimesheet } from "@/lib/hooks/useEmployeeTimesheet";
 import { useClockEvents } from "@/lib/hooks/useClockEvents";
+import { useShiftCommentsByClockIn } from "@/lib/hooks/useShiftCommentsByClockIn";
+import { clockInIds, commentsForEvent } from "@/lib/shiftComments";
 import { exportEmployeeHistoryExcel } from "@/lib/reportExcelUtils";
 import { typeLabel, sourceLabel, isBreakEvent } from "@/lib/clockStatus";
 import { ClockEvent } from "@/lib/types";
@@ -20,6 +22,7 @@ import { FaceCheckBadge } from "@/components/time/FaceCheckBadge";
 import { PhotoStatusCell } from "@/components/time/PhotoStatusCell";
 import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
 import { SyncedLateTag } from "@/components/time/SyncedLateTag";
+import { EventNoteCell } from "@/components/time/ShiftCommentsNote";
 import { Toast } from "@/components/Toast";
 
 export default function ClockEventLookup() {
@@ -49,6 +52,8 @@ export default function ClockEventLookup() {
   const displayedResults: ClockEvent[] = outsideGeofenceOnly
     ? (lookupResults ?? []).filter((e) => e.geofenceStatus === "outside")
     : lookupResults ?? [];
+  // Employee comments shown in each clock-in row's Note cell.
+  const { commentsByClockIn, error: commentsError } = useShiftCommentsByClockIn(userData?.companyId, clockInIds(lookupResults ?? []));
 
   const [exportingTimesheet, setExportingTimesheet] = useState(false);
   const [timesheetToast, setTimesheetToast] = useState("");
@@ -268,6 +273,8 @@ export default function ClockEventLookup() {
         </div>
       </form>
 
+      {lookupResults !== null && commentsError && <p className="mt-4 text-xs text-red-600">{commentsError}</p>}
+
       {lookupResults !== null ? (
         <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
           <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
@@ -387,7 +394,7 @@ export default function ClockEventLookup() {
                         <PhotoStatusCell event={event} />
                       </td>
                       <td className="px-4 py-2.5 text-gray-600">
-                        {event.note || "-"}
+                        <EventNoteCell event={event} comments={commentsForEvent(commentsByClockIn, event)} />
                       </td>
                       <td className="px-4 py-2.5">
                         <GeofenceBadge event={event} />
