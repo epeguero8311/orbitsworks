@@ -12,6 +12,7 @@
 // the phone's own permission (permissionToggleAction); no push token.
 
 const { NO_SITE_NAME } = require("./employeeHome");
+const { badgeCount } = require("./punchQueueLogic");
 
 const NOT_SET = "Not set";
 const NONE = "None";
@@ -106,6 +107,14 @@ function permissionToggleAction(wantOn, permission) {
 // Log out warning: punches and comments still on the phone (they stay,
 // and sync only when this employee signs back in). null = none waiting.
 //   (2, 1) -> "2 punches and 1 comment are not synced yet"
+// What the Log out warning counts: every punch and comment of this
+// employee still on the phone (Waiting, Syncing or Not synced), with no
+// 10-second delay - unlike the Sync tab badge, a punch saved a second ago
+// counts. punches / comments = the hooks' `all` lists.
+function logoutCounts(punches, comments, companyId, employeeId) {
+  return { punches: badgeCount(punches, companyId, employeeId), comments: badgeCount(comments, companyId, employeeId) };
+}
+
 function logoutWarning(punches, comments) {
   const p = punches > 0 ? punches : 0;
   const c = comments > 0 ? comments : 0;
@@ -127,4 +136,5 @@ module.exports = {
   buildSettingsInfo,
   permissionToggleAction,
   logoutWarning,
+  logoutCounts,
 };

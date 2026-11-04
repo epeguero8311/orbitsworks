@@ -154,3 +154,22 @@ test("log out warning: counts punches and comments; none -> no warning", () => {
   assert.equal(s.logoutWarning(2, 1), "2 punches and 1 comment are not synced yet");
   assert.equal(s.logoutWarning(undefined, undefined), null);
 });
+
+// Log out counts (decision: no 10-second delay): everything of this
+// employee still on the phone - Waiting, Syncing or Not synced - even if it
+// was saved a second ago. The Sync tab badge keeps its 10 s delay.
+test("log out counts: every unsynced punch and comment, fresh ones too; synced and other employees skipped", () => {
+  const now = Date.now();
+  const item = (fields) => ({ companyId: "co1", employeeId: "emp1", status: "waiting", createdAt: now - 1000, ...fields });
+  const punches = [
+    item({ requestId: "p-fresh" }),
+    item({ requestId: "p-sync", status: "syncing" }),
+    item({ requestId: "p-fail", status: "failed", createdAt: now - 60000 }),
+    item({ requestId: "p-done", status: "synced" }),
+    item({ requestId: "p-ben", employeeId: "ben" }),
+  ];
+  const comments = [item({ requestId: "c-fresh" }), item({ requestId: "c-done", status: "synced" }), item({ requestId: "c-co2", companyId: "co2" })];
+  assert.deepEqual(s.logoutCounts(punches, comments, "co1", "emp1"), { punches: 3, comments: 1 });
+  assert.equal(s.logoutWarning(3, 1), "3 punches and 1 comment are not synced yet");
+  assert.deepEqual(s.logoutCounts([], [], "co1", "emp1"), { punches: 0, comments: 0 });
+});

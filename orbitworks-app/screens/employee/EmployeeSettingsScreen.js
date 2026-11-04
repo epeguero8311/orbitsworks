@@ -14,7 +14,7 @@ import { usePunchQueue } from "../../lib/hooks/usePunchQueue";
 import { useCommentQueue } from "../../lib/hooks/useCommentQueue";
 import { useNow } from "../../lib/hooks/useNow";
 import { formatWhen } from "../../lib/punchQueueLogic";
-import { logoutWarning, settingsRows } from "../../lib/employeeSettings";
+import { logoutCounts, logoutWarning, settingsRows } from "../../lib/employeeSettings";
 import TabPage from "../../components/ui/TabPage";
 import ListRow from "../../components/ui/ListRow";
 import ConfirmModal from "../../components/ui/ConfirmModal";
@@ -63,7 +63,9 @@ export default function EmployeeSettingsScreen() {
   ];
   // Log out drops this phone's PIN check value first (lib/pinCheck.js).
   const logOut = () => forgetPinVerifier(companyId, employeeId).finally(signOutUser);
-  const notSynced = logoutWarning(queue.badge, comments.badge);
+  // Everything still on the phone, even saved a second ago (no badge delay).
+  const waiting = logoutCounts(queue.all, comments.all, companyId, employeeId);
+  const notSynced = logoutWarning(waiting.punches, waiting.comments);
   const onLogout = () => (notSynced ? setConfirmLogout(true) : logOut());
 
   return (
