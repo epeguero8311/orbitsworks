@@ -643,7 +643,7 @@ test("5d accept: edited name is saved to the row, the login and the edit stamp",
   const co = await seed(c);
   const mail = email("rename");
   const { token } = await createRow(c, mail);
-  await runAcceptEmployeeInvite(acceptInput(token, mail, { fullName: "  Patricia Row  " }));
+  await runAcceptEmployeeInvite(acceptInput(token, mail, { fullName: "  Patricia Row  ", nameFromPrefill: true }));
   const row = (await co.collection("employees").doc("row1").get()).data();
   assert.equal(row.name, "Patricia Row");
   assert.ok(row.fieldEditedAt && row.fieldEditedAt.name && typeof row.fieldEditedAt.name.toMillis === "function");
@@ -653,13 +653,58 @@ test("5d accept: edited name is saved to the row, the login and the edit stamp",
   assert.equal((await db.collection("users").doc(user.uid).get()).get("name"), "Patricia Row");
 });
 
+test("5d accept: old-app payload (no flag, different name) keeps row name and stamps nothing", async () => {
+  const c = newCompany();
+  const co = await seed(c);
+  const mail = email("oldapp");
+  const { token } = await createRow(c, mail);
+  const input = acceptInput(token, mail, { fullName: "Typed Nickname", subcontractorId: "subA" });
+  assert.equal("nameFromPrefill" in input, false, "build 20 never sends the flag");
+  await runAcceptEmployeeInvite(input);
+  const row = (await co.collection("employees").doc("row1").get()).data();
+  assert.equal(row.name, "Pat Row");
+  assert.equal(row.fieldEditedAt, undefined, "no fieldEditedAt.name stamp");
+  assert.equal(row.subcontractorHistory[0].changedByName, "Pat Row");
+  const user = await admin.auth().getUserByEmail(mail);
+  assert.equal((await db.collection("users").doc(user.uid).get()).get("name"), "Pat Row");
+  // Flag explicitly false behaves the same.
+  const c2 = newCompany();
+  const co2 = await seed(c2);
+  const mail2 = email("oldapp2");
+  const t2 = (await createRow(c2, mail2)).token;
+  await runAcceptEmployeeInvite(acceptInput(t2, mail2, { fullName: "Typed Nickname", nameFromPrefill: false }));
+  const row2 = (await co2.collection("employees").doc("row1").get()).data();
+  assert.equal(row2.name, "Pat Row");
+  assert.equal(row2.fieldEditedAt, undefined);
+});
+
+test("5d accept: flag on but same name -> no write, no stamp", async () => {
+  const c = newCompany();
+  const co = await seed(c);
+  const mail = email("samename");
+  const { token } = await createRow(c, mail);
+  await runAcceptEmployeeInvite(acceptInput(token, mail, { fullName: " Pat Row ", nameFromPrefill: true }));
+  const row = (await co.collection("employees").doc("row1").get()).data();
+  assert.equal(row.name, "Pat Row");
+  assert.equal(row.fieldEditedAt, undefined);
+});
+
+test("5d accept: flag on, new person -> name is just the typed name (no row to rename)", async () => {
+  const c = newCompany();
+  const co = await seed(c);
+  const mail = email("newflag");
+  const { token } = await createNew(c, mail);
+  const res = await runAcceptEmployeeInvite(acceptInput(token, mail, { fullName: "Nina Flag", nameFromPrefill: true }));
+  assert.equal((await co.collection("employees").doc(res.employeeId).get()).get("name"), "Nina Flag");
+});
+
 test("5d accept: an invalid edited name is refused before any login; row name unchanged", async () => {
   const c = newCompany();
   const co = await seed(c);
   const mail = email("badname");
   const { token } = await createRow(c, mail);
   for (const fullName of ["A", "   ", "x".repeat(101)]) {
-    await expectHttpsError(runAcceptEmployeeInvite(acceptInput(token, mail, { fullName })), "invalid-argument", "invalid");
+    await expectHttpsError(runAcceptEmployeeInvite(acceptInput(token, mail, { fullName, nameFromPrefill: true })), "invalid-argument", "invalid");
   }
   assert.ok(await noAuthUser(mail));
   assert.equal((await co.collection("employees").doc("row1").get()).get("name"), "Pat Row");
@@ -683,7 +728,7 @@ for (const step of ["transaction", "photoUrl"]) {
     const before = (await co.collection("employees").doc("row1").get()).data();
     const mail = email("rnrb-" + step.toLowerCase());
     const { token } = await createRow(c, mail);
-    await expectHttpsError(runAcceptEmployeeInvite(acceptInput(token, mail, { fullName: "New Name" }), { failAt: step }), "internal", "generic");
+    await expectHttpsError(runAcceptEmployeeInvite(acceptInput(token, mail, { fullName: "New Name", nameFromPrefill: true }), { failAt: step }), "internal", "generic");
     assert.deepEqual((await co.collection("employees").doc("row1").get()).data(), before);
   });
 }

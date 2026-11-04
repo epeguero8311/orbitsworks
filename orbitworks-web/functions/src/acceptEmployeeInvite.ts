@@ -38,9 +38,12 @@ import { storagePathFromDownloadUrl } from "./rekognition";
 //
 // Existing row (decision I1): its PIN, sites, rate and history stay.
 // Name (Phase 5d): the app prefills the row's name and lets the person
-// edit it; if the typed name differs it is saved to the row (same rules as
-// website names, via employeeNameField) with fieldEditedAt.name, so the
-// website shows it and older offline edits lose to it. Birthday is saved, the subcontractor becomes what they picked (logged in
+// edit it. Only when the app says it prefilled the name (nameFromPrefill)
+// AND the typed name differs is it saved to the row (same rules as website
+// names, via employeeNameField) with fieldEditedAt.name, so the website
+// shows it and older offline edits lose to it. Without the flag (app
+// builds before 5d, where the box started empty) the row's name is kept
+// and nothing name-related is written - same as before 5d. Birthday is saved, the subcontractor becomes what they picked (logged in
 // subcontractorHistory when it changes), the selfie becomes the photo (and
 // so the face reference on Pro). Pro: the old photo file is deleted once
 // the sign-up fully succeeds (step 8). Core: the old file is kept.
@@ -334,8 +337,8 @@ export async function runAcceptEmployeeInvite(raw: unknown, hooks: AcceptHooks =
         pin = typeof rowData.pin === "string" ? rowData.pin : "";
         r.before = Object.fromEntries(RESTORE_FIELDS.map((k) => [k, rowData[k]]));
         const update: Record<string, unknown> = { dob: input.birthday };
-        // 5d: a name edited on the sign-up form goes to the row.
-        const nameChanged = input.fullName !== String(rowData.name ?? "").trim();
+        // 5d: a name edited on the prefilled sign-up form goes to the row.
+        const nameChanged = input.nameFromPrefill === true && input.fullName !== String(rowData.name ?? "").trim();
         if (nameChanged) {
           update.name = input.fullName;
           update["fieldEditedAt.name"] = now;
