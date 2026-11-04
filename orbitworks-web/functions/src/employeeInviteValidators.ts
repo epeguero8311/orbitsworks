@@ -33,7 +33,16 @@ export const getInviteInfoSchema = z.object({ token: inviteTokenField });
 // Public: the sign-up itself. Exactly the QR sign-up fields (same name,
 // email, password, consent, birthday, subcontractor and selfie rules); only
 // the token means an invite instead of a crew code.
-export const acceptEmployeeInviteSchema = joinCompanySchema.extend({ token: inviteTokenField });
+//
+// nameFromPrefill (Phase 5d): the app sets it to true only when the name
+// box was filled in from the invite (the person saw the employee's current
+// name). Only then may accept save a changed name to an existing row.
+// Missing = false: app builds before 5d (build 20) never send it, so their
+// sign-ups keep the row's name exactly as before. Boolean only.
+export const acceptEmployeeInviteSchema = joinCompanySchema.extend({
+  token: inviteTokenField,
+  nameFromPrefill: z.boolean().optional().default(false),
+});
 export type AcceptEmployeeInviteInput = z.infer<typeof acceptEmployeeInviteSchema>;
 
 // Phase 5d: the autofill getInviteInfo sends (types: InvitePrefill). Built

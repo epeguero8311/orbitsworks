@@ -147,3 +147,13 @@ test("5d prefill: unknown keys are never passed on", () => {
   const r = v.invitePrefillSchema.parse({ email: "a@b.co", fullName: null, birthday: null, subcontractorId: null, pin: "4821", phone: "555" });
   assert.deepEqual(Object.keys(r).sort(), ["birthday", "email", "fullName", "subcontractorId"]);
 });
+
+test("5d nameFromPrefill: optional, boolean only, missing = false", () => {
+  const missing = v.acceptEmployeeInviteSchema.parse(acceptInput());
+  assert.equal(missing.nameFromPrefill, false);
+  assert.equal(v.acceptEmployeeInviteSchema.parse(acceptInput({ nameFromPrefill: true })).nameFromPrefill, true);
+  assert.equal(v.acceptEmployeeInviteSchema.parse(acceptInput({ nameFromPrefill: false })).nameFromPrefill, false);
+  for (const nameFromPrefill of ["true", 1, 0, null, {}, []]) {
+    assert.equal(ok(v.acceptEmployeeInviteSchema, acceptInput({ nameFromPrefill })), false, JSON.stringify(nameFromPrefill));
+  }
+});
