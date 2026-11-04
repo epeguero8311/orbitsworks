@@ -8,6 +8,7 @@ import { auth } from "../lib/firebase";
 import { clearPendingJoinToken, getPendingJoinKind, getPendingJoinToken, subscribePendingJoin } from "../lib/pendingJoin";
 import { useJoinInfo } from "../lib/hooks/useJoinInfo";
 import { useJoinSubmit } from "../lib/hooks/useJoinSubmit";
+import { useJoinPrefill } from "../lib/hooks/useJoinPrefill";
 import { validateEmail, validateFullName } from "../lib/validators/joinSignup";
 import { setScrubValue, clearScrubValues } from "../lib/sentryScrub";
 import { finishJoinSignIn, watchForHomeSwitch, setLoginPrefill, SIGN_IN_MESSAGES } from "../lib/joinSignIn";
@@ -23,8 +24,14 @@ import { joinStyles as s, BLUE } from "./join/joinStyles";
 // or an email invite (kind "invite", Phase 3B: the /i/ link in the email).
 // The token and kind are read from lib/pendingJoin.js (memory only). Both
 // kinds use these same steps; only the calls and wording differ. On an
-// invite only the company is preset, the subcontractor dropdown starts on
-// the company, and the email must be the invited one (checked server-side).
+// invite the subcontractor dropdown starts on the company, and the email
+// must be the invited one (checked server-side).
+//
+// Invite autofill (Phase 5d): getInviteInfo also sends what the invite
+// knows (useJoinPrefill): the invited email (shown read-only), and for
+// "Invite to app" the employee's name (editable - a new name is saved to
+// the employee at sign-up), birthday and subcontractor. If it isn't there
+// the form is empty, as before.
 //
 // One screen runs every step in its own state - no nav params - so the
 // password, birthday, selfie and PIN never land in navigation state or
@@ -60,6 +67,7 @@ function emptyForm(kind) {
 }
 
 const INVITE_EMAIL_HINT = "Use the email address your invite was sent to.";
+const INVITE_EMAIL_LOCKED_HINT = "This is the email your invite was sent to.";
 
 function deleteLocalPhoto(selfie) {
   if (selfie && selfie.uri) FileSystem.deleteAsync(selfie.uri, { idempotent: true }).catch(() => {});
@@ -75,6 +83,7 @@ export default function JoinStartScreen({ navigation }) {
   const { sending, submit } = useJoinSubmit(kind);
   const [step, setStep] = useState("account");
   const [form, setForm] = useState(() => emptyForm(kind));
+  const { emailLocked } = useJoinPrefill({ token, kind, info, setForm });
   const [notice, setNotice] = useState(null);
   const [emailError, setEmailError] = useState(null);
   const [submitError, setSubmitError] = useState(null);
@@ -304,7 +313,8 @@ export default function JoinStartScreen({ navigation }) {
             onToggleConsent={toggleConsent}
             notice={notice}
             emailError={emailError}
-            emailHint={kind === "invite" ? INVITE_EMAIL_HINT : null}
+            emailHint={kind === "invite" ? (emailLocked ? INVITE_EMAIL_LOCKED_HINT : INVITE_EMAIL_HINT) : null}
+            emailLocked={emailLocked}
             onContinue={() => {
               setNotice(null);
               setStep("details");
