@@ -137,7 +137,7 @@ You are clocked in from T5.
   4. Tap Clock Back In on Home with the correct PIN (online).
   5. Wait 3 minutes. Then Sync tab: tap Redo on the failed Clock out and type the correct PIN.
 - **You should see:**
-  - The Clock out row Failed, with the red line "Sending is paused until the failed punch below is fixed."
+  - The Clock out row Failed, with the red line "Sending is paused until the failed punch below is fixed." (Phase 5: "...is removed.")
   - The Clock Back In shows green at once with no "Will sync" line (you're online and the PIN was checked), but its row stays Waiting behind the failed one. After 10 s the badge counts both.
   - After Redo: Clock out goes Synced first, then Clock in. The badge goes away.
 - **I check:**

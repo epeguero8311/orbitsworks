@@ -17,28 +17,25 @@ tests are added as each layer lands.
   before it reached the server. Any other refused punch: "Couldn't sync,
   please speak to your supervisor." with Remove only.
 
-## Step 0. Before installing the Phase 5 build: clear stuck Redo rows
+## Step 0. Right after installing the Phase 5 build: remove old Redo rows
 
-On the build that is on the phone NOW (3B build 19). That build has no
-Remove on a Redo row, only Redo, so the rows are cleared through Redo.
-Sign in as the jc-test-pro-dev employee (jc-pro-emp@orbitsworks-dev.com).
+Decided 2026-11-03: nothing is done on the old build. The Phase 5 build
+shows Remove on every Failed row, including rows an older build left
+waiting for Redo (they still show the old text "Your PIN was changed. Type
+your new PIN to send this punch."). Sign in as the jc-test-pro-dev employee
+(jc-pro-emp@orbitsworks-dev.com).
 
 1. Wifi on, app open. Sync tab.
-2. Look for Failed rows with a **Redo** button ("Your PIN was changed. Type
-   your new PIN to send this punch."). None: step 0 is done, send "done 0".
-3. Bottom row first (the oldest), for each Redo row:
-   1. Tap Redo, type your CURRENT PIN.
-   2. Either the row goes Synced, or it turns Failed "Not recorded, tell
-      your admin." (it is older than 24 h) with **Remove**: tap Remove, then
-      Remove in the confirm box.
-4. Repeat until no Redo row is left and no row is Waiting. "Sending is
-   paused..." must be gone.
-5. Send "done 0". I check dev read-only: which of those punches landed
-   (they keep their original time).
-
-Note: a Redo row that syncs in step 3 becomes a real clock event on dev at
-its old time. If you'd rather not record them, skip step 0 and remove the
-rows on the Phase 5 build instead (it shows Remove on old Redo rows).
+2. No Failed rows: step 0 is OK, send "done 0".
+3. For each Failed row with the old Redo text: tap Remove, then Remove in
+   the confirm box ("This punch will NOT be recorded...").
+4. After the last one: "Sending is paused until the failed punch below is
+   removed." is gone, and any Waiting rows behind them go Syncing ->
+   Synced (or show their own result).
+- **OK when:** no old Redo rows are left, no "Sending is paused" line, and
+  nothing stays Waiting while online.
+- **I check:** none of the removed punches is on dev (they are never
+  recorded); the punches that were waiting behind them landed.
 
 ## How to run it
 
@@ -55,7 +52,7 @@ rows on the Phase 5 build instead (it shows Remove on old Redo rows).
 | H1 | History: this week Monday to today, hours match Home, day off shows 0m / No activity | | |
 | H2 | History day: every punch and break; In progress today; Missing clock-out in orange | | |
 | H3 | History tags: Will sync (offline punch), Synced late (synced 5+ min late) | | |
-| 0 | Before install: no stuck Redo rows left on the phone | | |
+| 0 | After install: every old Redo row removed, the queue continues | | |
 | P1 | PIN changed on the website while offline: the punch syncs by itself at its own time, no Redo | | |
 | P2 | Old PIN used AFTER the change: Couldn't sync, Remove only; Remove lets the queue go on | | |
 | P3 | PIN changed twice while offline: the punch from before both changes still syncs | | |

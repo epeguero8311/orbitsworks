@@ -85,7 +85,7 @@ export default function EmployeeSyncScreen() {
         </Pressable>
       </View>
       <Text style={styles.lastSynced}>Last synced: {lastSynced}</Text>
-      {queue.paused ? <Text style={styles.paused}>Sending is paused until the failed punch below is fixed.</Text> : null}
+      {queue.paused ? <Text style={styles.paused}>Sending is paused until the failed punch below is removed.</Text> : null}
 
       {empty ? (
         <View style={styles.center}>
