@@ -10,7 +10,7 @@ import { useShiftComments } from "../../lib/hooks/useShiftComments";
 import { useCommentQueue } from "../../lib/hooks/useCommentQueue";
 import { useNow } from "../../lib/hooks/useNow";
 import { enqueueComment } from "../../lib/commentQueue";
-import { shiftCommentRows } from "../../lib/commentQueueLogic";
+import { commentsLoadNotice, shiftCommentRows } from "../../lib/commentQueueLogic";
 import { formatWhen } from "../../lib/punchQueueLogic";
 import { formatClockTime } from "../../lib/employeeHome";
 import { SHIFT_NOTE_MAX_LENGTH } from "../../lib/validators/shiftComment";
@@ -23,6 +23,7 @@ import CommentRow from "../../components/employee/CommentRow";
 // syncs with the punches (lib/commentQueue.js) - it works offline. The list
 // is this shift's comments on the server plus the ones still on the phone,
 // newest first, with Will sync / Not synced pills (Remove is on the Sync tab).
+// If the server read fails, a short notice says so (commentsLoadNotice).
 // route.params: { clockEventId, shiftInMs }
 export default function ShiftCommentsScreen({ route, navigation }) {
   const { colors } = useTheme();
@@ -43,6 +44,7 @@ export default function ShiftCommentsScreen({ route, navigation }) {
   const [saving, setSaving] = useState(false);
 
   const rows = shiftCommentRows(server.notes, queue.all, clockEventId, companyId, employeeId);
+  const loadNotice = commentsLoadNotice(server);
 
   const save = useCallback(async () => {
     if (saving) return;
@@ -84,6 +86,7 @@ export default function ShiftCommentsScreen({ route, navigation }) {
         </TouchableOpacity>
 
         <Text style={styles.heading}>This shift</Text>
+        {loadNotice ? <Text style={styles.notice}>{loadNotice}</Text> : null}
         {rows.length === 0 ? <Text style={styles.empty}>No comments yet for this shift.</Text> : null}
         {rows.map((r, i) => (
           <CommentRow key={r.id} note={r.note} whenLabel={r.ms ? formatWhen(r.ms, now, timezone) : "Saving"} tag={r.tag} divider={i < rows.length - 1} />
@@ -114,4 +117,5 @@ const useStyles = makeStyles((colors) => ({
   buttonText: { color: colors.onColor, fontSize: fontSizes.md, fontWeight: "700" },
   heading: { fontSize: fontSizes.lg, fontWeight: "700", color: colors.text, marginTop: spacing.xxl, marginBottom: spacing.sm },
   empty: { fontSize: fontSizes.sm, color: colors.subtext },
+  notice: { fontSize: fontSizes.sm, color: colors.orangeText, marginBottom: spacing.sm },
 }));

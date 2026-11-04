@@ -207,6 +207,15 @@ function shiftCommentRows(serverNotes, queued, clockEventId, companyId, employee
   return [...rows.values()].sort((a, b) => top(b) - top(a));
 }
 
+// The Comments screen's server read failed (refused, or a missing index):
+// say so instead of looking like "no comments". The phone's own comments
+// (and any saved copy) still show. server = useShiftComments' state.
+const COMMENTS_LOAD_FAILED = "Couldn't load comments from the server";
+
+function commentsLoadNotice(server) {
+  return server && server.failed ? COMMENTS_LOAD_FAILED : null;
+}
+
 // Sync tab: this employee's comments - every unsynced one, plus Synced ones
 // typed today or in the 2 days before (company time), newest first. Same
 // window as visibleItems for punches.
@@ -245,6 +254,8 @@ function syncTabRows(punchRows, commentRows) {
 }
 
 module.exports = {
+  COMMENTS_LOAD_FAILED,
+  commentsLoadNotice,
   commentTag,
   shiftCommentRows,
   visibleComments,

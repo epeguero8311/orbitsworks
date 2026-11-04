@@ -142,3 +142,14 @@ test("sync badge: comments count by the same rule as punches", () => {
   assert.equal(q.badgeCount(comments, CO, E, NOW), 2);
   assert.equal(q.nextBadgeChangeMs(comments, CO, E, NOW), NOW + 8 * SEC);
 });
+
+// The server read failing (refused or a missing index) must not look like
+// "no comments": the screen says so and still shows the phone's comments.
+test("comments screen: a failed server read shows a notice; loading or ok shows none", () => {
+  assert.equal(c.COMMENTS_LOAD_FAILED, "Couldn't load comments from the server");
+  assert.equal(c.commentsLoadNotice({ notes: [], loading: false, failed: true }), "Couldn't load comments from the server");
+  assert.equal(c.commentsLoadNotice({ notes: [{ id: "s1" }], loading: false, failed: true }), "Couldn't load comments from the server", "saved copy shown, still say so");
+  assert.equal(c.commentsLoadNotice({ notes: [], loading: false, failed: false }), null);
+  assert.equal(c.commentsLoadNotice({ notes: [], loading: true, failed: false }), null);
+  assert.equal(c.commentsLoadNotice(null), null);
+});
