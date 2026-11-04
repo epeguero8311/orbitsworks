@@ -241,6 +241,7 @@ jc-test-core-dev.
   touched in Phase 5 (Settings reuses it as-is); the new
   useNotificationPermission.js avoids the pattern (state set only in the
   promise callback). Fix in the Phase 10 lint pass.
+- **Re-auth Apple credentials in EAS before any release build** (found 2026-11-04, employeeDev build 20, 8e013d8): EAS got "Apple 401" and "Failed to fetch Apple provisioning profiles", skipped the check on Apple's servers and used its local check. Build and submit still worked. Run an interactive `eas credentials` / Apple login before the release builds.
 - **Old lint error in `orbitworks-web/lib/hooks/useClockEventsByDay.ts:28`** (found 2026-11-04, Phase 5 7d): `react-hooks/set-state-in-effect`, `setLoading(true)` / `setError("")` run directly in the effect; the new useShiftCommentsByClockIn.ts avoids it. Fix in the Phase 10 lint pass.
 - **phoneClockOff only catches a clock set back** (decided 2026-11-01,
   fast punches ec726c0). The expected time uses expo-device uptime, which
