@@ -1,53 +1,53 @@
-import { View, Text } from "react-native";
-import { Feather } from "@expo/vector-icons";
-import { spacing, fontSizes } from "../../lib/theme";
+import { View, ActivityIndicator } from "react-native";
+import { spacing } from "../../lib/theme";
 import { useTheme } from "../../lib/ThemeContext";
 import { makeStyles } from "../../lib/makeStyles";
-import { useNow } from "../../lib/hooks/useNow";
-import { MOCK_CLOCK_EVENTS, MOCK_HISTORY_EMPTY } from "../../lib/mockData";
-import { groupEventsByDay, summarizeDay, dayLabel, shortDate, formatWorked, formatDuration } from "../../lib/historyDays";
+import { useAuth } from "../../lib/AuthContext";
+import { useMyHistoryWeek } from "../../lib/hooks/useMyHistoryWeek";
+import { dayBadges, formatWorked, formatDuration } from "../../lib/historyDays";
 import TabPage from "../../components/ui/TabPage";
 import DayCard from "../../components/ui/DayCard";
 
-// Employee App History tab ("My Hours") - LAYOUT ONLY, mock clock events
-// (lib/mockData.js) in the device's timezone. Wiring it up = swapping
-// MOCK_CLOCK_EVENTS for the employee's real clockEvents.
+// Employee App History tab ("My Hours"), Phase 5: this week, Monday to
+// today in the company's time zone, newest first - the employee's real
+// clock events plus the punches still on the phone (useMyHistoryWeek).
+// Every day is listed (a day off shows 0m). Hours use Home's rule. Each
+// card shows what needs attention (Missing clock-out, In progress, sync
+// tags); tap a day for every punch and break.
 export default function EmployeeHistoryScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useStyles();
-  const now = useNow(60000);
-  const days = MOCK_HISTORY_EMPTY ? [] : groupEventsByDay(MOCK_CLOCK_EVENTS);
+  const { userData, linkedEmployeeId } = useAuth();
+  const companyId = userData?.companyId;
+  const employeeId = linkedEmployeeId || userData?.employeeId;
+  const { days, loaded } = useMyHistoryWeek(companyId, employeeId);
 
   return (
-    <TabPage title="My Hours" fill={days.length === 0}>
-      {days.length === 0 ? (
+    <TabPage title="My Hours" fill={!loaded}>
+      {!loaded ? (
         <View style={styles.center}>
-          <Feather name="clock" size={48} color={colors.muted} />
-          <Text style={styles.emptyText}>No hours yet</Text>
+          <ActivityIndicator color={colors.muted} />
         </View>
       ) : (
         <View style={styles.list}>
-          {days.map((day) => {
-            const summary = summarizeDay(day.events, now);
-            return (
-              <DayCard
-                key={day.key}
-                dayLabel={dayLabel(day.key, now)}
-                dateLabel={shortDate(day.key)}
-                worked={formatWorked(summary.workedMs)}
-                breakTime={formatDuration(summary.breakMs)}
-                onPress={() => navigation.navigate("EmployeeHistoryDay", { dayKey: day.key })}
-              />
-            );
-          })}
+          {days.map((day) => (
+            <DayCard
+              key={day.key}
+              dayLabel={day.label}
+              dateLabel={day.dateLabel}
+              worked={formatWorked(day.workedMs)}
+              breakTime={formatDuration(day.breakMs)}
+              badges={dayBadges(day)}
+              onPress={() => navigation.navigate("EmployeeHistoryDay", { dayKey: day.key })}
+            />
+          ))}
         </View>
       )}
     </TabPage>
   );
 }
 
-const useStyles = makeStyles((colors) => ({
+const useStyles = makeStyles(() => ({
   list: { gap: spacing.md },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md },
-  emptyText: { fontSize: fontSizes.lg, fontWeight: "600", color: colors.subtext },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
 }));

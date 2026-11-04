@@ -3,10 +3,13 @@ import { Feather } from "@expo/vector-icons";
 import { radii, spacing, fontSizes } from "../../lib/theme";
 import { useTheme } from "../../lib/ThemeContext";
 import { makeStyles } from "../../lib/makeStyles";
+import StatusPill from "./StatusPill";
 
 // History day card: day + date top-left, a small clock top-right, and
-// Worked (left) / Break (right) along the bottom. Tappable.
-export default function DayCard({ dayLabel, dateLabel, worked, breakTime, onPress }) {
+// Worked (left) / Break (right) along the bottom. Tappable. badges: optional
+// [{ label, tone }] StatusPills under the date (Phase 5: Missing clock-out,
+// In progress, sync tags).
+export default function DayCard({ dayLabel, dateLabel, worked, breakTime, badges = [], onPress }) {
   const { colors } = useTheme();
   const styles = useStyles();
   return (
@@ -14,7 +17,7 @@ export default function DayCard({ dayLabel, dateLabel, worked, breakTime, onPres
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${dayLabel}, ${dateLabel}. Worked ${worked}, break ${breakTime}`}
+      accessibilityLabel={`${dayLabel}, ${dateLabel}. Worked ${worked}, break ${breakTime}${badges.map((b) => `. ${b.label}`).join("")}`}
     >
       <View style={styles.top}>
         <View style={styles.flex}>
@@ -23,6 +26,13 @@ export default function DayCard({ dayLabel, dateLabel, worked, breakTime, onPres
         </View>
         <Feather name="clock" size={16} color={colors.muted} />
       </View>
+      {badges.length ? (
+        <View style={styles.badges}>
+          {badges.map((b) => (
+            <StatusPill key={b.label} label={b.label} tone={b.tone} />
+          ))}
+        </View>
+      ) : null}
       <View style={styles.bottom}>
         <View>
           <Text style={styles.label}>Worked</Text>
@@ -50,6 +60,7 @@ const useStyles = makeStyles((colors) => ({
   flex: { flex: 1 },
   day: { fontSize: fontSizes.lg, fontWeight: "700", color: colors.text },
   date: { fontSize: fontSizes.sm, color: colors.subtext, marginTop: 2 },
+  badges: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md },
   bottom: { flexDirection: "row", justifyContent: "space-between", marginTop: spacing.lg },
   right: { alignItems: "flex-end" },
   label: { fontSize: fontSizes.xs, color: colors.subtext },

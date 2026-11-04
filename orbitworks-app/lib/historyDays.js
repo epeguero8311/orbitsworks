@@ -226,11 +226,52 @@ function buildWeekHistory(events, nowMs, timeZone, breaks) {
   return { days: days.reverse() };
 }
 
+// ---- Phase 5 Layer 7a: what the History screens show ----
+
+// Day card pills, most urgent first. day = one of buildWeekHistory's days.
+const DAY_BADGES = [
+  ["missingClockOut", "Missing clock-out", "orange"],
+  ["inProgress", "In progress", "green"],
+  ["notSynced", TAG_LABELS.notSynced, TAG_TONES.notSynced],
+  ["willSync", TAG_LABELS.willSync, TAG_TONES.willSync],
+  ["syncedLate", TAG_LABELS.syncedLate, TAG_TONES.syncedLate],
+];
+
+function dayBadges(day) {
+  if (!day) return [];
+  return DAY_BADGES.filter(([flag]) => day[flag]).map(([, label, tone]) => ({ label, tone }));
+}
+
+// The day screen's Activity timeline: every punch and break, each with its
+// sync tag as a pill ({ label, tone } or null), then In progress / Missing
+// clock-out (no pill - the row itself says it; warn = shown in orange).
+function timelineRows(day) {
+  if (!day || !Array.isArray(day.items)) return [];
+  return day.items.map((item) => ({
+    id: String(item.id),
+    label: item.label,
+    time: item.time,
+    tone: item.tone,
+    tag: item.tag ? { label: TAG_LABELS[item.tag], tone: TAG_TONES[item.tag] } : null,
+    warn: item.type === "missingOut",
+  }));
+}
+
+// One day of this week by its "YYYY-MM-DD" key, or null (e.g. a day from
+// an older week left open on the screen).
+function findDay(days, key) {
+  if (!Array.isArray(days) || !key) return null;
+  return days.find((d) => d.key === key) || null;
+}
+
 module.exports = {
   TAG_LABELS,
   TAG_TONES,
   punchTag,
   buildWeekHistory,
+  dayBadges,
+  timelineRows,
+  findDay,
   groupEventsByDay,
   summarizeDay,
   formatWorked,

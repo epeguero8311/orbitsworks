@@ -5,14 +5,17 @@ import { radii, spacing, fontSizes } from "../../lib/theme";
 import { useTheme } from "../../lib/ThemeContext";
 import { makeStyles } from "../../lib/makeStyles";
 import { useTabBarSpace } from "../../lib/hooks/useTabBarSpace";
-import { useNow } from "../../lib/hooks/useNow";
-import { MOCK_CLOCK_EVENTS } from "../../lib/mockData";
-import { groupEventsByDay, summarizeDay, longDate, weekdayLabel, formatDuration, timelineItems } from "../../lib/historyDays";
+import { useAuth } from "../../lib/AuthContext";
+import { useMyHistoryWeek } from "../../lib/hooks/useMyHistoryWeek";
+import { findDay, longDate, weekdayLabel, formatDuration, timelineRows } from "../../lib/historyDays";
 import SummaryStats from "../../components/ui/SummaryStats";
 import Timeline from "../../components/ui/Timeline";
 
-// Employee App History - one day: date, Shift / Hours worked / Break, and
-// the day's punches as a timeline. LAYOUT ONLY, mock clock events.
+// Employee App History - one day of this week (Phase 5): date, Shift /
+// Hours worked / Break (Home's rule: closed shifts only, auto break on), and
+// every punch and break in company time with its sync tag (Will sync, Synced
+// late, Not synced), then "In progress" or "Missing clock-out" (orange).
+// Read only. A day off, or a day outside this week, shows "No activity".
 // route.params: { dayKey: "YYYY-MM-DD" }.
 export default function EmployeeHistoryDayScreen({ route, navigation }) {
   const { colors } = useTheme();
@@ -20,10 +23,12 @@ export default function EmployeeHistoryDayScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const tabBarSpace = useTabBarSpace();
   const key = route.params?.dayKey ?? "";
-  const day = groupEventsByDay(MOCK_CLOCK_EVENTS).find((d) => d.key === key);
-  const events = day ? day.events : [];
-  const now = useNow(60000);
-  const summary = summarizeDay(events, now);
+  const { userData, linkedEmployeeId } = useAuth();
+  const companyId = userData?.companyId;
+  const employeeId = linkedEmployeeId || userData?.employeeId;
+  const { days } = useMyHistoryWeek(companyId, employeeId);
+  const day = findDay(days, key);
+  const rows = timelineRows(day);
 
   return (
     <ScrollView
@@ -50,15 +55,15 @@ export default function EmployeeHistoryDayScreen({ route, navigation }) {
       <View style={styles.section}>
         <SummaryStats
           items={[
-            { label: "Shift Time", value: formatDuration(summary.shiftMs) },
-            { label: "Hours worked", value: formatDuration(summary.workedMs) },
-            { label: "Break", value: formatDuration(summary.breakMs) },
+            { label: "Shift Time", value: formatDuration(day ? day.shiftMs : 0) },
+            { label: "Hours worked", value: formatDuration(day ? day.workedMs : 0) },
+            { label: "Break", value: formatDuration(day ? day.breakMs : 0) },
           ]}
         />
       </View>
 
       <Text style={styles.heading}>Activity</Text>
-      {events.length ? <Timeline items={timelineItems(events)} /> : <Text style={styles.empty}>No activity</Text>}
+      {rows.length ? <Timeline items={rows} /> : <Text style={styles.empty}>No activity</Text>}
     </ScrollView>
   );
 }

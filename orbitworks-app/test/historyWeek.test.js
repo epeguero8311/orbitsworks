@@ -254,3 +254,70 @@ test("tags: a queued clock-in and clock-out made offline count as a closed shift
   assert.equal(wed.workedMs, home.computeHours(events, NOW, TZ, NO_AUTO).todayMs);
   assert.equal(wed.items.every((i) => i.tag === "willSync"), true);
 });
+
+// ---- Phase 5 Layer 7a: what the screens show ----
+
+const day = (fields) => ({
+  key: "2026-11-04",
+  label: "Today",
+  dateLabel: "Nov 4, 2026",
+  workedMs: 0,
+  breakMs: 0,
+  shiftMs: 0,
+  hasActivity: true,
+  inProgress: false,
+  missingClockOut: false,
+  willSync: false,
+  syncedLate: false,
+  notSynced: false,
+  items: [],
+  ...fields,
+});
+
+test("day card pills: what needs attention first, each with its color", () => {
+  assert.deepEqual(hist.dayBadges(day({})), []);
+  assert.deepEqual(
+    hist.dayBadges(day({ missingClockOut: true, inProgress: true, notSynced: true, willSync: true, syncedLate: true })),
+    [
+      { label: "Missing clock-out", tone: "orange" },
+      { label: "In progress", tone: "green" },
+      { label: "Not synced", tone: "red" },
+      { label: "Will sync", tone: "blue" },
+      { label: "Synced late", tone: "neutral" },
+    ]
+  );
+  assert.deepEqual(hist.dayBadges(day({ syncedLate: true })), [{ label: "Synced late", tone: "neutral" }]);
+  assert.deepEqual(hist.dayBadges(null), []);
+});
+
+test("day timeline rows: each punch with its tag pill; In progress / Missing clock-out rows have none", () => {
+  const events = [ev("in", "2026-11-04T07:00", { queued: true, syncedLate: true }), ev("breakStart", "2026-11-04T10:00")];
+  const items = [...events, { id: "q1", type: "breakEnd", timestamp: t("2026-11-04T10:30"), queued: true, localStatus: "waiting" }];
+  const week = hist.buildWeekHistory(items, NOW, TZ, NO_AUTO);
+  const rows = hist.timelineRows(dayOf(week, "2026-11-04"));
+  assert.deepEqual(
+    rows.map((r) => [r.label, r.time, r.tone, r.tag]),
+    [
+      ["Clock in", "7:00 am", "green", { label: "Synced late", tone: "neutral" }],
+      ["Start break", "10:00 am", "orange", null],
+      ["End break", "10:30 am", "orange", { label: "Will sync", tone: "blue" }],
+      ["In progress", "", "green", null],
+    ]
+  );
+  assert.ok(rows.every((r) => typeof r.id === "string" && r.id));
+  assert.ok(rows.every((r) => r.warn === false), "nothing missing today");
+  // Missing clock-out: its row is the one shown in orange text.
+  const missWeek = hist.buildWeekHistory([ev("in", "2026-11-02T07:00"), ev("in", "2026-11-04T07:00")], NOW, TZ, NO_AUTO);
+  const missRows = hist.timelineRows(dayOf(missWeek, "2026-11-02"));
+  assert.deepEqual(missRows.map((r) => [r.label, r.warn]), [["Clock in", false], ["Missing clock-out", true]]);
+  assert.deepEqual(hist.timelineRows(null), []);
+  assert.deepEqual(hist.timelineRows(day({ items: [] })), []);
+});
+
+test("day lookup: a day of this week by key; any other key -> null", () => {
+  const week = hist.buildWeekHistory([ev("in", "2026-11-03T07:00"), ev("out", "2026-11-03T15:00")], NOW, TZ, NO_AUTO);
+  assert.equal(hist.findDay(week.days, "2026-11-03").workedMs, 8 * HOUR);
+  assert.equal(hist.findDay(week.days, "2026-10-01"), null);
+  assert.equal(hist.findDay(week.days, ""), null);
+  assert.equal(hist.findDay(undefined, "2026-11-03"), null);
+});
