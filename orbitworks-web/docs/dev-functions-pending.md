@@ -280,6 +280,15 @@ jc-test-core-dev.
   instead of the app, even though app.config.js has autoVerify intent
   filters for both. The page's "Open in the app" button still works. Add
   it (dev and prod package + signing cert fingerprints) before release.
+- **The current PIN is plain text on the employee doc** (noted 2026-11-03,
+  Phase 5 Redo removal). `companies/{c}/employees/{e}.pin` holds the 4
+  digits as-is, and admins/owners can read it (the website's edit modal
+  shows it). Employees can't (they read employeeSelfViews), and earlier
+  PINs are already salted hashes in server-only employeePinHistory.
+  Consider hashing it, or moving it to a server-only doc so the website
+  shows "****" with a reset instead. Also used by verifyPin (query by pin),
+  getPinSyncTable (supervisor app offline table) and the pins/{pin}
+  uniqueness index - all need a plan before it changes.
 
 ## Phase 5 to-do (Hours)
 
@@ -307,6 +316,13 @@ jc-test-core-dev.
 - **Wire the employee Alerts tab** (decided 2026-10-29).
   `screens/employee/EmployeeAlertsScreen.js` still uses `MOCK_ALERTS` /
   `MOCK_ALERTS_EMPTY` from `lib/mockData.js`.
+- **Alert on the FIRST queued punch refused for a wrong PIN** (noted
+  2026-11-03, Phase 5 Redo removal). Today syncWrongPin alerts the admin
+  only from the 3rd wrong PIN at sync in 24 h
+  (functions/src/employeeClockQueued.ts, SYNC_PIN_ALERT_AT = 3). With no
+  Redo, every one of those is a lost punch the employee can only remove,
+  so the admin should hear about the first one (the 5-in-24-h block stays
+  as it is).
 
 ## Phase 9 to-do
 

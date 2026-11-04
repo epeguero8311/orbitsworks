@@ -88,7 +88,9 @@ Start each one clocked out unless it says otherwise. Same Pro test employee.
   2. Kill the app and reopen it (still offline), open Clock In: the
      countdown is still running.
   3. After it ends, the correct PIN works.
-- N3. PIN changed on the website while the phone is offline (E1).
+- N3. REPLACED by phase5-test-checklist.md P1 (2026-11-03: no Redo since
+  Phase 5 - the punch now syncs by itself). Don't run the steps below.
+  PIN changed on the website while the phone is offline (E1).
   1. Airplane mode on. Clock In with the CURRENT PIN (green, Will sync).
   2. On the website, change this employee's PIN.
   3. Airplane off. Expect: the Sync row turns Failed with "Your PIN was

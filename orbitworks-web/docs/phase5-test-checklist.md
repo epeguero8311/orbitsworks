@@ -10,6 +10,35 @@ tests are added as each layer lands.
 - Before submit the build must show `com.orbitworks.app.dev` and ASC 6826363680, else STOP.
 - The same build also runs the deferred tests: T2, T3, T16, S1-S6 (`phase4-test-checklist.md`) and B1-B11 + N1-N6 (`phase3b-test-checklist.md`).
 - Test logins: jc-test-pro-dev and jc-test-core-dev only.
+- P1-P3 need the Phase 5 rules and functions on dev first (old PIN history,
+  employeeClock.ts / pins.ts / employees.ts) - deploy only with an OK.
+- No Redo since Phase 5 (decided 2026-11-03): a punch saved offline with the
+  PIN that was right at that moment syncs even if an admin changed the PIN
+  before it reached the server. Any other refused punch: "Couldn't sync,
+  please speak to your supervisor." with Remove only.
+
+## Step 0. Before installing the Phase 5 build: clear stuck Redo rows
+
+On the build that is on the phone NOW (3B build 19). That build has no
+Remove on a Redo row, only Redo, so the rows are cleared through Redo.
+Sign in as the jc-test-pro-dev employee (jc-pro-emp@orbitsworks-dev.com).
+
+1. Wifi on, app open. Sync tab.
+2. Look for Failed rows with a **Redo** button ("Your PIN was changed. Type
+   your new PIN to send this punch."). None: step 0 is done, send "done 0".
+3. Bottom row first (the oldest), for each Redo row:
+   1. Tap Redo, type your CURRENT PIN.
+   2. Either the row goes Synced, or it turns Failed "Not recorded, tell
+      your admin." (it is older than 24 h) with **Remove**: tap Remove, then
+      Remove in the confirm box.
+4. Repeat until no Redo row is left and no row is Waiting. "Sending is
+   paused..." must be gone.
+5. Send "done 0". I check dev read-only: which of those punches landed
+   (they keep their original time).
+
+Note: a Redo row that syncs in step 3 becomes a real clock event on dev at
+its old time. If you'd rather not record them, skip step 0 and remove the
+rows on the Phase 5 build instead (it shows Remove on old Redo rows).
 
 ## How to run it
 
@@ -26,6 +55,10 @@ tests are added as each layer lands.
 | H1 | History: this week Monday to today, hours match Home, day off shows 0m / No activity | | |
 | H2 | History day: every punch and break; In progress today; Missing clock-out in orange | | |
 | H3 | History tags: Will sync (offline punch), Synced late (synced 5+ min late) | | |
+| 0 | Before install: no stuck Redo rows left on the phone | | |
+| P1 | PIN changed on the website while offline: the punch syncs by itself at its own time, no Redo | | |
+| P2 | Old PIN used AFTER the change: Couldn't sync, Remove only; Remove lets the queue go on | | |
+| P3 | PIN changed twice while offline: the punch from before both changes still syncs | | |
 
 ---
 
@@ -79,3 +112,67 @@ tests are added as each layer lands.
   2. Wait 5+ minutes, airplane mode off, let it sync. Open History, Today again.
 - **You should see:** the break start is tagged "Will sync" while offline, then "Synced late" after it syncs.
 - **I check:** that event has `queued: true` and `syncedLate: true`.
+
+## P1. PIN changed while offline: the punch still syncs (replaces 3B N3)
+
+Start clocked out. A second device (computer) with the dev website open on
+this employee's edit modal.
+
+- **Tap:**
+  1. Airplane mode on. Clock In with the CURRENT PIN, take the photo. Write
+     down the time.
+  2. On the website, change this employee's PIN and save.
+  3. Wait 5+ minutes. Airplane mode off. Keep the app open until the Sync
+     tab shows the row Synced.
+  4. Online: Clock Out with the OLD PIN, then with the NEW PIN.
+- **You should see:**
+  - Step 3: the row goes Waiting -> Synced with no Redo and no red text.
+    History shows the clock-in at the time you wrote down, tagged "Synced
+    late" (gray).
+  - Step 4: the old PIN gets "Wrong PIN" on the PIN pad; the new PIN opens
+    the camera and the clock-out goes through.
+- **I check:**
+  - The clock-in has the original phone time, `queued: true`,
+    `syncedLate: true` and `oldPinAccepted: true`, with its photo.
+  - `employeePinHistory/{employee}` has 1 entry (a hash, no PIN in it).
+  - `syncPinFailures/{employee}` has no new entry; no syncWrongPin alert.
+
+## P2. Old PIN used after the change: refused, Remove only (replaces 4 T6)
+
+Start clocked out, online.
+
+- **Tap:**
+  1. Airplane mode on.
+  2. On the website, change this employee's PIN and save.
+  3. Phone (still offline): Clock In with the OLD PIN (the phone doesn't know
+     about the change yet, so it shows green "Will sync when online").
+  4. Airplane mode off. Wait until the Sync row shows Failed.
+  5. Tap Remove, then Remove in the confirm box.
+  6. Clock In with the NEW PIN.
+- **You should see:**
+  - Step 4: the row Failed, red pill, "Couldn't sync, please speak to your
+    supervisor." with Remove only (no Redo). History tags it "Not synced"
+    (red). Home still shows Clocked in until it is removed.
+  - Step 5: the row is gone, Home shows Clocked out.
+  - Step 6: green "Clocked in", the row goes Synced.
+- **I check:**
+  - No clock event from step 3; its photo was deleted from Storage.
+  - `syncPinFailures/{employee}` has 1 new entry.
+  - The step 6 clock-in landed normally (no `oldPinAccepted`).
+
+## P3. PIN changed twice while offline
+
+Start clocked out.
+
+- **Tap:**
+  1. Airplane mode on. Clock In with the CURRENT PIN (call it A). Write
+     down the time.
+  2. On the website, change the PIN to B, save. Then change it to C, save.
+  3. Airplane mode off. Wait until the row is Synced.
+- **You should see:** the row goes Synced with no Redo; History shows the
+  clock-in at the time you wrote down.
+- **I check:**
+  - The clock-in has `oldPinAccepted: true` and the original time.
+  - `employeePinHistory/{employee}` has 2 entries (A until the first
+    change, B until the second).
+  - The current PIN is C (the next online punch needs C).

@@ -5,9 +5,11 @@ Offline punch queue (steps 1-7) + fast punches (every punch is saved on the phon
 **Status 2026-11-02:** build 19 (3B) went on the phone; no T or S test was
 reported passed. T2, T3, T16 and S1-S6 move to the next phase's first build.
 The PIN is now checked on the phone (phase3b-test-checklist.md N1-N4), so:
-T5 and T14 are replaced by N1-N3 (a wrong PIN never reaches the camera or
-the queue; Redo is only for a PIN changed on the website while offline);
-T6 (Phase 10 list) needs that same "PIN changed" setup instead of a wrong
+T5 and T14 are replaced by N1-N2 (a wrong PIN never reaches the camera or
+the queue). **Phase 5 (2026-11-03): there is no Redo any more** - a punch
+made with the PIN that was right at the time syncs after a PIN change
+(phase5-test-checklist.md P1), and any other refused punch is Remove only.
+T6 is replaced by phase5 P2. Older note: T6 (Phase 10 list) needs that same "PIN changed" setup instead of a wrong
 PIN. T4 no longer shows "Checking PIN...".
 
 ## Builds (profile employeeDev)
@@ -103,7 +105,7 @@ Start clocked out. Keep the app open and the screen on.
   - Clock in (step 3): no `queued`, server time (synced under 2 min). The PIN was checked when it synced.
   - Clock out (step 5): `queued: true`, the phone's time, no `syncedLate`.
 
-### T5. Wrong PIN offline -> Redo -> lands with the original time + photo
+### T5. REPLACED (N1-N2; no Redo since Phase 5) - Wrong PIN offline -> Redo -> lands with the original time + photo
 
 Start clocked out (clock out online first if needed).
 
@@ -124,7 +126,7 @@ Start clocked out (clock out online first if needed).
   - The normal 3-strike PIN lock count is untouched.
   - The in event has the original phone time and a photo in Storage (re-uploaded after the reject).
 
-### T6. Queue pauses at a failed punch; newer punches wait behind it (D2)
+### T6. REPLACED by phase5 P2 (no Redo since Phase 5) - Queue pauses at a failed punch; newer punches wait behind it (D2)
 
 You are clocked in from T5.
 
@@ -154,7 +156,7 @@ You are clocked in from T6. The test needs a clock out and a clock back in 3 min
   5. Wifi on.
   6. Sync tab: tap Remove on the failed row and read the confirm. Then tap Remove.
 - **You should see:**
-  - The Clock out row Failed: "Not recorded, tell your admin." with Remove only (no Redo).
+  - The Clock out row Failed: "Not recorded, tell your admin." with Remove only.
   - The Clock in row Waiting behind it.
   - The confirm box: "Remove this Clock out?" / "This punch will NOT be recorded. Tell your supervisor so they can fix your time." with Remove / Keep it.
   - After Remove: the row is gone, and the Clock in goes Syncing -> Synced right after.
