@@ -1,4 +1,5 @@
 import type * as admin from "firebase-admin";
+import type { JoinInfoResult } from "./getJoinInfo";
 
 // ---- Employee App: email invites (Phase 3B) ----
 //
@@ -67,3 +68,28 @@ export function inviteDisplayStatus(
   if (invite.status === "pending" && invite.expiresAt.toMillis() <= nowMs) return "expired";
   return invite.status;
 }
+
+// ---- Phase 5d: invite autofill ----
+//
+// What a usable invite already knows, sent with getInviteInfo's "active"
+// answer so the app's sign-up form starts filled in. Built by
+// lib/invitePrefill.ts from the server's own docs (never from the link).
+// Only these fields - nothing the sign-up form doesn't have a box for.
+//   email           always: the invited address. The app shows it read-only;
+//                   acceptEmployeeInvite still checks it.
+//   fullName        existingEmployee: the row's live name (editable; a new
+//                   name is saved to the row at accept). newPerson: null.
+//   birthday        existingEmployee: the row's dob (YYYY-MM-DD) if it is a
+//                   real date, else null.
+//   subcontractorId existingEmployee: the row's subcontractor if it is in
+//                   the active list sent with it, else null (the company).
+export interface InvitePrefill {
+  email: string;
+  fullName: string | null;
+  birthday: string | null;
+  subcontractorId: string | null;
+}
+
+// getInviteInfo's answer: the crew-code shape plus the prefill. prefill is
+// null when it couldn't be built - the app then shows the empty form.
+export type InviteInfoResult = (Extract<JoinInfoResult, { status: "active" }> & { prefill: InvitePrefill | null }) | { status: "inactive" };
