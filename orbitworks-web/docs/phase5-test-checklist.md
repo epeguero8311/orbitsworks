@@ -56,6 +56,9 @@ your new PIN to send this punch."). Sign in as the jc-test-pro-dev employee
 | P1 | PIN changed on the website while offline: the punch syncs by itself at its own time, no Redo | | |
 | P2 | Old PIN used AFTER the change: Couldn't sync, Remove only; Remove lets the queue go on | | |
 | P3 | PIN changed twice while offline: the punch from before both changes still syncs | | |
+| SE1 | Settings: photo, name, email, birthday (Not set), company, subcontractor (None), job site, Update line; also offline | | |
+| SE2 | Settings: Notifications switch follows the phone's permission (no push token) | | |
+| SE3 | Settings: Location switch follows the phone's permission | | |
 
 ---
 
@@ -109,6 +112,42 @@ your new PIN to send this punch."). Sign in as the jc-test-pro-dev employee
   2. Wait 5+ minutes, airplane mode off, let it sync. Open History, Today again.
 - **You should see:** the break start is tagged "Will sync" while offline, then "Synced late" after it syncs.
 - **I check:** that event has `queued: true` and `syncedLate: true`.
+
+## SE1. Settings: view-only rows, online and offline
+
+- **Tap:** Settings tab. Then airplane mode on, kill the app, reopen it,
+  Settings again.
+- **You should see** (both times, the same):
+  - Photo and name at the top.
+  - Logged in as: the employee's email. Birthday: "Not set" until a birthday
+    is added on the dev website edit modal (then e.g. "January 31, 1990").
+  - Company: the company name. Subcontractor: its name, or "None".
+  - Job site: the assigned site(s), comma-separated (a closed site isn't
+    shown), or "None".
+  - Update: "Built-in" on a fresh build, or the first 8 characters of the
+    update id after an OTA update.
+  - PIN ****, Dark mode, Last synced and App version as before.
+- **I check:** the self view has the same email and dob; the assigned
+  jobSites names match.
+
+## SE2. Settings: Notifications switch
+
+- **Tap:**
+  1. Fresh install: turn Notifications on -> "Allow notifications" -> Allow
+     -> the phone's own prompt -> Allow.
+  2. Turn it off.
+  3. In the phone's Settings app, turn this app's notifications off, come
+     back to the app.
+- **You should see:** step 1 the switch on; step 2 the phone's Settings app
+  opens (only it can turn a permission off); step 3 the switch is off.
+- **I check:** no pushTokens doc for this phone (nothing is registered).
+
+## SE3. Settings: Location switch
+
+- **Tap:** same 3 steps as SE2 with Location (prompt text "Share your
+  location").
+- **You should see:** the same: on after Allow, off opens the phone's
+  Settings app, and the switch follows the phone's setting on return.
 
 ## P1. PIN changed while offline: the punch still syncs (replaces 3B N3)
 

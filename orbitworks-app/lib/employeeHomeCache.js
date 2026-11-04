@@ -10,7 +10,8 @@ import { eventsForCache } from "./punchQueueLogic";
 // Each hook shows its saved copy right away and replaces it with live data
 // as soon as the server answers. Only data that came from the server is
 // saved. One key per employee and kind:
-//   selfView | config | recentEvents | weekEvents | homeSite
+//   selfView | config | recentEvents | weekEvents | homeSite | jobSites
+// (jobSites: Phase 5 Settings, { sites: { [siteId]: { name, active } } })
 // No PIN is ever in here (the self view has none).
 
 const PREFIX = "employeeHomeCache:v1";
