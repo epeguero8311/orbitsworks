@@ -11,7 +11,9 @@ import { joinStyles as s } from "./joinStyles";
 // so new consent text from the server un-ticks it.
 // emailHint: extra line under Email (the invite flow: it must be the
 // address the invite was sent to; the server checks it).
-export default function JoinAccountStep({ info, form, update, privacyChecked, biometricChecked, onToggleConsent, notice, emailError, onContinue, emailHint = null }) {
+// emailLocked (Phase 5d): the invite filled in the email - it is shown
+// read-only, since the invite only works for that address.
+export default function JoinAccountStep({ info, form, update, privacyChecked, biometricChecked, onToggleConsent, notice, emailError, onContinue, emailHint = null, emailLocked = false }) {
   const [errors, setErrors] = useState({});
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
@@ -53,16 +55,21 @@ export default function JoinAccountStep({ info, form, update, privacyChecked, bi
         textContentType="name"
         maxLength={NAME_MAX_LENGTH}
         returnKeyType="next"
-        onSubmitEditing={() => emailRef.current?.focus()}
+        onSubmitEditing={() => (emailLocked ? passwordRef : emailRef).current?.focus()}
       />
       {errors.fullName ? <Text style={s.fieldError}>{errors.fullName}</Text> : null}
 
       <Text style={s.label}>Email</Text>
       <TextInput
         ref={emailRef}
-        style={[s.input, shownEmailError && s.inputError]}
+        style={[s.input, emailLocked && s.inputLocked, shownEmailError && s.inputError]}
         value={form.email}
-        onChangeText={(t) => update({ email: t })}
+        onChangeText={(t) => {
+          if (!emailLocked) update({ email: t });
+        }}
+        editable={!emailLocked}
+        accessibilityState={{ disabled: emailLocked }}
+        accessibilityHint={emailLocked ? "Set by your invite. Can't be changed." : undefined}
         placeholder="you@example.com"
         placeholderTextColor="#9ca3af"
         autoCapitalize="none"

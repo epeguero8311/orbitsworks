@@ -28,6 +28,8 @@ export const joinStyles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   inputError: { borderColor: "#dc2626" },
+  // Read-only box (the invite's email, Phase 5d).
+  inputLocked: { backgroundColor: "#f3f4f6", color: "#6b7280" },
   fieldError: { color: "#dc2626", fontSize: 13, marginTop: 6 },
   hint: { color: "#6b7280", fontSize: 13, marginTop: 6 },
   notice: { backgroundColor: "#eff6ff", borderColor: "#bfdbfe", borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 8 },
