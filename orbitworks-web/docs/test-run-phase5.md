@@ -1,7 +1,7 @@
 # Phase 5 phone test run (one pass)
 
 Phase 4 leftovers (T2, T3, T16, S1-S6) + Phase 3B (B1-B11, N1, N2, N4-N6) +
-Phase 5 (0, H1-H3, K1-K2, SE1-SE3, P1-P3, C1, LO1, D1), merged into one
+Phase 5 (0, H1-H3, K1-K2, SE1-SE3, P1-P3, C1, LO1, 5d-1 to 5d-5, D1), merged into one
 ordered run on the Phase 5 build. Dev only (orbitworks-dev-ew).
 
 - App: OrbitsWorks Dev (com.orbitworks.app.dev), TestFlight, Phase 5 build.
@@ -252,9 +252,11 @@ Sign out of the app first. Gmail "+" addresses land in your normal inbox.
 - B4. Do: Revoke + confirm; on the phone (signed out) tap the link; Remove
   the row. See: Revoked; "Invite no longer active"; row gone.
   [ ] OK  [ ] FAILED
-- B5. Do: New invite to your Gmail with site "Core Site"; on the phone sign
-  up with a DIFFERENT email. See: back to step 1 with "Use the email
-  address this invite was sent to."; invite still Pending, no new employee.
+- B5. Do: New invite to your Gmail with site "Core Site"; on the phone open
+  the link and try to change the email. See (Phase 5d): the email is
+  already filled in, grey, and can't be edited. (The server's "Use the
+  email address this invite was sent to." check is covered by the
+  functions tests.) Invite still Pending.
   [ ] OK  [ ] FAILED
 - B6. Do: Same invite, your Gmail, sign up. See: "Joining JC-Test Core
   (dev)", the email hint, "Who do you work for?" on the company; Welcome
@@ -276,6 +278,42 @@ Sign out of the app first. Gmail "+" addresses land in your normal inbox.
 - B11. Do: As jc-pro-owner (face check on): Add employee with another face,
   Invite to app at you+pro@gmail.com, sign up, clock in. See: face check
   passes against your new selfie.
+  [ ] OK  [ ] FAILED
+
+### 5d-1 to 5d-5. Invite autofill (Phase 5d)
+Sign out of the app first. Dev functions must include 5d (getInviteInfo,
+acceptEmployeeInvite). Gmail "+" addresses land in your normal inbox.
+
+- 5d-1. Core, new person. Do: As jc-core-owner: Employees > Invite new
+  person > you+5dnew@gmail.com > Send; open the link on the phone. See:
+  "Joining JC-Test Core (dev)"; Email filled in, grey, can't be edited,
+  hint "This is the email your invite was sent to."; Full name empty and
+  editable; birthday empty; "Who do you work for?" on the company. Finish
+  sign-up with any name. Website: new employee with that name.
+  [ ] OK  [ ] FAILED
+- 5d-2. Core, existing employee, edit name. Do: As jc-core-owner: Add
+  employee "Fived Core" with DOB 01/31/1990 and a subcontractor; Employee
+  app > you+5dcore@gmail.com > Invite to app; open the link. See: Full name
+  "Fived Core", the email (locked), DOB 01 / 31 / 1990 and the same
+  subcontractor already filled in. Change the name to "Fived Core Renamed",
+  finish sign-up. See: Welcome shows the row's existing PIN; website: still
+  ONE row, now named "Fived Core Renamed" (table and Edit modal).
+  [ ] OK  [ ] FAILED
+- 5d-3. Pro, existing employee, name kept. Do: As jc-pro-owner: Add
+  employee "Fived Pro" (no DOB); Invite to app at you+5dpro@gmail.com;
+  open the link. See: name + email filled, DOB empty. Don't touch the name;
+  fill DOB, finish, clock in. See: website name still "Fived Pro"; face
+  check passes against the new selfie.
+  [ ] OK  [ ] FAILED
+- 5d-4. Name rules. Do: New Invite to app for any eligible row; open the
+  link; set the name to one letter, tap Continue; then clear it. See:
+  "Enter your full name." both times, can't continue. Type a normal name:
+  continues. (Don't finish - Revoke the invite after.)
+  [ ] OK  [ ] FAILED
+- 5d-5. Bad links leak nothing. Do: Tap the used link from 5d-2, the
+  revoked one from 5d-4, and the 5d-1 link with one character changed
+  (paste into Notes, edit, tap). See: all three show "Invite no longer
+  active" with no name, email or company shown.
   [ ] OK  [ ] FAILED
 
 ### D1. Done when: offline comment on the website (LAST)
