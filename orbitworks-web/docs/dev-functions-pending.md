@@ -241,6 +241,7 @@ jc-test-core-dev.
   touched in Phase 5 (Settings reuses it as-is); the new
   useNotificationPermission.js avoids the pattern (state set only in the
   promise callback). Fix in the Phase 10 lint pass.
+- **Old lint error in `orbitworks-web/lib/hooks/useClockEventsByDay.ts:28`** (found 2026-11-04, Phase 5 7d): `react-hooks/set-state-in-effect`, `setLoading(true)` / `setError("")` run directly in the effect; the new useShiftCommentsByClockIn.ts avoids it. Fix in the Phase 10 lint pass.
 - **phoneClockOff only catches a clock set back** (decided 2026-11-01,
   fast punches ec726c0). The expected time uses expo-device uptime, which
   pauses while the phone sleeps, so it can only lag the real time and the
