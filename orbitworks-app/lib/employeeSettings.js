@@ -103,6 +103,19 @@ function permissionToggleAction(wantOn, permission) {
   return "none";
 }
 
+// Log out warning: punches and comments still on the phone (they stay,
+// and sync only when this employee signs back in). null = none waiting.
+//   (2, 1) -> "2 punches and 1 comment are not synced yet"
+function logoutWarning(punches, comments) {
+  const p = punches > 0 ? punches : 0;
+  const c = comments > 0 ? comments : 0;
+  if (p + c === 0) return null;
+  const parts = [];
+  if (p) parts.push(`${p} punch${p === 1 ? "" : "es"}`);
+  if (c) parts.push(`${c} comment${c === 1 ? "" : "s"}`);
+  return `${parts.join(" and ")} ${p + c === 1 ? "is" : "are"} not synced yet`;
+}
+
 module.exports = {
   NOT_SET,
   PIN_MASK,
@@ -113,4 +126,5 @@ module.exports = {
   updateLabel,
   buildSettingsInfo,
   permissionToggleAction,
+  logoutWarning,
 };

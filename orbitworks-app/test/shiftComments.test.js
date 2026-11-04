@@ -153,3 +153,31 @@ test("comments screen: a failed server read shows a notice; loading or ok shows 
   assert.equal(c.commentsLoadNotice({ notes: [], loading: true, failed: false }), null);
   assert.equal(c.commentsLoadNotice(null), null);
 });
+
+// Two employees on one phone share one comment_queue. Ana logs out (her
+// comments stay), Ben logs in: Ben's sync, Sync tab, badge and Comments
+// screen never see Ana's; Ben's cleanup keeps Ana's unsynced ones; when
+// Ana logs back in, hers are all there again.
+test("one phone, two employees: comments stay with their own employee", () => {
+  const ANA = "ana";
+  const BEN = "ben";
+  const queue = [
+    comment({ requestId: "ana-wait", employeeId: ANA, clockEventId: "inA", createdAt: NOW - HOUR }),
+    comment({ requestId: "ana-fail", employeeId: ANA, clockEventId: "inA", status: "failed", createdAt: NOW - HOUR }),
+    comment({ requestId: "ben-wait", employeeId: BEN, clockEventId: "inB", createdAt: NOW - HOUR }),
+  ];
+  const punches = [];
+  // Ben signed in.
+  assert.deepEqual(c.commentsToSend(queue, punches, CO, BEN).map((x) => x.comment.requestId), ["ben-wait"]);
+  assert.deepEqual(c.visibleComments(queue, CO, BEN, NOW, TZ).map((i) => i.requestId), ["ben-wait"]);
+  assert.equal(q.badgeCount(queue, CO, BEN, NOW), 1);
+  assert.deepEqual(c.shiftCommentRows([], queue, "inA", CO, BEN), [], "Ben can't see Ana's shift comments");
+  assert.deepEqual(c.commentsToDrop(queue, NOW + 30 * DAY), [], "cleanup keeps everyone's unsynced comments");
+  // Ana back.
+  assert.deepEqual(c.commentsToSend(queue, punches, CO, ANA).map((x) => x.comment.requestId), ["ana-wait"]);
+  assert.deepEqual(c.visibleComments(queue, CO, ANA, NOW, TZ).map((i) => i.requestId).sort(), ["ana-fail", "ana-wait"]);
+  assert.equal(q.badgeCount(queue, CO, ANA, NOW), 2);
+  assert.deepEqual(c.shiftCommentRows([], queue, "inA", CO, ANA).map((r) => r.id).sort(), ["ana-fail", "ana-wait"]);
+  // Same employee id in another company is someone else.
+  assert.deepEqual(c.visibleComments(queue, "co2", ANA, NOW, TZ), []);
+});

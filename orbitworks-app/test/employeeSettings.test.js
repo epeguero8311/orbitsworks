@@ -141,3 +141,16 @@ test("settings rows: labels and order, PIN always masked", () => {
   assert.deepEqual(empty.map((r) => r[1]), ["Not set", "****", "Not set", "", "None", "None"]);
   assert.equal(s.PIN_MASK, "****");
 });
+
+// Log out warning (decision 7c-A): unsynced punches AND comments stay on
+// the phone, so the warning names both. null = nothing waiting, no warning.
+test("log out warning: counts punches and comments; none -> no warning", () => {
+  assert.equal(s.logoutWarning(0, 0), null);
+  assert.equal(s.logoutWarning(1, 0), "1 punch is not synced yet");
+  assert.equal(s.logoutWarning(2, 0), "2 punches are not synced yet");
+  assert.equal(s.logoutWarning(0, 1), "1 comment is not synced yet");
+  assert.equal(s.logoutWarning(0, 3), "3 comments are not synced yet");
+  assert.equal(s.logoutWarning(1, 1), "1 punch and 1 comment are not synced yet");
+  assert.equal(s.logoutWarning(2, 1), "2 punches and 1 comment are not synced yet");
+  assert.equal(s.logoutWarning(undefined, undefined), null);
+});

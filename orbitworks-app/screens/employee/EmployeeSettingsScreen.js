@@ -11,9 +11,10 @@ import { useEmployeeSettingsData } from "../../lib/hooks/useEmployeeSettingsData
 import { useNotificationPermission } from "../../lib/hooks/useNotificationPermission";
 import { useLocationPermission } from "../../lib/hooks/useLocationPermission";
 import { usePunchQueue } from "../../lib/hooks/usePunchQueue";
+import { useCommentQueue } from "../../lib/hooks/useCommentQueue";
 import { useNow } from "../../lib/hooks/useNow";
 import { formatWhen } from "../../lib/punchQueueLogic";
-import { settingsRows } from "../../lib/employeeSettings";
+import { logoutWarning, settingsRows } from "../../lib/employeeSettings";
 import TabPage from "../../components/ui/TabPage";
 import ListRow from "../../components/ui/ListRow";
 import ConfirmModal from "../../components/ui/ConfirmModal";
@@ -29,8 +30,8 @@ import { forgetPinVerifier } from "../../lib/pinCheck";
 // Location - the phone's own permission is the switch (no push token);
 // turning one off opens the phone's Settings app. Then Last synced, App
 // version, Update (OTA id or Built-in), dev punch timings (dev builds only)
-// and Log out - with a warning when punches are still waiting on the phone
-// (they stay, and sync only when this employee signs back in).
+// and Log out - with a warning when punches or comments are still waiting
+// on the phone (they stay, and sync only when this employee signs back in).
 export default function EmployeeSettingsScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const styles = useStyles();
@@ -42,6 +43,7 @@ export default function EmployeeSettingsScreen() {
   const notifications = useNotificationPermission();
   const location = useLocationPermission();
   const queue = usePunchQueue(companyId, employeeId);
+  const comments = useCommentQueue(companyId, employeeId, timezone);
   const now = useNow(60000);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const version = Constants.expoConfig?.version ?? "";
@@ -61,8 +63,8 @@ export default function EmployeeSettingsScreen() {
   ];
   // Log out drops this phone's PIN check value first (lib/pinCheck.js).
   const logOut = () => forgetPinVerifier(companyId, employeeId).finally(signOutUser);
-  const onLogout = () => (queue.badge > 0 ? setConfirmLogout(true) : logOut());
-  const notSynced = `${queue.badge} punch${queue.badge === 1 ? " is" : "es are"} not synced yet`;
+  const notSynced = logoutWarning(queue.badge, comments.badge);
+  const onLogout = () => (notSynced ? setConfirmLogout(true) : logOut());
 
   return (
     <TabPage title="Settings">
