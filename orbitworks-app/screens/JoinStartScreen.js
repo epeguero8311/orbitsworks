@@ -83,7 +83,7 @@ export default function JoinStartScreen({ navigation }) {
   const { sending, submit } = useJoinSubmit(kind);
   const [step, setStep] = useState("account");
   const [form, setForm] = useState(() => emptyForm(kind));
-  const { emailLocked } = useJoinPrefill({ token, kind, info, setForm });
+  const { emailLocked, nameFromPrefill } = useJoinPrefill({ token, kind, info, setForm });
   const [notice, setNotice] = useState(null);
   const [emailError, setEmailError] = useState(null);
   const [submitError, setSubmitError] = useState(null);
@@ -224,6 +224,9 @@ export default function JoinStartScreen({ navigation }) {
       birthday,
       subcontractorId,
       selfieBase64: form.selfie.base64,
+      // 5d: only when the name box was filled in from the invite - lets the
+      // server save an edited name to the employee. Never sent otherwise.
+      ...(kind === "invite" && nameFromPrefill ? { nameFromPrefill: true } : {}),
     });
     if (res.ok) {
       deleteLocalPhoto(form.selfie);
