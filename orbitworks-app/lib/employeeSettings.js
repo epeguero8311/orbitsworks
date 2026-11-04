@@ -17,6 +17,8 @@ const NOT_SET = "Not set";
 const NONE = "None";
 const BUILT_IN = "Built-in";
 const UPDATE_ID_CHARS = 8;
+// The PIN itself is never kept on the phone for display.
+const PIN_MASK = "****";
 
 // "1990-01-31" -> "January 31, 1990" (formatted in UTC so the day never
 // shifts). Missing or not a real date -> "Not set".
@@ -71,6 +73,19 @@ function buildSettingsInfo({ view, companyName, sites, update, loginEmail }) {
   };
 }
 
+// The Settings tab's view-only rows under the photo and name, in order:
+// [label, value]. info = buildSettingsInfo(...).
+function settingsRows(info) {
+  return [
+    ["Logged in as", info.email],
+    ["PIN", PIN_MASK],
+    ["Birthday", info.birthday],
+    ["Company", info.company],
+    ["Subcontractor", info.subcontractor],
+    ["Job site", info.jobSite],
+  ];
+}
+
 // A Notifications or Location switch tap. wantOn = the new switch value,
 // permission = { status, canAskAgain } from the phone. The phone's
 // permission IS the switch (same flow as locationPermission.js and the
@@ -90,6 +105,8 @@ function permissionToggleAction(wantOn, permission) {
 
 module.exports = {
   NOT_SET,
+  PIN_MASK,
+  settingsRows,
   formatBirthday,
   subcontractorLabel,
   jobSiteLabel,

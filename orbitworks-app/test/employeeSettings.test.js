@@ -125,3 +125,19 @@ test("switch tap: what to do for each permission state", () => {
   // Unknown status reads as not granted.
   assert.equal(a(true, null), "none");
 });
+
+// Layer 7c: the view-only rows, in order, under the photo and name.
+test("settings rows: labels and order, PIN always masked", () => {
+  const info = s.buildSettingsInfo({ view, companyName: "Acme Builders", sites, update: null, loginEmail: null });
+  assert.deepEqual(s.settingsRows(info), [
+    ["Logged in as", "ana@example.com"],
+    ["PIN", "****"],
+    ["Birthday", "January 31, 1990"],
+    ["Company", "Acme Builders"],
+    ["Subcontractor", "Lopez Drywall"],
+    ["Job site", "Oak Ave, Main St"],
+  ]);
+  const empty = s.settingsRows(s.buildSettingsInfo({ view: null, companyName: "", sites: {}, update: null }));
+  assert.deepEqual(empty.map((r) => r[1]), ["Not set", "****", "Not set", "", "None", "None"]);
+  assert.equal(s.PIN_MASK, "****");
+});
