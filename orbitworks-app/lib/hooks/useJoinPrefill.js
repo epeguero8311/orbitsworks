@@ -15,14 +15,18 @@ import { applyPrefill } from "../validators/joinSignup";
 //
 // Returns emailLocked: true once the invited email is in the form. The
 // screen shows it read-only; acceptEmployeeInvite still checks it.
+// And nameFromPrefill: true once the employee's name was filled in from the
+// invite. The submit sends it so the server may save an edited name to the
+// row (without it - e.g. app builds before 5d - the row's name is kept).
 export function useJoinPrefill({ token, kind, info, setForm }) {
-  const [applied, setApplied] = useState({ token: null, emailLocked: false });
+  const [applied, setApplied] = useState({ token: null, emailLocked: false, nameFromPrefill: false });
 
   if (token && info && applied.token !== token) {
     const prefill = kind === "invite" ? info.prefill : null;
-    setApplied({ token, emailLocked: !!(prefill && prefill.email) });
+    setApplied({ token, emailLocked: !!(prefill && prefill.email), nameFromPrefill: !!(prefill && prefill.fullName) });
     if (prefill) setForm((f) => applyPrefill(f, prefill, info.subcontractors));
   }
 
-  return { emailLocked: applied.token === token && applied.emailLocked };
+  const current = applied.token === token;
+  return { emailLocked: current && applied.emailLocked, nameFromPrefill: current && applied.nameFromPrefill };
 }
