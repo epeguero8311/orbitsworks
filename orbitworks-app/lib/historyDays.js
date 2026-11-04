@@ -1,45 +1,13 @@
-// Employee App History - turns a flat list of clock events (same shape as
-// the real clockEvents: { id, type, timestamp }) into day cards, a day
-// summary and an activity timeline. No React Native or Firebase imports so
-// test/historyDays.test.js can run it under `node --test`.
-// Builds on lib/employeeHome.js (day keys, worked time, clock times).
+// Employee App History - turns the employee's clock events (same shape as
+// the real clockEvents: { id, type, timestamp }) into this week's day cards
+// and each day's activity timeline (buildWeekHistory). No React Native or
+// Firebase imports so test/historyDays.test.js and historyWeek.test.js run
+// it under `node --test`. Builds on lib/employeeHome.js (day keys, the
+// shared shift walk, clock times).
 
-const { effectiveMs, dayKey, weekKey, accumulateWorkedMs, formatClockTime, walkShifts } = require("./employeeHome");
+const { effectiveMs, dayKey, weekKey, formatClockTime, walkShifts } = require("./employeeHome");
 
 const MIN_MS = 60000;
-
-function sortByTime(events) {
-  return events
-    .filter((e) => e && effectiveMs(e) != null)
-    .slice()
-    .sort((a, b) => effectiveMs(a) - effectiveMs(b));
-}
-
-// Events -> [{ key: "YYYY-MM-DD", events (oldest first) }], newest day first.
-function groupEventsByDay(events, timeZone) {
-  const byKey = new Map();
-  for (const event of sortByTime(events)) {
-    const key = dayKey(effectiveMs(event), timeZone);
-    if (!byKey.has(key)) byKey.set(key, []);
-    byKey.get(key).push(event);
-  }
-  return [...byKey.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).map(([key, dayEvents]) => ({ key, events: dayEvents }));
-}
-
-// One day's events -> { shiftMs, workedMs, breakMs, open }.
-// Shift: first clock in to last clock out (or nowMs while still open).
-// Worked: shift minus breaks. Break: the rest.
-function summarizeDay(events, nowMs) {
-  const sorted = sortByTime(events);
-  const firstIn = sorted.find((e) => e.type === "in");
-  if (!firstIn) return { shiftMs: 0, workedMs: 0, breakMs: 0, open: false };
-  const last = sorted[sorted.length - 1];
-  const open = last.type !== "out";
-  const end = open ? Math.max(nowMs ?? effectiveMs(last), effectiveMs(last)) : effectiveMs(last);
-  const shiftMs = Math.max(0, end - effectiveMs(firstIn));
-  const workedMs = Math.min(shiftMs, accumulateWorkedMs(sorted, end));
-  return { shiftMs, workedMs, breakMs: shiftMs - workedMs, open };
-}
 
 function hoursMinutes(ms) {
   const total = Math.round(Math.max(0, ms) / MIN_MS);
@@ -93,17 +61,6 @@ const EVENT_LABELS = {
 // "7:30 am"
 function formatEventTime(ms, timeZone) {
   return formatClockTime(ms, timeZone).replace(/\u202f/g, " ").toLowerCase();
-}
-
-// One day's events -> [{ id, label, time, tone }] for the Activity timeline.
-function timelineItems(events, timeZone) {
-  return sortByTime(events)
-    .filter((e) => EVENT_LABELS[e.type])
-    .map((e, i) => ({
-      id: e.id ?? `${e.type}-${i}`,
-      ...EVENT_LABELS[e.type],
-      time: formatEventTime(effectiveMs(e), timeZone),
-    }));
 }
 
 // ---- Phase 5: this week from real clock events ----
@@ -272,8 +229,6 @@ module.exports = {
   dayBadges,
   timelineRows,
   findDay,
-  groupEventsByDay,
-  summarizeDay,
   formatWorked,
   formatDuration,
   dayLabel,
@@ -281,5 +236,4 @@ module.exports = {
   shortDate,
   longDate,
   formatEventTime,
-  timelineItems,
 };
