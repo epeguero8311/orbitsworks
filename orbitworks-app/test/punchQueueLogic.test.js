@@ -34,8 +34,11 @@ const err = (reason, code = "functions/failed-precondition", message = "x") => (
 
 // ---- error sorting ----
 
-test("error sorting: wrong PIN at sync -> Redo", () => {
-  assert.equal(q.failKind(err("wrongPin")), "redo");
+// Phase 5: no Redo. The server already accepts the PIN that was right at
+// the punch's time, so a wrong PIN at sync is a lost punch like any other.
+test("error sorting: wrong PIN at sync -> Couldn't sync (no Redo)", () => {
+  assert.equal(q.failKind(err("wrongPin")), "couldntSync");
+  assert.equal(q.failKind(err("wrongPin", "functions/permission-denied")), "couldntSync");
 });
 
 test("error sorting: photo, older than 24 h, later punch already in -> Not recorded", () => {
@@ -71,8 +74,10 @@ test("signal errors save the online punch; real errors don't", () => {
 test("messages and the one action per Failed row", () => {
   assert.equal(q.failMessage("notRecorded"), "Not recorded, tell your admin.");
   assert.equal(q.failMessage("couldntSync"), "Couldn't sync, please speak to your supervisor.");
-  assert.equal(q.failMessage("redo"), "Your PIN was changed. Type your new PIN to send this punch.");
-  assert.equal(q.rowAction(item({ status: "failed", failKind: "redo" })), "redo");
+  assert.equal(q.failMessage("redo"), "");
+  assert.equal(q.WRONG_PIN_MESSAGE, undefined);
+  // Remove is the only action - also for a row an older build left as "redo".
+  assert.equal(q.rowAction(item({ status: "failed", failKind: "redo" })), "remove");
   assert.equal(q.rowAction(item({ status: "failed", failKind: "notRecorded" })), "remove");
   assert.equal(q.rowAction(item({ status: "failed", failKind: "couldntSync" })), "remove");
   assert.equal(q.rowAction(item({ status: "waiting" })), null);
@@ -106,7 +111,7 @@ test("sync order: a punch left Syncing (app killed) is sent again first", () => 
 });
 
 test("sync order: a punch that failed for good pauses everything behind it", () => {
-  const a = item({ status: "failed", failKind: "redo", queuedAtMs: NOW - 2 * HOUR });
+  const a = item({ status: "failed", failKind: "couldntSync", queuedAtMs: NOW - 2 * HOUR });
   const b = item({ queuedAtMs: NOW - HOUR });
   assert.equal(q.nextToSend([a, b], C, E), null);
   assert.equal(q.isPaused([a, b], C, E), true);
@@ -250,7 +255,7 @@ test("Home: a punch the server already has is not counted twice", () => {
 });
 
 test("Home: a Failed clock-in still counts until removed; other employees never", () => {
-  const failed = item({ action: "in", status: "failed", failKind: "redo" });
+  const failed = item({ action: "in", status: "failed", failKind: "couldntSync" });
   const other = item({ action: "in", employeeId: "emp2" });
   const events = q.foldQueuedEvents([], [failed, other], C, E, NOW);
   assert.deepEqual(events.map((e) => e.id), [failed.requestId]);
@@ -349,7 +354,7 @@ test("badge: a Waiting/Syncing punch counts only once 10 s old; Failed always; n
   const items = [
     item({ status: "waiting", createdAt: NOW - 2 * SEC }),
     item({ status: "syncing", createdAt: NOW - 20 * SEC }),
-    item({ status: "failed", failKind: "redo", createdAt: NOW - SEC }),
+    item({ status: "failed", failKind: "couldntSync", createdAt: NOW - SEC }),
   ];
   assert.equal(q.badgeCount(items, C, E, NOW), 2);
   assert.equal(q.badgeCount(items, C, E), 3);

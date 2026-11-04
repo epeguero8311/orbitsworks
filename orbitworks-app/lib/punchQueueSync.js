@@ -39,7 +39,9 @@ import { drainComments } from "./commentQueueSync";
 //   accepted          -> Synced (PIN + local photo deleted, Last synced)
 //   signal / timeout  -> back to Waiting, stop; tried again later
 //   failed for good   -> Failed (PIN deleted), stop: the queue pauses until
-//                        the employee taps Redo or Remove on the Sync tab
+//                        the employee taps Remove on the Sync tab (Phase 5:
+//                        no Redo - the server already takes the PIN that
+//                        was right when the punch was made)
 // A resend after a timeout is safe: the requestId is the event id, so the
 // server returns the first result instead of writing a second event.
 
@@ -96,9 +98,9 @@ async function drain(companyId, employeeId) {
 
 async function fail(item, kind, reason) {
   await markFailed(item.requestId, kind, reason, failMessage(kind));
-  // Wrong PIN at sync = an admin changed it: get the new one, so Redo and
-  // new punches check against it.
-  if (kind === "redo") refreshPinVerifier(item.companyId, item.employeeId).catch(() => {});
+  // Wrong PIN at sync = the PIN changed: get the new one, so new punches
+  // are checked against it on the phone.
+  if (reason === "wrongPin") refreshPinVerifier(item.companyId, item.employeeId).catch(() => {});
 }
 
 async function waitFor(item) {
@@ -123,8 +125,8 @@ async function sendOne(item) {
     if (isInOut) {
       pin = await getSavedPin(item.requestId);
       if (!pin) {
-        // The keychain lost it - the employee types it again (Redo).
-        await fail(item, "redo", "noPin");
+        // The keychain lost it: the punch can't be sent (Phase 5, Q5 A).
+        await fail(item, "couldntSync", "noPin");
         return false;
       }
       photoPath = photoPathFor(item.companyId, item.employeeId, item.requestId);

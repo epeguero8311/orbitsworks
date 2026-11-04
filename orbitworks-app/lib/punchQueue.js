@@ -155,23 +155,14 @@ export async function markSynced(requestId, siteName) {
   if (item) await deleteFile(item.photoLocalUri);
 }
 
-// Failed for good: the PIN is deleted (Redo asks for it again), the photo
-// is kept for Redo until the row is removed.
+// Failed for good (Phase 5: always - there is no Redo): the PIN is
+// deleted; the photo stays until the employee removes the row.
 export async function markFailed(requestId, kind, reason, message) {
   await deletePin(requestId);
   await update(requestId, "status = 'failed', failKind = ?, failReason = ?, failMessage = ?, hasPin = 0, photoUploaded = 0", [
     kind,
     reason || null,
     message || "",
-  ]);
-}
-
-// Redo after a wrong PIN: the new PIN (already checked online) is saved and
-// the same punch - same time, same photo - goes back in line.
-export async function redoPunch(requestId, pin) {
-  if (pin) await SecureStore.setItemAsync(pinKey(requestId), pin, SECURE_OPTS);
-  await update(requestId, "status = 'waiting', failKind = NULL, failReason = NULL, failMessage = NULL, hasPin = ?, photoUploaded = 0", [
-    pin ? 1 : 0,
   ]);
 }
 

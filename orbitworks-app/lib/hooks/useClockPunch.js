@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { isOnline, newRequestId } from "../employeeClockApi";
 import { clockErrorMessage, errorStep, lockSecondsLeft } from "../employeeHome";
 import { queuedTimeFor } from "../punchQueueLogic";
-import { enqueuePunch, getPunch, redoPunch } from "../punchQueue";
+import { enqueuePunch } from "../punchQueue";
 import { isWeakSignal } from "../punchQueueEvents";
 import { punchClockFields } from "../clockAnchor";
 import { checkPinOnPhone, pinLockSecondsLeft } from "../pinCheck";
@@ -28,20 +28,17 @@ const SAVE_FAILED = "Couldn't save this punch on the phone. Try again.";
 // server can check it. "Will sync when online" shows only when offline, on
 // weak signal, or when the PIN couldn't be checked. One requestId for the
 // whole attempt: a resend can't double-punch.
-//
-// Redo mode (redoId): a saved punch failed at sync because an admin changed
-// the PIN while the phone was offline (E1). The new PIN is checked on the
-// phone, then the same punch - same time, same photo - goes back in the
-// queue and the green confirmation shows at once (R1). No camera.
-export function useClockPunch({ action, companyId, employeeId, expectedSite, lastEventMs, redoId }) {
-  const [requestId] = useState(() => redoId || newRequestId());
+// (Phase 5: no Redo mode - a punch whose PIN changed before it synced is
+// accepted by the server with the PIN that was right at the time.)
+export function useClockPunch({ action, companyId, employeeId, expectedSite, lastEventMs }) {
+  const [requestId] = useState(() => newRequestId());
   const [step, setStep] = useState("pin");
   const [pin, setPin] = useState("");
   const [photoUri, setPhotoUri] = useState(null);
   const [error, setError] = useState("");
   const [lockedUntil, setLockedUntil] = useState(0);
   const [result, setResult] = useState(null);
-  // What "Try again" repeats: saving the punch, or (Redo) the requeue.
+  // What "Try again" repeats: "punch" = saving the punch again.
   const [retryWhat, setRetryWhat] = useState("punch");
   // Dev-build-only step timings (lib/punchTimings.js). Starts when the
   // screen opens (the Clock in / Clock out tap).
@@ -74,7 +71,7 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
         const seconds = lockSecondsLeft(err);
         setLockedUntil(seconds > 0 ? Date.now() + seconds * 1000 : 0);
         setStep("pin");
-      } else if (next === "close" || (next === "camera" && redoId)) {
+      } else if (next === "close") {
         setStep("failed");
       } else if (next === "camera") {
         setStep("camera");
@@ -83,7 +80,7 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
         setStep("retry");
       }
     },
-    [timer, redoId]
+    [timer]
   );
 
   // Saves the punch on the phone and shows the confirmation.
@@ -140,31 +137,8 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
     [pin, save, timer]
   );
 
-  // Redo: the new PIN passed -> the same punch goes back in the queue, the
-  // confirmation shows at once, the queue sends it in the background.
-  const requeue = useCallback(
-    async (pinValue) => {
-      try {
-        await redoPunch(requestId, pinValue);
-        const [item, online] = await Promise.all([getPunch(requestId), isOnline()]);
-        timer.finish("saved");
-        setResult({
-          type: action,
-          timestampMs: item ? item.queuedAtMs : Date.now(),
-          siteName: item ? item.siteName : "",
-          queued: !pinCheckedRef.current || !online || isWeakSignal(),
-        });
-      } catch {
-        setError(SAVE_FAILED);
-        setRetryWhat("redo");
-        setStep("retry");
-      }
-    },
-    [action, requestId, timer]
-  );
-
-  // The 4th digit: check the PIN on the phone, then the camera (or Redo's
-  // requeue), or the error on the PIN screen.
+  // The 4th digit: check the PIN on the phone, then the camera, or the
+  // error on the PIN screen.
   const checkTyped = useCallback(
     async (pinValue) => {
       if (checkingRef.current) return;
@@ -179,14 +153,10 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
       timer.mark("pinChecked");
       pinCheckedRef.current = r.state === "ok";
       setLockedUntil(0);
-      if (redoId) {
-        requeue(pinValue);
-        return;
-      }
       timer.mark("cameraOpen");
       setStep("camera");
     },
-    [companyId, employeeId, redoId, requeue, fail, timer]
+    [companyId, employeeId, fail, timer]
   );
 
   const pressDigit = useCallback(
@@ -206,10 +176,6 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
   }, []);
 
   const retry = useCallback(() => {
-    if (retryWhat === "redo") {
-      requeue(pin);
-      return;
-    }
     if (retryWhat === "punch" && photoUri) {
       save(pin, photoUri);
       return;
@@ -217,7 +183,7 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
     setError("");
     setPin("");
     setStep("pin");
-  }, [retryWhat, pin, photoUri, requeue, save]);
+  }, [retryWhat, pin, photoUri, save]);
 
   // The green overlay fully covers the screen: only now does the screen
   // under it change (camera released), so nothing shows through the fade.

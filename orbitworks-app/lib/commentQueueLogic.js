@@ -31,14 +31,13 @@ function mine(items, companyId, employeeId) {
 // What the comment's clock-in allows right now:
 //   "send" - the clock-in is on the server: its punch synced, or it isn't
 //            on the phone at all (made online and already cleaned up)
-//   "wait" - the clock-in is still on the phone: waiting, syncing, or
-//            failed with a wrong PIN (Redo can still send it)
-//   "fail" - the clock-in failed for good (it can only be removed), so the
-//            comment can never sync
+//   "wait" - the clock-in is still on the phone: waiting or syncing
+//   "fail" - the clock-in failed (for good - there is no Redo; it can only
+//            be removed), so the comment can never sync
 function commentGate(comment, punches) {
   const clockIn = punches.find((p) => p.requestId === comment.clockEventId);
   if (!clockIn || clockIn.status === "synced") return "send";
-  if (clockIn.status === "failed" && clockIn.failKind !== "redo") return "fail";
+  if (clockIn.status === "failed") return "fail";
   return "wait";
 }
 

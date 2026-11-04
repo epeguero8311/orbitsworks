@@ -8,7 +8,8 @@ import * as SQLite from "expo-sqlite";
 // punch_queue: one row per saved punch. requestId is also the server's
 // event id, so a resend can never write a second event.
 //   status: waiting | syncing | synced | failed
-//   failKind: redo | notRecorded | couldntSync (when failed)
+//   failKind: notRecorded | couldntSync (when failed; builds before Phase 5
+//             also wrote "redo" - treated like couldntSync, Remove only)
 //   photoUploaded: 1 once the photo is in Storage for this attempt
 // punch_meta: small key/value rows (Last synced per employee).
 // comment_queue (Phase 5): one row per shift comment (lib/commentQueue.js).

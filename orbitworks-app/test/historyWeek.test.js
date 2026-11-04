@@ -149,7 +149,7 @@ test("in progress: today's open shift shows In progress, not missing, not counte
   assert.equal(today.missingClockOut, false);
   assert.equal(today.workedMs, 0);
   assert.equal(today.hasActivity, true);
-  assert.deepEqual(today.items[today.items.length - 1], { id: `${events[0].id}-progress`, type: "inProgress", label: "In progress", tone: "blue", time: "", tag: null });
+  assert.deepEqual(today.items[today.items.length - 1], { id: `${events[0].id}-progress`, type: "inProgress", label: "In progress", tone: "green", time: "", tag: null });
 });
 
 test("in progress: still clocked in from yesterday (the current shift) is In progress, not missing", () => {
@@ -212,7 +212,8 @@ test("tags: Will sync / Synced late / Not synced from real events and the phone'
     qi("q1", "breakStart", "2026-11-03T10:00", "waiting"),
     qi("q2", "breakEnd", "2026-11-03T10:30", "syncing"),
     qi("q3", "out", "2026-11-03T15:00", "failed", "notRecorded"),
-    qi("q4", "in", "2026-11-04T08:00", "failed", "redo"),
+    qi("q4", "in", "2026-11-04T08:00", "failed", "couldntSync"),
+    qi("q6", "breakStart", "2026-11-04T09:00", "failed", "redo"),
     qi("q5", "breakStart", "2026-11-04T10:00", "synced"),
   ];
   const events = q.foldQueuedEvents(server, items, C, E, NOW);
@@ -224,16 +225,20 @@ test("tags: Will sync / Synced late / Not synced from real events and the phone'
   assert.equal(tags.q1, "willSync");
   assert.equal(tags.q2, "willSync");
   assert.equal(tags.q3, "notSynced", "failed for good");
-  assert.equal(tags.q4, "willSync", "wrong PIN: Redo can still send it");
+  assert.equal(tags.q4, "notSynced", "a failed punch is always Not synced");
+  assert.equal(tags.q6, "notSynced", "an older build's Redo row too");
   assert.equal(tags.q5, null, "just synced, server list not caught up");
   assert.deepEqual(hist.TAG_LABELS, { willSync: "Will sync", syncedLate: "Synced late", notSynced: "Not synced" });
+  // Tag colors (decided 2026-11-03): StatusPill tones.
+  assert.deepEqual(hist.TAG_TONES, { willSync: "blue", syncedLate: "neutral", notSynced: "red" });
 
   const mon = dayOf(week, "2026-11-02");
   const tue = dayOf(week, "2026-11-03");
   const wed = dayOf(week, "2026-11-04");
   assert.deepEqual([mon.syncedLate, mon.willSync, mon.notSynced], [true, false, false]);
   assert.deepEqual([tue.syncedLate, tue.willSync, tue.notSynced], [false, true, true]);
-  assert.deepEqual([wed.willSync, wed.inProgress], [true, true]);
+  // Wednesday's failed punches are Not synced (no Redo), nothing will sync.
+  assert.deepEqual([wed.willSync, wed.notSynced, wed.inProgress], [false, true, true]);
 });
 
 test("tags: a queued clock-in and clock-out made offline count as a closed shift (same as Home)", () => {

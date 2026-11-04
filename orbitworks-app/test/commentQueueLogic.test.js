@@ -52,8 +52,11 @@ test("gate: clock-in still waiting or syncing -> wait", () => {
   assert.equal(c.commentGate(comment(), [punch({ status: "syncing" })]), "wait");
 });
 
-test("gate: clock-in needs Redo (wrong PIN) -> wait, it can still sync", () => {
-  assert.equal(c.commentGate(comment(), [punch({ status: "failed", failKind: "redo" })]), "wait");
+// Phase 5: no Redo - a failed clock-in never syncs, whatever the reason.
+test("gate: a failed clock-in means the comment is Not synced (wrong PIN too)", () => {
+  assert.equal(c.commentGate(comment(), [punch({ status: "failed", failKind: "couldntSync", failReason: "wrongPin" })]), "fail");
+  // A row an older build left as "redo" can't be sent any more either.
+  assert.equal(c.commentGate(comment(), [punch({ status: "failed", failKind: "redo" })]), "fail");
 });
 
 test("gate: clock-in failed for good -> fail (Not synced)", () => {

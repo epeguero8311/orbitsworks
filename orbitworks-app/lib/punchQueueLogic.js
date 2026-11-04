@@ -39,9 +39,6 @@ const SYNCED_KEEP_MS = 4 * DAY_MS;
 
 const NOT_RECORDED_MESSAGE = "Not recorded, tell your admin.";
 const COULDNT_SYNC_MESSAGE = "Couldn't sync, please speak to your supervisor.";
-// The phone checks the PIN before saving (lib/pinVerifier.js), so a wrong
-// PIN at sync means an admin changed it while the phone was offline (E1).
-const WRONG_PIN_MESSAGE = "Your PIN was changed. Type your new PIN to send this punch.";
 const WILL_SYNC_NOTE = "Will sync when online";
 
 // status: "waiting" | "syncing" | "synced" | "failed"
@@ -58,19 +55,19 @@ const NETWORK_CODES = [
   "deadline-exceeded",
   "internal",
 ];
-const REDO_REASONS = ["wrongPin"];
 const NOT_RECORDED_REASONS = ["photo", "tooOld", "superseded"];
-const COULDNT_SYNC_REASONS = ["inactive", "wrongAccount", "invalid", "wrongState", "badTime", "syncBlocked", "locked"];
+// wrongPin (Phase 5, no Redo): the server already takes the PIN that was
+// right at the punch's time (even after an admin changed it), so a wrong
+// PIN at sync can never be fixed from the phone.
+const COULDNT_SYNC_REASONS = ["inactive", "wrongAccount", "invalid", "wrongState", "badTime", "syncBlocked", "locked", "wrongPin"];
 const PERMISSION_CODES = ["functions/permission-denied", "permission-denied"];
 
 // What a failed send means:
 //   "retry"       - signal, a timeout or a server hiccup: stays Waiting
-//   "redo"        - wrong PIN: type it again (Redo)
 //   "notRecorded" - can never be recorded: "Not recorded, tell your admin" + Remove
 //   "couldntSync" - any other failure for good: "Couldn't sync..." + Remove
 function failKind(err) {
   const reason = err && err.details && err.details.reason;
-  if (REDO_REASONS.includes(reason)) return "redo";
   if (NOT_RECORDED_REASONS.includes(reason)) return "notRecorded";
   if (COULDNT_SYNC_REASONS.includes(reason)) return "couldntSync";
   const code = err && typeof err.code === "string" ? err.code : "";
@@ -90,16 +87,16 @@ function isSignalError(err) {
 }
 
 function failMessage(kind) {
-  if (kind === "redo") return WRONG_PIN_MESSAGE;
   if (kind === "notRecorded") return NOT_RECORDED_MESSAGE;
   if (kind === "couldntSync") return COULDNT_SYNC_MESSAGE;
   return "";
 }
 
-// The one button a Failed row offers: "redo" or "remove".
+// The one button a Failed row offers: "remove" (Phase 5: no Redo - a row
+// an older build left as "redo" is removed the same way).
 function rowAction(item) {
   if (!item || item.status !== "failed") return null;
-  return item.failKind === "redo" ? "redo" : "remove";
+  return "remove";
 }
 
 // ---- time ----
@@ -171,7 +168,7 @@ function mine(items, companyId, employeeId) {
 
 // The next punch to send for this employee, oldest first. null when there
 // is nothing to send, or the queue is paused: the oldest unsent punch
-// failed for good and waits for Redo or Remove.
+// failed for good and waits for Remove.
 function nextToSend(items, companyId, employeeId) {
   const open = mine(items, companyId, employeeId)
     .filter((i) => OPEN_STATUSES.includes(i.status))
@@ -248,8 +245,8 @@ function syncedToDrop(items, nowMs) {
 
 // Home status, timers and hours count punches still on the phone, so a
 // clock-in made offline shows "Clocked in" right away. Each one becomes an
-// event at its own time (Failed ones too, until removed - an employee whose
-// clock-in needs Redo is still on shift). A punch the server already has
+// event at its own time (Failed ones too, until removed - Home keeps showing
+// what the employee did until they remove it). A punch the server already has
 // is never counted twice; one synced in the last 10 minutes fills in until
 // the live events catch up (after that the server's events are the truth,
 // e.g. if an admin deleted it).
@@ -268,7 +265,6 @@ function foldQueuedEvents(serverEvents, items, companyId, employeeId, nowMs) {
       queued: true,
       localStatus: i.status,
       // History tags a punch that failed for good "Not synced" (Phase 5).
-      localFailKind: i.failKind || null,
     }));
   if (extra.length === 0) return serverEvents;
   return [...serverEvents, ...extra];
@@ -331,7 +327,6 @@ module.exports = {
   SYNC_TAB_DAYS,
   NOT_RECORDED_MESSAGE,
   COULDNT_SYNC_MESSAGE,
-  WRONG_PIN_MESSAGE,
   WILL_SYNC_NOTE,
   failKind,
   isSignalError,

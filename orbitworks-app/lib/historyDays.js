@@ -109,17 +109,19 @@ function timelineItems(events, timeZone) {
 // ---- Phase 5: this week from real clock events ----
 
 // Sync tags on a punch (decided 2026-11-03):
-//   willSync   - still on the phone: Waiting, Syncing, or needs Redo (a
-//                changed PIN - it can still be sent)
-//   notSynced  - failed for good on the phone (can only be removed)
+//   willSync   - still on the phone: Waiting or Syncing
+//   notSynced  - failed on the phone (always for good - no Redo; it can
+//                only be removed)
 //   syncedLate - the server's syncedLate flag (arrived 5+ min late)
+// Tones are StatusPill tones: Will sync blue, Synced late gray (neutral),
+// Not synced red; In progress green, Missing clock-out orange.
 const TAG_LABELS = { willSync: "Will sync", syncedLate: "Synced late", notSynced: "Not synced" };
-const TAG_TONES = { willSync: "blue", syncedLate: "orange", notSynced: "red" };
+const TAG_TONES = { willSync: "blue", syncedLate: "neutral", notSynced: "red" };
 
 function punchTag(event) {
   if (event.queued && event.localStatus) {
     if (event.localStatus === "waiting" || event.localStatus === "syncing") return "willSync";
-    if (event.localStatus === "failed") return event.localFailKind === "redo" ? "willSync" : "notSynced";
+    if (event.localStatus === "failed") return "notSynced";
     return null;
   }
   return event.syncedLate === true ? "syncedLate" : null;
@@ -201,7 +203,7 @@ function buildWeekHistory(events, nowMs, timeZone, breaks) {
       day.shiftMs += shift.shiftMs;
     } else if (shift === current) {
       day.inProgress = true;
-      add(day, { id: `${shift.inEvent.id}-progress`, type: "inProgress", label: "In progress", tone: "blue", time: "", tag: null }, endMs);
+      add(day, { id: `${shift.inEvent.id}-progress`, type: "inProgress", label: "In progress", tone: "green", time: "", tag: null }, endMs);
     } else {
       day.missingClockOut = true;
       add(day, { id: `${shift.inEvent.id}-missing`, type: "missingOut", label: "Missing clock-out", tone: "orange", time: "", tag: null }, endMs);

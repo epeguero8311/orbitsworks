@@ -16,7 +16,7 @@ export function notifyPunchQueue() {
   queueListeners.forEach((cb) => cb());
 }
 
-// "Send now": a punch was just saved or redone. usePunchQueueSync listens.
+// "Send now": a punch was just saved. usePunchQueueSync listens.
 // Separate from queue changes, which also fire while a sync runs.
 const kickListeners = new Set();
 

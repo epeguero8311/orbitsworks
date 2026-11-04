@@ -12,7 +12,7 @@ const RETRY_EVERY_MS = 30000;
 // punches. Mounted once with the employee tabs (App.js). Sends:
 //   - at start (after putting a punch left "Syncing" by a killed app back
 //     to Waiting, and deleting PINs older than 24 h)
-//   - when a punch is saved or redone
+//   - when a punch is saved
 //   - when the connection comes back, or the app comes to the front
 //   - every 30 s while signed in (cheap when nothing is waiting)
 // Only this employee's punches are sent (lib/punchQueueSync.js). Phase 5:
