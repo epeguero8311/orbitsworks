@@ -56,6 +56,8 @@ your new PIN to send this punch."). Sign in as the jc-test-pro-dev employee
 | P1 | PIN changed on the website while offline: the punch syncs by itself at its own time, no Redo | | |
 | P2 | Old PIN used AFTER the change: Couldn't sync, Remove only; Remove lets the queue go on | | |
 | P3 | PIN changed twice while offline: the punch from before both changes still syncs | | |
+| K1 | Home: Comments button while clocked in / on break, hours otherwise; Comments screen lists this shift's comments, works offline | | |
+| K2 | Sync tab: Comment rows mixed with punches; a Not synced comment has Remove; badge counts it | | |
 | SE1 | Settings: photo, name, email, birthday (Not set), company, subcontractor (None), job site, Update line; also offline | | |
 | SE2 | Settings: Notifications switch follows the phone's permission (no push token) | | |
 | SE3 | Settings: Location switch follows the phone's permission | | |
@@ -112,6 +114,37 @@ your new PIN to send this punch."). Sign in as the jc-test-pro-dev employee
   2. Wait 5+ minutes, airplane mode off, let it sync. Open History, Today again.
 - **You should see:** the break start is tagged "Will sync" while offline, then "Synced late" after it syncs.
 - **I check:** that event has `queued: true` and `syncedLate: true`.
+
+## K1. Comments button and screen
+
+- **Tap:**
+  1. Clocked out: Home shows Today / This week hours.
+  2. Clock In. Home shows the Comments card instead of the hours.
+  3. Start a break: still the Comments card. End the break.
+  4. Comments: type "test online", Add comment. Airplane mode on, type
+     "test offline", Add comment. Back, open Comments again.
+  5. Airplane mode off, wait for Synced on the Sync tab, open Comments.
+  6. Clock Out: Home shows the hours again.
+- **You should see:**
+  - Step 4: both comments at once, newest first, "test offline" with a blue
+    "Will sync" pill; "Shift started <time>" at the top; a 0/1000 counter.
+  - Step 5: no pills (both on the server).
+- **I check:** 2 shiftNotes for this clock-in (`clockEventId`), each
+  `madeAtMs` = when typed; the dev website shows both next to the clock-in.
+
+## K2. Sync tab comment rows and Remove
+
+- **Tap:** same setup as P2 (a clock-in made offline with the OLD PIN after
+  a PIN change), but before going online also add a comment on that shift.
+  Go online.
+- **You should see:**
+  - Sync tab: the clock-in row Failed (Couldn't sync) and a "Comment" row
+    Failed, red pill, "Not synced, tell your admin.", with Remove; the
+    comment row's detail is the start of the note in quotes.
+  - The Sync tab badge counts both.
+  - Remove on the comment row: "Remove this comment?" / "This comment will
+    NOT be saved...". After Remove the row is gone and the badge drops by 1.
+- **I check:** no shiftNotes doc for that comment.
 
 ## SE1. Settings: view-only rows, online and offline
 

@@ -11,7 +11,9 @@ import { eventsForCache } from "./punchQueueLogic";
 // as soon as the server answers. Only data that came from the server is
 // saved. One key per employee and kind:
 //   selfView | config | recentEvents | weekEvents | homeSite | jobSites
-// (jobSites: Phase 5 Settings, { sites: { [siteId]: { name, active } } })
+// (jobSites: Phase 5 Settings, { sites: { [siteId]: { name, active } } };
+//  shiftComments: Phase 5, the current shift's comments on the server,
+//  { clockEventId, notes })
 // No PIN is ever in here (the self view has none).
 
 const PREFIX = "employeeHomeCache:v1";

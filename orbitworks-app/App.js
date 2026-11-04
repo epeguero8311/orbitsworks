@@ -19,6 +19,7 @@ import { useQueuePendingCount } from "./lib/hooks/useQueuePendingCount";
 import { usePushRegistration } from "./lib/hooks/usePushRegistration";
 import { useAlertsFeed } from "./lib/hooks/useAlertsFeed";
 import { usePunchQueue } from "./lib/hooks/usePunchQueue";
+import { useCommentQueue } from "./lib/hooks/useCommentQueue";
 import { usePunchQueueSync } from "./lib/hooks/usePunchQueueSync";
 import { usePinVerifierSync } from "./lib/hooks/usePinVerifierSync";
 import { navigationRef } from "./lib/navigationRef";
@@ -55,6 +56,7 @@ import EmployeeSyncScreen from "./screens/employee/EmployeeSyncScreen";
 import EmployeeSettingsScreen from "./screens/employee/EmployeeSettingsScreen";
 import EmployeeHistoryScreen from "./screens/employee/EmployeeHistoryScreen";
 import EmployeeHistoryDayScreen from "./screens/employee/EmployeeHistoryDayScreen";
+import ShiftCommentsScreen from "./screens/employee/ShiftCommentsScreen";
 import JoinScanScreen from "./screens/JoinScanScreen";
 import JoinStartScreen from "./screens/JoinStartScreen";
 import { useJoinLink } from "./lib/hooks/useJoinLink";
@@ -168,7 +170,10 @@ function EmployeeTabs() {
   const employeeId = linkedEmployeeId || userData?.employeeId;
   usePunchQueueSync(companyId, employeeId);
   usePinVerifierSync(companyId, employeeId);
-  const { badge } = usePunchQueue(companyId, employeeId);
+  const { badge: punchBadge } = usePunchQueue(companyId, employeeId);
+  // Phase 5: Not synced / waiting comments count on the Sync tab too.
+  const { badge: commentBadge } = useCommentQueue(companyId, employeeId);
+  const badge = punchBadge + commentBadge;
   return (
     <EmployeeTab.Navigator
       tabBar={(props) => (
@@ -266,6 +271,7 @@ function RootNavigator() {
           <>
             <Stack.Screen name="EmployeeTabs" component={EmployeeTabs} />
             <Stack.Screen name="ClockPunch" component={ClockPunchScreen} options={{ gestureEnabled: false }} />
+            <Stack.Screen name="ShiftComments" component={ShiftCommentsScreen} />
           </>
         ) : currentUser ? (
           <>

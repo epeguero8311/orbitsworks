@@ -7,11 +7,14 @@ import { useTheme } from "../../lib/ThemeContext";
 import { makeStyles } from "../../lib/makeStyles";
 import { useEmployeeAppConfig } from "../../lib/hooks/useEmployeeAppConfig";
 import { usePunchQueue } from "../../lib/hooks/usePunchQueue";
+import { useCommentQueue } from "../../lib/hooks/useCommentQueue";
 import { useConnectionBanner } from "../../lib/hooks/useConnectionBanner";
 import { useNow } from "../../lib/hooks/useNow";
 import { siteLabel } from "../../lib/employeeHome";
 import { ACTION_LABELS, formatWhen } from "../../lib/punchQueueLogic";
 import { removePunch } from "../../lib/punchQueue";
+import { removeComment } from "../../lib/commentQueue";
+import { syncTabRows } from "../../lib/commentQueueLogic";
 import { syncPunchQueue } from "../../lib/punchQueueSync";
 import TabPage from "../../components/ui/TabPage";
 import ConfirmModal from "../../components/ui/ConfirmModal";
@@ -29,7 +32,9 @@ const CONNECTION = {
 // (company time zone); Waiting, Syncing and Failed always show. A Failed
 // row offers Remove (it can't be recorded - the confirm says so and to tell
 // the supervisor). Phase 5: no Redo - a punch made with the PIN that was
-// right at the time syncs even if an admin changed the PIN since.
+// right at the time syncs even if an admin changed the PIN since. Shift
+// comments show here too ("Comment" rows, same statuses), mixed with the
+// punches newest first; a Not synced one offers Remove.
 export default function EmployeeSyncScreen() {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -38,6 +43,8 @@ export default function EmployeeSyncScreen() {
   const employeeId = linkedEmployeeId || userData?.employeeId;
   const { timezone } = useEmployeeAppConfig(companyId);
   const queue = usePunchQueue(companyId, employeeId, timezone);
+  const comments = useCommentQueue(companyId, employeeId, timezone);
+  const rows = syncTabRows(queue.rows, comments.rows);
   const connection = CONNECTION[useConnectionBanner().kind || "online"];
   const now = useNow(60000);
   const [syncing, setSyncing] = useState(false);
@@ -55,7 +62,8 @@ export default function EmployeeSyncScreen() {
     if (!removing) return;
     setRemoveBusy(true);
     try {
-      await removePunch(removing.requestId);
+      if (removing.action === "comment") await removeComment(removing.requestId);
+      else await removePunch(removing.requestId);
     } finally {
       setRemoveBusy(false);
       setRemoving(null);
@@ -64,7 +72,8 @@ export default function EmployeeSyncScreen() {
     syncNow();
   }, [removing, syncNow]);
 
-  const empty = queue.rows.length === 0;
+  const empty = rows.length === 0;
+  const removingComment = removing?.action === "comment";
   const lastSynced = queue.lastSyncedMs ? formatWhen(queue.lastSyncedMs, now, timezone) : "Never";
 
   return (
@@ -94,13 +103,13 @@ export default function EmployeeSyncScreen() {
         </View>
       ) : (
         <View style={styles.list}>
-          {queue.rows.map((item, i) => (
+          {rows.map((row, i) => (
             <SyncRow
-              key={item.requestId}
-              item={item}
-              whenLabel={formatWhen(item.queuedAtMs, now, timezone)}
-              siteName={siteLabel(item.siteName)}
-              divider={i < queue.rows.length - 1}
+              key={row.key}
+              item={row.item}
+              whenLabel={formatWhen(row.timeMs, now, timezone)}
+              detail={row.kind === "comment" ? row.detail : siteLabel(row.item.siteName)}
+              divider={i < rows.length - 1}
               onRemove={setRemoving}
             />
           ))}
@@ -109,8 +118,12 @@ export default function EmployeeSyncScreen() {
 
       <ConfirmModal
         visible={!!removing}
-        title={`Remove this ${ACTION_LABELS[removing?.action] ?? "punch"}?`}
-        message="This punch will NOT be recorded. Tell your supervisor so they can fix your time."
+        title={removingComment ? "Remove this comment?" : `Remove this ${ACTION_LABELS[removing?.action] ?? "punch"}?`}
+        message={
+          removingComment
+            ? "This comment will NOT be saved. Tell your supervisor if it matters."
+            : "This punch will NOT be recorded. Tell your supervisor so they can fix your time."
+        }
         confirmLabel="Remove"
         confirmTone="red"
         cancelLabel="Keep it"

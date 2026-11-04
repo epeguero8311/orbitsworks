@@ -109,7 +109,7 @@ function siteLabel(siteName) {
 function deriveHomeState(events, nowMs, timeZone) {
   const sorted = sortEvents(events);
   const latest = sorted[sorted.length - 1];
-  const empty = { status: "out", shiftInMs: null, breakStartMs: null, workedMs: 0, shiftSiteName: "" };
+  const empty = { status: "out", shiftInMs: null, shiftInId: null, breakStartMs: null, workedMs: 0, shiftSiteName: "" };
   if (!latest) return empty;
 
   if (latest.type === "out") {
@@ -131,10 +131,19 @@ function deriveHomeState(events, nowMs, timeZone) {
   return {
     status: onBreak ? "break" : "in",
     shiftInMs: shiftIn ? effectiveMs(shiftIn) : null,
+    // Phase 5: the shift's clock-in id - its comments are tied to it.
+    shiftInId: shiftIn && shiftIn.id ? shiftIn.id : null,
     breakStartMs: onBreak ? effectiveMs(latest) : null,
     workedMs: accumulateWorkedMs(shift, nowMs),
     shiftSiteName: shiftIn ? siteLabel(shiftIn.siteName) : "",
   };
+}
+
+// Phase 5 (decided 2026-11-03, 12): the Comments button takes the hours'
+// place while clocked in or on break - only when the shift's clock-in is
+// known (a comment must be tied to it).
+function showsComments(home) {
+  return !!home && (home.status === "in" || home.status === "break") && !!home.shiftInId;
 }
 
 const BUTTONS = {
@@ -335,6 +344,7 @@ function photoPathFor(companyId, employeeId, requestId) {
 }
 
 module.exports = {
+  showsComments,
   NO_SITE_NAME,
   NO_SIGNAL,
   GENERIC_ERROR,

@@ -5,13 +5,14 @@ import { ACTION_LABELS, rowAction, STATUS_LABELS, STATUS_TONES } from "../../lib
 import ListRow from "../ui/ListRow";
 import StatusPill from "../ui/StatusPill";
 
-// One punch on the Sync tab: what it was, when and where ("Today, 9:05 AM
-// - Main St"), and its status. A Failed row also shows why, and Remove
+// One punch or comment on the Sync tab: what it was, when and a detail
+// ("Today, 9:05 AM - Main St" for a punch, the start of the note for a
+// comment), and its status. A Failed row also shows why, and Remove
 // (Phase 5: no Redo - a failed punch can never be sent again).
-export default function SyncRow({ item, whenLabel, siteName, divider, onRemove }) {
+export default function SyncRow({ item, whenLabel, detail, divider, onRemove }) {
   const styles = useStyles();
   const canRemove = rowAction(item) === "remove";
-  const sub = siteName ? `${whenLabel} - ${siteName}` : whenLabel;
+  const sub = detail ? `${whenLabel} - ${detail}` : whenLabel;
 
   return (
     <ListRow divider={divider} right={<StatusPill label={STATUS_LABELS[item.status] || item.status} tone={STATUS_TONES[item.status]} />}>

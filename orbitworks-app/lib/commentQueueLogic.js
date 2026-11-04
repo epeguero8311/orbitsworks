@@ -15,8 +15,9 @@
 //   - a comment refused because of its time (fast phone clock) is sent
 //     once more without the time (runCommentSend)
 
-const { toMs } = require("./employeeHome");
-const { SYNCED_KEEP_MS } = require("./punchQueueLogic");
+const { dayKey, toMs } = require("./employeeHome");
+const { SYNCED_KEEP_MS, syncWindowStartKey } = require("./punchQueueLogic");
+const { TAG_LABELS, TAG_TONES } = require("./historyDays");
 const { validateShiftComment } = require("./validators/shiftComment");
 
 const COMMENT_SOURCE = "employeeApp";
@@ -176,7 +177,79 @@ function commentsToDrop(comments, nowMs) {
   return comments.filter((i) => i.status === "synced" && nowMs - (i.syncedAt || 0) >= SYNCED_KEEP_MS).map((i) => i.requestId);
 }
 
+// ---- Phase 5 Layer 7b: what the comment screens show ----
+
+// A comment's sync pill, same words and colors as History's tags.
+function commentTag(status) {
+  if (status === "waiting" || status === "syncing") return { label: TAG_LABELS.willSync, tone: TAG_TONES.willSync };
+  if (status === "failed") return { label: TAG_LABELS.notSynced, tone: TAG_TONES.notSynced };
+  return null;
+}
+
+// The Comments screen list for one shift: the comments on the server
+// (serverNotes = [{ id, note, madeAtMs?, timestampMs }]) plus this
+// employee's comments still on the phone for the same clock-in, each once
+// (the phone's id IS the server doc id), newest first by when it was
+// typed. A server comment still saving (no time yet) shows on top.
+//   -> [{ id, note, ms, tag }]
+function shiftCommentRows(serverNotes, queued, clockEventId, companyId, employeeId) {
+  if (!clockEventId) return [];
+  const rows = new Map();
+  for (const n of serverNotes || []) {
+    const ms = typeof n.madeAtMs === "number" ? n.madeAtMs : typeof n.timestampMs === "number" ? n.timestampMs : null;
+    rows.set(n.id, { id: n.id, note: n.note, ms, tag: null });
+  }
+  for (const i of mine(queued || [], companyId, employeeId)) {
+    if (i.clockEventId !== clockEventId || rows.has(i.requestId)) continue;
+    rows.set(i.requestId, { id: i.requestId, note: i.note, ms: i.madeAtMs, tag: commentTag(i.status) });
+  }
+  const top = (r) => (r.ms === null ? Infinity : r.ms);
+  return [...rows.values()].sort((a, b) => top(b) - top(a));
+}
+
+// Sync tab: this employee's comments - every unsynced one, plus Synced ones
+// typed today or in the 2 days before (company time), newest first. Same
+// window as visibleItems for punches.
+function visibleComments(items, companyId, employeeId, nowMs, timeZone) {
+  const startKey = syncWindowStartKey(nowMs, timeZone);
+  return mine(items, companyId, employeeId)
+    .filter((i) => i.status !== "synced" || dayKey(i.madeAtMs, timeZone) >= startKey)
+    .sort((a, b) => b.madeAtMs - a.madeAtMs || b.createdAt - a.createdAt);
+}
+
+const PREVIEW_CHARS = 40;
+
+// '"Gate was locked..."' - the start of a note on one line.
+function notePreview(note) {
+  const text = String(note || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length > PREVIEW_CHARS ? `"${text.slice(0, PREVIEW_CHARS)}..."` : `"${text}"`;
+}
+
+// The Sync tab list: punch rows (visibleItems) and comment rows
+// (visibleComments) together, newest first. A comment row's item has
+// action "comment" (ACTION_LABELS) and its note preview as the detail.
+//   -> [{ key, kind: "punch" | "comment", timeMs, detail, item }]
+function syncTabRows(punchRows, commentRows) {
+  const rows = [
+    ...(punchRows || []).map((p) => ({ key: `punch-${p.requestId}`, kind: "punch", timeMs: p.queuedAtMs, detail: null, item: p })),
+    ...(commentRows || []).map((k) => ({
+      key: `comment-${k.requestId}`,
+      kind: "comment",
+      timeMs: k.madeAtMs,
+      detail: notePreview(k.note),
+      item: { ...k, action: "comment" },
+    })),
+  ];
+  return rows.sort((a, b) => b.timeMs - a.timeMs);
+}
+
 module.exports = {
+  commentTag,
+  shiftCommentRows,
+  visibleComments,
+  notePreview,
+  syncTabRows,
   COMMENT_SOURCE,
   COMMENT_NOT_SYNCED_MESSAGE,
   commentGate,

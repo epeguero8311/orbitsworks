@@ -21,6 +21,7 @@ import {
   deriveHomeState,
   formatClockTime,
   greetingFor,
+  showsComments,
   siteLabel,
 } from "../lib/employeeHome";
 import { foldQueuedEvents, lastEventMs, newestFirst, WILL_SYNC_NOTE } from "../lib/punchQueueLogic";
@@ -28,6 +29,7 @@ import HomeHeader from "../components/employee/HomeHeader";
 import StatusCard from "../components/employee/StatusCard";
 import ClockButtons from "../components/employee/ClockButtons";
 import HoursSummary from "../components/employee/HoursSummary";
+import CommentsButton from "../components/employee/CommentsButton";
 import InactiveNotice from "../components/employee/InactiveNotice";
 import PunchConfirmation from "../components/employee/PunchConfirmation";
 import ConnectionBanner from "../components/employee/ConnectionBanner";
@@ -47,7 +49,8 @@ const BREAK_DONE = { breakStart: "Break started", breakEnd: "Break ended" };
 // Phase 4: punches still saved on the phone count too (a clock-in made
 // offline shows "Clocked in" at once), the last copy saved on the phone
 // shows on an offline start, and a thin banner shows while the
-// connection is missing or weak.
+// connection is missing or weak. Phase 5: while clocked in or on break the
+// Comments button takes the hours' place (comments on this shift).
 export default function EmployeeHomeScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -108,6 +111,10 @@ export default function EmployeeHomeScreen({ navigation }) {
   // saving failed.
   const [held, setHeld] = useState(null);
   const shown = held || { home, hours };
+  const openComments = useCallback(
+    () => navigation.navigate("ShiftComments", { clockEventId: home.shiftInId, shiftInMs: home.shiftInMs }),
+    [navigation, home.shiftInId, home.shiftInMs]
+  );
   const onConfirmBreak = async () => {
     if (held) return;
     setHeld({ home, hours });
@@ -159,7 +166,11 @@ export default function EmployeeHomeScreen({ navigation }) {
           <InactiveNotice />
         )}
         <View style={styles.gap} />
-        <HoursSummary todayMs={shown.hours.todayMs} weekMs={shown.hours.weekMs} />
+        {showsComments(shown.home) ? (
+          <CommentsButton onPress={openComments} />
+        ) : (
+          <HoursSummary todayMs={shown.hours.todayMs} weekMs={shown.hours.weekMs} />
+        )}
       </ScrollView>
 
       <ConfirmModal

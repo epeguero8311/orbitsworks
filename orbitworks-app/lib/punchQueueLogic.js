@@ -283,7 +283,7 @@ function lastEventMs(events) {
 
 // ---- Sync tab / Settings text ----
 
-const ACTION_LABELS = { in: "Clock in", out: "Clock out", breakStart: "Break start", breakEnd: "Break end" };
+const ACTION_LABELS = { in: "Clock in", out: "Clock out", breakStart: "Break start", breakEnd: "Break end", comment: "Comment" };
 const STATUS_LABELS = { waiting: "Waiting", syncing: "Syncing", synced: "Synced", failed: "Failed" };
 const STATUS_TONES = { waiting: "orange", syncing: "blue", synced: "green", failed: "red" };
 
