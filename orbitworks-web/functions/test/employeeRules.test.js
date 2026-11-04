@@ -643,6 +643,17 @@ test("comment FAIL: on another employee's shift (valid time)", async () => {
   await assertFails(addComment(employeeA(), A, "c2", commentA("in-ben", { madeAtMs: inMs + MIN, employeeId: "empB" })));
 });
 
+// Only data.employeeId == myEmployeeId() blocks this one: the clock-in IS
+// Ana's and createdByUid IS hers, but the note says it belongs to Ben (it
+// would show in Ben's notes and be hidden from Ana).
+test("comment FAIL: own shift but another employee's employeeId", async () => {
+  const inMs = Date.now() - HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs));
+  await assertFails(addComment(employeeA(), A, "c1", commentA("in-1", { madeAtMs: inMs + MIN, employeeId: "empB" })));
+  // Control: the same comment with her own employeeId passes.
+  await assertSucceeds(addComment(employeeA(), A, "c2", commentA("in-1", { madeAtMs: inMs + MIN })));
+});
+
 test("comment FAIL: employee in another company", async () => {
   const inMs = Date.now() - HOUR;
   await seedEvent(A, "in-1", clockInA(inMs));
