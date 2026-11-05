@@ -989,3 +989,64 @@ test("PASS: admin and supervisor of the company read employee punch locations", 
   await assertSucceeds(getDoc(eventDoc(adminA().firestore(), A, "locB")));
   await assertSucceeds(getDoc(eventDoc(supervisorA().firestore(), A, "locB")));
 });
+
+// ===================== Phase 7: employee alerts + push tokens =====================
+
+test("Phase 7 PASS: employee lists their own alerts newest first (the Alerts tab query)", async () => {
+  await testEnv.withSecurityRulesDisabled((c) =>
+    setDoc(doc(c.firestore(), "companies", A, "employeeAlerts", "alertA2"), {
+      employeeId: "empA",
+      message: "Max hours",
+      createdAt: Timestamp.fromMillis(Date.UTC(2026, 10, 4, 15)),
+    })
+  );
+  const { orderBy, limit } = require("firebase/firestore");
+  const db = employeeA().firestore();
+  await assertSucceeds(
+    getDocs(
+      query(collection(db, "companies", A, "employeeAlerts"), where("employeeId", "==", "empA"), orderBy("createdAt", "desc"), limit(50))
+    )
+  );
+});
+
+test("Phase 7 FAIL: employee lists alerts filtered to someone else, or with no filter", async () => {
+  const db = employeeA().firestore();
+  await assertFails(getDocs(query(collection(db, "companies", A, "employeeAlerts"), where("employeeId", "==", "empB"))));
+  await assertFails(getDocs(collection(db, "companies", A, "employeeAlerts")));
+});
+
+test("Phase 7 FAIL: stale claim (employee doc unlinked) reads no alerts, not even its own", async () => {
+  await testEnv.withSecurityRulesDisabled((c) =>
+    updateDoc(doc(c.firestore(), "companies", A, "employees", "empA"), { linkedUserId: "someoneElse" })
+  );
+  const db = employeeA().firestore();
+  await assertFails(getDoc(doc(db, "companies", A, "employeeAlerts", "alertA")));
+  await assertFails(getDocs(query(collection(db, "companies", A, "employeeAlerts"), where("employeeId", "==", "empA"))));
+});
+
+test("Phase 7 FAIL: admin and supervisor don't read employee alerts; nobody deletes one", async () => {
+  await assertFails(getDoc(doc(adminA().firestore(), "companies", A, "employeeAlerts", "alertA")));
+  await assertFails(getDoc(doc(supervisorA().firestore(), "companies", A, "employeeAlerts", "alertA")));
+  await assertFails(deleteDoc(doc(employeeA().firestore(), "companies", A, "employeeAlerts", "alertA")));
+  await assertFails(deleteDoc(doc(adminA().firestore(), "companies", A, "employeeAlerts", "alertA")));
+});
+
+test("Phase 7 FAIL: no client of any role reads or writes employee push tokens", async () => {
+  await testEnv.withSecurityRulesDisabled((c) =>
+    setDoc(doc(c.firestore(), "companies", A, "employeePushTokens", "empA"), {
+      employeeId: "empA",
+      token: "ExponentPushToken[ana]",
+      platform: "ios",
+    })
+  );
+  const tokenDoc = (db, id) => doc(db, "companies", A, "employeePushTokens", id);
+  const data = { employeeId: "empA", token: "ExponentPushToken[evil]", platform: "ios" };
+  for (const ctx of [employeeA(), adminA(), supervisorA()]) {
+    const db = ctx.firestore();
+    await assertFails(getDoc(tokenDoc(db, "empA")));
+    await assertFails(getDocs(collection(db, "companies", A, "employeePushTokens")));
+    await assertFails(setDoc(tokenDoc(db, "empA"), data));
+    await assertFails(setDoc(tokenDoc(db, "empNew"), { ...data, employeeId: "empNew" }));
+    await assertFails(deleteDoc(tokenDoc(db, "empA")));
+  }
+});

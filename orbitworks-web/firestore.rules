@@ -667,11 +667,22 @@ service cloud.firestore {
       // Employee App: an employee's own saved push notifications.
       // Server-written only (Cloud Functions, Admin SDK); the employee can
       // read only their own. Direct field access for the list-query reason
-      // explained on the employees list rule.
+      // explained on the employees list rule. Phase 7: the employee doc must
+      // still be linked to this login (isLinkedSelf), so a stale claim reads
+      // nothing. Written by functions/src/employeeAlerts.ts.
       match /employeeAlerts/{alertId} {
         allow get, list: if isSelfEmployee(companyId) &&
+          isLinkedSelf(companyId) &&
           resource.data.employeeId == myEmployeeId();
         allow write: if false;
+      }
+
+      // Employee App Phase 7: the push token of the phone the employee last
+      // signed in on. Server-only (registerEmployeePushToken /
+      // clearEmployeePushToken, Admin SDK) - no client of any role may read
+      // or write it: an Expo token alone is enough to send that phone a push.
+      match /employeePushTokens/{employeeId} {
+        allow read, write: if false;
       }
 
       // A device reads its own token doc before writing (to preserve its

@@ -114,6 +114,14 @@
         { "fieldPath": "biometricPhotosWipedAt", "order": "ASCENDING" },
         { "fieldPath": "planCanceledAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "employeeAlerts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "employeeId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
