@@ -5,27 +5,10 @@ export function effectiveDate(event: ClockEvent): Date | null {
   return ts ? ts.toDate() : null;
 }
 
-export function sourceLabel(source: ClockEvent["source"]) {
-  switch (source) {
-    case "faceMatch":
-      return { text: "Face match", className: "bg-green-50 text-green-700" };
-    case "pin":
-      return { text: "PIN", className: "bg-purple-50 text-purple-700" };
-    case "supervisorOverride":
-      return {
-        text: "Supervisor override",
-        className: "bg-amber-50 text-amber-700",
-      };
-    case "adminManual":
-      return { text: "Admin manual", className: "bg-blue-50 text-blue-700" };
-    case "tempLink":
-      return { text: "Temp link", className: "bg-teal-50 text-teal-700" };
-    case "employeeApp":
-      return { text: "Employee app", className: "bg-gray-100 text-gray-700" };
-    default:
-      return { text: "Unknown", className: "bg-gray-50 text-gray-600" };
-  }
-}
+// Phase 9: the event detail window used its own shorter copy of this, so an
+// auto clock-out, supervisor PIN, auto break end or deactivation punch
+// showed "Unknown" there. One list now - the day view's (lib/clockStatus.ts).
+export { sourceLabel } from "@/lib/clockStatus";
 
 export function toDatetimeLocalValue(date: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
