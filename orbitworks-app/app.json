@@ -41,7 +41,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "OrbitWorks needs location access to record where clock-ins and clock-outs happen (Pro plans only).",
+          "locationWhenInUsePermission": "OrbitsWorks saves where you clock in, clock out and take breaks, only at that moment. Never in the background.",
           "isAndroidBackgroundLocationEnabled": false,
           "isIosBackgroundLocationEnabled": false
         }
