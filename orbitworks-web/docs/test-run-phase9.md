@@ -98,15 +98,15 @@ special.
 - See: one form; the fields change with the role (one site / many sites /
   none). Each invite appears in its own list below (App invites,
   Supervisors, Admins) exactly as before, with resend / cancel working.
-  "N of M seats left" shows for Employee and Supervisor.
+  "N of M seats left" shows for every role (an admin takes a seat too).
 - [ ] OK  [ ] FAILED
 
 ### E2. A role that can't be used is greyed with the reason
 - Do (I do it on dev): set jc-test-pro-dev to 0 seats left (or use a
   company at its cap). You: open the invite form.
-- See: Employee (app) and Supervisor show "(not available)"; picking one
-  shows "No seats left on your plan..." and Send is disabled. Admin still
-  sends. I put the seats back.
+- See: Employee (app), Supervisor AND Admin all show "(not available)";
+  picking one shows "No seats left on your plan..." and Send is disabled
+  (J1 a). I put the seats back.
 - Do (Core company jc-test-core-dev, if its plan has no app invites):
   Employee (app) greyed with "Employee app invites need a Core or Pro plan."
 - [ ] OK  [ ] FAILED
@@ -157,6 +157,14 @@ special.
   Walk back: the person moves out of "Outside now" and stays in today's
   list with the red line. Breaks / short show gray. No card on a day with
   no exits.
+- [ ] OK  [ ] FAILED
+
+### O2. Outside since yesterday (night shift, J3 a)
+- Do: jc-pro-emp clocked in before midnight, walk out before midnight and
+  stay out past it (or I set one open exit's startMs to yesterday on dev).
+  Open Overview after midnight.
+- See: "Outside now" still lists them ("left Site A at <yesterday's
+  time>"). Today's list below does not show yesterday's stretch.
 - [ ] OK  [ ] FAILED
 
 ---

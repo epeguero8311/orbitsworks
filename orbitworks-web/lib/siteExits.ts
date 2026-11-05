@@ -125,6 +125,13 @@ export function siteExitTag(exit: Pick<SiteExit, "kind" | "startMs" | "endMs" | 
 
 export const MAX_PER_PERSON = 3;
 
+// J3 a: the card loads yesterday and today. "Outside now" covers every open
+// red stretch in that window (someone outside since before midnight on a
+// night shift), the per-person list only what started today.
+export function splitOverviewExits<T extends Pick<SiteExit, "kind" | "startMs" | "endMs" | "endReason" | "onBreak" | "employeeId" | "employeeName">>(exits: T[], todayStartMs: number): { outside: T[]; today: T[] } {
+  return { outside: outsideNow(exits), today: exits.filter((e) => e.startMs >= todayStartMs) };
+}
+
 export function outsideNow<T extends Pick<SiteExit, "kind" | "startMs" | "endMs" | "endReason" | "onBreak">>(exits: T[]): T[] {
   return exits.filter((e) => e.endMs === null && siteExitTone(e) === "red").sort((a, b) => b.startMs - a.startMs);
 }

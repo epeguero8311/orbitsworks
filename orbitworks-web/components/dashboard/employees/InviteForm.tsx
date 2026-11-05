@@ -15,8 +15,9 @@ import type { InviteRole, JobSite } from "@/lib/types";
 //   Supervisor     -> an invites doc with job sites (Supervisors list)
 //   Admin          -> an invites doc (Admins list)
 // H2 a: a role that can't be used right now stays in the list, greyed out,
-// with the reason. H3 a: Employee and Supervisor show the seats left and
-// can't be sent at 0 (the server checks seats again when it is accepted).
+// with the reason. H3 a + J1 a: every role shows the seats left and can't
+// be sent at 0 - an admin takes a seat too (the server checks seats again
+// when it is accepted).
 // To give an EXISTING employee the app or supervisor access, use their
 // Edit window as before.
 const inputClass =
@@ -40,7 +41,7 @@ export function InviteForm({ sites, createAppInvite }: InviteFormProps) {
 
   const plan = { canUseAppInvites: canUseInvites, pastDue, seatsLeft };
   const block = loading ? null : inviteRoleBlock(role, plan);
-  const showSeats = role !== "admin" ? seatsText(seatsLeft, activeCap) : "";
+  const showSeats = seatsText(seatsLeft, activeCap);
   const busy = sending || staff.sending;
 
   function toggleSite(id: string) {

@@ -6,20 +6,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { inviteRoleBlock, seatsText, NO_SEATS_TEXT, PAST_DUE_TEXT, APP_INVITES_PLAN_TEXT } from "../lib/inviteRoles.ts";
 import { syncedLatePunches, lateLabel } from "../lib/syncedLate.ts";
-import { exitMinutes, summarizeSiteExits, siteExitTag, outsideNow, todayByPerson, MAX_PER_PERSON } from "../lib/siteExits.ts";
+import { exitMinutes, summarizeSiteExits, siteExitTag, outsideNow, todayByPerson, splitOverviewExits, MAX_PER_PERSON } from "../lib/siteExits.ts";
 import { companyMatches, ALL_COMPANIES, MAIN_COMPANY } from "../lib/reportCompanyFilter.ts";
 
 const MIN = 60000;
 const ok = { canUseAppInvites: true, pastDue: false, seatsLeft: 3 };
 
-test("invite roles: past due blocks all; app invites need Core/Pro; no seats blocks employee + supervisor only", () => {
+test("invite roles: past due blocks all; app invites need Core/Pro; no seats blocks every role (J1 a)", () => {
   for (const r of ["employee", "supervisor", "admin"]) assert.equal(inviteRoleBlock(r, ok), null);
   for (const r of ["employee", "supervisor", "admin"]) assert.equal(inviteRoleBlock(r, { ...ok, pastDue: true }), PAST_DUE_TEXT);
   assert.equal(inviteRoleBlock("employee", { ...ok, canUseAppInvites: false }), APP_INVITES_PLAN_TEXT);
   assert.equal(inviteRoleBlock("supervisor", { ...ok, canUseAppInvites: false }), null);
   assert.equal(inviteRoleBlock("employee", { ...ok, seatsLeft: 0 }), NO_SEATS_TEXT);
   assert.equal(inviteRoleBlock("supervisor", { ...ok, seatsLeft: 0 }), NO_SEATS_TEXT);
-  assert.equal(inviteRoleBlock("admin", { ...ok, seatsLeft: 0 }), null);
+  assert.equal(inviteRoleBlock("admin", { ...ok, seatsLeft: 0 }), NO_SEATS_TEXT);
+  assert.equal(inviteRoleBlock("admin", { ...ok, seatsLeft: null }), null);
   assert.equal(inviteRoleBlock("employee", { ...ok, seatsLeft: null }), null);
   assert.equal(seatsText(3, 10), "3 of 10 seats left");
   assert.equal(seatsText(null, null), "");
@@ -84,4 +85,21 @@ test("company filter: all, in-house, one subcontractor", () => {
   assert.equal(companyMatches("sub1", "sub1"), true);
   assert.equal(companyMatches("sub1", "sub2"), false);
   assert.equal(companyMatches("sub1", undefined), false);
+});
+
+test("J3 a: outside now includes an open red exit from yesterday; today's list does not", () => {
+  const todayStart = 1000 * MIN;
+  const list = [
+    ex({ startMs: todayStart - 60 * MIN, endMs: null, endReason: null, employeeId: "night", employeeName: "Nia" }),
+    ex({ startMs: todayStart - 90 * MIN, employeeId: "old" }),
+    ex({ startMs: todayStart + 5 * MIN }),
+  ];
+  const { outside, today } = splitOverviewExits(list, todayStart);
+  assert.deepEqual(outside.map((e) => e.employeeId), ["night"]);
+  assert.deepEqual(today.map((e) => e.startMs), [todayStart + 5 * MIN]);
+});
+
+test("J1 a: admin invite blocked at 0 seats with the same reason", () => {
+  assert.equal(inviteRoleBlock("admin", { canUseAppInvites: false, pastDue: false, seatsLeft: 0 }), NO_SEATS_TEXT);
+  assert.equal(inviteRoleBlock("admin", { canUseAppInvites: false, pastDue: false, seatsLeft: 1 }), null);
 });

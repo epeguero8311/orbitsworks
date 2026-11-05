@@ -4,7 +4,8 @@ import type { InviteRole } from "@/lib/types";
 // Pure, no Firebase - unit tested in test/inviteRoles.test.mjs. The server
 // still checks everything when the invite is accepted.
 //   H2 a: a role that can't be used is shown greyed out with this reason.
-//   H3 a: Employee and Supervisor need a free seat (seatsLeft null = no cap).
+//   H3 a + J1 a: every role needs a free seat - a new employee, supervisor
+//   or admin each becomes an active employee row (seatsLeft null = no cap).
 
 export const INVITE_ROLES: { role: InviteRole; label: string }[] = [
   { role: "employee", label: "Employee (app)" },
@@ -26,7 +27,7 @@ export interface InvitePlanState {
 export function inviteRoleBlock(role: InviteRole, plan: InvitePlanState): string | null {
   if (plan.pastDue) return PAST_DUE_TEXT;
   if (role === "employee" && !plan.canUseAppInvites) return APP_INVITES_PLAN_TEXT;
-  if ((role === "employee" || role === "supervisor") && plan.seatsLeft !== null && plan.seatsLeft <= 0) return NO_SEATS_TEXT;
+  if (plan.seatsLeft !== null && plan.seatsLeft <= 0) return NO_SEATS_TEXT;
   return null;
 }
 
