@@ -1050,3 +1050,66 @@ test("Phase 7 FAIL: no client of any role reads or writes employee push tokens",
     await assertFails(deleteDoc(tokenDoc(db, "empA")));
   }
 });
+
+// ---- Phase 8: leave tracking ----
+
+async function seedSiteExits() {
+  await testEnv.withSecurityRulesDisabled(async (c) => {
+    const db = c.firestore();
+    const exit = (employeeId, clockInEventId) => ({
+      employeeId,
+      clockInEventId,
+      kind: "left",
+      startMs: 1,
+      endMs: null,
+      startLocation: { lat: 1, lng: 2 },
+      hasLocation: true,
+    });
+    await setDoc(doc(db, "companies", A, "siteExits", "exitA"), exit("empA", "evtA"));
+    await setDoc(doc(db, "companies", A, "siteExits", "exitB"), exit("empB", "evtB"));
+    await setDoc(doc(db, "companies", B, "siteExits", "exitX"), exit("empX", "evtX"));
+  });
+}
+
+test("Phase 8 PASS: admin and supervisor read site exits by clock-in (the website query)", async () => {
+  await seedSiteExits();
+  for (const ctx of [adminA(), supervisorA()]) {
+    const db = ctx.firestore();
+    await assertSucceeds(getDoc(doc(db, "companies", A, "siteExits", "exitA")));
+    await assertSucceeds(getDocs(query(collection(db, "companies", A, "siteExits"), where("clockInEventId", "in", ["evtA", "evtB"]))));
+  }
+});
+
+test("Phase 8 FAIL: employees read no site exits, not even their own; other companies read none", async () => {
+  await seedSiteExits();
+  const db = employeeA().firestore();
+  await assertFails(getDoc(doc(db, "companies", A, "siteExits", "exitA")));
+  await assertFails(getDocs(query(collection(db, "companies", A, "siteExits"), where("employeeId", "==", "empA"))));
+  await assertFails(getDoc(doc(adminA().firestore(), "companies", B, "siteExits", "exitX")));
+});
+
+test("Phase 8 FAIL: no client of any role writes a site exit", async () => {
+  await seedSiteExits();
+  const data = { employeeId: "empA", clockInEventId: "evtA", kind: "left", startMs: 5, endMs: null };
+  for (const ctx of [employeeA(), adminA(), supervisorA()]) {
+    const db = ctx.firestore();
+    await assertFails(setDoc(doc(db, "companies", A, "siteExits", "new1"), data));
+    await assertFails(updateDoc(doc(db, "companies", A, "siteExits", "exitA"), { endMs: 9 }));
+    await assertFails(updateDoc(doc(db, "companies", A, "siteExits", "exitA"), { startLocation: null, hasLocation: false }));
+    await assertFails(deleteDoc(doc(db, "companies", A, "siteExits", "exitA")));
+  }
+});
+
+test("Phase 8 FAIL: no client sets or changes geofenceRadiusM on a clock event", async () => {
+  await assertFails(
+    setDoc(doc(adminA().firestore(), "companies", A, "clockEvents", "newRadius"), {
+      ...employeeAppEvent({ localId: "newRadius" }),
+      source: "adminManual",
+      createdByUid: "uidAdmin",
+      geofenceRadiusM: 5000,
+    })
+  );
+  // Control: the same admin may still edit an allowed field.
+  await assertSucceeds(updateDoc(doc(adminA().firestore(), "companies", A, "clockEvents", "evtA"), { note: "fixed" }));
+  await assertFails(updateDoc(doc(adminA().firestore(), "companies", A, "clockEvents", "evtA"), { geofenceRadiusM: 5000 }));
+});

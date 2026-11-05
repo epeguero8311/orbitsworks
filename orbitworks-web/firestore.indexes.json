@@ -122,6 +122,14 @@
         { "fieldPath": "employeeId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "siteExits",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "hasLocation", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
