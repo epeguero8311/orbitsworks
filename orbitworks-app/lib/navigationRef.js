@@ -15,3 +15,14 @@ export function navigateToAlert(alertId) {
     console.log("navigateToAlert failed:", e.message);
   }
 }
+
+// Employee App Phase 7: a tapped employee push (or break reminder) opens
+// the employee's own Alerts tab.
+export function navigateToEmployeeAlerts() {
+  if (!navigationRef.isReady()) return;
+  try {
+    navigationRef.navigate("EmployeeTabs", { screen: "EmployeeAlerts" });
+  } catch (e) {
+    console.log("navigateToEmployeeAlerts failed:", e.message);
+  }
+}
