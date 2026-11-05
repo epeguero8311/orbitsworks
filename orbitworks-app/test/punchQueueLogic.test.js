@@ -361,3 +361,23 @@ test("badge: a Waiting/Syncing punch counts only once 10 s old; Failed always; n
   assert.equal(q.nextBadgeChangeMs(items, C, E, NOW), NOW + 8 * SEC);
   assert.equal(q.nextBadgeChangeMs([item({ status: "synced", syncedAt: NOW })], C, E, NOW), null);
 });
+
+// ---- Phase 6: punch location in the queue row ----
+
+test("location columns: fix, no fix, and rows saved before Phase 6", () => {
+  const fix = { lat: 29.95, lng: -90.07, accuracyM: 12, fixAtMs: 1762300000000 };
+  const [lat, lng, acc, at, tried] = q.locationColumns(fix);
+  const row = { lat, lng, locationAccuracyM: acc, locationFixAtMs: at, locationAttempted: tried };
+  assert.deepEqual(q.locationFromRow(row), fix);
+
+  const noAcc = q.locationColumns({ ...fix, accuracyM: null });
+  assert.equal(q.locationFromRow({ lat: noAcc[0], lng: noAcc[1], locationAccuracyM: noAcc[2], locationFixAtMs: noAcc[3], locationAttempted: noAcc[4] }).accuracyM, null);
+
+  assert.deepEqual(q.locationColumns(null), [null, null, null, null, 1]);
+  assert.equal(q.locationFromRow({ lat: null, lng: null, locationFixAtMs: null, locationAttempted: 1 }), null);
+
+  assert.deepEqual(q.locationColumns(undefined), [null, null, null, null, 0]);
+  assert.equal(q.locationFromRow({ locationAttempted: 0 }), undefined);
+  assert.equal(q.locationFromRow({}), undefined);
+  assert.equal(q.locationFromRow({ locationAttempted: null }), undefined);
+});

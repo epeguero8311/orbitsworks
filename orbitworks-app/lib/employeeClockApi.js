@@ -50,7 +50,7 @@ export async function uploadClockPhoto({ companyId, employeeId, requestId, local
 // queuedAtMs: when the employee made the punch (phone time). waitMs: how
 // long it waited, by uptime, when known (fast sync). expectedAtMs: when the
 // phone expected it to be (phoneClockOff). See employeeClockQueued.ts.
-export async function sendPunch({ action, requestId, pin, photoPath, queuedAtMs, waitMs, expectedAtMs }) {
+export async function sendPunch({ action, requestId, pin, photoPath, queuedAtMs, waitMs, expectedAtMs, location }) {
   const data = { action, requestId };
   if (pin) data.pin = pin;
   if (photoPath) data.photoPath = photoPath;
@@ -59,6 +59,8 @@ export async function sendPunch({ action, requestId, pin, photoPath, queuedAtMs,
     if (Number.isFinite(waitMs)) data.waitMs = Math.round(waitMs);
     if (Number.isFinite(expectedAtMs)) data.expectedAtMs = Math.round(expectedAtMs);
   }
+  // Phase 6: null = no fix; undefined (a row saved before Phase 6) = no field.
+  if (location !== undefined) data.location = location;
   const res = await withAnchor(() => punchFn(data));
   return res.data;
 }

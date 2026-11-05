@@ -155,6 +155,7 @@ async function sendOne(item) {
         queuedAtMs: item.queuedAtMs,
         waitMs,
         expectedAtMs: item.expectedAtMs,
+        location: item.location,
       }),
       SEND_TIMEOUT_MS
     );

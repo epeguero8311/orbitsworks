@@ -311,12 +311,35 @@ function eventsForCache(events) {
   });
 }
 
+// Phase 6: a punch's location in the punch_queue row and back.
+//   location: undefined = not tried (rows saved before Phase 6, sent with no
+//   location field, like an older app) | null = no fix | a fix
+// -> [lat, lng, locationAccuracyM, locationFixAtMs, locationAttempted]
+function locationColumns(location) {
+  if (location === undefined) return [null, null, null, null, 0];
+  if (!location) return [null, null, null, null, 1];
+  return [location.lat, location.lng, location.accuracyM ?? null, location.fixAtMs, 1];
+}
+
+function locationFromRow(row) {
+  if (row.locationAttempted !== 1) return undefined;
+  if (!Number.isFinite(row.lat) || !Number.isFinite(row.lng) || !Number.isFinite(row.locationFixAtMs)) return null;
+  return {
+    lat: row.lat,
+    lng: row.lng,
+    accuracyM: Number.isFinite(row.locationAccuracyM) ? row.locationAccuracyM : null,
+    fixAtMs: row.locationFixAtMs,
+  };
+}
+
 module.exports = {
   ACTION_LABELS,
   STATUS_LABELS,
   STATUS_TONES,
   formatWhen,
   eventsForCache,
+  locationColumns,
+  locationFromRow,
   PUNCH_TIMEOUT_MS,
   FAST_SYNC_MAX_MS,
   CLOCKS_AGREE_MS,

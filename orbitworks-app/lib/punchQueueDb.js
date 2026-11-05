@@ -90,12 +90,19 @@ async function openDb() {
   `);
   // Added after Phase 4 (lib/clockAnchor.js): the punch's uptime, expected
   // time and app run id. Older rows keep NULL = normal queued rules.
+  // Phase 6: the punch's location (lat, lng, accuracy, fix time) and
+  // locationAttempted (1 = tried; older rows NULL = sent with no location).
   const cols = await db.getAllAsync("PRAGMA table_info(punch_queue)");
   const have = new Set(cols.map((c) => c.name));
   for (const [name, type] of [
     ["uptimeAtMs", "INTEGER"],
     ["expectedAtMs", "INTEGER"],
     ["sessionId", "TEXT"],
+    ["lat", "REAL"],
+    ["lng", "REAL"],
+    ["locationAccuracyM", "REAL"],
+    ["locationFixAtMs", "INTEGER"],
+    ["locationAttempted", "INTEGER"],
   ]) {
     if (!have.has(name)) await db.execAsync(`ALTER TABLE punch_queue ADD COLUMN ${name} ${type}`);
   }
