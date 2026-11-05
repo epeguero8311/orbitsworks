@@ -135,7 +135,15 @@ function logoutWarning(punches, comments, siteExits) {
   return `${list} ${p + c + x === 1 ? "is" : "are"} not synced yet`;
 }
 
+// Phase 8: the Settings "Location access" row.
+function locationAccessLabel(access) {
+  if (access === "always") return "Always";
+  if (access === "whileUsing") return "While using";
+  return "Off";
+}
+
 module.exports = {
+  locationAccessLabel,
   NOT_SET,
   PIN_MASK,
   settingsRows,

@@ -187,3 +187,10 @@ test("Phase 8: log out warning counts leave tracking rows too", () => {
   assert.equal(s.logoutCounts([], [], "co1", "emp1", exits).siteExits, 1);
   assert.equal(s.logoutCounts([], [], "co1", "emp1").siteExits, 0);
 });
+
+test("Phase 8: Settings location access label", () => {
+  assert.equal(s.locationAccessLabel("always"), "Always");
+  assert.equal(s.locationAccessLabel("whileUsing"), "While using");
+  assert.equal(s.locationAccessLabel("off"), "Off");
+  assert.equal(s.locationAccessLabel(undefined), "Off");
+});

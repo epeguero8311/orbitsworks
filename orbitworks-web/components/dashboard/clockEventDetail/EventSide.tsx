@@ -3,6 +3,8 @@
 import { ClockEvent } from "@/lib/types";
 import { useAuth } from "@/lib/AuthContext";
 import { useShiftCommentsByClockIn } from "@/lib/hooks/useShiftCommentsByClockIn";
+import { useSiteExitsByClockIn } from "@/lib/hooks/useSiteExitsByClockIn";
+import { SiteExitsNote } from "@/components/time/SiteExitsNote";
 import { clockInIds, commentsForEvent } from "@/lib/shiftComments";
 import { effectiveDate, sourceLabel } from "@/lib/clockEventDetailUtils";
 import { faceCheckLabel, photoStatus } from "@/lib/clockStatus";
@@ -50,6 +52,9 @@ export function EventSide({
   const { userData } = useAuth();
   const { commentsByClockIn } = useShiftCommentsByClockIn(userData?.companyId, clockInIds(event ? [event] : []));
   const comments = commentsForEvent(commentsByClockIn, event);
+  // Phase 8: when they left the job site during this shift (Clock in side).
+  const { exitsByClockIn } = useSiteExitsByClockIn(userData?.companyId, clockInIds(event ? [event] : []));
+  const exits = event && event.type === "in" ? exitsByClockIn.get(event.id) ?? [] : [];
 
   if (!event) {
     const emptyMessage =
@@ -171,6 +176,12 @@ export function EventSide({
       {comments.length > 0 && (
         <div className="mt-2">
           <ShiftCommentsNote comments={comments} />
+        </div>
+      )}
+
+      {exits.length > 0 && (
+        <div className="mt-2">
+          <SiteExitsNote exits={exits} />
         </div>
       )}
 

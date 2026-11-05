@@ -11,6 +11,7 @@ import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useEmployeeTimesheet } from "@/lib/hooks/useEmployeeTimesheet";
 import { useClockEvents } from "@/lib/hooks/useClockEvents";
 import { useShiftCommentsByClockIn } from "@/lib/hooks/useShiftCommentsByClockIn";
+import { useSiteExitsByClockIn } from "@/lib/hooks/useSiteExitsByClockIn";
 import { clockInIds, commentsForEvent } from "@/lib/shiftComments";
 import { exportEmployeeHistoryExcel } from "@/lib/reportExcelUtils";
 import { typeLabel, sourceLabel, isBreakEvent } from "@/lib/clockStatus";
@@ -54,6 +55,8 @@ export default function ClockEventLookup() {
     : lookupResults ?? [];
   // Employee comments shown in each clock-in row's Note cell.
   const { commentsByClockIn, error: commentsError } = useShiftCommentsByClockIn(userData?.companyId, clockInIds(lookupResults ?? []));
+  // Phase 8: "Left the job site" lines in the same cell (clock-in rows).
+  const { exitsByClockIn, error: exitsError } = useSiteExitsByClockIn(userData?.companyId, clockInIds(lookupResults ?? []));
 
   const [exportingTimesheet, setExportingTimesheet] = useState(false);
   const [timesheetToast, setTimesheetToast] = useState("");
@@ -274,6 +277,7 @@ export default function ClockEventLookup() {
       </form>
 
       {lookupResults !== null && commentsError && <p className="mt-4 text-xs text-red-600">{commentsError}</p>}
+      {lookupResults !== null && exitsError && <p className="mt-4 text-xs text-red-600">{exitsError}</p>}
 
       {lookupResults !== null ? (
         <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
@@ -394,7 +398,7 @@ export default function ClockEventLookup() {
                         <PhotoStatusCell event={event} />
                       </td>
                       <td className="px-4 py-2.5 text-gray-600">
-                        <EventNoteCell event={event} comments={commentsForEvent(commentsByClockIn, event)} />
+                        <EventNoteCell event={event} comments={commentsForEvent(commentsByClockIn, event)} exits={event.type === "in" ? exitsByClockIn.get(event.id) ?? [] : []} />
                       </td>
                       <td className="px-4 py-2.5">
                         <GeofenceBadge event={event} />

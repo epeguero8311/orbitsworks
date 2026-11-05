@@ -12,9 +12,10 @@ import { useNotificationPermission } from "../../lib/hooks/useNotificationPermis
 import { useLocationPermission } from "../../lib/hooks/useLocationPermission";
 import { usePunchQueue } from "../../lib/hooks/usePunchQueue";
 import { useCommentQueue } from "../../lib/hooks/useCommentQueue";
+import { useSiteExitQueue } from "../../lib/hooks/useSiteExitQueue";
 import { useNow } from "../../lib/hooks/useNow";
 import { formatWhen } from "../../lib/punchQueueLogic";
-import { logoutCounts, logoutWarning, settingsRows } from "../../lib/employeeSettings";
+import { locationAccessLabel, logoutCounts, logoutWarning, settingsRows } from "../../lib/employeeSettings";
 import TabPage from "../../components/ui/TabPage";
 import ListRow from "../../components/ui/ListRow";
 import ConfirmModal from "../../components/ui/ConfirmModal";
@@ -32,18 +33,19 @@ import { signOutEmployee } from "../../lib/employeeSignOut";
 // version, Update (OTA id or Built-in), dev punch timings (dev builds only)
 // and Log out - with a warning when punches or comments are still waiting
 // on the phone (they stay, and sync only when this employee signs back in).
-export default function EmployeeSettingsScreen() {
+export default function EmployeeSettingsScreen({ navigation }) {
   const { colors, isDark, toggleTheme } = useTheme();
   const styles = useStyles();
   const { signOutUser, userData, linkedEmployeeId } = useAuth();
   const companyId = userData?.companyId;
   const employeeId = linkedEmployeeId || userData?.employeeId;
-  const { timezone } = useEmployeeAppConfig(companyId);
+  const { timezone, isPro } = useEmployeeAppConfig(companyId);
   const { info } = useEmployeeSettingsData(companyId, employeeId);
   const notifications = useNotificationPermission();
   const location = useLocationPermission();
   const queue = usePunchQueue(companyId, employeeId);
   const comments = useCommentQueue(companyId, employeeId, timezone);
+  const siteExits = useSiteExitQueue(companyId, employeeId);
   const now = useNow(60000);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const version = Constants.expoConfig?.version ?? "";
@@ -65,8 +67,11 @@ export default function EmployeeSettingsScreen() {
   // first, each capped at 3 s - then always signs out (lib/employeeSignOut.js).
   const logOut = () => signOutEmployee({ companyId, employeeId, signOutUser });
   // Everything still on the phone, even saved a second ago (no badge delay).
-  const waiting = logoutCounts(queue.all, comments.all, companyId, employeeId);
-  const notSynced = logoutWarning(waiting.punches, waiting.comments);
+  const waiting = logoutCounts(queue.all, comments.all, companyId, employeeId, siteExits);
+  const notSynced = logoutWarning(waiting.punches, waiting.comments, waiting.siteExits);
+  // Phase 8 (D19): Always / While using / Off. Pro: tap = the job site
+  // alerts screen (consent + Always); otherwise the phone's Settings.
+  const openLocationAccess = () => (isPro ? navigation.navigate("AlwaysLocation") : Linking.openSettings());
   const onLogout = () => (notSynced ? setConfirmLogout(true) : logOut());
 
   return (
@@ -105,6 +110,12 @@ export default function EmployeeSettingsScreen() {
             <Text style={styles.rowText}>{label}</Text>
           </ListRow>
         ))}
+      </View>
+
+      <View style={styles.section}>
+        <ListRow divider={false} onPress={openLocationAccess} right={<Text style={styles.rightText}>{locationAccessLabel(location.access)}</Text>}>
+          <Text style={styles.rowText}>Location access</Text>
+        </ListRow>
       </View>
 
       <View style={styles.section}>

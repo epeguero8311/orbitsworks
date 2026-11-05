@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import { useClockEventsByDay } from "@/lib/hooks/useClockEventsByDay";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useShiftCommentsByClockIn } from "@/lib/hooks/useShiftCommentsByClockIn";
+import { useSiteExitsByClockIn } from "@/lib/hooks/useSiteExitsByClockIn";
 import { clockInIds, commentsForEvent } from "@/lib/shiftComments";
 import { ClockEvent } from "@/lib/types";
 import { typeLabel, sourceLabel, isBreakEvent } from "@/lib/clockStatus";
@@ -40,6 +41,8 @@ export default function ClockEventsDayView({
   const { isPro } = useCompanySettings();
   // Employee comments shown in each clock-in row's Note cell.
   const { commentsByClockIn, error: commentsError } = useShiftCommentsByClockIn(companyId, clockInIds(allEvents));
+  // Phase 8: "Left the job site" lines in the same cell (clock-in rows).
+  const { exitsByClockIn, error: exitsError } = useSiteExitsByClockIn(companyId, clockInIds(allEvents));
   const events =
     outsideGeofenceOnly ? allEvents.filter((e) => e.geofenceStatus === "outside") : allEvents;
 
@@ -127,6 +130,7 @@ export default function ClockEventsDayView({
       )}
 
       {commentsError && <p className="border-b border-gray-200 px-4 py-2 text-xs text-red-600">{commentsError}</p>}
+      {exitsError && <p className="border-b border-gray-200 px-4 py-2 text-xs text-red-600">{exitsError}</p>}
 
       {error ? (
         <p className="p-4 text-sm text-red-600">{error}</p>
@@ -217,7 +221,7 @@ export default function ClockEventsDayView({
                     <PhotoStatusCell event={event} />
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">
-                    <EventNoteCell event={event} comments={commentsForEvent(commentsByClockIn, event)} />
+                    <EventNoteCell event={event} comments={commentsForEvent(commentsByClockIn, event)} exits={event.type === "in" ? exitsByClockIn.get(event.id) ?? [] : []} />
                   </td>
                   <td className="px-4 py-2.5">
                     <GeofenceBadge event={event} />

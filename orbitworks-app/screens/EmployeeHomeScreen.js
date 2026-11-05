@@ -12,6 +12,8 @@ import { useMyClockEvents } from "../lib/hooks/useMyClockEvents";
 import { usePunchQueue } from "../lib/hooks/usePunchQueue";
 import { useBreakPunch } from "../lib/hooks/useBreakPunch";
 import { useBreakReminders } from "../lib/hooks/useBreakReminders";
+import { useSiteTracking } from "../lib/hooks/useSiteTracking";
+import { useTrackingBlocked } from "../lib/hooks/useTrackingBlocked";
 import { useNow } from "../lib/hooks/useNow";
 import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
 import {
@@ -63,7 +65,7 @@ export default function EmployeeHomeScreen({ navigation }) {
   const employeeId = linkedEmployeeId || userData?.employeeId;
 
   const { view, loading } = useEmployeeSelfView(companyId, employeeId);
-  const { timezone, breaks: breakSettings, companyName } = useEmployeeAppConfig(companyId);
+  const { timezone, breaks: breakSettings, companyName, isPro } = useEmployeeAppConfig(companyId);
   // A 1-minute clock moves "today" and the week query at midnight; a
   // 1-second one runs only while a shift or break timer is showing.
   const minuteNow = useNow(60000);
@@ -88,6 +90,11 @@ export default function EmployeeHomeScreen({ navigation }) {
   const lastMs = lastEventMs(recent);
   // Phase 7: break reminders follow this status (offline breaks too).
   useBreakReminders({ companyId, employeeId, home, breaks: breakSettings });
+  // Phase 8: leave tracking follows it too - only once the events loaded
+  // (before that the status reads "out" and would end a live shift).
+  useSiteTracking({ companyId, employeeId, home: events.loaded ? home : null, isPro, punches: queue.all });
+  const trackingOff = useTrackingBlocked(companyId, employeeId);
+  const fixTracking = useCallback(() => navigation.navigate("AlwaysLocation"), [navigation]);
 
   const breakPunch = useBreakPunch({
     companyId,
@@ -150,7 +157,7 @@ export default function EmployeeHomeScreen({ navigation }) {
     <View style={styles.flex}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.lg, paddingBottom: tabBarSpace + spacing.xxl }]}>
         <ConnectionBanner style={styles.banner} />
-        <LocationBanner style={styles.banner} />
+        <LocationBanner style={styles.banner} trackingOff={trackingOff} onFixTracking={fixTracking} />
         <HomeHeader
           name={view?.name ?? ""}
           photoUrl={view?.photoUrl}

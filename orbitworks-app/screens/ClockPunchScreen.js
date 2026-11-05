@@ -9,6 +9,8 @@ import { useNow } from "../lib/hooks/useNow";
 import { formatClockTime, siteLabel } from "../lib/employeeHome";
 import { WILL_SYNC_NOTE } from "../lib/punchQueueLogic";
 import { askNotificationsAfterFirstClockIn } from "../lib/notificationPermission";
+import { shouldAskAlways } from "../lib/alwaysLocationAsk";
+import { navigationRef } from "../lib/navigationRef";
 import ScreenHeader from "../components/ScreenHeader";
 import PinPad from "../components/employee/PinPad";
 import PunchCamera from "../components/employee/PunchCamera";
@@ -54,10 +56,17 @@ export default function ClockPunchScreen({ route, navigation }) {
   // Phase 7: after the first clock-in's green screen closes (never in front
   // of a punch), ask once for notifications - lib/notificationPermission.js.
   const resultType = flow.result?.type;
+  // Phase 8 (D19): then, once, the job site alerts screen (location consent
+  // + Always) after a Pro clock-in at a geofenced site. Both only after the
+  // punch is saved and its screen closed - never in front of a punch.
   const closeDone = useCallback(() => {
     navigation.goBack();
-    if (resultType === "in") setTimeout(askNotificationsAfterFirstClockIn, ASK_AFTER_CLOSE_MS);
-  }, [navigation, resultType]);
+    if (resultType !== "in") return;
+    setTimeout(async () => {
+      await askNotificationsAfterFirstClockIn();
+      if ((await shouldAskAlways(companyId, employeeId)) && navigationRef.isReady()) navigationRef.navigate("AlwaysLocation");
+    }, ASK_AFTER_CLOSE_MS);
+  }, [navigation, resultType, companyId, employeeId]);
 
   // The green overlay shows as soon as the punch is saved. Whatever was on
   // screen (the photo preview) stays under it until it

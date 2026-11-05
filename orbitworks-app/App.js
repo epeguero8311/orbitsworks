@@ -58,6 +58,7 @@ import EmployeeSettingsScreen from "./screens/employee/EmployeeSettingsScreen";
 import EmployeeHistoryScreen from "./screens/employee/EmployeeHistoryScreen";
 import EmployeeHistoryDayScreen from "./screens/employee/EmployeeHistoryDayScreen";
 import ShiftCommentsScreen from "./screens/employee/ShiftCommentsScreen";
+import AlwaysLocationScreen from "./screens/employee/AlwaysLocationScreen";
 import JoinScanScreen from "./screens/JoinScanScreen";
 import JoinStartScreen from "./screens/JoinStartScreen";
 import { useJoinLink } from "./lib/hooks/useJoinLink";
@@ -275,6 +276,8 @@ function RootNavigator() {
             <Stack.Screen name="EmployeeTabs" component={EmployeeTabs} />
             <Stack.Screen name="ClockPunch" component={ClockPunchScreen} options={{ gestureEnabled: false }} />
             <Stack.Screen name="ShiftComments" component={ShiftCommentsScreen} />
+            {/* Phase 8: location consent + Always location (job site alerts). */}
+            <Stack.Screen name="AlwaysLocation" component={AlwaysLocationScreen} />
           </>
         ) : currentUser ? (
           <>
