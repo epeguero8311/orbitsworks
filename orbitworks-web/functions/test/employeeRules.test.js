@@ -1138,3 +1138,15 @@ test("Phase 9 FAIL: no client sets, clears or dismisses a duplicate flag (contro
     );
   }
 });
+
+// ---- Phase 10 fix round 1: getMyPin's reveal counter is server-only ----
+
+test("Phase 10 FAIL: pinReveals/{uid} (Show PIN limit) - no client reads or writes it, not even its own", async () => {
+  await testEnv.withSecurityRulesDisabled((c) => setDoc(doc(c.firestore(), "pinReveals", "uidA"), { atMs: [1] }));
+  for (const ctx of [employeeA(), adminA(), supervisorA()]) {
+    const db = ctx.firestore();
+    await assertFails(getDoc(doc(db, "pinReveals", "uidA")));
+    await assertFails(setDoc(doc(db, "pinReveals", "uidA"), { atMs: [] }));
+    await assertFails(deleteDoc(doc(db, "pinReveals", "uidA")));
+  }
+});
