@@ -13,8 +13,9 @@ import { createAlertIfNew } from "./alerts";
 //     passes; so does the PIN that was right at the punch's own time if an
 //     admin changed it since (Phase 5, lib/pinHistory.ts - the event gets
 //     oldPinAccepted: true; no Redo). Any other PIN is refused for good
-//     ("Couldn't sync") and counted per employee over 24 h: the 3rd alerts
-//     the admin (syncWrongPin, once per day), and from the 5th every further
+//     ("Couldn't sync") and counted per employee over 24 h: the 1st alerts
+//     the admin (syncWrongPin, once per day - Phase 7: with no Redo every
+//     one is a lost punch), and from the 5th every further
 //     queued punch for that employee fails for good (syncBlocked) until the
 //     wrong PINs are 24 h old. That cap stops the queue being used to guess
 //     PINs.
@@ -44,7 +45,7 @@ import { createAlertIfNew } from "./alerts";
 export const QUEUED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const QUEUED_MAX_FUTURE_MS = 2 * 60 * 1000;
 export const SYNC_PIN_WINDOW_MS = 24 * 60 * 60 * 1000;
-export const SYNC_PIN_ALERT_AT = 3;
+export const SYNC_PIN_ALERT_AT = 1;
 export const SYNC_PIN_BLOCK_AT = 5;
 export const SYNCED_LATE_AFTER_MS = 5 * 60 * 1000;
 export const FAST_SYNC_MAX_MS = 2 * 60 * 1000;
@@ -111,7 +112,7 @@ export async function isSyncBlocked(companyId: string, employeeId: string, nowMs
 }
 
 // Counts one wrong PIN at sync (a transaction, so two at once both count)
-// and alerts the admin from the 3rd in 24 h. Returns the new count. Never
+// and alerts the admin from the 1st in 24 h. Returns the new count. Never
 // touches employeePinLocks - a wrong PIN at sync is not part of the
 // 3-strike lock.
 export async function recordSyncWrongPin(
@@ -129,7 +130,8 @@ export async function recordSyncWrongPin(
   });
   if (count >= SYNC_PIN_ALERT_AT) {
     // Deterministic id per employee per day (createAlertIfNew uses
-    // create()), so a 4th or 5th wrong PIN the same day adds no second alert.
+    // create()), so a 2nd, 3rd ... wrong PIN the same day adds no second
+    // alert. The message can't carry a count for the same reason.
     await createAlertIfNew(
       {
         companyId,
@@ -138,7 +140,7 @@ export async function recordSyncWrongPin(
         employeeName,
         siteId: null,
         siteName: null,
-        message: `${count} punches saved offline had a wrong PIN when they synced in the last 24 hours.`,
+        message: "A punch saved offline had a wrong PIN when it synced and was not recorded.",
         eventId: null,
         employeeUpdateId: null,
         dateKey: localDateKey(new Date(nowMs)),

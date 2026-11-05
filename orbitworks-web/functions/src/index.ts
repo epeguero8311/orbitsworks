@@ -88,3 +88,6 @@ export {
   cleanupDeactivatedEmployeePhotos,
   cleanupCanceledCompanyPhotos,
 } from "./biometricRetention";
+
+// Employee App Phase 7: the employee's own push token + alerts cleanup.
+export { registerEmployeePushToken, clearEmployeePushToken, cleanupEmployeeAlerts } from "./employeeAlerts";

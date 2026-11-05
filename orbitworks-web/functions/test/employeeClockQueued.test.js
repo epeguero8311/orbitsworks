@@ -371,19 +371,28 @@ test("queued: right PIN goes through even while the online lock is on", async (t
   assert.equal(res.status, "in");
 });
 
-test("queued: 3rd wrong PIN in 24 h alerts the admin once, 4th adds none", async () => {
+test("Phase 7 queued: the 1st wrong PIN in 24 h alerts the admin once (a lost punch), 2nd-4th add none", async () => {
   const c = "q-pin-alert";
   await seed(c);
   await assert.rejects(queuedPunch(c, "in", Date.now() - HOUR, { pin: "0000" }));
+  const first = await alertsOf(c, "syncWrongPin");
+  assert.equal(first.length, 1);
+  assert.equal(first[0].employeeId, "emp1");
+  assert.equal(first[0].severity, "warning");
+  assert.equal(first[0].message, "A punch saved offline had a wrong PIN when it synced and was not recorded.");
+  assert.ok(!JSON.stringify(first[0]).includes(PIN));
   await assert.rejects(queuedPunch(c, "in", Date.now() - HOUR, { pin: "0001" }));
-  assert.equal((await alertsOf(c, "syncWrongPin")).length, 0);
   await assert.rejects(queuedPunch(c, "in", Date.now() - HOUR, { pin: "0002" }));
   await assert.rejects(queuedPunch(c, "in", Date.now() - HOUR, { pin: "0003" }));
-  const alerts = await alertsOf(c, "syncWrongPin");
-  assert.equal(alerts.length, 1);
-  assert.equal(alerts[0].employeeId, "emp1");
-  assert.equal(alerts[0].severity, "warning");
-  assert.ok(!JSON.stringify(alerts[0]).includes(PIN));
+  assert.equal((await alertsOf(c, "syncWrongPin")).length, 1);
+});
+
+test("Phase 7 queued: a right PIN at sync makes no wrong-PIN alert", async () => {
+  const c = "q-pin-noalert";
+  await seed(c);
+  const res = await queuedPunch(c, "in", Date.now() - HOUR);
+  assert.equal(res.status, "in");
+  assert.equal((await alertsOf(c, "syncWrongPin")).length, 0);
 });
 
 test("queued: from the 5th wrong PIN in 24 h queued punches are blocked; online still works; clears after 24 h", async (t) => {

@@ -14,6 +14,17 @@ import {
   type MinimalClockEvent,
 } from "./clockStatus";
 import { applyAutoBreak, splitShiftSegments } from "./autoBreak";
+import { sendEmployeeAlert } from "./employeeAlerts";
+import {
+  maxHoursText,
+  openShiftStart,
+  overtimeText,
+  parseHHMM,
+  shiftEndingDue,
+  shiftEndingText,
+  stillClockedInDue,
+  stillClockedInText,
+} from "./employeeShiftAlerts";
 
 // lowStaffing was removed (not a concept this product tracks).
 // clockedInOutsideGeofence/siteMismatch both landed here under the exact
@@ -46,8 +57,9 @@ export const ALERT_TYPES = [
   // functions/src/employeeClockQueued.ts. Admin/owner web only, never
   // pushed (createAlertIfNew directly), and filtered out of the supervisor
   // mobile Alerts tab (useAlertsFeed.js) like autoClockOut.
-  //   syncWrongPin       - 3+ queued punches for one employee had a wrong
-  //                        PIN when they synced (one per employee per day)
+  //   syncWrongPin       - a queued punch for one employee had a wrong PIN
+  //                        when it synced, so it was not recorded (from the
+  //                        1st since Phase 7; one per employee per day)
   //   syncedLateApproved - a queued punch synced into a timesheet that was
   //                        already approved (one per event)
   "syncWrongPin",
@@ -169,6 +181,8 @@ interface CompanyAlertContext {
   alerts: AlertSettings;
   businessHoursOpen: string;
   businessHoursClose: string;
+  // null = the company has no valid close time set.
+  businessHoursCloseMinutes: number | null;
   gracePeriodMinutes: number;
   weeklyOvertimeThreshold: number;
   automaticBreakMinutes: number;
@@ -195,6 +209,9 @@ async function getCompanyAlertContext(companyId: string): Promise<CompanyAlertCo
     alerts: { ...ALERT_SETTINGS_DEFAULTS, ...(data.alerts ?? {}) },
     businessHoursOpen: data.businessHours?.open ?? "08:00",
     businessHoursClose: data.businessHours?.close ?? "17:00",
+    // Phase 7: shift ending / still clocked in need a real close time - the
+    // "17:00" fallback above is only for the late/early checks.
+    businessHoursCloseMinutes: parseHHMM(data.businessHours?.close),
     gracePeriodMinutes: data.attendanceRules?.gracePeriodMinutes ?? 0,
     weeklyOvertimeThreshold: data.weeklyOvertimeThreshold ?? 40,
     automaticBreakMinutes: data.exportSettings?.automaticBreakMinutes ?? 0,
@@ -947,12 +964,18 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
     }
   }
 
-  // Max Hours - same-day shifts only, matching dashboardOverviewUtils.ts
+  // Max Hours - counted from the open shift's start (its clock-in), so an
+  // overnight shift counts too (Employee App Phase 7 fix: before, only a
+  // shift whose LATEST event was today counted, so overnight workers never
+  // got it). dateKey = the shift start's day: for a day shift that is
+  // today, so the alert id is exactly what it always was and nothing
+  // re-fires. The employee also gets their own alert, once per shift.
   if (alerts.maxHoursWarning) {
     for (const event of currentlyActive) {
-      const d = effectiveDate(event);
-      if (!d || localDateKey(d) !== localDateKey(now)) continue;
       const employeeEvents = recentEvents.filter((e) => e.employeeId === event.employeeId);
+      const shiftStart = openShiftStart(employeeEvents);
+      const d = shiftStart ? effectiveDate(shiftStart) : null;
+      if (!shiftStart || !d) continue;
       const workedHours = getAccumulatedWorkedMs(employeeEvents, now) / (1000 * 60 * 60);
       if (workedHours < alerts.maxHoursThreshold) continue;
       const employeeName = employeeNames.get(event.employeeId) ?? "An employee";
@@ -972,6 +995,13 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
         },
         admin.firestore.Timestamp.now()
       );
+      await sendEmployeeAlert({
+        companyId,
+        employeeId: event.employeeId,
+        key: shiftStart.id,
+        shiftId: shiftStart.id,
+        ...maxHoursText(workedHours, alerts.maxHoursThreshold),
+      });
     }
   }
 
@@ -997,6 +1027,28 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
         },
         admin.firestore.Timestamp.now()
       );
+    }
+  }
+
+  // Employee App Phase 7 - the employee's own end-of-day alerts, both behind
+  // the "Missed clock out alert" toggle (its delay is still clocked in's
+  // delay) and both only with a real business close time. Once per shift
+  // each (alert id). Employees only - supervisors get nothing new here.
+  const closeMinutes = ctx.businessHoursCloseMinutes;
+  if (alerts.missedClockOutAlert && closeMinutes !== null) {
+    const delayMinutes = Number(alerts.missedClockOutMinutes);
+    for (const event of currentlyActive) {
+      const shiftStart = openShiftStart(recentEvents.filter((e) => e.employeeId === event.employeeId));
+      const d = shiftStart ? effectiveDate(shiftStart) : null;
+      if (!shiftStart || !d) continue;
+      const due = { shiftStartMs: d.getTime(), nowMs: now.getTime(), closeMinutes };
+      const base = { companyId, employeeId: event.employeeId, key: shiftStart.id, shiftId: shiftStart.id };
+      if (shiftEndingDue(due)) {
+        await sendEmployeeAlert({ ...base, ...shiftEndingText(closeMinutes) });
+      }
+      if (stillClockedInDue({ ...due, delayMinutes })) {
+        await sendEmployeeAlert({ ...base, ...stillClockedInText(closeMinutes, delayMinutes) });
+      }
     }
   }
 
@@ -1050,6 +1102,13 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
         },
         admin.firestore.Timestamp.now()
       );
+      await sendEmployeeAlert({
+        companyId,
+        employeeId,
+        key: `${employeeId}-${weekKey}`,
+        shiftId: null,
+        ...overtimeText(hours, ctx.weeklyOvertimeThreshold),
+      });
     }
   }
 }
