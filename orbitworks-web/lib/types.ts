@@ -1113,6 +1113,35 @@ export interface TempClockLink {
   wrongAttemptCount?: number;
 }
 
+// Phase 10 (W1): listTempClockLinkHistory returns 10 links at a time.
+// Same shapes as functions/src/tempClockLinkTypes.ts - keep both in sync.
+export type TempLinkDuration = 10 | 30 | 60;
+
+export interface ActiveTempLink {
+  token: string;
+  siteId: string | null;
+  siteName: string;
+  createdByName: string;
+  expiresAt: number;
+  durationMinutes: TempLinkDuration;
+}
+
+export interface TempLinkHistoryEntry {
+  token: string;
+  siteName: string;
+  createdByName: string;
+  createdAt: number;
+  expiresAt: number;
+  durationMinutes: TempLinkDuration;
+  revoked: boolean;
+}
+
+export interface TempLinkHistoryPage {
+  links: TempLinkHistoryEntry[];
+  // Send as afterToken for the next (older) page; null = no more.
+  nextAfterToken: string | null;
+}
+
 // ---- Analytics (Pro) ----
 //
 // Cost math lives in lib/siteCosts.ts, a pure module with no Firebase
