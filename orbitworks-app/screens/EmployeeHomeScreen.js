@@ -11,6 +11,7 @@ import { useEmployeeHomeSite } from "../lib/hooks/useEmployeeHomeSite";
 import { useMyClockEvents } from "../lib/hooks/useMyClockEvents";
 import { usePunchQueue } from "../lib/hooks/usePunchQueue";
 import { useBreakPunch } from "../lib/hooks/useBreakPunch";
+import { useBreakReminders } from "../lib/hooks/useBreakReminders";
 import { useNow } from "../lib/hooks/useNow";
 import { useTabBarSpace } from "../lib/hooks/useTabBarSpace";
 import {
@@ -85,6 +86,8 @@ export default function EmployeeHomeScreen({ navigation }) {
   // Where a clock-in would land (the last answer saved, when offline).
   const homeSite = useEmployeeHomeSite(clockedOut, events.recentEvents[0]?.id, companyId, employeeId);
   const lastMs = lastEventMs(recent);
+  // Phase 7: break reminders follow this status (offline breaks too).
+  useBreakReminders({ companyId, employeeId, home, breaks: breakSettings });
 
   const breakPunch = useBreakPunch({
     companyId,

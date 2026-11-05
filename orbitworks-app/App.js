@@ -22,6 +22,7 @@ import { usePunchQueue } from "./lib/hooks/usePunchQueue";
 import { useCommentQueue } from "./lib/hooks/useCommentQueue";
 import { usePunchQueueSync } from "./lib/hooks/usePunchQueueSync";
 import { usePinVerifierSync } from "./lib/hooks/usePinVerifierSync";
+import { useEmployeePush } from "./lib/hooks/useEmployeePush";
 import { navigationRef } from "./lib/navigationRef";
 import FloatingTabBar from "./components/FloatingTabBar";
 import LoginScreen from "./screens/LoginScreen";
@@ -170,6 +171,8 @@ function EmployeeTabs() {
   const employeeId = linkedEmployeeId || userData?.employeeId;
   usePunchQueueSync(companyId, employeeId);
   usePinVerifierSync(companyId, employeeId);
+  // Phase 7: this phone's push token for the employee + tap opens Alerts.
+  useEmployeePush(employeeId);
   const { badge: punchBadge } = usePunchQueue(companyId, employeeId);
   // Phase 5: Not synced / waiting comments count on the Sync tab too.
   const { badge: commentBadge } = useCommentQueue(companyId, employeeId);

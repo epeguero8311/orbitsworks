@@ -8,6 +8,7 @@ import { useEmployeeSelfView } from "../lib/hooks/useEmployeeSelfView";
 import { useNow } from "../lib/hooks/useNow";
 import { formatClockTime, siteLabel } from "../lib/employeeHome";
 import { WILL_SYNC_NOTE } from "../lib/punchQueueLogic";
+import { askNotificationsAfterFirstClockIn } from "../lib/notificationPermission";
 import ScreenHeader from "../components/ScreenHeader";
 import PinPad from "../components/employee/PinPad";
 import PunchCamera from "../components/employee/PunchCamera";
@@ -16,6 +17,8 @@ import ConnectionBanner from "../components/employee/ConnectionBanner";
 import Building2Icon from "../components/icons/Building2Icon";
 
 const TITLES = { in: "Clock In", out: "Clock Out" };
+// Lets the screen finish closing before the notifications question shows.
+const ASK_AFTER_CLOSE_MS = 600;
 const DONE_TITLES = { in: "Clocked in", out: "Clocked out" };
 
 // Employee App clock in / out: PIN -> live front-camera photo right away
@@ -48,6 +51,13 @@ export default function ClockPunchScreen({ route, navigation }) {
   const now = useNow(1000);
   const lockSeconds = flow.lockedUntil > now ? Math.ceil((flow.lockedUntil - now) / 1000) : 0;
   const close = useCallback(() => navigation.goBack(), [navigation]);
+  // Phase 7: after the first clock-in's green screen closes (never in front
+  // of a punch), ask once for notifications - lib/notificationPermission.js.
+  const resultType = flow.result?.type;
+  const closeDone = useCallback(() => {
+    navigation.goBack();
+    if (resultType === "in") setTimeout(askNotificationsAfterFirstClockIn, ASK_AFTER_CLOSE_MS);
+  }, [navigation, resultType]);
 
   // The green overlay shows as soon as the punch is saved. Whatever was on
   // screen (the photo preview) stays under it until it
@@ -61,7 +71,7 @@ export default function ClockPunchScreen({ route, navigation }) {
       siteName={siteLabel(flow.result.siteName)}
       note={flow.result.queued ? WILL_SYNC_NOTE : null}
       photoUri={flow.photoUri}
-      onClose={close}
+      onClose={closeDone}
       onShown={flow.overlayShown}
     />
   ) : null;

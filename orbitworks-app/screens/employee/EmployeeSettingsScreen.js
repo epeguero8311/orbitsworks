@@ -20,7 +20,7 @@ import ListRow from "../../components/ui/ListRow";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import Avatar from "../../components/Avatar";
 import DevPunchTimings from "../../components/employee/DevPunchTimings";
-import { forgetPinVerifier } from "../../lib/pinCheck";
+import { signOutEmployee } from "../../lib/employeeSignOut";
 
 // Employee App Settings tab (Phase 5, decisions 14-20). View only: photo,
 // name, email (the login's when the self view has none), PIN ****,
@@ -61,8 +61,9 @@ export default function EmployeeSettingsScreen() {
     ["Notifications", notifications.granted, notifications.setEnabled],
     ["Location", location.granted, setLocation],
   ];
-  // Log out drops this phone's PIN check value first (lib/pinCheck.js).
-  const logOut = () => forgetPinVerifier(companyId, employeeId).finally(signOutUser);
+  // Log out: PIN check value, push token (Phase 7) and break reminders
+  // first, each capped at 3 s - then always signs out (lib/employeeSignOut.js).
+  const logOut = () => signOutEmployee({ companyId, employeeId, signOutUser });
   // Everything still on the phone, even saved a second ago (no badge delay).
   const waiting = logoutCounts(queue.all, comments.all, companyId, employeeId);
   const notSynced = logoutWarning(waiting.punches, waiting.comments);
