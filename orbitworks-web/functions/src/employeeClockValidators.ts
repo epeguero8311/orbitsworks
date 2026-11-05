@@ -21,6 +21,25 @@ const clockPhotoPathField = z
 
 const idField = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 
+// ---- Phase 6: where the punch happened ----
+//
+// The phone's fix for this punch: lat/lng, accuracy (meters, may be null
+// on some phones) and fixAtMs (when the phone got the fix, phone clock).
+// Accuracy above LOCATION_ACCURACY_MAX_M is not a real fix. Only used for
+// display and Pro site detection, never to decide whether a punch counts.
+export const LOCATION_ACCURACY_MAX_M = 100000;
+
+export const punchLocationSchema = z
+  .object({
+    lat: z.number().finite().min(-90).max(90),
+    lng: z.number().finite().min(-180).max(180),
+    accuracyM: z.number().finite().min(0).max(LOCATION_ACCURACY_MAX_M).nullable(),
+    fixAtMs: z.number().int().positive(),
+  })
+  .strict();
+
+export type PunchLocation = z.infer<typeof punchLocationSchema>;
+
 export const employeeClockPunchSchema = z
   .object({
     action: z.enum(EMPLOYEE_CLOCK_ACTIONS),
@@ -43,6 +62,10 @@ export const employeeClockPunchSchema = z
     // When the phone expected the punch to be: last server time it saw +
     // uptime since. Only used to set phoneClockOff.
     expectedAtMs: z.number().int().positive().optional(),
+    // Phase 6. Missing = an older app (no location step). null = the phone
+    // tried and had no fix. A bad value also becomes null - a location
+    // problem never rejects a punch.
+    location: punchLocationSchema.nullable().optional().catch(null),
   })
   .refine((v) => v.queuedAtMs !== undefined || (v.waitMs === undefined && v.expectedAtMs === undefined), {
     message: "waitMs and expectedAtMs only come with a queued time.",

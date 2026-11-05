@@ -27,6 +27,18 @@ export const clockPhotoPathField = z
 
 const idField = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 
+// Phase 6: the phone's fix for this punch (see the functions copy).
+export const LOCATION_ACCURACY_MAX_M = 100000;
+
+export const punchLocationSchema = z
+  .object({
+    lat: z.number().finite().min(-90).max(90),
+    lng: z.number().finite().min(-180).max(180),
+    accuracyM: z.number().finite().min(0).max(LOCATION_ACCURACY_MAX_M).nullable(),
+    fixAtMs: z.number().int().positive(),
+  })
+  .strict();
+
 export const employeeClockPunchSchema = z
   .object({
     action: z.enum(EMPLOYEE_CLOCK_ACTIONS),
@@ -43,6 +55,9 @@ export const employeeClockPunchSchema = z
     // the phone and is being sent later; the server then uses this time
     // (within limits) instead of its own and tags the event "synced late".
     queuedAtMs: z.number().int().positive().optional(),
+    // Phase 6. Missing = an older app; null = no fix. A bad value becomes
+    // null - a location problem never rejects a punch.
+    location: punchLocationSchema.nullable().optional().catch(null),
   })
   .refine((v) => (v.action === "in" || v.action === "out") === (v.pin !== undefined), {
     message: "A PIN is needed to clock in or out, and never for a break.",
