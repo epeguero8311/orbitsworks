@@ -1,10 +1,11 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { isOnline, newRequestId } from "../employeeClockApi";
 import { queuedTimeFor } from "../punchQueueLogic";
 import { enqueuePunch } from "../punchQueue";
 import { isWeakSignal } from "../punchQueueEvents";
 import { punchClockFields } from "../clockAnchor";
 import { startPunchTimer } from "../punchTimings";
+import { startPunchFix } from "../punchLocation";
 
 const SAVE_FAILED = "Couldn't save this punch on the phone. Try again.";
 
@@ -21,11 +22,15 @@ export function useBreakPunch({ companyId, employeeId, lastEventMs, siteName }) 
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
+  // Phase 6: the location lookup starts as the confirm box opens (no
+  // prompt); the save takes whatever is ready, never waits.
+  const fixRef = useRef(null);
 
   const ask = useCallback((action) => {
     setError("");
     setPending(action);
     setRequestId(newRequestId());
+    fixRef.current = startPunchFix();
   }, []);
 
   const cancel = useCallback(() => {
@@ -47,8 +52,9 @@ export function useBreakPunch({ companyId, employeeId, lastEventMs, siteName }) 
     try {
       const queuedAtMs = queuedTimeFor(Date.now(), lastEventMs);
       const clock = await punchClockFields();
+      const location = fixRef.current ? fixRef.current.take(queuedAtMs) : null;
       const [, online] = await Promise.all([
-        enqueuePunch({ companyId, employeeId, action, requestId, queuedAtMs, siteName: siteName || "", clock }),
+        enqueuePunch({ companyId, employeeId, action, requestId, queuedAtMs, siteName: siteName || "", clock, location }),
         isOnline(),
       ]);
       timer.finish("saved");

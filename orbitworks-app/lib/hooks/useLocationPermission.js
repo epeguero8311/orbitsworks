@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppState } from "react-native";
-import { getLocationPermissionStatus, requestLocationPermissionForToggle } from "../locationPermission";
+import { fixLocationPermission, getLocationPermissionStatus, requestLocationPermissionForToggle } from "../locationPermission";
 
 // Settings' Location toggle. Unlike Notifications (pushNotifications.js's
 // getNotificationState/setNotificationsEnabled), there is no separate
@@ -33,5 +33,13 @@ export function useLocationPermission() {
     return result;
   }, []);
 
-  return { granted, loading, requestPermission };
+  // Employee App (Phase 6): the phone's prompt if never asked, else the
+  // phone's Settings (lib/locationPermission.js fixLocationPermission).
+  const fixPermission = useCallback(async () => {
+    const result = await fixLocationPermission();
+    if (result) setGranted(true);
+    return result;
+  }, []);
+
+  return { granted, loading, requestPermission, fixPermission };
 }

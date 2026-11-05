@@ -7,6 +7,7 @@ import { isWeakSignal } from "../punchQueueEvents";
 import { punchClockFields } from "../clockAnchor";
 import { checkPinOnPhone, pinLockSecondsLeft } from "../pinCheck";
 import { outcomeOf, startPunchTimer } from "../punchTimings";
+import { startPunchFix } from "../punchLocation";
 
 const SAVE_FAILED = "Couldn't save this punch on the phone. Try again.";
 
@@ -43,6 +44,9 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
   // Dev-build-only step timings (lib/punchTimings.js). Starts when the
   // screen opens (the Clock in / Clock out tap).
   const [timer] = useState(() => startPunchTimer(action));
+  // Phase 6: the location lookup starts as the PIN screen opens (no prompt);
+  // the save takes whatever is ready, never waits (lib/punchLocation.js).
+  const [fix] = useState(() => startPunchFix());
   // true = the phone checked this PIN; false = the server checks it at sync.
   const pinCheckedRef = useRef(false);
   // A PIN check is running (blocks extra taps on the pad).
@@ -102,6 +106,7 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
             photoUri: uri,
             photoUploaded: false,
             clock,
+            location: fix.take(queuedAtMs),
           }),
           isOnline(),
         ]);
@@ -116,7 +121,7 @@ export function useClockPunch({ action, companyId, employeeId, expectedSite, las
         setStep("retry");
       }
     },
-    [companyId, employeeId, action, requestId, expectedSite, lastEventMs, timer]
+    [companyId, employeeId, action, requestId, expectedSite, lastEventMs, timer, fix]
   );
 
   // Photo taken: save it (the PIN was already checked before the camera).

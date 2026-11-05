@@ -75,3 +75,19 @@ export async function requestLocationPermissionForToggle() {
     );
   });
 }
+
+// Employee App Phase 6 - the Home location banner and the Settings
+// Location switch. Never been asked (sign-up step skipped): the phone's own
+// "While using the app" prompt. Denied before (iPhone or Android): the
+// phone's Settings app, the only place it can be turned on. -> true when
+// granted now (from Settings, the foreground re-check picks it up later).
+export async function fixLocationPermission() {
+  const { status, canAskAgain } = await getLocationPermissionStatus();
+  if (status === "granted") return true;
+  if (status === "undetermined" && canAskAgain) {
+    const { status: next } = await requestLocationPermission();
+    return next === "granted";
+  }
+  Linking.openSettings();
+  return false;
+}
