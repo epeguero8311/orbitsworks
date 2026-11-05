@@ -6,8 +6,8 @@ import { AddressNotVerifiedError, type PickedLocation } from "@/lib/hooks/useSit
 import { jobSiteSchema, type JobSiteInput } from "@/lib/validators/site";
 import { joinCodeCreateSchema, joinCodeUpdateSchema, withActiveCap, type JoinCodeCreateInput } from "@/lib/validators/joinCode";
 import { companyLocalToIso, msToCompanyLocal } from "@/lib/joinCodes/time";
-import { DEFAULT_GEOFENCE_RADIUS_FT } from "@/lib/geo";
 import type { JobSite, JoinCodeListItem, Subcontractor } from "@/lib/types";
+import { JoinCodeGeofence, GEOFENCE_DRAFT_OFF, geofenceDraftChanged, geofenceDraftFor, type GeofenceDraft } from "@/components/dashboard/sites/JoinCodeGeofence";
 
 const NEW_SITE = "__new__";
 const inputClass =
@@ -21,18 +21,21 @@ interface JoinCodeModalProps {
   activeCap: number | null;
   seatsLeft: number | null;
   addSite: (input: JobSiteInput, location: PickedLocation | null) => Promise<string | undefined>;
+  // Phase 8 (D2): the code's site geofence is saved onto the site itself.
+  updateSite: (siteId: string, input: JobSiteInput, location: PickedLocation | null) => Promise<void>;
   onSave: (input: JoinCodeCreateInput, token: string | null) => Promise<void>;
   onClose: () => void;
 }
 
-export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLeft, addSite, onSave, onClose }: JoinCodeModalProps) {
+export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLeft, addSite, updateSite, onSave, onClose }: JoinCodeModalProps) {
   const [name, setName] = useState(code?.name ?? "");
   const [siteId, setSiteId] = useState(code?.siteId ?? "");
   const [newSiteName, setNewSiteName] = useState("");
   const [newSiteAddress, setNewSiteAddress] = useState("");
   const [newSiteLocation, setNewSiteLocation] = useState<PickedLocation | null>(null);
   const [subIds, setSubIds] = useState<string[]>(code?.subcontractorIds ?? []);
-  const [locationRequired, setLocationRequired] = useState(code?.locationRequired ?? false);
+  // The job site's own geofence (D2), reset whenever another site is picked.
+  const [geofence, setGeofence] = useState<GeofenceDraft>(() => geofenceDraftFor(sites.find((s) => s.id === code?.siteId)));
   const [userLimit, setUserLimit] = useState(code?.userLimit != null ? String(code.userLimit) : "");
   const [expiresLocal, setExpiresLocal] = useState(code?.expiresAt != null ? msToCompanyLocal(code.expiresAt) : "");
   const [saving, setSaving] = useState(false);
@@ -46,21 +49,43 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
     setSubIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
+  const pickedSite = sites.find((s) => s.id === siteId);
+
+  function pickSite(id: string) {
+    setSiteId(id);
+    setGeofence(id === NEW_SITE ? GEOFENCE_DRAFT_OFF : geofenceDraftFor(sites.find((s) => s.id === id)));
+  }
+
+  // An existing site whose geofence the admin changed: saved onto the site
+  // (same useSites().updateSite path as the Sites page) before the code.
+  async function saveSiteGeofence(site: JobSite) {
+    if (!geofenceDraftChanged(site, geofence)) return;
+    const parsed = jobSiteSchema.safeParse({
+      name: site.name,
+      address: site.address ?? "",
+      requireGeofence: geofence.on,
+      radiusValue: Number(geofence.radiusValue),
+      radiusUnit: geofence.radiusUnit,
+    });
+    if (!parsed.success) throw new AddressNotVerifiedError(parsed.error.issues[0]?.message ?? "Invalid geofence.");
+    await updateSite(site.id, parsed.data, null);
+  }
+
   function handleAddressSelect(picked: PickedAddress) {
     setNewSiteAddress(picked.address);
     setNewSiteLocation({ placeId: picked.placeId, lat: picked.lat, lng: picked.lng, geocodedAddress: picked.address });
   }
 
   // Inline site creation goes through the same useSites().addSite path as
-  // the Sites form (geofencing off - that's Phase 8 for codes).
+  // the Sites form, with the geofence set here (Phase 8, D2).
   async function createSiteInline(): Promise<string> {
     if (newSiteAddress.trim() && !newSiteLocation) throw new AddressNotVerifiedError("Pick an address from the suggestions.");
     const parsed = jobSiteSchema.safeParse({
       name: newSiteName,
       address: newSiteAddress,
-      requireGeofence: false,
-      radiusValue: DEFAULT_GEOFENCE_RADIUS_FT,
-      radiusUnit: "ft",
+      requireGeofence: geofence.on,
+      radiusValue: Number(geofence.radiusValue),
+      radiusUnit: geofence.radiusUnit,
     });
     if (!parsed.success) throw new AddressNotVerifiedError(parsed.error.issues[0]?.message ?? "Invalid site.");
     const id = await addSite(parsed.data, newSiteLocation);
@@ -78,7 +103,7 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
     if (expiresLocal && !expiresAt) return setError("Pick a valid expiry date and time.");
     const limitText = userLimit.trim();
     const limit = limitText === "" ? null : Number(limitText);
-    const draft = { name, siteId: siteId === NEW_SITE ? "pending" : siteId, subcontractorIds: subIds, locationRequired, userLimit: limit, expiresAt };
+    const draft = { name, siteId: siteId === NEW_SITE ? "pending" : siteId, subcontractorIds: subIds, userLimit: limit, expiresAt };
 
     const schema = code ? withActiveCap(joinCodeUpdateSchema, activeCap) : withActiveCap(joinCodeCreateSchema, activeCap);
     const check = schema.safeParse(code ? { ...draft, token: code.token } : draft);
@@ -86,6 +111,7 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
 
     setSaving(true);
     try {
+      if (siteId !== NEW_SITE && pickedSite) await saveSiteGeofence(pickedSite);
       const finalSiteId = siteId === NEW_SITE ? await createSiteInline() : siteId;
       await onSave({ ...draft, siteId: finalSiteId }, code?.token ?? null);
       onClose();
@@ -118,7 +144,7 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
 
           <div>
             <label htmlFor="jcSite" className={labelClass}>Job site</label>
-            <select id="jcSite" required value={siteId} onChange={(e) => setSiteId(e.target.value)} className={inputClass}>
+            <select id="jcSite" required value={siteId} onChange={(e) => pickSite(e.target.value)} className={inputClass}>
               <option value="" disabled>Pick a job site</option>
               {siteOptions.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}{s.active ? "" : " (inactive)"}</option>
@@ -168,19 +194,14 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
             )}
           </fieldset>
 
-          <fieldset>
-            <legend className={labelClass}>Location</legend>
-            <div className="flex gap-4 text-sm text-gray-950">
-              <label className="flex items-center gap-2">
-                <input type="radio" name="jcLocation" checked={locationRequired} onChange={() => setLocationRequired(true)} />
-                Required
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="radio" name="jcLocation" checked={!locationRequired} onChange={() => setLocationRequired(false)} />
-                Optional
-              </label>
-            </div>
-          </fieldset>
+          {siteId !== "" && (
+            <JoinCodeGeofence
+              draft={geofence}
+              onChange={setGeofence}
+              hasPlace={siteId === NEW_SITE ? newSiteLocation !== null : pickedSite?.lat != null && pickedSite?.lng != null}
+              isNewSite={siteId === NEW_SITE}
+            />
+          )}
 
           <div>
             <label htmlFor="jcLimit" className={labelClass}>User limit (optional)</label>

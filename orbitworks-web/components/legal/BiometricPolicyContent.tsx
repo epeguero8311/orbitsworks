@@ -4,7 +4,7 @@ export default function BiometricPolicyContent() {
   return (
     <div className="prose prose-sm max-w-none text-gray-700">
       <p className="text-sm text-gray-500">
-        Last updated: October 14, 2026 (version {TERMS_VERSION})
+        Last updated: November 4, 2026 (version {TERMS_VERSION})
       </p>
 
       <p>
@@ -13,8 +13,8 @@ export default function BiometricPolicyContent() {
         verification runs automatically for any Employee who has a
         profile photo on file; it never runs for an Employee with no
         profile photo, and it never runs on Core plans. If none of
-        Customer's Employees have a profile photo, OrbitWorks does not
-        process biometric information under this Policy for Customer's
+        Customer&apos;s Employees have a profile photo, OrbitWorks does not
+        process biometric information under this Policy for Customer&apos;s
         account.
       </p>
 
@@ -24,8 +24,8 @@ export default function BiometricPolicyContent() {
       </p>
       <ul>
         <li>
-          <strong>Reference photo</strong>: the Employee's profile photo,
-          uploaded by Customer's admin, supervisor, or (where permitted)
+          <strong>Reference photo</strong>: the Employee&apos;s profile photo,
+          uploaded by Customer&apos;s admin, supervisor, or (where permitted)
           the Employee.
         </li>
         <li>
@@ -35,18 +35,18 @@ export default function BiometricPolicyContent() {
         </li>
       </ul>
       <p>
-        Both photos are uploaded directly to Customer's private storage
-        area within OrbitWorks' cloud storage provider (Google Cloud /
+        Both photos are uploaded directly to Customer&apos;s private storage
+        area within OrbitWorks&apos; cloud storage provider (Google Cloud /
         Firebase Storage), accessible only to authenticated users of
-        Customer's own account.
+        Customer&apos;s own account.
       </p>
       <p>
         At each clock-in and clock-out, the verification photo is sent
         server-side, over an encrypted connection, to Amazon Web Services
         Rekognition, where it is compared one-to-one against the
-        Employee's reference photo using Rekognition's CompareFaces
+        Employee&apos;s reference photo using Rekognition&apos;s CompareFaces
         operation. OrbitWorks does not use, and does not permit
-        Rekognition to use, Rekognition's face-collection, face-indexing,
+        Rekognition to use, Rekognition&apos;s face-collection, face-indexing,
         or face-search features. No reusable facial template, face
         embedding, or other biometric identifier distinct from the
         photos themselves is created or stored, at Rekognition or
@@ -60,15 +60,15 @@ export default function BiometricPolicyContent() {
         no face detected), a similarity score, the threshold used, and
         which reference photo was used. A separate, one-time check also
         runs against a new or changed reference photo (using
-        Rekognition's DetectFaces operation) to confirm it contains
-        exactly one usable face; this does not involve the Employee's
+        Rekognition&apos;s DetectFaces operation) to confirm it contains
+        exactly one usable face; this does not involve the Employee&apos;s
         clock photos and produces no stored result beyond a pass/fail
-        flag on the Employee's record.
+        flag on the Employee&apos;s record.
       </p>
       <p>
         A face-verification result never blocks, delays, or
         auto-corrects a clock event. A mismatch or no-face result only
-        creates an alert for Customer's admins and supervisors to review
+        creates an alert for Customer&apos;s admins and supervisors to review
         and resolve; it is never used by OrbitWorks to take action on its
         own.
       </p>
@@ -88,27 +88,27 @@ export default function BiometricPolicyContent() {
         </li>
         <li>
           <strong>Active reference photo</strong>: deleted 1 year after
-          the Employee is deactivated, or 3 years after the Employee's
+          the Employee is deactivated, or 3 years after the Employee&apos;s
           last clock event, whichever happens first. This only applies
-          once an Employee is deactivated; an active Employee's reference
+          once an Employee is deactivated; an active Employee&apos;s reference
           photo is not time-limited. If the replaced-photo 30-day
           schedule below would delete it sooner, that schedule applies
           instead.
         </li>
         <li>
           <strong>Replaced reference photo</strong>: when Customer
-          replaces an Employee's reference photo, the old photo is kept
+          replaces an Employee&apos;s reference photo, the old photo is kept
           for up to 30 days (to support fraud review if the replacement
           itself looks suspicious) and is then automatically deleted.
         </li>
         <li>
-          <strong>Employee record deleted</strong>: the Employee's
+          <strong>Employee record deleted</strong>: the Employee&apos;s
           reference photo is deleted immediately, at the same time as the
           Employee record.
         </li>
         <li>
-          <strong>Customer's subscription is canceled</strong>: every
-          biometric photo for Customer's account (every Employee's
+          <strong>Customer&apos;s subscription is canceled</strong>: every
+          biometric photo for Customer&apos;s account (every Employee&apos;s
           reference photo and every verification photo) is deleted 90
           days after cancellation. Clock events and Employee records
           themselves are never deleted by this; only the photos, and the
@@ -132,9 +132,9 @@ export default function BiometricPolicyContent() {
         Before adding a reference photo for any Employee (which turns on
         face verification for that Employee), Customer must give the
         Employee written notice of what is collected, why, and for how
-        long it may be kept, and obtain the Employee's written consent or
-        release where required by applicable law (for example, Illinois'
-        BIPA, Texas' CUBI, or Washington's biometric privacy law).
+        long it may be kept, and obtain the Employee&apos;s written consent or
+        release where required by applicable law (for example, Illinois&apos;
+        BIPA, Texas&apos; CUBI, or Washington&apos;s biometric privacy law).
         OrbitWorks provides a sample Employee Biometric and Location
         Notice and Consent template, in English and Spanish, to help
         Customer meet this obligation. OrbitWorks does not independently
@@ -146,8 +146,8 @@ export default function BiometricPolicyContent() {
       <p>
         An Employee who wants their reference or verification photos
         deleted should first contact their employer (Customer), who can
-        remove the Employee's profile photo and request deletion of
-        historical clock-event photos on the Employee's behalf. Customer
+        remove the Employee&apos;s profile photo and request deletion of
+        historical clock-event photos on the Employee&apos;s behalf. Customer
         or an Employee may also email our support address directly; we
         will act on verified deletion requests, consistent with the
         account-deletion process described on our Support page, ordinarily
@@ -158,13 +158,13 @@ export default function BiometricPolicyContent() {
       <h2>5. Access and Security</h2>
       <p>
         Only server-side application code, never the client, the end
-        user's browser or app, or any OrbitWorks employee's ad hoc
+        user&apos;s browser or app, or any OrbitWorks employee&apos;s ad hoc
         access, calls Rekognition or writes the comparison result.
         Firestore security rules block any client from writing or
         overwriting a face-verification result or reference-photo flag;
         clients may only read a result for clock events within their own
         company. Storage access to the underlying photos is restricted to
-        authenticated users of the Employee's own company.
+        authenticated users of the Employee&apos;s own company.
       </p>
 
       <h2>6. No Independent Use</h2>
@@ -181,7 +181,7 @@ export default function BiometricPolicyContent() {
       <h2>7. Changes to This Policy</h2>
       <p>
         We may update this Policy from time to time; material changes
-        will be reflected by an updated "Last updated" date.
+        will be reflected by an updated &quot;Last updated&quot; date.
       </p>
 
       <h2>8. Contact</h2>

@@ -17,7 +17,7 @@ import type { JoinCodeCreateInput } from "@/lib/validators/joinCode";
 // Pro only. Core/free sees the locked card and no request is ever made -
 // the API routes also return 403 for non-Pro, so this is UI only.
 export default function JoinCodesSection() {
-  const { sites, isPro, planLoaded, addSite } = useSites();
+  const { sites, isPro, planLoaded, addSite, updateSite } = useSites();
   const { subcontractors } = useSubcontractors();
   const { data, loading, error, createCode, updateCode, regenerateCode, revokeCode } = useJoinCodes(planLoaded && isPro);
 
@@ -102,6 +102,7 @@ export default function JoinCodesSection() {
           activeCap={data.activeCap}
           seatsLeft={data.seatsLeft}
           addSite={addSite}
+          updateSite={updateSite}
           onSave={handleSave}
           onClose={() => setModal(null)}
         />

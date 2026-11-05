@@ -22,7 +22,7 @@ export default function EmployeeNoticeContent() {
         Customer to review, adapt, and have reviewed by its own counsel
         before giving it to Employees. It is not legal advice, and using
         it does not by itself guarantee compliance with every law that
-        may apply to Customer's workforce.
+        may apply to Customer&apos;s workforce.
       </p>
 
       <hr className="my-8" />
@@ -70,30 +70,43 @@ export default function EmployeeNoticeContent() {
 
       <h3>2. Location</h3>
       <p>
-        <strong>What is collected:</strong> if your employer's plan
-        includes this feature, your device's approximate location
-        (latitude/longitude) at the moment you clock in or clock out, if
-        you have granted "while using the app" location permission.
+        <strong>What is collected at a punch:</strong> your device&apos;s
+        approximate location (latitude/longitude) at the moment you clock
+        in, clock out or take a break, if you have granted location
+        permission.
+      </p>
+      <p>
+        <strong>Leaving the job site (Pro, geofenced job sites
+        only):</strong> if your employer has turned on a geofence for the
+        job site you clocked in at, and you have agreed in the OrbitsWorks
+        app and allowed &quot;Always&quot; location, the app checks in the
+        background - only while you are clocked in from your own phone -
+        when you leave that job site&apos;s area and when you come back. Only
+        the time and place you left and came back are saved, never a trail
+        of where you went. Those places are deleted after 90 days; the
+        times stay with your shift.
       </p>
       <p>
         <strong>What is NOT collected:</strong> your employer cannot see
-        your location continuously or in the background, and cannot see
-        your location while you are clocked out or between clock events.
-        Only a single location snapshot is captured at each clock-in and
-        clock-out.
+        your location continuously, and nothing about your location is
+        collected while you are clocked out. You can turn &quot;Always&quot;
+        location off in your phone&apos;s Settings at any time; your shift then
+        shows that tracking was off.
       </p>
       <p>
         <strong>Why:</strong> to show which job site a clock-in/clock-out
         happened at and, if your employer has turned on a geofence for a
-        site, to flag whether you were inside or outside that site's
-        radius. Being outside a geofence never blocks your clock-in or
-        clock-out; it only creates an alert for your employer to review.
+        site, to flag whether you were inside or outside that site&apos;s
+        radius and when you left it during a shift. Being outside a
+        geofence or leaving it never blocks your clock-in or clock-out and
+        never clocks you out; it only creates a flag for your employer to
+        review.
       </p>
 
       <h3>3. Your Consent</h3>
       <p>
         By signing below, you acknowledge that you have received and
-        read this notice, and you consent to [Company Name]'s collection
+        read this notice, and you consent to [Company Name]&apos;s collection
         and use of your facial and location information as described
         above, for the purpose of timekeeping and attendance
         verification.
@@ -175,7 +188,7 @@ export default function EmployeeNoticeContent() {
           incluye esta funcion, la ubicacion aproximada de su dispositivo
           (latitud/longitud) en el momento en que usted entra o sale del
           trabajo, si usted ha otorgado el permiso de ubicacion
-          "mientras se usa la aplicacion."
+          &quot;mientras se usa la aplicacion.&quot;
         </p>
         <p>
           <strong>Que NO se recopila:</strong> su empleador no puede ver

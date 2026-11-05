@@ -83,6 +83,8 @@ export default function AlertsPanel({
     "siteMismatch",
     "faceMismatch",
     "faceNoFace",
+    // Phase 8: eventId is the shift's clock-in.
+    "leftJobSite",
   ]);
 
   // Update Employee (mobile) - every employeeUpdated alert has exactly one

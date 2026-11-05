@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSites, AddressNotVerifiedError, type PickedLocation } from "@/lib/hooks/useSites";
 import { Toggle } from "@/components/dashboard/settings/Toggle";
 import { EditSiteModal } from "@/components/dashboard/sites/EditSiteModal";
-import { ProBadgeLink, RadiusFields } from "@/components/dashboard/sites/GeofenceFields";
+import { GEOFENCE_TOGGLE_DESCRIPTION, GEOFENCE_TOGGLE_LABEL, ProBadgeLink, RadiusFields } from "@/components/dashboard/sites/GeofenceFields";
 import { AddressAutocomplete, type PickedAddress } from "@/components/dashboard/sites/AddressAutocomplete";
 import { jobSiteSchema } from "@/lib/validators/site";
 import { formatGeofenceRadius, DEFAULT_GEOFENCE_RADIUS_FT } from "@/lib/geo";
@@ -167,8 +167,8 @@ export default function SitesSection() {
 
         <div className="border-t border-gray-200 pt-1">
           <Toggle
-            label="Require geofence"
-            description="Employees must be within the radius below to clock in at this site."
+            label={GEOFENCE_TOGGLE_LABEL}
+            description={GEOFENCE_TOGGLE_DESCRIPTION}
             checked={requireGeofence}
             onChange={isPro ? setRequireGeofence : () => {}}
             disabled={!isPro}

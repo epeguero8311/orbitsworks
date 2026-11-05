@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { SiteExitsNote } from "@/components/time/SiteExitsNote";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
@@ -253,6 +254,8 @@ function warningTitle(warning: SessionWarning): string {
       return "No face detected";
     case "autoClockOut":
       return "Auto clocked out";
+    case "leftSite":
+      return "Left the job site";
     default:
       return "";
   }
@@ -452,6 +455,13 @@ export default function SessionWarningsModal({
                     <p className="text-gray-600">
                       Break deducted: {Math.round(warning.realBreakMinutes)} min
                     </p>
+                  </WarningCard>
+                );
+              case "leftSite":
+                return (
+                  <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
+                    <SiteExitsNote exits={warning.exits} />
+                    <p className="mt-1 text-xs text-gray-500">A flag only - the hours are not changed.</p>
                   </WarningCard>
                 );
               case "faceLowConfidence":

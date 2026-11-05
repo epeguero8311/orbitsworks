@@ -9,15 +9,22 @@ import { useLocationBanner } from "../../lib/hooks/useLocationBanner";
 // ConnectionBanner). Tap: the phone's prompt if never asked, else the
 // phone's Settings. Punches still work without it. Renders nothing once
 // location is on.
-export default function LocationBanner({ style }) {
+// Phase 8: trackingOff = this shift is tracked for leaving the job site
+// but can't be (no location consent or no Always location). Same bar,
+// tap = onFixTracking (the consent / Always screen). Never blocks a punch.
+export const TRACKING_OFF_TEXT = "Job site alerts are off. Tap to turn on Always location.";
+
+export default function LocationBanner({ style, trackingOff = false, onFixTracking }) {
   const { colors } = useTheme();
   const styles = useStyles();
   const banner = useLocationBanner();
-  if (!banner.visible) return null;
+  const showTracking = !banner.visible && trackingOff && !!onFixTracking;
+  if (!banner.visible && !showTracking) return null;
+  const text = banner.visible ? banner.text : TRACKING_OFF_TEXT;
   return (
-    <TouchableOpacity style={[styles.bar, style]} onPress={banner.fix} accessibilityRole="button" accessibilityLabel={banner.text}>
+    <TouchableOpacity style={[styles.bar, style]} onPress={banner.visible ? banner.fix : onFixTracking} accessibilityRole="button" accessibilityLabel={text}>
       <Feather name="map-pin" size={14} color={colors.orangeText} />
-      <Text style={styles.text}>{banner.text}</Text>
+      <Text style={styles.text}>{text}</Text>
       <Feather name="chevron-right" size={14} color={colors.orangeText} />
     </TouchableOpacity>
   );

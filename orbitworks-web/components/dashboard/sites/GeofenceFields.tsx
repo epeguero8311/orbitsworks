@@ -2,6 +2,18 @@
 
 import Link from "next/link";
 
+// D1 (Phase 8): one toggle drives both flags - a clock-in outside the
+// radius, and (Employee App) leaving the radius while clocked in. It never
+// blocks anything. Shared by the Sites page, the edit modal and the crew
+// code modal so all three say the same thing.
+export const GEOFENCE_TOGGLE_LABEL = "Require geofence";
+export const GEOFENCE_TOGGLE_DESCRIPTION =
+  "Flags clock-ins outside the radius below, and employees who leave it while clocked in (Employee App). Never blocks a punch.";
+
+export function geofenceRadiusHint(value: string, unit: "ft" | "mi"): string {
+  return `Clock-ins farther than ${value || 0} ${unit} from this address are flagged, and so is leaving that area during a shift. Nobody is ever stopped from clocking in or out.`;
+}
+
 // Shared between the Add form (SitesSection.tsx) and the Edit modal
 // (EditSiteModal.tsx) so the Pro-gating affordance and radius inputs look
 // and behave identically in both places.

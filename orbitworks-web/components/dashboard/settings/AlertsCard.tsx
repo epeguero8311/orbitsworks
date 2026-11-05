@@ -127,6 +127,17 @@ export function AlertsCard({
           />
         </div>
 
+        <div id="left-job-site-alert" className="py-1">
+          <Toggle
+            label="Left the job site"
+            description="Employee App: an employee who clocked in on their phone left a geofenced job site for 2+ minutes. Shows in Overview, the supervisor app and Timesheet Approvals. Never clocks anyone out."
+            checked={alerts.leftJobSiteAlert}
+            onChange={(v) => setAlerts((prev) => ({ ...prev, leftJobSiteAlert: v }))}
+            disabled={!isPro}
+            badge={!isPro && <ProBadgeLink />}
+          />
+        </div>
+
         <div id="site-mismatch-alert" className="py-1">
           <Toggle
             label="Clocked in at unassigned site"

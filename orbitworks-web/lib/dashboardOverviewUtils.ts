@@ -39,7 +39,9 @@ export type AlertItem = {
     | "syncWrongPin"
     | "syncedLateApproved"
     // Offline employee create/PIN edit - see createPinChangedAlert.
-    | "pinChanged";
+    | "pinChanged"
+    // Employee App Phase 8 - left the job site during a shift (feed only).
+    | "leftJobSite";
   // Who/what this alert is about - an employee name for every alert type
   // today. A future site-level alert (no single employee involved) should
   // put the site name (or "All Sites") here instead - alertTitle() below
@@ -83,6 +85,7 @@ export const ALERT_SHORT_TAGS: Record<AlertItem["alertType"], string> = {
   syncWrongPin: "Wrong PIN at Sync",
   syncedLateApproved: "Late Punch on Approved Timesheet",
   pinChanged: "PIN Changed",
+  leftJobSite: "Left Job Site",
 };
 
 // Drives the severity dot in AlertsPanel - urgent (red) for alerts that need
@@ -118,6 +121,8 @@ export const ALERT_SEVERITY: Record<AlertItem["alertType"], AlertSeverity> = {
   syncWrongPin: "warning",
   syncedLateApproved: "warning",
   pinChanged: "warning",
+  // Phase 8 - a flag only, leaving never blocks or ends anything.
+  leftJobSite: "warning",
 };
 
 export function alertTitle(alert: AlertItem) {

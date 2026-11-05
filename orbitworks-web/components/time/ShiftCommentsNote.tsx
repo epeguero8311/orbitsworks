@@ -1,5 +1,6 @@
-import type { ClockEvent, ShiftNote } from "@/lib/types";
+import type { ClockEvent, ShiftNote, SiteExit } from "@/lib/types";
 import { commentTimeMs } from "@/lib/shiftComments";
+import { SiteExitsNote } from "@/components/time/SiteExitsNote";
 
 // Employee App Phase 5 - the comments an employee left on this shift in
 // the app, shown on the shift's clock-in (lib/shiftComments.ts picks
@@ -32,14 +33,16 @@ export function ShiftCommentsNote({ comments }: { comments: ShiftNote[] }) {
 }
 
 // A table's Note cell: the event's own note, then its shift's comments
-// (clock-in rows only); "-" when there is neither.
-export function EventNoteCell({ event, comments }: { event: ClockEvent; comments: ShiftNote[] }) {
-  if (!event.note && comments.length === 0) return <>-</>;
+// and (Phase 8) "Left the job site" lines (clock-in rows only); "-" when
+// there is none of them.
+export function EventNoteCell({ event, comments, exits = [] }: { event: ClockEvent; comments: ShiftNote[]; exits?: SiteExit[] }) {
+  if (!event.note && comments.length === 0 && exits.length === 0) return <>-</>;
 
   return (
     <>
       {event.note && <p>{event.note}</p>}
       <ShiftCommentsNote comments={comments} />
+      <SiteExitsNote exits={exits} />
     </>
   );
 }

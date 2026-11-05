@@ -4,7 +4,7 @@ export default function PrivacyContent() {
   return (
     <div className="prose prose-sm max-w-none text-gray-700">
       <p className="text-sm text-gray-500">
-        Last updated: October 14, 2026 (version {TERMS_VERSION})
+        Last updated: November 4, 2026 (version {TERMS_VERSION})
       </p>
 
       <p>
@@ -66,23 +66,36 @@ export default function PrivacyContent() {
 
       <h3>Location Information</h3>
       <p>
-        On Pro plans, when an Employee clocks in or out with their PIN,
+        When an Employee clocks in, clocks out or takes a break - on a
+        supervisor device (Pro plans) or in the Employee App (every plan) -
         the mobile app attempts a single, one-time device location fix
-        (latitude, longitude, and accuracy) if the Employee has granted
-        while-in-use location permission. We do not request "Always"/
-        background location permission, and we do not collect location
-        continuously while an Employee is clocked in or at any time while
-        an Employee is clocked out. Core plans never attempt a location
-        fix.
+        (latitude, longitude, and accuracy) if location permission has
+        been granted. We never collect location at any time while an
+        Employee is clocked out.
+      </p>
+      <p>
+        Leaving the job site (Pro plans, geofenced job sites only): when
+        Customer has enabled a geofence for a job site and an Employee
+        clocks in there from their own phone in the Employee App, the app
+        asks the Employee to agree to location tracking and to allow
+        &quot;Always&quot; location. With both, the phone&apos;s operating system
+        notifies the app when the Employee leaves or returns to that job
+        site&apos;s area while clocked in, and the app records the time and one
+        location fix for each. We do not collect a continuous trail of
+        locations. These locations are deleted after 90 days; the times
+        are kept with the shift record. Tracking stops at clock-out. If
+        tracking cannot run (permission lowered, the Employee signs out,
+        the phone stops it), only the time it was off is recorded.
       </p>
       <p>
         If a location fix is captured, we convert it to an approximate
         address for display and, where Customer has configured and
         enabled a geofence for a job site, compute whether the Employee
-        was inside or outside that site's radius. This is used only to
-        show the location associated with a clock event and to generate
-        an optional alert for Customer's review; location results never
-        block a clock event. Location information is stored as part of
+        was inside or outside that site&apos;s radius. This is used only to
+        show the location associated with a clock event or a job site
+        exit and to generate an optional alert for Customer&apos;s review;
+        location results never block a clock event and never clock anyone
+        out. Location information is stored as part of
         the clock event record it was captured with and follows the
         retention described in Section 5.
       </p>
@@ -95,7 +108,7 @@ export default function PrivacyContent() {
       </p>
       <ul>
         <li>
-          an Employee's profile photo, used as the reference photo for
+          an Employee&apos;s profile photo, used as the reference photo for
           comparison; and
         </li>
         <li>
@@ -112,7 +125,7 @@ export default function PrivacyContent() {
       </p>
       <p>
         Comparison is performed by Amazon Web Services Rekognition on a
-        one-to-one basis between an Employee's reference photo and their
+        one-to-one basis between an Employee&apos;s reference photo and their
         own clock photo. We do not use any Rekognition feature that
         stores a reusable facial template, and no separate biometric
         template or face embedding is stored by OrbitWorks. The
@@ -168,12 +181,12 @@ export default function PrivacyContent() {
       <p>
         For information Customer submits about Employees, OrbitWorks
         generally processes that information to provide the Service
-        according to Customer's configuration and instructions.
+        according to Customer&apos;s configuration and instructions.
       </p>
       <p>
         Customer determines which Employees are added, which features are
         enabled, which information is entered, and how workforce
-        information is used for Customer's employment and business
+        information is used for Customer&apos;s employment and business
         purposes.
       </p>
       <p>
@@ -248,11 +261,11 @@ export default function PrivacyContent() {
           clock-event photos processed for face verification): verification
           photos are deleted 90 days after capture (or 90 days after an
           open mismatch/no-face alert on that photo is resolved); an
-          Employee's reference photo is deleted 1 year after deactivation
+          Employee&apos;s reference photo is deleted 1 year after deactivation
           or 3 years after their last clock event, whichever is sooner,
           and immediately if the Employee record is deleted; and every
-          biometric photo for Customer's account is deleted 90 days after
-          Customer's subscription is canceled. Full detail is in the
+          biometric photo for Customer&apos;s account is deleted 90 days after
+          Customer&apos;s subscription is canceled. Full detail is in the
           Biometric Data Policy.
         </li>
         <li>
@@ -323,12 +336,12 @@ export default function PrivacyContent() {
         affected Customers or other parties.
       </p>
 
-      <h2>9. Children's Information</h2>
+      <h2>9. Children&apos;s Information</h2>
       <p>
         OrbitWorks is designed for workforce and business use and is not
         intended for use by children except where a Customer lawfully
         employs or otherwise manages a minor and is permitted to process
-        the minor's information under applicable law.
+        the minor&apos;s information under applicable law.
       </p>
       <p>
         Customer is responsible for complying with any additional legal
@@ -356,7 +369,7 @@ export default function PrivacyContent() {
       <h2>12. Changes to This Privacy Policy</h2>
       <p>OrbitWorks may update this Privacy Policy from time to time.</p>
       <p>
-        Material changes will be reflected by an updated "Last updated"
+        Material changes will be reflected by an updated &quot;Last updated&quot;
         date and may also be communicated through the Service, by email,
         or through another reasonable method.
       </p>

@@ -61,7 +61,6 @@ export function JoinCodeInfoModal({ code, onAction, onClose }: JoinCodeInfoModal
           <Row label="User limit">{code.userLimit === null ? `No limit (${code.joinedCount} joined)` : `${code.joinedCount} / ${code.userLimit} joined`}</Row>
           <Row label="Time limit">{code.expiresAt === null ? "Never expires" : `Expires ${formatCompanyDateTime(code.expiresAt)}`}</Row>
           <Row label="Created">{code.createdAt === null ? "-" : formatCompanyDateTime(code.createdAt)}</Row>
-          <Row label="Location required">{code.locationRequired ? "Yes" : "No"}</Row>
           <Row label="Subcontractors">{code.subcontractorNames.length === 0 ? "In-house only" : code.subcontractorNames.join(", ")}</Row>
         </dl>
 

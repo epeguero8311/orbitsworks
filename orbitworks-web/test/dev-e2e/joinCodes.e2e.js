@@ -6,7 +6,7 @@ const codeDoc = (t) => db.collection("joinCodes").doc(t);
 const hour = 3600e3;
 const future = () => new Date(Date.now() + 48 * hour).toISOString();
 const past = () => new Date(Date.now() - hour).toISOString();
-const base = (o = {}) => ({ name: "Gate A", siteId: "site-north", subcontractorIds: ["sub-acme"], locationRequired: true, userLimit: 10, expiresAt: null, ...o });
+const base = (o = {}) => ({ name: "Gate A", siteId: "site-north", subcontractorIds: ["sub-acme"], userLimit: 10, expiresAt: null, ...o });
 const list = async (who = "jc-pro-admin") => (await api(who, "GET", "/api/join-codes")).body;
 const row = async (token) => (await list()).codes.find((c) => c.token === token);
 const issued = [];
@@ -19,7 +19,7 @@ const issued = [];
   check("Token is base64url, 24 bytes (32 chars)", /^[A-Za-z0-9_-]{32}$/.test(t1 || ""));
   const d1 = (await codeDoc(t1).get()).data();
   check("companyId from claims, body companyId ignored", d1.companyId === PRO);
-  check("Stored fields complete", ["codeId","name","companyId","siteId","subcontractorIds","locationRequired","userLimit","expiresAt","joinedCount","status","createdByUid","createdAt","updatedAt","revokedAt","replacedByToken"].every((k) => k in d1));
+  check("Stored fields complete", ["codeId","name","companyId","siteId","subcontractorIds","userLimit","expiresAt","joinedCount","status","createdByUid","createdAt","updatedAt","revokedAt","replacedByToken"].every((k) => k in d1));
   let rw = await row(t1);
   check("Create -> shows Active", rw && rw.status === "active", JSON.stringify(rw));
   check("List columns: site name, sub names, joined/limit", rw && rw.siteName === "North Yard" && rw.subcontractorNames.join() === "Acme Labor" && rw.joinedCount === 0 && rw.userLimit === 10);
@@ -27,10 +27,10 @@ const issued = [];
 
   // ---- Edit ----
   const exp = future();
-  r = await api("jc-pro-admin", "POST", "/api/join-codes/update", { token: t1, ...base({ name: "Gate A2", siteId: "site-south", subcontractorIds: ["sub-acme", "sub-bolt"], locationRequired: false, userLimit: 5, expiresAt: exp }) });
+  r = await api("jc-pro-admin", "POST", "/api/join-codes/update", { token: t1, ...base({ name: "Gate A2", siteId: "site-south", subcontractorIds: ["sub-acme", "sub-bolt"], userLimit: 5, expiresAt: exp }) });
   check("Edit -> 200", r.status === 200, JSON.stringify(r.body));
   rw = await row(t1);
-  check("Edit -> changes saved", rw && rw.name === "Gate A2" && rw.siteName === "South Plant" && rw.subcontractorNames.length === 2 && rw.userLimit === 5 && rw.locationRequired === false && Math.abs(rw.expiresAt - Date.parse(exp)) < 1000, JSON.stringify(rw));
+  check("Edit -> changes saved", rw && rw.name === "Gate A2" && rw.siteName === "South Plant" && rw.subcontractorNames.length === 2 && rw.userLimit === 5 && Math.abs(rw.expiresAt - Date.parse(exp)) < 1000, JSON.stringify(rw));
   check("Edit -> token unchanged", r.body.token === t1 && rw.token === t1);
   check("Edit -> codeId unchanged", (await codeDoc(t1).get()).get("codeId") === d1.codeId);
 

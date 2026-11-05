@@ -91,7 +91,6 @@ async function makeCode(companyId, o = {}) {
     companyId,
     siteId: companyId === PRO ? "site-north" : "site-core",
     subcontractorIds: companyId === PRO ? ["sub-acme"] : [],
-    locationRequired: false,
     userLimit: 10,
     expiresAt: null,
     joinedCount: 0,
