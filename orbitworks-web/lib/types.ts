@@ -320,6 +320,10 @@ export interface ClockEvent {
   // once, server-side, by onClockEventCreated - never re-computed after.
   location?: { lat: number; lng: number } | string | null;
   locationAccuracyM?: number | null;
+  // Employee App Phase 6: when the phone got this fix (phone clock, ms).
+  // Only on employeeApp punches. Every plan saves an employeeApp punch's
+  // location (null = no fix, or a fix too far from the punch time).
+  locationFixAtMs?: number | null;
   locationAddress?: string;
   distanceFromSiteM?: number | null;
   // Geofencing (Pro) Part 3 - set once, server-side, by onClockEventCreated
