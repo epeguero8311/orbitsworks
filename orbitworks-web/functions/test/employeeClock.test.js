@@ -587,11 +587,11 @@ test("home site: same rule as clock-in (crew code site, else single assigned, el
   const c = "ec-home-code";
   await seed(c, { employee: { joinCodeId: "code-h", assignedSiteIds: ["site1"] } });
   await db.collection("joinCodes").doc("tok" + c).set({ codeId: "code-h", companyId: c, siteId: "site2", createdAt: admin.firestore.Timestamp.fromMillis(1000) });
-  assert.deepEqual(await homeSite(c), { siteId: "site2", siteName: "Site Two" });
+  assert.deepEqual(await homeSite(c), { siteId: "site2", siteName: "Site Two", fence: null });
   await db.doc(`companies/${c}/jobSites/site2`).update({ active: false });
-  assert.deepEqual(await homeSite(c), { siteId: "site1", siteName: "Site One" });
+  assert.deepEqual(await homeSite(c), { siteId: "site1", siteName: "Site One", fence: null });
   await db.doc(`companies/${c}/employees/emp1`).update({ assignedSiteIds: ["site1", "site2"] });
-  assert.deepEqual(await homeSite(c), { siteId: null, siteName: null });
+  assert.deepEqual(await homeSite(c), { siteId: null, siteName: null, fence: null });
 });
 
 test("home site: matches what the next clock-in gets", async () => {
