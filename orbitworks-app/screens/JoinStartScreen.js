@@ -18,6 +18,7 @@ import JoinStatusView from "./join/JoinStatusView";
 import JoinAccountStep from "./join/JoinAccountStep";
 import JoinDetailsStep from "./join/JoinDetailsStep";
 import JoinWelcomeStep from "./join/JoinWelcomeStep";
+import JoinLocationStep from "./join/JoinLocationStep";
 import { joinStyles as s, BLUE } from "./join/joinStyles";
 
 // Sign-up for a crew code (kind "qr": in-app scanner or phone camera link)
@@ -40,6 +41,7 @@ import { joinStyles as s, BLUE } from "./join/joinStyles";
 //   "account"   Screen 1: name, email, password, two consents
 //   "details"   Screen 2: subcontractor, birthday, selfie, Submit
 //   "camera"    full-screen live selfie
+//   "location"  Screen 3 (Phase 6): explainer + "While using" prompt, Skip ok
 //   "welcome"   PIN; Done signs in with the email/password from the form
 //   "switching" signed in, waiting for the app to switch to EmployeeHome
 //
@@ -137,10 +139,11 @@ export default function JoinStartScreen({ navigation }) {
     if (sending) return true;
     if (step === "camera") setStep("details");
     else if (step === "details") setStep("account");
-    else if (step === "welcome" || step === "switching") return true;
+    else if (step === "location" || step === "welcome" || step === "switching") return true;
     else exit();
     return true;
   }, [step, sending, exit]);
+  const toWelcome = useCallback(() => setStep("welcome"), []);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", back);
@@ -235,7 +238,7 @@ export default function JoinStartScreen({ navigation }) {
       setScrubValue("donePassword", form.password);
       setForm(emptyForm(kind));
       setResult({ pin: res.pin, companyName: res.companyName || info.companyName });
-      setStep("welcome");
+      setStep("location");
       return;
     }
     if (res.kind === "busy") return;
@@ -278,6 +281,13 @@ export default function JoinStartScreen({ navigation }) {
           <Spinner size={32} />
           <Text style={[s.body, { marginTop: 16 }]}>Signing you in...</Text>
         </View>
+      </View>
+    );
+  }
+  if (step === "location") {
+    return (
+      <View style={[s.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <JoinLocationStep onDone={toWelcome} />
       </View>
     );
   }

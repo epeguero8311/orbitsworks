@@ -49,10 +49,10 @@ export default function EmployeeSettingsScreen() {
   const version = Constants.expoConfig?.version ?? "";
   const lastSynced = queue.lastSyncedMs ? formatWhen(queue.lastSyncedMs, now, timezone) : "Never";
 
-  // Same as the supervisor Settings: on asks (or opens the phone's Settings
-  // when it won't ask again); off - only the phone's Settings app can.
+  // On (Phase 6): the phone's prompt if never asked, else the phone's
+  // Settings - same as the Home banner. Off - only the phone's Settings app.
   const setLocation = (on) => {
-    if (on) location.requestPermission();
+    if (on) location.fixPermission();
     else if (location.granted) Linking.openSettings();
   };
   const rows = settingsRows(info);

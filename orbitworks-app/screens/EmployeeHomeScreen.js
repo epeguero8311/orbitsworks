@@ -33,6 +33,7 @@ import CommentsButton from "../components/employee/CommentsButton";
 import InactiveNotice from "../components/employee/InactiveNotice";
 import PunchConfirmation from "../components/employee/PunchConfirmation";
 import ConnectionBanner from "../components/employee/ConnectionBanner";
+import LocationBanner from "../components/employee/LocationBanner";
 import ConfirmModal from "../components/ui/ConfirmModal";
 import Spinner from "../components/Spinner";
 
@@ -146,6 +147,7 @@ export default function EmployeeHomeScreen({ navigation }) {
     <View style={styles.flex}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.lg, paddingBottom: tabBarSpace + spacing.xxl }]}>
         <ConnectionBanner style={styles.banner} />
+        <LocationBanner style={styles.banner} />
         <HomeHeader
           name={view?.name ?? ""}
           photoUrl={view?.photoUrl}
