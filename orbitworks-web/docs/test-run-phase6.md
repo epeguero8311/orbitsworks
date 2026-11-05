@@ -1,9 +1,14 @@
 # Phase 6 phone test run (location) - iPhone
 
-Runs on the first build after Phase 7 (no Phase 6 build of its own). Dev
+Runs on the ONE combined build after Phase 8 (D18 - no Phase 6 or 7 build
+of its own), first, then test-run-phase7.md, then test-run-phase8.md. Dev
 only (orbitworks-dev-ew). Android is tested in Phase 10.
 
-- App: OrbitsWorks Dev (com.orbitworks.app.dev), TestFlight, post-Phase-7 build.
+- App: OrbitsWorks Dev (com.orbitworks.app.dev), TestFlight, the combined
+  post-Phase-8 build.
+- Keep "Require geofence" OFF on every site used here until Phase 8: a Pro
+  clock-in at a geofenced site opens the Phase 8 "Job site alerts" screen
+  after the green screen, which these tests don't expect.
 - Website: https://orbitsworks-backend--orbitworks-dev-ew.us-central1.hosted.app
 - Test companies: jc-test-pro-dev (Pro) and jc-test-core-dev (Core) only.
   Logins: test/dev-e2e/creds.json.
@@ -34,7 +39,11 @@ delete the app and reinstall it from TestFlight first.
   On "Share your location" tap Turn on location, then "Allow While Using
   App". Done on the PIN screen.
 - See: "Share your location" shows after Submit and before the PIN screen;
-  the phone's prompt has no "Always" choice; then the PIN screen as before.
+  the phone's prompt has no "Always" choice (Always is never asked at
+  sign-up - Phase 8 asks for it later, after a Pro clock-in at a geofenced
+  site, see test-run-phase8.md P1) and its text is the Phase 8 one ("...
+  note when you leave the job site while you are clocked in"); then the
+  PIN screen as before.
   Home has no location banner. Settings > Location is on.
 - [ ] OK  [ ] FAILED
 

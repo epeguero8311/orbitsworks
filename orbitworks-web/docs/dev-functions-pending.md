@@ -169,6 +169,34 @@ jc-test-core-dev.
 
 ## Phase 10 to-do list (before the real release)
 
+- **App Store review note for "Always" location** (Phase 8). Explain in
+  App Review notes: background location only while an employee is clocked
+  in at a Pro company's geofenced job site, region monitoring only (no
+  continuous tracking), to flag leaving the job site; a demo login with a
+  geofenced site.
+- **Google Play background location declaration + video** (Phase 8). The
+  Play Console "Location permissions" declaration for
+  ACCESS_BACKGROUND_LOCATION, with a short video of: clock in, the consent
+  screen, the Always prompt, walking out, the notification.
+- **Lawyer review of the new location consent and privacy text** (Phase 8).
+  functions/src/consentVersions.ts (LOCATION_CONSENT_TEXT,
+  LOCATION_CONSENT_VERSION), components/legal/PrivacyContent.tsx and
+  EmployeeNoticeContent.tsx (r6). Any wording change = a version bump.
+- **iOS force-quit behavior** (Phase 8, test-run-phase8.md O3). Confirm on
+  a phone whether a region exit wakes the app after the employee swipes it
+  away. If not: the exit is only seen when the app is next opened outside
+  (or never, if they came back first) - decide whether to show a hint
+  ("keep the app in the background while clocked in").
+- **appStopped gap start is a best guess** (Phase 8). After a restart or a
+  lost region, the gray "phone stopped tracking" gap starts at the later of
+  the last time the phone was known to be tracking and the phone's boot
+  (now - uptime). expo-device uptime pauses during sleep, so the boot time
+  reads later than the real one and the gap can look shorter.
+- **Android leave tracking** (Phase 8). Region-only, no foreground service.
+  Android drops geofences on reboot and when the app is force-stopped; the
+  app re-arms them (and records a gray gap) the next time it opens. Test
+  with the Android build.
+
 - **Prod TEST_COMPANY_IDS=ShipMate would limit Employee App alerts**
   (noted 2026-11-04, Phase 7). The employee's shift ending / still clocked
   in / max hours / overtime alerts are made by the periodic sweep
@@ -265,7 +293,7 @@ jc-test-core-dev.
   useLocalStatusOverlay.js, useSyncQueue.js, useTodayShift.js
   (set-state-in-effect / purity); screens/supervisor/SyncQueueScreen.js
   (unescaped quote). Fix in the Phase 10 lint pass with useAlertsFeed.js.
-- **Old lint error in `orbitworks-app/lib/hooks/useLocationPermission.js`**
+- **DONE in Phase 8 (90b1a05): old lint error in `orbitworks-app/lib/hooks/useLocationPermission.js`**
   (found 2026-11-03, Phase 5c). `react-hooks/set-state-in-effect`: the
   effect calls `refresh()` (which sets state) directly on mount. Not
   touched in Phase 5 (Settings reuses it as-is); the new
@@ -366,8 +394,53 @@ jc-test-core-dev.
   composite + collection-group `token` overrides on employeePushTokens and
   pushTokens - registerEmployeePushToken needs them on a real project).
 
+## Phase 8 (done 2026-11-05, code only - not deployed yet)
+
+Leaving the job site (Pro, flag only). Design: header of
+functions/src/employeeSiteExits.ts. Phone tests: test-run-phase8.md, on
+the one combined build with test-run-phase6.md and test-run-phase7.md.
+
+- **Deploy needs 4 parts** (dev only): firestore indexes (siteExits
+  hasLocation + createdAt, for the 90-day cleanup), firestore rules
+  (siteExits read by staff only, geofenceRadiusM server-only), functions
+  (5 new: recordSiteExit, getShiftFence, cleanupSiteExitLocations,
+  getLocationConsent, acceptLocationConsent; changed: employeeClockPunch,
+  getEmployeeHomeSite, onClockEventCreated, alert code) and the dev
+  website (Time Tracking lines, crew code geofence, Alerts toggle, legal
+  text r6).
+- **Owners see the Terms re-accept prompt** after the website deploy
+  (TERMS_VERSION / PRIVACY_POLICY_VERSION 2026-11-04-r6). On prod this
+  happens at release for every owner - expected.
+- **Fixed in passing (lint, files touched):** orbitworks-app
+  lib/hooks/useLocationPermission.js (set-state-in-effect - the Phase 10
+  item below is done), orbitworks-web lib/hooks/useTimesheetApprovals.ts
+  (set-state-in-effect), the four legal pages (unescaped quotes).
+
+## Native changes queued for the one combined build (no build yet)
+
+All ship together in the first build after Phase 8 (D18). Nothing below is
+in any build on TestFlight today.
+1. 87fda43 (Phase 6) - iOS when-in-use location text. Its "Never in the
+   background" wording is REPLACED by 85dafec.
+2. 1818442 (Phase 7) - expo-notifications plugin (brand color, default
+   Android channel).
+3. 85dafec (Phase 8) - expo-task-manager (new package), expo-location:
+   isIosBackgroundLocationEnabled true (UIBackgroundModes location),
+   isAndroidBackgroundLocationEnabled true (ACCESS_BACKGROUND_LOCATION),
+   isAndroidForegroundServiceEnabled false, new while-using + Always text.
+   Same binary as the supervisor app: the text shows there too, but only
+   the employee login ever asks for Always.
+
 ## Phase 9 to-do
 
+- **Leaving the job site - the rest of the website** (D15, Phase 8).
+  Reports and Excel export (a "left the job site" column / sheet with the
+  times, gray vs red like Time Tracking), and a richer Overview display
+  (the basic "Left Job Site" feed entry already shows in Phase 8).
+- **Short exits still alert** (F1 b, Phase 8). The Overview / supervisor
+  feed entry and the employee's Alerts tab entry are made when the exit
+  syncs, before its return is known, so a short (gray) exit still has
+  them. Decide whether to hold or remove them for short exits.
 - **Duplicate sign-up flag** (decided 2026-10-24, Phase 2 Part C). Flagging
   a crew code sign-up that may duplicate an existing employee, shown on
   the Employees page, is NOT built in Part C. It waits for Phase 9.

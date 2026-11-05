@@ -1,10 +1,13 @@
 # Phase 7 phone test run (alerts + push) - iPhone
 
-Runs on the first build after Phase 7, together with test-run-phase6.md
-(same build, same TestFlight install). Dev only (orbitworks-dev-ew).
+Runs on the ONE combined build after Phase 8 (D18), after
+test-run-phase6.md and before test-run-phase8.md (same build, same
+TestFlight install). Dev only (orbitworks-dev-ew). Keep "Require geofence"
+OFF on the sites used here (see test-run-phase6.md).
 Android is tested in Phase 10 (Android has no server push until then).
 
-- App: OrbitsWorks Dev (com.orbitworks.app.dev), TestFlight, post-Phase-7 build.
+- App: OrbitsWorks Dev (com.orbitworks.app.dev), TestFlight, the combined
+  post-Phase-8 build.
 - Website: https://orbitsworks-backend--orbitworks-dev-ew.us-central1.hosted.app
 - Test companies: jc-test-pro-dev (Pro) and jc-test-core-dev (Core) only.
   Logins: test/dev-e2e/creds.json. Employee logins: jc-pro-emp (Pro) and the
