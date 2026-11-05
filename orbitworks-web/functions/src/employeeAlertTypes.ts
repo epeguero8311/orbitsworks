@@ -11,7 +11,9 @@ import type { Timestamp } from "firebase-admin/firestore";
 //   stillClockedIn - business close + the "Missed clock out alert" delay
 //   maxHours       - this shift passed the company's max hours
 //   overtime       - this week passed the company's overtime threshold
-export const EMPLOYEE_ALERT_TYPES = ["shiftEnding", "stillClockedIn", "maxHours", "overtime"] as const;
+//   leftSite       - Phase 8: left the job site (written when the SiteExit
+//                    syncs, never pushed - the phone already notified)
+export const EMPLOYEE_ALERT_TYPES = ["shiftEnding", "stillClockedIn", "maxHours", "overtime", "leftSite"] as const;
 export type EmployeeAlertType = (typeof EMPLOYEE_ALERT_TYPES)[number];
 
 // companies/{companyId}/employeeAlerts/{alertId} - one per underlying

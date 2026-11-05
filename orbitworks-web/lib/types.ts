@@ -28,8 +28,10 @@ export interface JobSite {
   // for redisplay in the edit form, never used for distance math.
   radiusUnit?: "ft" | "mi";
   // Pro only. When true, address/lat/lng/radiusMeters must be set (see
-  // lib/validators/site.ts) - this is Part 1 (site setup) only, no
-  // clock-in enforcement reads this field yet.
+  // lib/validators/site.ts). It never blocks anything: it flags a clock-in
+  // outside the radius (geofenceStatus) and, for Employee App shifts
+  // (Phase 8), flags leaving the radius during the shift (SiteExit). The
+  // Sites page and the crew code modal both edit it on the site itself.
   requireGeofence?: boolean;
 }
 
@@ -405,6 +407,60 @@ export interface ClockEvent {
   // (functions/src/employeeClock.ts). Also the event's doc id, so a repeated
   // tap returns the first result instead of writing a second event.
   requestId?: string;
+  // Employee App Phase 8: the site's geofence radius when this clock-in was
+  // written (Pro, site geofenced). Locks the radius for the shift's leave
+  // tracking - a later radius change never moves it. Server-written only,
+  // clock-ins only; absent = this shift is not tracked.
+  geofenceRadiusM?: number;
+}
+
+// ---- Employee App Phase 8: leaving the job site ----
+//
+// companies/{companyId}/siteExits/{exitId} - one per stretch of a tracked
+// Employee App shift: either the worker was outside the clock-in site's
+// radius ("left"), or the phone could not track them ("trackingOff").
+// exitId is made on the phone, so a resend never writes a second one.
+// Server-written only (recordSiteExit, closeOpenSiteExits - see
+// functions/src/employeeSiteExits.ts). Never blocks or changes a punch.
+// Times are kept forever; the two locations are cleared after
+// SITE_EXIT_LOCATION_RETENTION_DAYS (locationRemovedAt set). Nothing is
+// stored between start and end - no trail.
+export type SiteExitKind = "left" | "trackingOff";
+
+// How a stretch ended. returned / trackingOn come from the phone; the rest
+// are set by the server when the shift's clock-out lands first.
+export type SiteExitEndReason = "returned" | "trackingOn" | "clockOut" | "autoClockOut";
+
+// Why tracking was off: Always location lowered or off, the employee
+// signed out of this phone mid-shift, or the phone stopped tracking
+// (restart, app force-stopped).
+export type SiteExitOffReason = "permission" | "signedOut" | "appStopped";
+
+export interface SiteExit {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  clockInEventId: string; // the shift's clock-in event id
+  siteId: string | null;
+  siteName: string;
+  kind: SiteExitKind;
+  startMs: number; // phone clock
+  endMs: number | null; // null = still open
+  endReason: SiteExitEndReason | null;
+  // Worked out by the server from the shift's own break events: a "left"
+  // that started on a break shows gray, not red, and sends no alerts.
+  onBreak: boolean;
+  offReason: SiteExitOffReason | null;
+  distanceM: number | null; // from the site at the start fix (left only)
+  startLocation: { lat: number; lng: number } | null;
+  startAccuracyM: number | null;
+  endLocation: { lat: number; lng: number } | null;
+  endAccuracyM: number | null;
+  hasLocation: boolean;
+  locationRemovedAt?: Timestamp;
+  queued: boolean; // reached the server 5+ min after it started
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 // Device Recognition Pro. Doc only exists once a supervisor/admin names the
@@ -441,6 +497,8 @@ export interface AlertActionRecord {
     | "overtime"
     | "breakTooLong"
     | "clockedInOutsideGeofence"
+    // Employee App Phase 8 - left the job site during a shift.
+    | "leftJobSite"
     // Face Verification (Pro). faceBadReference has no entry here - it's
     // never ignored/resolved through this mechanism (no Ignore action at
     // all per spec), only auto-resolved server-side by deleting the alert
@@ -484,6 +542,10 @@ export type MobileAlertType =
   | "missedClockOut"
   | "clockedInOutsideGeofence"
   | "siteMismatch"
+  // Employee App Phase 8: an employee left the clock-in site's radius for
+  // 2+ minutes (not on a break). One per SiteExit (eventId = the shift's
+  // clock-in, id keyed by the exit). Feed only, never pushed.
+  | "leftJobSite"
   // Face Verification (Pro). faceMismatch/faceNoFace are per-clock-event,
   // same as clockedInOutsideGeofence. faceBadReference is the one
   // exception to "one doc per underlying condition, kept forever": it's
@@ -787,7 +849,9 @@ export interface JoinCode {
   siteId: string;
   // [] = in-house only; [ids] = in-house or one of these subcontractors.
   subcontractorIds: string[];
-  locationRequired: boolean;
+  // Phase 8: the old locationRequired field is no longer read or written
+  // (older docs may still have it - left as is). The code's site geofence
+  // is edited on the site itself.
   userLimit: number | null; // null = no code limit (still capped by seats)
   expiresAt: Timestamp | null; // null = never expires
   joinedCount: number;
@@ -814,7 +878,6 @@ export interface JoinCodeListItem {
   siteName: string;
   subcontractorIds: string[];
   subcontractorNames: string[];
-  locationRequired: boolean;
   userLimit: number | null;
   expiresAt: number | null;
   joinedCount: number;
@@ -837,7 +900,9 @@ export interface JoinCodeListResponse {
 // supervisor/admin-only. Phase 7: written by the periodic alert sweep
 // (functions/src/employeeAlerts.ts, types in employeeAlertTypes.ts - keep
 // both in sync), kept 90 days.
-export type EmployeeAlertType = "shiftEnding" | "stillClockedIn" | "maxHours" | "overtime";
+// Phase 8 adds leftSite: written when a SiteExit syncs (no push - the phone
+// already showed its own notification when it happened).
+export type EmployeeAlertType = "shiftEnding" | "stillClockedIn" | "maxHours" | "overtime" | "leftSite";
 
 export interface EmployeeAlert {
   id: string;
