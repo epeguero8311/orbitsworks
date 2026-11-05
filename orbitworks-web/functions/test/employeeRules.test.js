@@ -1113,3 +1113,28 @@ test("Phase 8 FAIL: no client sets or changes geofenceRadiusM on a clock event",
   await assertSucceeds(updateDoc(doc(adminA().firestore(), "companies", A, "clockEvents", "evtA"), { note: "fixed" }));
   await assertFails(updateDoc(doc(adminA().firestore(), "companies", A, "clockEvents", "evtA"), { geofenceRadiusM: 5000 }));
 });
+
+// ---- Phase 9: the possible-duplicate flag is server-only ----
+
+test("Phase 9 FAIL: no client sets, clears or dismisses a duplicate flag (control: a normal edit passes)", async () => {
+  await testEnv.withSecurityRulesDisabled((c) =>
+    updateDoc(doc(c.firestore(), "companies", A, "employees", "empB"), {
+      possibleDuplicateOf: ["empA"],
+      duplicateFlaggedAt: Timestamp.fromMillis(1000),
+    })
+  );
+  const db = adminA().firestore();
+  const ref = doc(db, "companies", A, "employees", "empB");
+  await assertSucceeds(updateDoc(ref, { name: "Ben B" }));
+  await assertFails(updateDoc(ref, { possibleDuplicateOf: [] }));
+  await assertFails(updateDoc(ref, { duplicateFlaggedAt: Timestamp.fromMillis(2000) }));
+  await assertFails(updateDoc(ref, { dismissedDuplicateOf: ["empA"] }));
+  await assertFails(updateDoc(ref, { duplicateDismissedAt: Timestamp.fromMillis(2000), duplicateDismissedByUid: "uidAdmin" }));
+  await assertFails(updateDoc(ref, { duplicateDismissedByName: "Admin" }));
+  for (const field of ["possibleDuplicateOf", "duplicateFlaggedAt", "dismissedDuplicateOf", "duplicateDismissedAt"]) {
+    const value = field.endsWith("At") ? Timestamp.fromMillis(1) : ["empA"];
+    await assertFails(
+      setDoc(doc(db, "companies", A, "employees", `dup-${field}`), { name: "New", active: true, assignedSiteIds: [], pin: "9999", [field]: value })
+    );
+  }
+});

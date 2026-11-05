@@ -424,7 +424,9 @@ service cloud.firestore {
         allow create: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
-          !request.resource.data.keys().hasAny(['faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf']) &&
+          // Phase 9: every duplicate-flag field is server-only (sign-up
+          // writes the flag, dismissDuplicateFlag clears it).
+          !request.resource.data.keys().hasAny(['faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf', 'duplicateFlaggedAt', 'dismissedDuplicateOf', 'duplicateDismissedAt', 'duplicateDismissedByUid', 'duplicateDismissedByName']) &&
           underTotalCap(companyId) &&
           (request.resource.data.active != true || (underCap(companyId) && notPastDue(companyId)));
 
@@ -444,7 +446,7 @@ service cloud.firestore {
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId']) &&
+            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf', 'duplicateFlaggedAt', 'dismissedDuplicateOf', 'duplicateDismissedAt', 'duplicateDismissedByUid', 'duplicateDismissedByName']) &&
           (
             request.resource.data.active != true ||
             resource.data.active == true ||
