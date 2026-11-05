@@ -95,15 +95,17 @@ export async function exportTimesheetsExcel(
   shiftNotes: ShiftNote[],
   companyName: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  siteExits: SiteExit[] = []
 ) {
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
 
   addSummarySheet(workbook, summaries, companyName, startDate, endDate);
-  addDetailSheet(workbook, sessions, companyName, startDate, endDate);
+  addDetailSheet(workbook, sessions, companyName, startDate, endDate, siteExits);
   addNotesSheet(workbook, shiftNotes, startDate, endDate);
   await addPhotosSheet(workbook, sessions, startDate, endDate);
+  addSiteExitsSheet(workbook, siteExits, startDate, endDate);
 
   await downloadWorkbook(
     workbook,
