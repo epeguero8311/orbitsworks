@@ -939,3 +939,53 @@ test("STORAGE FAIL: QR-joined employee can't write or overwrite their own refere
   await assertFails(getBytes(ref(ctx.storage(), `companies/${A}/employees/empQ/reference.jpg`)));
   await assertSucceeds(upload(ctx, `companies/${A}/employees/empQ/selfie/retake.jpg`));
 });
+
+// ===================== Phase 6: punch locations =====================
+// No rules change in Phase 6: an employee reads only their own events, so
+// only their own punch locations. Admins/supervisors of the company read
+// them (website display). Employees never write events or locations.
+
+async function seedLocatedEvents() {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    const located = (employeeId, uid) => ({
+      employeeId,
+      type: "in",
+      source: "employeeApp",
+      createdByUid: uid,
+      location: { lat: 29.95, lng: -90.07 },
+      locationAccuracyM: 12,
+      locationFixAtMs: 1762300000000,
+    });
+    await setDoc(eventDoc(db, A, "locA"), located("empA", "uidA"));
+    await setDoc(eventDoc(db, A, "locB"), located("empB", "uidB"));
+  });
+}
+
+test("PASS: employee reads their own punch location", async () => {
+  await seedLocatedEvents();
+  const db = employeeA().firestore();
+  await assertSucceeds(getDoc(eventDoc(db, A, "locA")));
+  await assertSucceeds(getDocs(query(collection(db, "companies", A, "clockEvents"), where("employeeId", "==", "empA"))));
+});
+
+test("FAIL: employee reads another employee's punch location (get, query, list)", async () => {
+  await seedLocatedEvents();
+  const db = employeeA().firestore();
+  await assertFails(getDoc(eventDoc(db, A, "locB")));
+  await assertFails(getDocs(query(collection(db, "companies", A, "clockEvents"), where("employeeId", "==", "empB"))));
+  await assertFails(getDocs(collection(db, "companies", A, "clockEvents")));
+});
+
+test("FAIL: employee writes a location on a clock event (own or new)", async () => {
+  await seedLocatedEvents();
+  const db = employeeA().firestore();
+  await assertFails(updateDoc(eventDoc(db, A, "locA"), { location: { lat: 1, lng: 2 } }));
+  await assertFails(setDoc(eventDoc(db, A, "locNew"), employeeAppEvent({ location: { lat: 1, lng: 2 }, locationAccuracyM: 5 })));
+});
+
+test("PASS: admin and supervisor of the company read employee punch locations", async () => {
+  await seedLocatedEvents();
+  await assertSucceeds(getDoc(eventDoc(adminA().firestore(), A, "locB")));
+  await assertSucceeds(getDoc(eventDoc(supervisorA().firestore(), A, "locB")));
+});
