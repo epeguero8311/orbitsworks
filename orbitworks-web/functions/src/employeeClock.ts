@@ -2,7 +2,9 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { timingSafeEqual, randomUUID } from "crypto";
 import { db } from "./shared";
-import { employeeClockPunchSchema, getMyPinVerifierSchema, EmployeeClockAction } from "./employeeClockValidators";
+import { employeeClockPunchSchema, getMyPinVerifierSchema, EmployeeClockAction, PunchLocation } from "./employeeClockValidators";
+import { locationForPunch } from "./lib/punchLocation";
+import { detectClockInSite, isAccurateEnoughToDetect, loadDetectableSites, pickEmployeeClockInSite } from "./geofencing";
 import { makePinVerifier, PinVerifierResult } from "./lib/pinVerifier";
 import { queuedPinCheck, readPinHistory } from "./lib/pinHistory";
 import { pinHistoryRef } from "./pins";
@@ -36,8 +38,11 @@ import {
 //   6. in/out only: the live clock photo must be this punch's own file
 //      (companies/{c}/clockEvents/{employeeId}/{requestId}.jpg), an image,
 //      uploaded in the last 10 minutes
-//   7. site, clock-in only: crew code site if that site is still active,
-//      else the one assigned site if exactly one is assigned, else none.
+//   7. site, clock-in only: Pro + a fix accurate to 500 m inside a job
+//      site = that site (Phase 6, the same detectClockInSite as the
+//      supervisor app); otherwise crew code site if that site is still
+//      active, else the one assigned site if exactly one is assigned, else
+//      none. Core never detects.
 //      Clock out and breaks copy the site of that shift's clock-in event
 //      (read in the transaction), so a site change mid-shift never splits
 //      one shift across two sites.
@@ -47,6 +52,13 @@ import {
 //      so two punches for the same employee can never both pass the state
 //      check.
 // A rejected in/out punch deletes its photo, so no face photo is left over.
+//
+// Location (Phase 6, every plan): the phone's fix is saved on the event as
+// location {lat,lng} + locationAccuracyM + locationFixAtMs when the phone
+// got it within 5 min before to 1 min after the punch (phone clock, see
+// lib/punchLocation.ts); otherwise location: null. An older app sends no
+// location field and the event gets none. A location never rejects or
+// changes a punch's time - it is only for display and site detection.
 //
 // PIN check before the camera (checkPinOnly: true, in/out only): steps 1, 2,
 // 4 and 5 only - the same account check and the same PIN lock transaction
@@ -199,6 +211,39 @@ export async function resolveEmployeeSite(companyId: string, employee: EmployeeD
     if (name) return { siteId: assigned[0], siteName: name };
   }
   return { siteId: null, siteName: NO_SITE_NAME };
+}
+
+// Duplicated from lib/stripe/tiers.ts's isProPlan (can't import across
+// the web boundary - same as clockEvents.ts).
+function isProPlan(planTier: unknown): boolean {
+  return typeof planTier === "string" && planTier.startsWith("pro_");
+}
+
+// Phase 6 clock-in site. Pro + a fix accurate enough = detection over every
+// active located site (the supervisor app's own detectClockInSite); inside
+// one = that site. Anything else (Core, no fix, a rough fix, outside every
+// site, no located sites) = the Phase 3 site from resolveEmployeeSite.
+// The company and sites are only read when there is a usable fix.
+async function resolveClockInSite(
+  companyId: string,
+  employee: EmployeeDoc,
+  location: PunchLocation | null | undefined
+): Promise<Site & { autoDetected: boolean }> {
+  const canDetect = !!location && isAccurateEnoughToDetect(location.accuracyM);
+  const [phase3, detection] = await Promise.all([
+    resolveEmployeeSite(companyId, employee),
+    canDetect ? detectForPro(companyId, location as PunchLocation) : Promise.resolve(null),
+  ]);
+  const picked = pickEmployeeClockInSite(detection, phase3);
+  return { ...picked, siteName: picked.siteName || NO_SITE_NAME };
+}
+
+async function detectForPro(companyId: string, location: PunchLocation) {
+  const companyRef = db.collection("companies").doc(companyId);
+  const company = await companyRef.get();
+  if (!isProPlan(company.data()?.planTier)) return null;
+  const sites = await loadDetectableSites(companyRef.collection("jobSites"));
+  return detectClockInSite({ lat: location.lat, lng: location.lng }, location.accuracyM, sites);
 }
 
 function expectedPhotoPath(companyId: string, employeeId: string, requestId: string): string {
@@ -415,8 +460,12 @@ export const employeeClockPunch = onCall(async (request) => {
     if (!photoUrl) return reject(clockError("photo"));
   }
 
+  // 6b. location (Phase 6): kept only when the fix is from around the punch,
+  // by the phone's clock (queuedAtMs; every current app punch sends it).
+  const location = locationForPunch(input.location, input.queuedAtMs ?? nowMs);
+
   // 7. site (clock-in only - see the header)
-  const clockInSite = input.action === "in" ? await resolveEmployeeSite(companyId, employee) : null;
+  const clockInSite = input.action === "in" ? await resolveClockInSite(companyId, employee, location) : null;
 
   // 8. state + write, atomically
   const latestQuery = companyRef
@@ -479,6 +528,13 @@ export const employeeClockPunch = onCall(async (request) => {
         requestId: input.requestId,
       };
       if (photoUrl) data.photoUrl = photoUrl;
+      // Phase 6. No location field from an older app = none written.
+      if (location !== undefined) {
+        data.location = location ? { lat: location.lat, lng: location.lng } : null;
+        data.locationAccuracyM = location ? location.accuracyM : null;
+        data.locationFixAtMs = location ? location.fixAtMs : null;
+      }
+      if (clockInSite?.autoDetected) data.siteAutoDetected = true;
       if (queued && !fast) {
         data.queued = true;
         if (isSyncedLate(eventMs, txNowMs)) data.syncedLate = true;

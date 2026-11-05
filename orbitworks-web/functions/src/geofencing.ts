@@ -168,6 +168,94 @@ export function detectSite(
   };
 }
 
+// ---- Clock-in site detection, shared by both apps ----
+//
+// ONE place for "which site is this clock-in at": the supervisor app's pin
+// clock-in (onClockEventCreated, after the write) and the Employee App's
+// clock-in (employeeClockPunch, before the write - Phase 6) both call
+// loadDetectableSites + detectClockInSite. What each one does with "no
+// match" differs and stays with the caller: the supervisor app saves no
+// site; the Employee App keeps its Phase 3 site (pickEmployeeClockInSite).
+
+// Every active job site, as detection candidates. A site with no saved
+// coordinates is filtered out by detectSite itself.
+export async function loadDetectableSites(
+  jobSitesRef: FirebaseFirestore.CollectionReference
+): Promise<DetectableSite[]> {
+  const snap = await jobSitesRef.where("active", "==", true).get();
+  return snap.docs.map((d) => {
+    const s = d.data() as { name?: string; lat?: number; lng?: number; radiusMeters?: number; requireGeofence?: boolean };
+    return {
+      id: d.id,
+      name: s.name ?? "",
+      lat: s.lat,
+      lng: s.lng,
+      radiusMeters: s.radiusMeters,
+      requireGeofence: s.requireGeofence === true,
+      active: true,
+    };
+  });
+}
+
+export interface ClockInDetection {
+  // False = no active located site at all: callers keep the site they had.
+  hasCandidates: boolean;
+  // The matched site, or null when the fix is inside none of them.
+  siteId: string | null;
+  siteName: string | null;
+  // The "outside geofence" badge/alert input for this clock-in.
+  geofence: GeofenceClassification;
+}
+
+// Attribution over every located site, then the geofence result: a
+// matched site is "inside" only when THAT site is geofenced (a matched
+// unfenced site shows nothing); no match falls back to a fenced-only check
+// so someone nowhere near a fenced site is still flagged "outside".
+export function detectClockInSite(
+  location: { lat: number; lng: number } | null,
+  accuracyM: number | null,
+  candidates: DetectableSite[]
+): ClockInDetection {
+  const none: GeofenceClassification = { applicable: false, status: null, distanceM: null };
+  const attribution = detectSite(location, accuracyM, candidates);
+  if (!attribution.hasCandidates) {
+    return { hasCandidates: false, siteId: null, siteName: null, geofence: none };
+  }
+  if (attribution.siteId) {
+    const matched = candidates.find((c) => c.id === attribution.siteId);
+    const geofence: GeofenceClassification = matched?.requireGeofence
+      ? { applicable: true, status: "inside", distanceM: attribution.distanceM }
+      : none;
+    return { hasCandidates: true, siteId: attribution.siteId, siteName: attribution.siteName, geofence };
+  }
+  const fenceCheck = detectSite(location, accuracyM, candidates.filter((c) => c.requireGeofence));
+  const geofence: GeofenceClassification = fenceCheck.hasCandidates
+    ? { applicable: true, status: fenceCheck.status, distanceM: fenceCheck.distanceM }
+    : none;
+  return { hasCandidates: true, siteId: null, siteName: null, geofence };
+}
+
+// Employee App (Pro) only: a fix less accurate than this (or with no
+// accuracy at all) is too rough to pick a site from - the Phase 3 site is
+// used instead. The fix is still saved for display.
+export const DETECTION_MAX_ACCURACY_M = 500;
+
+export function isAccurateEnoughToDetect(accuracyM: number | null | undefined): boolean {
+  return typeof accuracyM === "number" && accuracyM <= DETECTION_MAX_ACCURACY_M;
+}
+
+// Employee App clock-in: inside a site = the detected site wins; else the
+// Phase 3 site (crew code site -> single assigned site -> none).
+export function pickEmployeeClockInSite(
+  detection: ClockInDetection | null,
+  phase3Site: { siteId: string | null; siteName: string }
+): { siteId: string | null; siteName: string; autoDetected: boolean } {
+  if (detection && detection.siteId) {
+    return { siteId: detection.siteId, siteName: detection.siteName ?? "", autoDetected: true };
+  }
+  return { siteId: phase3Site.siteId, siteName: phase3Site.siteName, autoDetected: false };
+}
+
 export function formatGeofenceDistance(meters: number): string {
   const feet = meters / 0.3048;
   if (feet < 1000) {

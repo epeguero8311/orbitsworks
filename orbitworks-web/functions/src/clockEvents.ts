@@ -11,7 +11,7 @@ import {
   OVERRIDE_REASON_MAX_LENGTH,
 } from "./shared";
 import { MAPBOX_TOKEN, haversineMeters, reverseGeocode } from "./geocoding";
-import { classifyGeofence, detectSite, DetectableSite, GeofenceStatus } from "./geofencing";
+import { classifyGeofence, detectClockInSite, loadDetectableSites, GeofenceStatus } from "./geofencing";
 import { checkLateClockIn, checkEarlyClockOut, checkOutsideGeofence, checkSiteMismatch, createAlertIfNew } from "./alerts";
 import { checkFaceMatch, REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY } from "./rekognition";
 
@@ -160,12 +160,12 @@ export const onClockEventCreated = onDocumentCreated(
     // write time (mobile app / temp link) - the client never resolves an
     // address, a distance, a geofence classification, or (new, auto site
     // detection) the site itself - that would let a tampered client just
-    // claim "inside" or pick whichever site it likes. Only Pro companies'
-    // clients are ever wired up to attempt a location fix at all, so
-    // `location` is omitted entirely (not even null) for a Core company's
-    // event - checking that key, rather than the company's plan, is what
-    // lets this skip a company-doc read for the common Core case instead of
-    // spending one on every single clock event.
+    // claim "inside" or pick whichever site it likes. The supervisor app
+    // only attempts a fix for Pro companies, so its Core events have no
+    // `location` key at all - checking that key, rather than the company's
+    // plan, skips a company-doc read for them. Employee App punches
+    // (Phase 6) carry a location on every plan; a Core one costs that one
+    // read and then nothing else here (no geocode, no geofence).
     //
     // Admin manual entries (source: "adminManual") are exempt from
     // geofencing entirely, not just enforcement - there's no real GPS fix
@@ -185,10 +185,11 @@ export const onClockEventCreated = onDocumentCreated(
     // client's siteId alone") whenever detection doesn't apply at all - a
     // Core company, a Pro company with zero fenced sites (both must "keep
     // today's flow exactly"), or a non-pin/non-in/out event.
-    // "employeeApp" is left out on purpose: its site is set when the punch
-    // is written (crew code site, else assigned site, else none), and
-    // detection here would overwrite it. Revisit in Employee App Phase 6
-    // (location).
+    // "employeeApp" is left out on purpose: employeeClockPunch already
+    // picked its site before the write (Phase 6: Pro + a good fix inside a
+    // site = that site, else crew code site -> single assigned -> none),
+    // using the same detectClockInSite helper as this branch. Running this
+    // branch for it would null the Phase 3 site on "no match".
     const isPinInOrOut =
       companyIsPro && data.source === "pin" && (data.type === "in" || data.type === "out");
 
@@ -218,30 +219,13 @@ export const onClockEventCreated = onDocumentCreated(
         // enforcement, not whether a site can be matched at all). A site
         // with no saved coordinates still can't be matched - see
         // SitesSection.tsx's own nudge for that remaining gap.
-        const sitesSnap = await jobSitesRef.where("active", "==", true).get();
-        const allCandidates: DetectableSite[] = sitesSnap.docs.map((d) => {
-          const s = d.data() as {
-            name?: string;
-            lat?: number;
-            lng?: number;
-            radiusMeters?: number;
-            requireGeofence?: boolean;
-          };
-          return {
-            id: d.id,
-            name: s.name ?? "",
-            lat: s.lat,
-            lng: s.lng,
-            radiusMeters: s.radiusMeters,
-            requireGeofence: s.requireGeofence === true,
-            active: true,
-          };
-        });
-
-        const attribution = detectSite(rawLocation, accuracyM, allCandidates);
-        if (attribution.hasCandidates) {
-          resolvedSiteId = attribution.siteId;
-          resolvedSiteName = attribution.siteName;
+        // Shared with the Employee App's clock-in (geofencing.ts). Here, as
+        // before, "no match" saves no site.
+        const allCandidates = await loadDetectableSites(jobSitesRef);
+        const detection = detectClockInSite(rawLocation, accuracyM, allCandidates);
+        if (detection.hasCandidates) {
+          resolvedSiteId = detection.siteId;
+          resolvedSiteName = detection.siteName;
           siteCorrected = resolvedSiteId !== clientSiteId;
 
           // Site mismatch (info-only, never blocks) - only meaningful when
@@ -253,33 +237,13 @@ export const onClockEventCreated = onDocumentCreated(
             siteMismatch = true;
           }
 
-          if (resolvedSiteId) {
-            // Matched a real site - the "outside geofence" badge/alert
-            // only ever applies when THAT site opted into geofencing.
-            // Matching a non-geofenced site (e.g. an office with no fence)
-            // must look identical to a Core company/no-fenced-sites event -
-            // no badge, no alert - never implied just because detection
-            // got smarter about which site this is.
-            const matched = allCandidates.find((c) => c.id === resolvedSiteId);
-            if (matched?.requireGeofence) {
-              resolvedGeofenceApplicable = true;
-              resolvedGeofenceStatus = "inside";
-              resolvedDistanceM = attribution.distanceM;
-            }
-          } else {
-            // Nothing matched broadly - fall back to a fenced-only check
-            // so the "outside geofence" badge/alert and the "no job site
-            // detected" Approvals prompt keep working exactly as before
-            // this change, for whoever is genuinely nowhere near any
-            // geofenced site.
-            const fencedCandidates = allCandidates.filter((c) => c.requireGeofence);
-            const fenceCheck = detectSite(rawLocation, accuracyM, fencedCandidates);
-            if (fenceCheck.hasCandidates) {
-              resolvedGeofenceApplicable = true;
-              resolvedGeofenceStatus = fenceCheck.status;
-              resolvedDistanceM = fenceCheck.distanceM;
-            }
-          }
+          // Matched a real site: the "outside geofence" badge/alert only
+          // applies when THAT site is geofenced. No match: a fenced-only
+          // check, so someone nowhere near a geofenced site is still
+          // flagged (see detectClockInSite).
+          resolvedGeofenceApplicable = detection.geofence.applicable;
+          resolvedGeofenceStatus = detection.geofence.status;
+          resolvedDistanceM = detection.geofence.distanceM;
         }
       } else {
         // type === "out": never re-detect - a clock-out always keeps the
@@ -558,7 +522,11 @@ export const onClockEventCreated = onDocumentCreated(
         if (locationAddress) updates.locationAddress = locationAddress;
       }
 
-      if (!isPinInOrOut) {
+      // Employee App (Phase 6) saves a location on breaks too, but breaks
+      // never get a geofence badge (a supervisor break has no location at
+      // all). Its clock in/out do, against the site the punch was given.
+      const isEmployeeAppBreak = data.source === "employeeApp" && data.type !== "in" && data.type !== "out";
+      if (!isPinInOrOut && !isEmployeeAppBreak) {
         const siteId = data.siteId as string | null | undefined;
         const siteSnap = siteId ? await jobSitesRef.doc(siteId).get() : null;
         const site = siteSnap?.data() as
