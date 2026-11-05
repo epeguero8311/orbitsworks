@@ -67,7 +67,13 @@
         }
       ],
       "expo-secure-store",
-      "expo-notifications"
+      [
+        "expo-notifications",
+        {
+          "color": "#3b6fe0",
+          "defaultChannel": "default"
+        }
+      ]
     ],
     "extra": {
       "eas": {
