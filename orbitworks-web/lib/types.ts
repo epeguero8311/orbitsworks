@@ -507,8 +507,9 @@ export type MobileAlertType =
   | "autoClockOut"
   // Employee App Phase 4 (offline punches). Admin/owner web only, never
   // pushed, filtered out of the supervisor mobile Alerts tab like
-  // autoClockOut. syncWrongPin: 3+ queued punches for one employee had a
-  // wrong PIN when they synced (per employee per day).
+  // autoClockOut. syncWrongPin: a queued punch for one employee had a
+  // wrong PIN when it synced and was not recorded - from the 1st, once per
+  // employee per day (Phase 7).
   // syncedLateApproved: a queued punch synced into a timesheet that was
   // already approved (per event).
   | "syncWrongPin"
@@ -833,11 +834,16 @@ export interface JoinCodeListResponse {
 // push notifications. Server-written only (Cloud Functions); the employee
 // can read only docs whose employeeId matches their own claim, never write.
 // Separate from the company-wide alerts collection (MobileAlert), which is
-// supervisor/admin-only.
+// supervisor/admin-only. Phase 7: written by the periodic alert sweep
+// (functions/src/employeeAlerts.ts, types in employeeAlertTypes.ts - keep
+// both in sync), kept 90 days.
+export type EmployeeAlertType = "shiftEnding" | "stillClockedIn" | "maxHours" | "overtime";
+
 export interface EmployeeAlert {
   id: string;
   employeeId: string;
-  alertType: string;
+  alertType: EmployeeAlertType;
+  title: string;
   message: string;
   reason: string; // why it fired, in plain words
   shiftId: string | null; // clock-in event id of the related shift
