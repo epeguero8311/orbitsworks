@@ -119,3 +119,14 @@ test("isAccurateEnoughToDetect: up to 500 m; none or worse = skip detection", ()
   assert.equal(isAccurateEnoughToDetect(null), false);
   assert.equal(isAccurateEnoughToDetect(undefined), false);
 });
+
+const { isSiteMismatch } = require("../lib/geofencing.js");
+
+test("isSiteMismatch: detected site outside the assigned list only", () => {
+  assert.equal(isSiteMismatch("a", ["b"]), true);
+  assert.equal(isSiteMismatch("a", ["a", "b"]), false);
+  assert.equal(isSiteMismatch("a", []), false);
+  assert.equal(isSiteMismatch("a", undefined), false);
+  assert.equal(isSiteMismatch("a", "a"), false);
+  assert.equal(isSiteMismatch(null, ["b"]), false);
+});

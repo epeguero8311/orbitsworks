@@ -11,7 +11,7 @@ import {
   OVERRIDE_REASON_MAX_LENGTH,
 } from "./shared";
 import { MAPBOX_TOKEN, haversineMeters, reverseGeocode } from "./geocoding";
-import { classifyGeofence, detectClockInSite, loadDetectableSites, GeofenceStatus } from "./geofencing";
+import { classifyGeofence, detectClockInSite, isSiteMismatch, loadDetectableSites, GeofenceStatus } from "./geofencing";
 import { checkLateClockIn, checkEarlyClockOut, checkOutsideGeofence, checkSiteMismatch, createAlertIfNew } from "./alerts";
 import { checkFaceMatch, REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY } from "./rekognition";
 
@@ -228,14 +228,9 @@ export const onClockEventCreated = onDocumentCreated(
           resolvedSiteName = detection.siteName;
           siteCorrected = resolvedSiteId !== clientSiteId;
 
-          // Site mismatch (info-only, never blocks) - only meaningful when
-          // the employee actually has assigned sites and a real site (not
-          // "no match") was detected; "no site detected" gets its own
-          // separate Approvals treatment instead of being a mismatch.
-          const assignedSiteIds = employeeData?.assignedSiteIds ?? [];
-          if (resolvedSiteId && assignedSiteIds.length > 0 && !assignedSiteIds.includes(resolvedSiteId)) {
-            siteMismatch = true;
-          }
+          // Site mismatch (info-only) - shared with the Employee App
+          // clock-in (geofencing.ts isSiteMismatch).
+          siteMismatch = isSiteMismatch(resolvedSiteId, employeeData?.assignedSiteIds);
 
           // Matched a real site: the "outside geofence" badge/alert only
           // applies when THAT site is geofenced. No match: a fenced-only
@@ -277,6 +272,13 @@ export const onClockEventCreated = onDocumentCreated(
           }
         }
       }
+    }
+
+    // Employee App clock-in (Phase 6): employeeClockPunch already set
+    // siteMismatch with the same isSiteMismatch (detected site only), so
+    // the site-mismatch alert below fires the same as for a pin punch.
+    if (data.source === "employeeApp" && data.type === "in" && data.siteMismatch === true) {
+      siteMismatch = true;
     }
 
     const siteWasResolved = resolvedSiteId !== undefined;

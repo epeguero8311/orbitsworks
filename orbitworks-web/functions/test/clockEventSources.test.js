@@ -260,6 +260,19 @@ test("pin still gets auto site detection (unchanged)", async () => {
   assert.equal(event.siteCorrected, true);
 });
 
+test("pin mismatch via the shared isSiteMismatch: set when not assigned, not when assigned (unchanged)", async () => {
+  const c = "src-pin-mismatch";
+  await seedCompany(c, PRO);
+  await seedEmployee(c, { withSelfie: false });
+  await seedNearbySite(c);
+  await db.doc(`companies/${c}/employees/emp1`).update({ assignedSiteIds: ["other"] });
+  const a = await createAndTrigger(c, "e1", { source: "pin", ...AT_NEAR_SITE });
+  assert.equal(a.event.siteMismatch, true);
+  await db.doc(`companies/${c}/employees/emp1`).update({ assignedSiteIds: ["near"] });
+  const b = await createAndTrigger(c, "e2", { source: "pin", ...AT_NEAR_SITE });
+  assert.equal(b.event.siteMismatch, undefined);
+});
+
 test("pin outside every site: no site, auto-detected (unchanged after the shared-helper refactor)", async () => {
   const c = "src-pin-outside";
   await seedCompany(c, PRO);

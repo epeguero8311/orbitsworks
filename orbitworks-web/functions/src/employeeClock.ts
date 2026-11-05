@@ -4,7 +4,7 @@ import { timingSafeEqual, randomUUID } from "crypto";
 import { db } from "./shared";
 import { employeeClockPunchSchema, getMyPinVerifierSchema, EmployeeClockAction, PunchLocation } from "./employeeClockValidators";
 import { locationForPunch } from "./lib/punchLocation";
-import { detectClockInSite, isAccurateEnoughToDetect, loadDetectableSites, pickEmployeeClockInSite } from "./geofencing";
+import { detectClockInSite, isAccurateEnoughToDetect, isSiteMismatch, loadDetectableSites, pickEmployeeClockInSite } from "./geofencing";
 import { makePinVerifier, PinVerifierResult } from "./lib/pinVerifier";
 import { queuedPinCheck, readPinHistory } from "./lib/pinHistory";
 import { pinHistoryRef } from "./pins";
@@ -534,7 +534,11 @@ export const employeeClockPunch = onCall(async (request) => {
         data.locationAccuracyM = location ? location.accuracyM : null;
         data.locationFixAtMs = location ? location.fixAtMs : null;
       }
-      if (clockInSite?.autoDetected) data.siteAutoDetected = true;
+      if (clockInSite?.autoDetected) {
+        data.siteAutoDetected = true;
+        // Same rule as the supervisor app's pin clock-in (geofencing.ts).
+        if (isSiteMismatch(clockInSite.siteId, emp.assignedSiteIds)) data.siteMismatch = true;
+      }
       if (queued && !fast) {
         data.queued = true;
         if (isSyncedLate(eventMs, txNowMs)) data.syncedLate = true;

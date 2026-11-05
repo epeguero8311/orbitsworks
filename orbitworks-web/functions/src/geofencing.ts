@@ -235,6 +235,16 @@ export function detectClockInSite(
   return { hasCandidates: true, siteId: null, siteName: null, geofence };
 }
 
+// Site mismatch (info-only, never blocks), shared by the supervisor pin
+// clock-in and the Employee App clock-in: a real site was detected and the
+// employee has assigned sites, none of them that one. No assigned sites or
+// no detected site = never a mismatch ("no site detected" has its own
+// Approvals treatment).
+export function isSiteMismatch(detectedSiteId: string | null | undefined, assignedSiteIds: unknown): boolean {
+  if (!detectedSiteId || !Array.isArray(assignedSiteIds) || assignedSiteIds.length === 0) return false;
+  return !assignedSiteIds.includes(detectedSiteId);
+}
+
 // Employee App (Pro) only: a fix less accurate than this (or with no
 // accuracy at all) is too rough to pick a site from - the Phase 3 site is
 // used instead. The fix is still saved for display.

@@ -296,3 +296,80 @@ test("the trigger keeps the detected site; timesheet approval and last site use 
   const emp = (await db.doc(`companies/${c}/employees/emp1`).get()).data();
   assert.equal(emp.lastEventSiteId, "siteA");
 });
+
+// ---- site mismatch (same rule as supervisor pin punches) ----
+
+test("mismatch: detected site not in assigned sites -> siteMismatch set", async () => {
+  const c = "sd-mm-set";
+  await seed(c); // assigned to siteB only
+  const res = await punch(c, "in", { at: AT_A });
+  assert.equal(res.siteId, "siteA");
+  assert.equal((await eventOf(c, res.eventId)).siteMismatch, true);
+});
+
+test("mismatch: detected site is one of the assigned sites -> not set", async () => {
+  const c = "sd-mm-assigned";
+  await seed(c, { employee: { assignedSiteIds: ["siteA", "siteB"] } });
+  const res = await punch(c, "in", { at: AT_A });
+  assert.equal(res.siteId, "siteA");
+  assert.equal((await eventOf(c, res.eventId)).siteMismatch, undefined);
+});
+
+test("mismatch: employee with no assigned sites -> never set", async () => {
+  const c = "sd-mm-none";
+  await seed(c, { employee: { assignedSiteIds: [] } });
+  const res = await punch(c, "in", { at: AT_A });
+  assert.equal(res.siteId, "siteA");
+  assert.equal((await eventOf(c, res.eventId)).siteMismatch, undefined);
+});
+
+test("mismatch: no detection (outside, rough fix, Core) -> never set", async () => {
+  const c1 = "sd-mm-outside";
+  await seed(c1, { employee: { assignedSiteIds: ["siteB"] } });
+  await seedCrewCode(c1);
+  const r1 = await punch(c1, "in", { at: NOWHERE });
+  assert.equal(r1.siteId, "crew");
+  assert.equal((await eventOf(c1, r1.eventId)).siteMismatch, undefined);
+
+  const c2 = "sd-mm-rough";
+  await seed(c2);
+  const r2 = await punch(c2, "in", { at: AT_A, accuracyM: 800 });
+  assert.equal((await eventOf(c2, r2.eventId)).siteMismatch, undefined);
+
+  const c3 = "sd-mm-core";
+  await seed(c3, { plan: "core2_tier1" });
+  const r3 = await punch(c3, "in", { at: AT_A });
+  assert.equal(r3.siteId, "siteB");
+  const ev3 = await eventOf(c3, r3.eventId);
+  assert.equal(ev3.siteMismatch, undefined);
+  assert.equal(ev3.siteAutoDetected, undefined);
+});
+
+test("mismatch: clock out and breaks never carry it", async () => {
+  const c = "sd-mm-shift";
+  await seed(c);
+  const t0 = Date.now() - 60 * 60 * 1000;
+  await punch(c, "in", { at: AT_A, punchMs: t0 });
+  const rb = await punch(c, "breakStart", { at: AT_A, punchMs: t0 + 60000 });
+  const re = await punch(c, "breakEnd", { at: AT_A, punchMs: t0 + 120000 });
+  const ro = await punch(c, "out", { at: AT_A, punchMs: t0 + 180000 });
+  for (const r of [rb, re, ro]) assert.equal((await eventOf(c, r.eventId)).siteMismatch, undefined);
+});
+
+test("mismatch: the trigger raises the existing siteMismatch alert for an employeeApp clock-in", async () => {
+  const c = "sd-mm-alert";
+  await seed(c);
+  const res = await punch(c, "in", { at: AT_A });
+  const ref = db.doc(`companies/${c}/clockEvents/${res.eventId}`);
+  const data = (await ref.get()).data();
+  process.env.ALERTS_FEED_ENABLED = "true";
+  try {
+    await funcs.onClockEventCreated.run({ params: { companyId: c, eventId: res.eventId }, data: { data: () => data, ref } });
+  } finally {
+    process.env.ALERTS_FEED_ENABLED = "false";
+  }
+  const alerts = await db.collection(`companies/${c}/alerts`).where("alertType", "==", "siteMismatch").get();
+  assert.equal(alerts.size, 1);
+  assert.equal(alerts.docs[0].data().siteId, "siteA");
+  assert.equal((await ref.get()).data().siteMismatch, true);
+});

@@ -101,6 +101,18 @@ delete the app and reinstall it from TestFlight first.
   Home shows Site A once synced; the timesheet approval row is Site A.
 - [ ] OK  [ ] FAILED
 
+### D1b. Site mismatch (same as supervisor punches)
+- Do: Use the D1 clock-in (Site A detected, jc-pro-emp assigned to Site B
+  only). Then on the website add Site A to jc-pro-emp's assigned sites,
+  Clock Out, Clock In again at Site A. Afterwards set them back to Site B
+  only.
+- See: first clock-in: a "Clocked in at Site A - not one of their assigned
+  job sites." alert in the website Alerts tab (and siteMismatch on the event,
+  I check). Second clock-in (Site A assigned): no new mismatch alert. Clock
+  out and breaks never get one. An employee with no assigned sites never
+  gets one.
+- [ ] OK  [ ] FAILED
+
 ### D2. Outside every site: Phase 3 site
 - Do: Go 2+ km from every site (or test from home). Clock In.
 - See: site = Site B (the one assigned site), no "Auto-detected" tag; the
