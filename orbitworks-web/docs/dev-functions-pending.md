@@ -81,6 +81,8 @@ Phase 3 Step 6 (shrunk to this):
 - Fixed 2026-10-26 (commit ccb0b90, test only - `alerts.ts` unchanged):
   the maxHours tests now freeze Date at fixed Chicago times (08:45 and
   15:00 fire; a shift from yesterday does not), so they pass at any hour.
+  Phase 7 (2026-11-04): maxHours now counts from the shift's clock-in, so an
+  overnight shift fires too (keyed to the clock-in day; day-shift ids unchanged).
 
 ## Phase 3 to-do: employeeApp in the clock-event trigger (found in Phase 1)
 
@@ -166,6 +168,34 @@ jc-test-core-dev.
   Not touched.
 
 ## Phase 10 to-do list (before the real release)
+
+- **Prod TEST_COMPANY_IDS=ShipMate would limit Employee App alerts**
+  (noted 2026-11-04, Phase 7). The employee's shift ending / still clocked
+  in / max hours / overtime alerts are made by the periodic sweep
+  (checkPeriodicAlerts), which skips every company outside
+  isCompanyInTestScope. With prod's TEST_COMPANY_IDS=qdLsh075T743sGEKyZs7
+  only ShipMate employees would get them. Decide at release (clear it, or
+  gate only the supervisor feed). Not touched.
+- **missedClockOut fires at midnight for overnight workers** (older issue,
+  noted 2026-11-04, Phase 7). The sweep raises Missed Clock-Out for anyone
+  whose latest event is not on today's date (alerts.ts, Missed Clock Out
+  block), so a shift that crosses midnight gets one at 00:00 even though
+  nobody missed anything. `missedClockOutMinutes` is not used by it. Phase
+  7 did not change it (it now uses that delay only for the employee's
+  "still clocked in"). Not touched.
+- **Android push for the Employee App** (Phase 7, deferred). Android local
+  break reminders work without it; server pushes (shift ending, still
+  clocked in, max hours, overtime) and the employee token need:
+  1. An Android app `com.orbitworks.app.dev` (and the prod package) in
+     Firebase, `google-services.json` in orbitworks-app, and
+     `android.googleServicesFile` in app.config.js per variant.
+  2. An FCM V1 service-account key uploaded with
+     `eas credentials -p android` for each package.
+  3. Check that a date-trigger break reminder fires on time in Doze (no
+     exact-alarm permission is asked; Android may deliver a few minutes
+     late).
+  Today `getExpoPushTokenAsync` fails on Android and registerEmployeePush
+  just skips (no crash, no token).
 
 - **Write temp link API tests** (added 2026-10-24). There are none today, in
   `functions/test` or `test/dev-e2e`. Cover `generateTempClockLink`,
@@ -319,18 +349,22 @@ jc-test-core-dev.
   `EmployeeSettingsScreen.js`. Phase 4 only wires "Last synced", the PIN
   row ("****") and the sign-out warning.
 
-## Phase 7 to-do
+## Phase 7 to-do (done 2026-11-04, code only - not deployed yet)
 
-- **Wire the employee Alerts tab** (decided 2026-10-29).
-  `screens/employee/EmployeeAlertsScreen.js` still uses `MOCK_ALERTS` /
-  `MOCK_ALERTS_EMPTY` from `lib/mockData.js`.
-- **Alert on the FIRST queued punch refused for a wrong PIN** (noted
-  2026-11-03, Phase 5 Redo removal). Today syncWrongPin alerts the admin
-  only from the 3rd wrong PIN at sync in 24 h
-  (functions/src/employeeClockQueued.ts, SYNC_PIN_ALERT_AT = 3). With no
-  Redo, every one of those is a lost punch the employee can only remove,
-  so the admin should hear about the first one (the 5-in-24-h block stays
-  as it is).
+- **Wire the employee Alerts tab** - done. Real data
+  (`lib/hooks/useEmployeeAlerts.js`: own employeeAlerts + this phone's
+  fired break reminders); `lib/mockData.js` deleted.
+- **Alert on the FIRST queued punch refused for a wrong PIN** - done.
+  `SYNC_PIN_ALERT_AT = 1`, still one syncWrongPin per employee per day;
+  the 5-in-24-h block is unchanged.
+- Phone tests: `orbitworks-web/docs/test-run-phase7.md`, on the
+  post-Phase-7 build together with test-run-phase6.md.
+- **Deploy needs 3 parts** (dev only): functions (3 new:
+  registerEmployeePushToken, clearEmployeePushToken, cleanupEmployeeAlerts;
+  checkPeriodicAlerts changed), firestore rules (employeeAlerts
+  isLinkedSelf, employeePushTokens) and firestore indexes (employeeAlerts
+  composite + collection-group `token` overrides on employeePushTokens and
+  pushTokens - registerEmployeePushToken needs them on a real project).
 
 ## Phase 9 to-do
 
