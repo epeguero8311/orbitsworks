@@ -17,6 +17,8 @@ import { useSites } from "@/lib/hooks/useSites";
 import { localDateKey, dateKey, startOfWeek } from "@/lib/reportUtils";
 import { applyAutoBreak } from "@/lib/autoBreak";
 import { evaluateSessionWarnings, type SessionWarning } from "@/lib/sessionWarnings";
+import { useSiteExitsByClockIn } from "@/lib/hooks/useSiteExitsByClockIn";
+import { clockInIds } from "@/lib/shiftComments";
 import type { ClockEvent, Flag, TimesheetApproval } from "@/lib/types";
 
 export type ApprovalRow = {
@@ -72,12 +74,21 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
   const { sites } = useSites();
   const [events, setEvents] = useState<EventWithId[]>([]);
   const [approvals, setApprovals] = useState<Map<string, TimesheetApproval>>(new Map());
-  const [loading, setLoading] = useState(true);
+  // The range whose events have loaded (or failed); loading = not this
+  // range yet. Set only in the listener callbacks (no setState in the
+  // effect body).
+  const [loadedKey, setLoadedKey] = useState("");
+  const rangeKey = `${userData?.companyId ?? ""}|${startDate}|${endDate}`;
+  const loading = loadedKey !== rangeKey;
   const [error, setError] = useState("");
+  // Phase 8: "left the job site" stretches of the loaded shifts (red
+  // Timesheet Approvals warning).
+  const shiftIds = useMemo(() => clockInIds(events), [events]);
+  const { exitsByClockIn } = useSiteExitsByClockIn(userData?.companyId, shiftIds);
 
   useEffect(() => {
     if (!userData?.companyId) return;
-    setLoading(true);
+    const key = `${userData.companyId}|${startDate}|${endDate}`;
 
     // Widened to the full calendar week(s) spanning startDate..endDate -
     // the overtime check below needs each employee's whole week of
@@ -120,12 +131,12 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
             ...(d.data() as Omit<ClockEvent, "id">),
           }))
         );
-        setLoading(false);
+        setLoadedKey(key);
       },
       (err) => {
         console.error("Timesheet approvals events listener error:", err);
         setError("Couldn't load clock events for this range.");
-        setLoading(false);
+        setLoadedKey(key);
       }
     );
 
@@ -305,6 +316,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
                 weeklyOvertimeThreshold: settings.weeklyOvertimeThreshold,
                 faceVerification: settings.faceVerification,
                 isPro,
+                siteExits: exitsByClockIn.get(pendingIn.id) ?? [],
               }),
               jobId: approval?.jobId ?? null,
               defaultJobId: employee.jobId ?? null,
@@ -346,6 +358,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     settings.weeklyOvertimeThreshold,
     settings.faceVerification,
     isPro,
+    exitsByClockIn,
   ]);
 
   const pendingCount = useMemo(

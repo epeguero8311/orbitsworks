@@ -33,6 +33,11 @@ export type Alerts = {
   // separate threshold needed for either.
   lateClockInAlert: boolean;
   earlyClockOutAlert: boolean;
+  // Employee App Phase 8 (Pro): "Left the job site" - the Overview /
+  // supervisor app feed entry and the red Timesheet Approvals warning.
+  // Default on. Leaving never blocks anything. Mirrors
+  // functions/src/alerts.ts ALERT_SETTINGS_DEFAULTS.leftJobSiteAlert.
+  leftJobSiteAlert: boolean;
 };
 
 export type AppSettings = {
@@ -98,6 +103,7 @@ export const DEFAULT_ALERTS: Alerts = {
   siteMismatchWarning: true,
   lateClockInAlert: true,
   earlyClockOutAlert: true,
+  leftJobSiteAlert: true,
 };
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {

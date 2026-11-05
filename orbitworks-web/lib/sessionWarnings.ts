@@ -1,5 +1,6 @@
 import type { Timestamp } from "firebase/firestore";
-import type { ClockEvent } from "@/lib/types";
+import type { ClockEvent, SiteExit } from "@/lib/types";
+import { redSiteExits } from "@/lib/siteExits";
 import type { Alerts, FaceVerificationSettings } from "@/lib/hooks/useCompanySettings";
 
 // Timesheet Approvals' per-session warning icon/modal (SessionWarningsModal,
@@ -27,7 +28,10 @@ export type SessionWarningType =
   | "faceMismatch"
   | "faceNoFace"
   | "supervisorOverride"
-  | "autoClockOut";
+  | "autoClockOut"
+  // Employee App Phase 8: left the job site during the shift (red ones
+  // only - on a break, short and tracking off are gray, no warning).
+  | "leftSite";
 
 // Single source of truth for severity - evaluateSessionWarnings below reads
 // this rather than hardcoding a severity per warning, so a type's color can
@@ -51,6 +55,8 @@ export const WARNING_SEVERITY: Record<SessionWarningType, WarningSeverity> = {
   supervisorOverride: "red",
   // Yellow per spec - informational, never blocks anything.
   autoClockOut: "yellow",
+  // Red per D15 - a flag only, never changes the hours.
+  leftSite: "red",
 };
 
 // Below FACE_MATCH_THRESHOLD (90, functions/src/rekognition.ts) but at or
@@ -74,6 +80,7 @@ export type SessionWarning =
   | { type: "faceMismatch"; severity: WarningSeverity; direction: Direction; event: ClockEvent }
   | { type: "faceNoFace"; severity: WarningSeverity; direction: Direction; event: ClockEvent }
   | { type: "supervisorOverride"; severity: WarningSeverity; overrideEventId: string }
+  | { type: "leftSite"; severity: WarningSeverity; exits: SiteExit[] }
   | {
       type: "autoClockOut";
       severity: WarningSeverity;
@@ -134,6 +141,9 @@ export interface EvaluateSessionWarningsInput {
   // Geofencing/auto-site-detection are Pro-only features, same gate the
   // pre-existing hasGeofenceWarning/hasSiteMismatchWarning booleans used.
   isPro: boolean;
+  // Employee App Phase 8: this shift's stretches (siteExits), oldest first.
+  // Optional - absent = none.
+  siteExits?: SiteExit[];
 }
 
 export function evaluateSessionWarnings(input: EvaluateSessionWarningsInput): SessionWarning[] {
@@ -243,6 +253,12 @@ export function evaluateSessionWarnings(input: EvaluateSessionWarningsInput): Se
     if (clockOutEvent.geofenceStatus === "outside") {
       warnings.push(withSeverity("outsideGeofence", { direction: "out", event: clockOutEvent }));
     }
+  }
+
+  // Phase 8 - leaving the job site (Pro, same toggle as the feed entry).
+  if (input.isPro && alerts.leftJobSiteAlert !== false) {
+    const red = redSiteExits(input.siteExits ?? []);
+    if (red.length > 0) warnings.push(withSeverity("leftSite", { exits: red }));
   }
 
   // Face Verification (Pro) - no isPro check needed here: faceCheck is only
