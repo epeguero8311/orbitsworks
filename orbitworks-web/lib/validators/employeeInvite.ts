@@ -24,3 +24,18 @@ export const employeeInviteCreateSchema = z.discriminatedUnion("kind", [
 export const employeeInviteTokenSchema = z.object({ token: employeeInviteTokenField });
 
 export type EmployeeInviteCreateInput = z.infer<typeof employeeInviteCreateSchema>;
+
+// ---- Phase 9 (H1 a): the one invite form on the Employees page ----
+//
+// One form, a role dropdown. Each role keeps its own send path and checks:
+//   employee   -> employeeInviteCreateSchema newPerson (createEmployeeInvite)
+//   supervisor -> an invites doc with the picked job sites
+//   admin      -> an invites doc, no job sites
+// Same email rule for all three.
+export const inviteFormSchema = z.discriminatedUnion("role", [
+  z.object({ role: z.literal("employee"), email: emailField, siteId: idField.nullable() }),
+  z.object({ role: z.literal("supervisor"), email: emailField, siteIds: z.array(idField).max(200) }),
+  z.object({ role: z.literal("admin"), email: emailField }),
+]);
+
+export type InviteFormInput = z.infer<typeof inviteFormSchema>;
