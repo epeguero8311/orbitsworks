@@ -585,6 +585,25 @@ export async function createLeftJobSiteAlert(input: {
   }
 }
 
+// Phase 8 (G3 c): a short exit (back within 3 min) never shows as an alert.
+// When its return syncs, employeeSiteExits.ts calls this to delete the
+// exit's leftJobSite feed alert (same deterministic id createAlertIfNew
+// used), so it leaves the website Overview and the supervisor Alerts tab.
+// Never throws; a missing alert (toggle off, never written) is fine.
+export async function clearLeftJobSiteAlert(companyId: string, siteExitId: string, startMs: number): Promise<boolean> {
+  try {
+    const id = buildAlertId("leftJobSite", siteExitId, localDateKey(new Date(startMs)));
+    const ref = db.collection("companies").doc(companyId).collection("alerts").doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) return false;
+    await ref.delete();
+    return true;
+  } catch (err) {
+    console.warn("leftJobSite alert clear failed", { companyId, error: String(err) });
+    return false;
+  }
+}
+
 // Face Verification (Pro) - called from functions/src/rekognition.ts
 // AFTER it writes faceCheck onto the clock event, fully isolated (its own
 // try/catch there) from the check itself. Mirrors checkOutsideGeofence/

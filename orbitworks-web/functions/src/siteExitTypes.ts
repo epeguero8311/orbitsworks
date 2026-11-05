@@ -56,3 +56,9 @@ export const MAX_SITE_EXITS_PER_SHIFT = 30;
 // Left = this long outside before it counts (the phone holds the exit back
 // until then; a return inside this window cancels it).
 export const SITE_EXIT_DWELL_MS = 2 * 60 * 1000;
+
+// F1 b / G3 c: a "left" that ended by returning within this is "short" -
+// shown gray on the website, and its leftJobSite feed alert is removed
+// when the return syncs (clearLeftJobSiteAlert). Mirrors
+// orbitworks-web/lib/siteExits.ts and orbitworks-app/lib/siteExitLogic.js.
+export const SHORT_EXIT_MS = 3 * 60 * 1000;

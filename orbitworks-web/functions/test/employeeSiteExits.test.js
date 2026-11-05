@@ -203,6 +203,30 @@ test("return ends the stretch; a second end changes nothing", async () => {
   assert.equal((await exitDoc(c, start.exitId)).endMs, backMs);
 });
 
+test("G3 c: back within 3 min removes the feed alert; the employee's own entry stays; 3+ min keeps it", async () => {
+  const c = "se-short";
+  await seed(c);
+  const shift = (await punch(c, "in", { punchMs: Date.now() - 30 * MIN })).eventId;
+  const feed = () => db.collection(`companies/${c}/alerts`).where("alertType", "==", "leftJobSite").get();
+
+  const short = left(shift, Date.now() - 20 * MIN);
+  await call("recordSiteExit", c, short);
+  assert.equal((await feed()).size, 1);
+  const backShort = short.atMs + 2.5 * MIN;
+  assert.equal((await call("recordSiteExit", c, { ...short, phase: "end", atMs: backShort, location: fix(SITE, backShort) })).recorded, true);
+  assert.equal((await feed()).size, 0);
+  assert.ok((await db.doc(`companies/${c}/employeeAlerts/leftSite-${short.exitId}`).get()).exists);
+  assert.equal((await exitDoc(c, short.exitId)).endReason, "returned");
+
+  const long = left(shift, Date.now() - 10 * MIN);
+  await call("recordSiteExit", c, long);
+  const backLong = long.atMs + 3 * MIN;
+  await call("recordSiteExit", c, { ...long, phase: "end", atMs: backLong, location: fix(SITE, backLong) });
+  const left2 = await feed();
+  assert.equal(left2.size, 1);
+  assert.equal(left2.docs[0].data().siteExitId, long.exitId);
+});
+
 test("D8: an exit that doesn't hold up against the real site is dropped (inside, rough fix, no fix)", async () => {
   const c = "se-drop";
   await seed(c);

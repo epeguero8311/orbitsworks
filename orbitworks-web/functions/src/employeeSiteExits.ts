@@ -5,10 +5,10 @@ import { db } from "./shared";
 import { haversineMeters } from "./geocoding";
 import { fenceForSite, fenceSide, type ShiftFence } from "./geofencing";
 import { employeeClaims, sendEmployeeAlert } from "./employeeAlerts";
-import { createLeftJobSiteAlert } from "./alerts";
+import { clearLeftJobSiteAlert, createLeftJobSiteAlert } from "./alerts";
 import { leftSiteText } from "./employeeShiftAlerts";
 import { acceptLocationConsentSchema, getShiftFenceSchema, recordSiteExitSchema, type RecordSiteExitInput } from "./siteExitValidators";
-import { MAX_SITE_EXITS_PER_SHIFT, SITE_EXIT_LOCATION_RETENTION_DAYS, type SiteExitEndReason } from "./siteExitTypes";
+import { MAX_SITE_EXITS_PER_SHIFT, SHORT_EXIT_MS, SITE_EXIT_LOCATION_RETENTION_DAYS, type SiteExitEndReason } from "./siteExitTypes";
 import { LOCATION_CONSENT_TEXT, LOCATION_CONSENT_VERSION, PRIVACY_POLICY_VERSION } from "./consentVersions";
 
 // ---- Employee App Phase 8: leaving the job site (Pro) ----
@@ -290,11 +290,13 @@ async function recordEnd(
   const tracking = shift.endMs === null;
   const ref = exitsCol(ids.companyId).doc(input.exitId);
   const endReason: SiteExitEndReason = input.kind === "left" ? "returned" : "trackingOn";
+  let startMs: number | null = null;
   const recorded = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const exit = snap.data();
     if (!exit || exit.employeeId !== ids.employeeId || exit.clockInEventId !== input.clockInEventId || exit.kind !== input.kind) return false;
     if (input.atMs < exit.startMs) return false;
+    startMs = exit.startMs;
     if (exit.endMs === null) {
       // Ended after the clock-out: the clock-out already ends it.
       if (shift.endMs !== null && input.atMs > shift.endMs) return false;
@@ -313,6 +315,12 @@ async function recordEnd(
     });
     return true;
   });
+  // G3 c: back within 3 min = a gray "short" exit, never an alert - its
+  // feed entry (Overview + supervisor Alerts tab) is removed. The
+  // employee's own notification and Alerts tab entry stay as they are.
+  if (recorded && input.kind === "left" && startMs !== null && input.atMs - startMs < SHORT_EXIT_MS) {
+    await clearLeftJobSiteAlert(ids.companyId, input.exitId, startMs);
+  }
   return { ok: true, recorded, tracking };
 }
 
