@@ -169,6 +169,21 @@ jc-test-core-dev.
 
 ## Phase 10 to-do list (before the real release)
 
+- **Company-time day edges on every website page** (Phase 9, H10 b). Day
+  view, Timesheet Approvals, Reports, the Overview card and the Excel dates
+  all cut days at midnight in the BROWSER's timezone (new Date(`${day}T00:00`)),
+  while the server's alerts and auto clock-out use the company's
+  (America/Chicago, functions/src/shared.ts). An admin outside Central time
+  sees different day edges. Switch every website day edge to company time
+  (employeeAppConfig.timezone / COMPANY_TIMEZONE) in one pass. Phase 9 only
+  fixed the pairing (a shift crossing midnight now pairs).
+- **Supervisor/admin invite seat check is not atomic** (noted Phase 9).
+  acceptInvite (functions/src/company.ts) checks isOverActiveCap with a
+  plain read before creating the employee, not in a transaction, so two
+  invites accepted at the same moment for the last seat could both go
+  through. Employee App invites (acceptEmployeeInvite) already re-check
+  seats in a transaction.
+
 - **App Store review note for "Always" location** (Phase 8). Explain in
   App Review notes: background location only while an employee is clocked
   in at a Pro company's geofenced job site, region monitoring only (no
@@ -300,7 +315,7 @@ jc-test-core-dev.
   useNotificationPermission.js avoids the pattern (state set only in the
   promise callback). Fix in the Phase 10 lint pass.
 - **Re-auth Apple credentials in EAS before any release build** (found 2026-11-04, employeeDev build 20, 8e013d8): EAS got "Apple 401" and "Failed to fetch Apple provisioning profiles", skipped the check on Apple's servers and used its local check. Build and submit still worked. Run an interactive `eas credentials` / Apple login before the release builds.
-- **Old lint error in `orbitworks-web/lib/hooks/useClockEventsByDay.ts:28`** (found 2026-11-04, Phase 5 7d): `react-hooks/set-state-in-effect`, `setLoading(true)` / `setError("")` run directly in the effect; the new useShiftCommentsByClockIn.ts avoids it. Fix in the Phase 10 lint pass.
+- **DONE in Phase 9 (f80b570): old lint error in `orbitworks-web/lib/hooks/useClockEventsByDay.ts:28`** (found 2026-11-04, Phase 5 7d): `react-hooks/set-state-in-effect`, `setLoading(true)` / `setError("")` run directly in the effect; the new useShiftCommentsByClockIn.ts avoids it. Fix in the Phase 10 lint pass.
 - **phoneClockOff only catches a clock set back** (decided 2026-11-01,
   fast punches ec726c0). The expected time uses expo-device uptime, which
   pauses while the phone sleeps, so it can only lag the real time and the
@@ -431,12 +446,18 @@ in any build on TestFlight today.
    Same binary as the supervisor app: the text shows there too, but only
    the employee login ever asks for Always.
 
-## Phase 9 to-do
+## Phase 9 (done 2026-11-05, code only - not deployed yet)
 
-- **Leaving the job site - the rest of the website** (D15, Phase 8).
-  Reports and Excel export (a "left the job site" column / sheet with the
-  times, gray vs red like Time Tracking), and a richer Overview display
-  (the basic "Left Job Site" feed entry already shows in Phase 8).
-- **Duplicate sign-up flag** (decided 2026-10-24, Phase 2 Part C). Flagging
-  a crew code sign-up that may duplicate an existing employee, shown on
-  the Employees page, is NOT built in Part C. It waits for Phase 9.
+Website catch-up. Website test run: test-run-phase9.md (no new phone
+build). Both old Phase 9 items are done: leaving the job site in Reports,
+Excel and an Overview card (H7, H8), and the possible-duplicate flag on the
+Employees page with Dismiss (H4).
+
+- **Deploy needs 3 parts** (dev only): firestore rules (the
+  possible-duplicate fields are server-only), functions (1 new:
+  dismissDuplicateFlag) and the dev website. No index changes.
+- **Fixed in passing (lint, files touched):** lib/hooks/useClockEventsByDay.ts
+  (the Phase 10 item below is done), lib/hooks/useReports.ts (manual memo),
+  lib/reportExcelSheets.ts (any), components ApprovalsTable.tsx and the
+  Reports page body (set-state-in-effect), the Overview page body
+  (unescaped quotes).
