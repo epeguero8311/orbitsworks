@@ -144,8 +144,19 @@ How it works (so the times make sense):
   quickly so you are back inside under 3 min after you left.
 - See: the notification still came. Website line is GRAY "Left the job
   site from <a> - <b> (short)"; no red Timesheet Approvals warning for it.
-  (The Overview entry and the Alerts tab entry still show - they are made
-  when the exit syncs, before the return is known.)
+- [ ] OK  [ ] FAILED
+
+### W4b. A short exit never stays an alert (G3 c)
+- Do: Right after W4, with signal, open the website Overview and the
+  supervisor app Alerts tab (second phone, jc-pro-sup). Wait 1 min after
+  you are back inside with the app open.
+- See: the "Left Job Site" entry for the W4 exit may show for a moment (it
+  is made when the exit syncs, before the return is known), then is GONE
+  from the Overview and from the supervisor Alerts tab once the return
+  syncs. The employee's own Alerts tab entry ("You have left the job
+  site") and the phone notification stay as they were.
+- I check: alerts has no left-<exitId>-* doc for the W4 exit;
+  employeeAlerts/leftSite-<exitId> still there.
 - [ ] OK  [ ] FAILED
 
 ### W5. Supervisor app shows it (D5)

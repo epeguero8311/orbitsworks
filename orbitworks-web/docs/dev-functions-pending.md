@@ -437,10 +437,6 @@ in any build on TestFlight today.
   Reports and Excel export (a "left the job site" column / sheet with the
   times, gray vs red like Time Tracking), and a richer Overview display
   (the basic "Left Job Site" feed entry already shows in Phase 8).
-- **Short exits still alert** (F1 b, Phase 8). The Overview / supervisor
-  feed entry and the employee's Alerts tab entry are made when the exit
-  syncs, before its return is known, so a short (gray) exit still has
-  them. Decide whether to hold or remove them for short exits.
 - **Duplicate sign-up flag** (decided 2026-10-24, Phase 2 Part C). Flagging
   a crew code sign-up that may duplicate an existing employee, shown on
   the Employees page, is NOT built in Part C. It waits for Phase 9.
