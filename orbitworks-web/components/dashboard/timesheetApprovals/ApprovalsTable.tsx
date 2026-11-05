@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Pencil, Trash2, Plus, ShieldAlert } from "lucide-react";
+import { Pencil, Trash2, Plus, ShieldAlert, MessageSquare } from "lucide-react";
 import type { ApprovalRow } from "@/lib/hooks/useTimesheetApprovals";
 import type { ClockEvent, Job } from "@/lib/types";
 import { useSites } from "@/lib/hooks/useSites";
@@ -180,7 +180,12 @@ export function ApprovalsTable({
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
   const headerCheckboxRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+  // When new rows arrive, drop optimistic values the real data now matches
+  // and selections of rows that are gone. Done while rendering (React's
+  // "adjust state when a prop changes" pattern), not in an effect.
+  const [prevRows, setPrevRows] = useState(rows);
+  if (prevRows !== rows) {
+    setPrevRows(rows);
     setOptimisticStatus((prev) => {
       if (prev.size === 0) return prev;
       let changed = false;
@@ -218,7 +223,7 @@ export function ApprovalsTable({
       }
       return changed ? next : prev;
     });
-  }, [rows]);
+  }
 
   const allSelected = rows.length > 0 && rows.every((r) => selectedKeys.has(r.key));
   const someSelected = rows.some((r) => selectedKeys.has(r.key));
@@ -358,6 +363,19 @@ export function ApprovalsTable({
               <span className="inline-flex items-center rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
                 Clocked In
               </span>
+            )}
+            {/* Phase 9 (H6 a): employee comments - an icon, not a warning;
+                it opens the same window. */}
+            {row.comments.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setViewingWarningsRow(row)}
+                className="inline-flex items-center justify-center rounded-full bg-gray-100 p-1 text-gray-600 hover:bg-gray-200"
+                title={`${row.comments.length} employee comment${row.comments.length === 1 ? "" : "s"}`}
+                aria-label="See employee comments"
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+              </button>
             )}
             {worst != null && (
               <button
@@ -566,6 +584,8 @@ export function ApprovalsTable({
           employeeName={viewingWarningsRow.employeeName}
           siteName={viewingWarningsRow.siteName}
           warnings={viewingWarningsRow.warnings}
+          comments={viewingWarningsRow.comments}
+          siteExits={viewingWarningsRow.siteExits}
           sites={sites}
           onAssignSite={(siteId) =>
             onAssignSite(viewingWarningsRow.key, viewingWarningsRow.sessionEventIds, siteId)

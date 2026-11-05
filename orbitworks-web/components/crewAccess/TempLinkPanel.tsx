@@ -119,7 +119,8 @@ export default function TempLinkPanel() {
       </div>
 
       <div className="mt-6">
-        <h2 className="text-sm font-semibold text-gray-950">Active temp links</h2>
+        {/* Phase 9 (H11 a): how many are live right now. */}
+        <h2 className="text-sm font-semibold text-gray-950">Active temp links{t.activeLinks.length > 0 ? ` (${t.activeLinks.length})` : ""}</h2>
         {t.linksLoading ? (
           <p className="mt-2 text-sm text-gray-600">Loading...</p>
         ) : t.activeLinks.length === 0 ? (

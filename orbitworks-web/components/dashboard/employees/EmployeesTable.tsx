@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import type { Employee, EmployeeInvite, JobSite, Job, Subcontractor } from "@/lib/types";
 import { UpgradeToast } from "@/components/UpgradeToast";
 import { EmployeeRoleTag } from "@/components/dashboard/employees/EmployeeRoleTag";
+import { DuplicateBadge } from "@/components/dashboard/employees/DuplicateFlag";
 import { EmployeeInviteStatusPill } from "@/components/dashboard/employees/EmployeeInviteStatusPill";
 
 // Falls back to an initial instead of the browser's broken-image icon
@@ -221,6 +222,7 @@ export function EmployeesTable({
                       <EmployeeAvatar photoUrl={employee.photoUrl} name={employee.name} />
                       {employee.name}
                       <EmployeeRoleTag employee={employee} />
+                      <DuplicateBadge employee={employee} />
                       {!employee.appAccess && <EmployeeInviteStatusPill invite={invitesByEmployee?.get(employee.id)} />}
                       {/* Face Verification (Pro) - "bad" takes priority
                           over "no pfp" since a bad pfp usually still has

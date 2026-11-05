@@ -7,6 +7,7 @@ import { EmployeeSitesField } from "@/components/dashboard/employees/EmployeeSit
 import { EmployeeCompanyField } from "@/components/dashboard/employees/EmployeeCompanyField";
 import { EmployeeDeleteSection } from "@/components/dashboard/employees/EmployeeDeleteSection";
 import { EmployeeAppInviteSection, type EmployeeAppInviteApi } from "@/components/dashboard/employees/EmployeeAppInviteSection";
+import { DuplicateSection } from "@/components/dashboard/employees/DuplicateFlag";
 import type { Employee, EmployeeInvite, JobSite, Job, Subcontractor } from "@/lib/types";
 
 export function EmployeeModal({
@@ -20,6 +21,8 @@ export function EmployeeModal({
   appInvite,
   appInviteApi,
   appInvitePlanOk,
+  allEmployees,
+  onOpenEmployee,
 }: {
   employee: Employee;
   sites: JobSite[];
@@ -32,6 +35,9 @@ export function EmployeeModal({
   appInvite: EmployeeInvite | undefined;
   appInviteApi: EmployeeAppInviteApi;
   appInvitePlanOk: boolean | null;
+  // Phase 9 (H4 a): for the possible-duplicate section (names + open).
+  allEmployees: Employee[];
+  onOpenEmployee: (id: string) => void;
 }) {
   const m = useEmployeeModal({ employee, jobs, subcontractors, companyName, companyId, onClose });
 
@@ -103,6 +109,8 @@ export function EmployeeModal({
           dob={m.dob}
           onDobChange={m.setDob}
         />
+
+        <DuplicateSection employee={employee} employees={allEmployees} onOpenEmployee={onOpenEmployee} />
 
         <EmployeeAppInviteSection employee={employee} invite={appInvite} api={appInviteApi} planOk={appInvitePlanOk} />
 

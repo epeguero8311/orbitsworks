@@ -86,7 +86,7 @@ export default function JoinCodesSection() {
             ) : !data || data.codes.length === 0 ? (
               <p className="p-4 text-sm text-gray-600">No crew codes yet. Create one to get started.</p>
             ) : (
-              <JoinCodeList codes={data.codes} onInfo={(c) => setInfoCodeId(c.codeId)} />
+              <JoinCodeList codes={data.codes} sites={sites} onInfo={(c) => setInfoCodeId(c.codeId)} />
             )}
           </div>
         </>

@@ -1,10 +1,8 @@
 "use client";
 
-import { useState, FormEvent } from "react";
-import { collection, addDoc, serverTimestamp, query, where, getDocs } from "firebase/firestore";
+import { useState } from "react";
 import { httpsCallable } from "firebase/functions";
-import { db, functions } from "@/lib/firebase";
-import { useAuth } from "@/lib/AuthContext";
+import { functions } from "@/lib/firebase";
 import { useInvites } from "@/lib/hooks/useInvites";
 import type { Invite, JobSite } from "@/lib/types";
 
@@ -24,28 +22,16 @@ function emailStatusBadge(invite: Invite) {
 }
 
 const ROLE_COPY = {
-  supervisor: {
-    listTitle: "Supervisors",
-    formTitle: "Supervisor invites",
-    description:
-      "Invite supervisors by email. Once they accept, they'll show up above in the employee list too - supervisors can clock in and out like anyone else, plus manage their assigned sites from the mobile app.",
-    placeholder: "supervisor@company.com",
-  },
-  admin: {
-    listTitle: "Admins",
-    formTitle: "Admin invites",
-    description:
-      "Invite admins by email. Admins get full web dashboard access - employees, sites, timesheets, and everything else except billing. Once they accept, they'll show up above in the employee list too.",
-    placeholder: "admin@company.com",
-  },
+  supervisor: { listTitle: "Supervisors" },
+  admin: { listTitle: "Admins" },
 } as const;
 
-// Renders the invite list + form for one role. List/invite/resend/cancel
-// behavior is identical for supervisor and admin invites - only which
-// invites are shown, whether job sites are assignable, and copy differ.
-// Kept as one component so a fix here (e.g. the cross-role duplicate-
-// invite check below) can't be applied to one role and forgotten for
-// the other, the way it was before this was unified.
+// Renders the invite list for one role (resend / copy link / cancel).
+// Phase 9 (H1 a): sending moved to the one invite form (InviteForm.tsx),
+// which uses lib/hooks/useStaffInviteSend.ts - the same cross-role
+// pending-invite check as before. Behavior is identical for supervisor
+// and admin invites - only which invites are shown and whether job sites
+// show differ.
 export function InviteManager({
   role,
   sites,
@@ -54,17 +40,11 @@ export function InviteManager({
   sites?: JobSite[];
 }) {
   const copy = ROLE_COPY[role];
-  const { currentUser, userData } = useAuth();
   const { invites: allInvites, loading: loadingInvites, cancelInvite } = useInvites();
   const invites = allInvites.filter((inv) =>
     role === "admin" ? inv.role === "admin" : inv.role !== "admin"
   );
 
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteSiteIds, setInviteSiteIds] = useState<string[]>([]);
-  const [isInviting, setIsInviting] = useState(false);
-  const [inviteError, setInviteError] = useState("");
-  const [inviteSuccess, setInviteSuccess] = useState("");
   const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -75,71 +55,12 @@ export function InviteManager({
     Record<string, { text: string; isError: boolean }>
   >({});
 
-  function toggleInviteSite(siteId: string) {
-    setInviteSiteIds((prev) =>
-      prev.includes(siteId)
-        ? prev.filter((id) => id !== siteId)
-        : [...prev, siteId]
-    );
-  }
-
   function siteNames(ids: string[]) {
     if (ids.length === 0) return "None specified";
     return ids
       .map((id) => sites?.find((s) => s.id === id)?.name)
       .filter(Boolean)
       .join(", ");
-  }
-
-  async function handleInvite(e: FormEvent) {
-    e.preventDefault();
-    if (!userData?.companyId || !currentUser) return;
-    setInviteError("");
-    setInviteSuccess("");
-    setIsInviting(true);
-
-    try {
-      const normalizedEmail = inviteEmail.trim().toLowerCase();
-
-      // A fresh query, not the allInvites listener snapshot above (which
-      // can lag a moment behind a very recent write from another tab/
-      // admin) - and checked company-wide, not just this role's list, so
-      // a pending invite under the other role blocks this one too.
-      // Otherwise acceptInvite's query (no explicit ordering) could
-      // resolve to either one.
-      const existingInvites = await getDocs(
-        query(
-          collection(db, "invites"),
-          where("companyId", "==", userData.companyId),
-          where("email", "==", normalizedEmail),
-          where("status", "==", "pending")
-        )
-      );
-      if (!existingInvites.empty) {
-        setInviteError("There's already a pending invite for that email.");
-        setIsInviting(false);
-        return;
-      }
-
-      await addDoc(collection(db, "invites"), {
-        email: normalizedEmail,
-        companyId: userData.companyId,
-        role,
-        assignedSiteIds: role === "supervisor" ? inviteSiteIds : [],
-        status: "pending",
-        invitedByUid: currentUser.uid,
-        createdAt: serverTimestamp(),
-      });
-
-      setInviteSuccess(`Invite sent to ${normalizedEmail}.`);
-      setInviteEmail("");
-      setInviteSiteIds([]);
-    } catch (err) {
-      console.error("Invite error:", err);
-      setInviteError("Couldn't create the invite. Try again.");
-    } finally {
-      setIsInviting(false);
-    }
   }
 
   async function copyInviteLink(email: string, inviteId: string) {
@@ -199,8 +120,6 @@ export function InviteManager({
       setConfirmDeleteId(null);
     }
   }
-
-  const emailInputId = `${role}InviteEmail`;
 
   return (
     <div>
@@ -348,80 +267,6 @@ export function InviteManager({
         )}
       </div>
 
-      <h2 className="mt-10 text-xl font-semibold text-gray-950">
-        {copy.formTitle}
-      </h2>
-      <p className="mt-1.5 text-sm text-gray-600">{copy.description}</p>
-
-      <form
-        onSubmit={handleInvite}
-        className="mt-5 rounded-xl border border-gray-200 bg-white p-6"
-      >
-        <label
-          htmlFor={emailInputId}
-          className="mb-2 block text-sm font-medium text-gray-950"
-        >
-          Email
-        </label>
-        <input
-          id={emailInputId}
-          type="email"
-          required
-          value={inviteEmail}
-          onChange={(e) => setInviteEmail(e.target.value)}
-          className="w-full max-w-sm rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          placeholder={copy.placeholder}
-        />
-
-        {role === "supervisor" && (
-          <div className="mt-5">
-            <span className="mb-2 block text-sm font-medium text-gray-950">
-              Assign to job sites
-            </span>
-            {!sites || sites.length === 0 ? (
-              <p className="text-sm text-gray-600">
-                No active job sites yet - add one on the Job Sites page first.
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {sites.map((site) => (
-                  <label
-                    key={site.id}
-                    className={`cursor-pointer rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
-                      inviteSiteIds.includes(site.id)
-                        ? "border-accent bg-accent/10 text-accent"
-                        : "border-gray-200 text-gray-600 hover:border-gray-300"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="hidden"
-                      checked={inviteSiteIds.includes(site.id)}
-                      onChange={() => toggleInviteSite(site.id)}
-                    />
-                    {site.name}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {inviteError && (
-          <p className="mt-4 text-sm text-red-600">{inviteError}</p>
-        )}
-        {inviteSuccess && (
-          <p className="mt-4 text-sm text-green-700">{inviteSuccess}</p>
-        )}
-
-        <button
-          type="submit"
-          disabled={isInviting}
-          className="mt-6 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
-        >
-          {isInviting ? "Sending..." : "Send invite"}
-        </button>
-      </form>
     </div>
   );
 }

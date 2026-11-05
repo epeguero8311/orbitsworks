@@ -1,20 +1,19 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
 import { EmployeeInviteActions, type InviteActionsApi } from "@/components/dashboard/employees/EmployeeInviteActions";
 import { InviteEmailBadge, InviteStatusBadge } from "@/components/dashboard/employees/EmployeeInviteStatusPill";
 import { formatCompanyDateTime } from "@/lib/joinCodes/time";
-import { INVITE_PLAN_MESSAGE, inviteDisplayStatus } from "@/lib/employeeInvites/status";
+import { inviteDisplayStatus } from "@/lib/employeeInvites/status";
 import type { InviteActionResult } from "@/lib/hooks/useEmployeeInvites";
 import type { EmployeeInviteCreateInput } from "@/lib/validators/employeeInvite";
 import type { EmployeeInvite, JobSite } from "@/lib/types";
 
-// "App invites" card on the Employees page (Phase 3B, decision P1): the
-// "Invite new person" form and every Employee App invite with its status.
-// "Invite to app" for an existing employee lives in their Edit window.
-// canInvite: Core/Pro and not past_due (null while the plan loads). Without
-// it the form is replaced by INVITE_PLAN_MESSAGE; the list stays so old
-// invites can still be revoked or removed.
+// "App invites" card on the Employees page (Phase 3B, decision P1): every
+// Employee App invite with its status. Phase 9 (H1 a): sending a new one
+// moved to the one invite form (InviteForm.tsx, role "Employee (app)"); the
+// list stays here so old invites can still be resent, revoked or removed
+// on any plan. "Invite to app" for an existing employee lives in their
+// Edit window.
 
 export interface AppInvitesApi extends InviteActionsApi {
   invites: EmployeeInvite[];
@@ -36,28 +35,7 @@ function whenText(invite: EmployeeInvite) {
   return "";
 }
 
-export function AppInvitesCard({ sites, api, canInvite }: { sites: JobSite[]; api: AppInvitesApi; canInvite: boolean | null }) {
-  const [email, setEmail] = useState("");
-  const [siteId, setSiteId] = useState("");
-  const [sending, setSending] = useState(false);
-  const [formMessage, setFormMessage] = useState<{ text: string; isError: boolean } | null>(null);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (sending) return;
-    setSending(true);
-    setFormMessage(null);
-    const res = await api.create({ kind: "newPerson", email, siteId: siteId || null });
-    setSending(false);
-    if (res.ok) {
-      setFormMessage({ text: `Invite sent to ${email.trim().toLowerCase()}.`, isError: false });
-      setEmail("");
-      setSiteId("");
-    } else {
-      setFormMessage({ text: res.message, isError: true });
-    }
-  }
-
+export function AppInvitesCard({ sites, api }: { sites: JobSite[]; api: AppInvitesApi }) {
   return (
     <div>
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
@@ -111,52 +89,6 @@ export function AppInvitesCard({ sites, api, canInvite }: { sites: JobSite[]; ap
         )}
       </div>
 
-      <h2 className="mt-10 text-xl font-semibold text-gray-950">Invite new person</h2>
-      <p className="mt-1.5 text-sm text-gray-600">
-        Email someone a link to sign up in the employee app. Their employee record is created when they sign up. To give an
-        existing employee the app, open their record and use Invite to app.
-      </p>
-      {canInvite === false && <p className="mt-5 rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-600">{INVITE_PLAN_MESSAGE}</p>}
-      {canInvite && (
-        <form onSubmit={handleSubmit} className="mt-5 rounded-xl border border-gray-200 bg-white p-6">
-          <label htmlFor="appInviteEmail" className="mb-2 block text-sm font-medium text-gray-950">
-            Email
-          </label>
-          <input
-            id="appInviteEmail"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full max-w-sm rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            placeholder="worker@email.com"
-          />
-          <label htmlFor="appInviteSite" className="mb-2 mt-5 block text-sm font-medium text-gray-950">
-            Job site (optional)
-          </label>
-          <select
-            id="appInviteSite"
-            value={siteId}
-            onChange={(e) => setSiteId(e.target.value)}
-            className="w-full max-w-sm rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          >
-            <option value="">No site yet - assign one later</option>
-            {sites.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          {formMessage && <p className={`mt-4 text-sm ${formMessage.isError ? "text-red-600" : "text-green-700"}`}>{formMessage.text}</p>}
-          <button
-            type="submit"
-            disabled={sending}
-            className="mt-6 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-60"
-          >
-            {sending ? "Sending..." : "Send invite"}
-          </button>
-        </form>
-      )}
     </div>
   );
 }

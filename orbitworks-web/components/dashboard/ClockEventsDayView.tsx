@@ -34,10 +34,9 @@ export default function ClockEventsDayView({
   const [currentDate, setCurrentDate] = useState(todayKey);
   const [selectedEvent, setSelectedEvent] = useState<ClockEvent | null>(null);
   const [outsideGeofenceOnly, setOutsideGeofenceOnly] = useState(false);
-  const { events: allEvents, loading, error } = useClockEventsByDay(
-    companyId,
-    currentDate
-  );
+  // Phase 9 (H10 a): pairingEvents also holds the day before and after, so
+  // a shift crossing midnight pairs in the detail window.
+  const { events: allEvents, pairingEvents, loading, error } = useClockEventsByDay(companyId, currentDate);
   const { isPro } = useCompanySettings();
   // Employee comments shown in each clock-in row's Note cell.
   const { commentsByClockIn, error: commentsError } = useShiftCommentsByClockIn(companyId, clockInIds(allEvents));
@@ -239,7 +238,7 @@ export default function ClockEventsDayView({
       {selectedEvent && (
         <ClockEventDetailModal
           event={selectedEvent}
-          allEvents={events}
+          allEvents={pairingEvents}
           onClose={() => setSelectedEvent(null)}
         />
       )}

@@ -13,6 +13,7 @@ import { EmployeesTable } from "@/components/dashboard/employees/EmployeesTable"
 import { EmployeeModal } from "@/components/dashboard/employees/EmployeeModal";
 import { InviteManager } from "@/components/dashboard/employees/InviteManager";
 import { AppInvitesCard } from "@/components/dashboard/employees/AppInvitesCard";
+import { InviteForm } from "@/components/dashboard/employees/InviteForm";
 import type { Employee } from "@/lib/types";
 
 // The Employees page (app/dashboard/employees/page.tsx renders only this,
@@ -75,8 +76,13 @@ export function EmployeesPageView() {
           invitesByEmployee={appInvites.byEmployee}
         />
       </div>
+      {/* Phase 9 (H1 a): one invite form with a role dropdown; the three
+          invite lists (App invites, Supervisors, Admins) stay below. */}
       <div className="mt-10">
-        <AppInvitesCard sites={activeSites} api={appInvites} canInvite={invitePlanOk} />
+        <InviteForm sites={activeSites} createAppInvite={appInvites.create} />
+      </div>
+      <div className="mt-10">
+        <AppInvitesCard sites={activeSites} api={appInvites} />
       </div>
       <div className="mt-10">
         <InviteManager role="supervisor" sites={activeSites} />
@@ -96,6 +102,8 @@ export function EmployeesPageView() {
           appInvite={appInvites.byEmployee.get(employeeForModal.id)}
           appInviteApi={appInvites}
           appInvitePlanOk={invitePlanOk}
+          allEmployees={employees}
+          onOpenEmployee={setSelectedId}
         />
       )}
     </div>
