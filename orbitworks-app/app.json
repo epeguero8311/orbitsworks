@@ -25,7 +25,8 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
       ]
     },
     "web": {
@@ -41,9 +42,12 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "OrbitsWorks saves where you clock in, clock out and take breaks, only at that moment. Never in the background.",
-          "isAndroidBackgroundLocationEnabled": false,
-          "isIosBackgroundLocationEnabled": false
+          "locationWhenInUsePermission": "OrbitsWorks saves where you clock in, clock out and take breaks. If your company uses job site geofences, it can also note when you leave the job site while you are clocked in.",
+          "locationAlwaysAndWhenInUsePermission": "While you are clocked in at a job site with a geofence, OrbitsWorks checks in the background when you leave and come back to the job site. It never runs while you are clocked out and never saves a trail of where you went.",
+          "locationAlwaysPermission": "While you are clocked in at a job site with a geofence, OrbitsWorks checks in the background when you leave and come back to the job site. It never runs while you are clocked out and never saves a trail of where you went.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": false,
+          "isIosBackgroundLocationEnabled": true
         }
       ],
       "expo-font",
