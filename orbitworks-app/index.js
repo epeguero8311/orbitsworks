@@ -7,6 +7,9 @@ import { getEnvironmentVerdict } from './lib/envGuard';
 const verdict = getEnvironmentVerdict();
 
 if (verdict.ok) {
+  // Phase 8: the leave tracking region task must be defined before anything
+  // else, also when the OS starts the app in the background for it.
+  require('./lib/siteFenceTask');
   const App = require('./App').default;
   // registerRootComponent calls AppRegistry.registerComponent('main', () => App);
   // It also ensures that whether you load the app in Expo Go or in a native build,

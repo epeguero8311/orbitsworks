@@ -169,7 +169,21 @@ test("log out counts: every unsynced punch and comment, fresh ones too; synced a
     item({ requestId: "p-ben", employeeId: "ben" }),
   ];
   const comments = [item({ requestId: "c-fresh" }), item({ requestId: "c-done", status: "synced" }), item({ requestId: "c-co2", companyId: "co2" })];
-  assert.deepEqual(s.logoutCounts(punches, comments, "co1", "emp1"), { punches: 3, comments: 1 });
+  assert.deepEqual(s.logoutCounts(punches, comments, "co1", "emp1"), { punches: 3, comments: 1, siteExits: 0 });
   assert.equal(s.logoutWarning(3, 1), "3 punches and 1 comment are not synced yet");
-  assert.deepEqual(s.logoutCounts([], [], "co1", "emp1"), { punches: 0, comments: 0 });
+  assert.deepEqual(s.logoutCounts([], [], "co1", "emp1"), { punches: 0, comments: 0, siteExits: 0 });
+});
+
+test("Phase 8: log out warning counts leave tracking rows too", () => {
+  assert.equal(s.logoutWarning(0, 0, 1), "1 job site record is not synced yet");
+  assert.equal(s.logoutWarning(1, 0, 2), "1 punch and 2 job site records are not synced yet");
+  assert.equal(s.logoutWarning(2, 1, 1), "2 punches, 1 comment and 1 job site record are not synced yet");
+  assert.equal(s.logoutWarning(0, 0, 0), null);
+  const exits = [
+    { companyId: "co1", employeeId: "emp1", status: "waiting" },
+    { companyId: "co1", employeeId: "emp1", status: "synced" },
+    { companyId: "co1", employeeId: "other", status: "waiting" },
+  ];
+  assert.equal(s.logoutCounts([], [], "co1", "emp1", exits).siteExits, 1);
+  assert.equal(s.logoutCounts([], [], "co1", "emp1").siteExits, 0);
 });

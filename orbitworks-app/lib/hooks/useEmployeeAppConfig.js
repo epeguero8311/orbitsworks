@@ -7,6 +7,9 @@ const DEFAULTS = {
   companyName: "",
   timezone: "America/Chicago",
   breaks: { automaticBreakMinutes: 0, minimumShiftHours: 0 },
+  // Phase 8: null until the config (or its saved copy) is known, so leave
+  // tracking never reads "not Pro" before it has loaded.
+  isPro: null,
 };
 
 function toConfig(data) {
@@ -14,6 +17,7 @@ function toConfig(data) {
     companyName: typeof data.name === "string" ? data.name : "",
     timezone: typeof data.timezone === "string" && data.timezone ? data.timezone : DEFAULTS.timezone,
     breaks: { ...DEFAULTS.breaks, ...(data.breaks || {}) },
+    isPro: data.isPro === true,
   };
 }
 
@@ -40,7 +44,7 @@ export function useEmployeeAppConfig(companyId) {
         const data = snap.exists() ? snap.data() : {};
         setConfig(toConfig(data));
         if (!snap.metadata.fromCache) {
-          writeHomeCache("config", companyId, null, { name: data.name, timezone: data.timezone, breaks: data.breaks || {} });
+          writeHomeCache("config", companyId, null, { name: data.name, timezone: data.timezone, breaks: data.breaks || {}, isPro: data.isPro === true });
         }
       },
       () => {}

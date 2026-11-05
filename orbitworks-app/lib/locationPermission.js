@@ -91,3 +91,47 @@ export async function fixLocationPermission() {
   Linking.openSettings();
   return false;
 }
+
+// ---- Employee App Phase 8: "Always" location (leave tracking, Pro) ----
+//
+// -> "always" | "whileUsing" | "off". Never throws. Settings shows it, and
+// leave tracking only runs on "always" (a region needs background location).
+export async function getAlwaysLocationStatus() {
+  try {
+    const Location = loadLocation();
+    const fg = await Location.getForegroundPermissionsAsync();
+    if (fg.status !== "granted") return "off";
+    const bg = await Location.getBackgroundPermissionsAsync();
+    return bg.status === "granted" ? "always" : "whileUsing";
+  } catch (err) {
+    console.log("[locationPermission] always status failed:", err.message);
+    return "off";
+  }
+}
+
+// The phone's own prompts: "While using" first if never asked, then the
+// upgrade to "Always". On iPhone the upgrade prompt shows once at most;
+// after that only the phone's Settings can change it (the walk-through
+// screen says how). -> { status, canAskAgain } of the background step.
+// Never throws, never shows a dialog of its own.
+export async function requestAlwaysLocation() {
+  try {
+    const Location = loadLocation();
+    const fg = await Location.getForegroundPermissionsAsync();
+    if (fg.status !== "granted") {
+      if (!fg.canAskAgain) return { status: "denied", canAskAgain: false };
+      const asked = await Location.requestForegroundPermissionsAsync();
+      if (asked.status !== "granted") return { status: "denied", canAskAgain: false };
+    }
+    const bg = await Location.requestBackgroundPermissionsAsync();
+    return { status: bg.status, canAskAgain: bg.canAskAgain !== false };
+  } catch (err) {
+    console.log("[locationPermission] always request failed:", err.message);
+    return { status: "denied", canAskAgain: false };
+  }
+}
+
+// The phone's Settings app (the only way to Always once the prompt is used up).
+export function openLocationSettings() {
+  Linking.openSettings();
+}

@@ -22,7 +22,9 @@ export function useEmployeeHomeSite(enabled, refreshKey, companyId, employeeId) 
       answered = true;
       const name = site.siteName ? site.siteName : "";
       setSiteName(name);
-      writeHomeCache("homeSite", companyId, employeeId, { siteName: name });
+      // Phase 8: the fence a clock-in here gets (Pro, geofenced), kept for
+      // an offline clock-in's leave tracking (lib/siteTracking.js).
+      writeHomeCache("homeSite", companyId, employeeId, { siteName: name, fence: site.fence || null });
     });
     return () => {
       cancelled = true;

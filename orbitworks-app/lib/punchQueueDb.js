@@ -16,6 +16,14 @@ import * as SQLite from "expo-sqlite";
 // requestId is also the shiftNotes doc id, so a resend can never write a
 // second comment.
 //   status: waiting | syncing | synced | failed (failed = Not synced)
+// site_fence (Phase 8): one row per tracked shift (clockInEventId), its
+// state as JSON (lib/siteExitLogic.js). Holds the site's place and radius,
+// never the worker's own trail.
+// site_exit_queue (Phase 8): one row per start / end of a "left" or
+// "tracking off" stretch (lib/siteExitStore.js), sent by the same sync run
+// after comments. requestId = exitId:phase. notBeforeMs holds a "left"
+// start back until its 2 minutes have passed.
+//   status: waiting | syncing | synced | failed (failed = dropped for good)
 
 let dbPromise = null;
 
@@ -83,6 +91,36 @@ async function openDb() {
       status TEXT NOT NULL DEFAULT 'waiting',
       failReason TEXT,
       failMessage TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      createdAt INTEGER NOT NULL,
+      syncedAt INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS site_fence (
+      clockInEventId TEXT PRIMARY KEY,
+      companyId TEXT NOT NULL,
+      employeeId TEXT NOT NULL,
+      state TEXT NOT NULL,
+      updatedAt INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS site_exit_queue (
+      requestId TEXT PRIMARY KEY,
+      exitId TEXT NOT NULL,
+      clockInEventId TEXT NOT NULL,
+      companyId TEXT NOT NULL,
+      employeeId TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      phase TEXT NOT NULL,
+      atMs INTEGER NOT NULL,
+      notBeforeMs INTEGER NOT NULL,
+      offReason TEXT,
+      lat REAL,
+      lng REAL,
+      accuracyM REAL,
+      fixAtMs INTEGER,
+      status TEXT NOT NULL DEFAULT 'waiting',
+      failReason TEXT,
       attempts INTEGER NOT NULL DEFAULT 0,
       createdAt INTEGER NOT NULL,
       syncedAt INTEGER

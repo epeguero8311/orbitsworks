@@ -65,8 +65,8 @@ export async function sendPunch({ action, requestId, pin, photoPath, queuedAtMs,
   return res.data;
 }
 
-// -> { siteId, siteName } or null on any failure (Home then shows the last
-// one it knew).
+// -> { siteId, siteName, fence } or null on any failure (Home then shows the
+// last one it knew). fence (Phase 8) = the leave tracking fence, or null.
 export async function fetchHomeSite() {
   try {
     const res = await homeSiteFn({});

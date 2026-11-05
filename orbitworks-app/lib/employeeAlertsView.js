@@ -12,6 +12,8 @@ const SERVER_TITLES = {
   stillClockedIn: "Still clocked in",
   maxHours: "Max hours",
   overtime: "Overtime",
+  // Phase 8 - written when a "left the job site" syncs (no push).
+  leftSite: "You have left the job site",
 };
 
 function toMs(value) {

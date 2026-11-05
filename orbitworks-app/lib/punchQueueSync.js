@@ -26,6 +26,8 @@ import {
 import { noteSignalOk, noteWeakSignal } from "./punchQueueEvents";
 import { refreshPinVerifier } from "./pinCheck";
 import { drainComments } from "./commentQueueSync";
+import { drainSiteExits } from "./siteExitQueueSync";
+import { onClockInSynced } from "./siteTracking";
 
 // Employee App Phase 4 - sends the signed-in employee's saved punches,
 // oldest first, one at a time. Another employee's punches on this phone are
@@ -72,10 +74,12 @@ export function syncPunchQueue(companyId, employeeId) {
         // Phase 5: comments go right after the punches, in the same run.
         // Each side's problems stay its own: a paused or failing punch
         // queue never holds back comments, and comments never touch punches.
+        // Phase 8: leave tracking rows go last, same rule.
         try {
           await drain(companyId, employeeId);
         } finally {
           await drainComments(companyId, employeeId).catch(() => {});
+          await drainSiteExits(companyId, employeeId).catch(() => {});
         }
       } while (again);
     } finally {
@@ -160,6 +164,9 @@ async function sendOne(item) {
       SEND_TIMEOUT_MS
     );
     await markSynced(item.requestId, res && res.siteName);
+    // Phase 8: the clock-in's real fence (or none) for leave tracking.
+    // Never awaited by anything a punch needs, never throws.
+    if (item.action === "in") onClockInSynced({ requestId: item.requestId, fence: res && res.fence }).catch(() => {});
     await setLastSynced(item.companyId, item.employeeId, Date.now());
     noteSignalOk();
     recordSyncTiming(item.action, waitMs === null ? "synced (queued)" : "synced", {

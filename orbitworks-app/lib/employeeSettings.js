@@ -11,6 +11,7 @@
 // Everything is view only. The Notifications and Location switches mirror
 // the phone's own permission (permissionToggleAction); no push token.
 
+const { pendingSiteExitCount } = require("./siteExitLogic");
 const { NO_SITE_NAME } = require("./employeeHome");
 const { badgeCount } = require("./punchQueueLogic");
 
@@ -111,18 +112,27 @@ function permissionToggleAction(wantOn, permission) {
 // employee still on the phone (Waiting, Syncing or Not synced), with no
 // 10-second delay - unlike the Sync tab badge, a punch saved a second ago
 // counts. punches / comments = the hooks' `all` lists.
-function logoutCounts(punches, comments, companyId, employeeId) {
-  return { punches: badgeCount(punches, companyId, employeeId), comments: badgeCount(comments, companyId, employeeId) };
+// Phase 8: siteExits = the leave tracking rows (site_exit_queue) - a
+// "left the job site" or "tracking off" still waiting counts too.
+function logoutCounts(punches, comments, companyId, employeeId, siteExits) {
+  return {
+    punches: badgeCount(punches, companyId, employeeId),
+    comments: badgeCount(comments, companyId, employeeId),
+    siteExits: pendingSiteExitCount(siteExits || [], companyId, employeeId),
+  };
 }
 
-function logoutWarning(punches, comments) {
+function logoutWarning(punches, comments, siteExits) {
   const p = punches > 0 ? punches : 0;
   const c = comments > 0 ? comments : 0;
-  if (p + c === 0) return null;
+  const x = siteExits > 0 ? siteExits : 0;
+  if (p + c + x === 0) return null;
   const parts = [];
   if (p) parts.push(`${p} punch${p === 1 ? "" : "es"}`);
   if (c) parts.push(`${c} comment${c === 1 ? "" : "s"}`);
-  return `${parts.join(" and ")} ${p + c === 1 ? "is" : "are"} not synced yet`;
+  if (x) parts.push(`${x} job site record${x === 1 ? "" : "s"}`);
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
+  return `${list} ${p + c + x === 1 ? "is" : "are"} not synced yet`;
 }
 
 module.exports = {
