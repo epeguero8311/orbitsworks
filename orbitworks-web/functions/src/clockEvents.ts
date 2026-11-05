@@ -604,7 +604,9 @@ export const onClockEventCreated = onDocumentCreated(
       // all). Its clock in/out do, against the site the punch was given.
       const isEmployeeAppBreak = data.source === "employeeApp" && data.type !== "in" && data.type !== "out";
       if (!isPinInOrOut && !isEmployeeAppBreak) {
-        const siteId = data.siteId as string | null | undefined;
+        // finalSiteId: the event's own site, or the shift's clock-in site
+        // copied above (Phase 10 D19 a - an override clock-out).
+        const siteId = finalSiteId;
         const siteSnap = siteId ? await jobSitesRef.doc(siteId).get() : null;
         const site = siteSnap?.data() as
           | { lat?: number; lng?: number; radiusMeters?: number; requireGeofence?: boolean }

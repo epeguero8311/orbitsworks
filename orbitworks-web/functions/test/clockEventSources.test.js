@@ -377,6 +377,24 @@ test("supervisor break, auto break end and override clock-out take the shift's c
   assert.equal(emp.lastEventSiteId, "near");
 });
 
+test("override clock-out with a fix: the geofence badge is checked against the copied shift site, not the pill", async () => {
+  const c = "src-copy-fence";
+  await seedCompany(c, PRO);
+  await seedEmployee(c, { withSelfie: false });
+  await seedFencedSite(c);
+  await createAndTrigger(c, "in1", { source: "supervisorOverride", siteId: "fenced", siteName: "Fenced Site", timestamp: T("2026-10-21T14:00:00Z") });
+  const out = await createAndTrigger(c, "out", {
+    source: "supervisorOverride",
+    type: "out",
+    siteId: "pill",
+    siteName: "Pill Site",
+    timestamp: T("2026-10-21T22:00:00Z"),
+    ...FAR_AWAY,
+  });
+  assert.equal(out.event.siteId, "fenced");
+  assert.equal(out.event.geofenceStatus, "outside");
+});
+
 test("shift site copy: clock-in with no site = Not specified; the right shift by time; no clock-in = unchanged", async () => {
   const c = "src-copy-edges";
   await seedCompany(c, PRO);
