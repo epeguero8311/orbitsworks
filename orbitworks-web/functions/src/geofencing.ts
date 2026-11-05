@@ -245,24 +245,100 @@ export function isSiteMismatch(detectedSiteId: string | null | undefined, assign
   return !assignedSiteIds.includes(detectedSiteId);
 }
 
-// Employee App (Pro) only: a fix less accurate than this (or with no
-// accuracy at all) is too rough to pick a site from - the Phase 3 site is
-// used instead. The fix is still saved for display.
+// ---- Which site a Pro clock-in gets (Phase 10 F1/F2, both apps) ----
+//
+// D18 b: how good the fix must be. Up to 500 m (accuracy, the phone's own
+// number) it can match one of the employee's ASSIGNED sites; an unassigned
+// site needs 100 m or better (the same bar as leave tracking). No fix, no
+// accuracy, or worse than 500 m = no usable fix. The fix is always still
+// saved for display. The supervisor app's guess before sync
+// (orbitworks-app/lib/geofenceCheck.js) uses the same numbers.
 export const DETECTION_MAX_ACCURACY_M = 500;
+export const UNASSIGNED_DETECTION_MAX_ACCURACY_M = 100;
 
 export function isAccurateEnoughToDetect(accuracyM: number | null | undefined): boolean {
-  return typeof accuracyM === "number" && accuracyM <= DETECTION_MAX_ACCURACY_M;
+  return typeof accuracyM === "number" && Number.isFinite(accuracyM) && accuracyM >= 0 && accuracyM <= DETECTION_MAX_ACCURACY_M;
 }
 
-// Employee App clock-in: inside a site = the detected site wins; else the
-// Phase 3 site (crew code site -> single assigned site -> none).
+// What detection says about one clock-in:
+//   detected - inside a site it may match: that site, even an unassigned
+//              one (D14 a: only on the punch, never added to the employee's
+//              assigned sites)
+//   noMatch  - a fix good enough for every site (100 m or better), inside
+//              none of them: "Not specified" (F1)
+//   fallback - can't tell: no usable fix (D15 b), no located site at all,
+//              or a 100-500 m fix inside none of the assigned sites. The
+//              caller uses its F2 site (the supervisor's pick, the Employee
+//              App's crew code / single assigned site).
+// Pure - the caller loads the sites (loadDetectableSites).
+export type ClockInSitePick =
+  | { kind: "detected"; siteId: string; siteName: string }
+  | { kind: "noMatch" }
+  | { kind: "fallback" };
+
+export function pickDetectedClockInSite(
+  location: { lat: number; lng: number } | null | undefined,
+  accuracyM: number | null | undefined,
+  sites: DetectableSite[],
+  assignedSiteIds: unknown
+): ClockInSitePick {
+  if (!location || !isAccurateEnoughToDetect(accuracyM)) return { kind: "fallback" };
+  const acc = accuracyM as number;
+  const located = sites.some((s) => s.active !== false && typeof s.lat === "number" && typeof s.lng === "number");
+  if (!located) return { kind: "fallback" };
+  const assigned = Array.isArray(assignedSiteIds) ? assignedSiteIds.filter((id): id is string => typeof id === "string") : [];
+  const trustAll = acc <= UNASSIGNED_DETECTION_MAX_ACCURACY_M;
+  const candidates = trustAll ? sites : sites.filter((s) => assigned.includes(s.id));
+  const match = detectSite(location, acc, candidates);
+  if (match.siteId) return { kind: "detected", siteId: match.siteId, siteName: match.siteName ?? "" };
+  return trustAll ? { kind: "noMatch" } : { kind: "fallback" };
+}
+
+// The geofence badge for a supervisor clock-in whose site was NOT
+// re-detected (the pick kept: "Ask for job site each time" on, or
+// detection fell back). The kept site's own fence when it is geofenced; no
+// kept site = the fenced-only check, so someone nowhere near a fenced site
+// is still flagged "outside" (same as detectClockInSite's no-match case).
+export function geofenceForKeptSite(
+  location: { lat: number; lng: number } | null,
+  accuracyM: number | null,
+  sites: DetectableSite[],
+  keptSiteId: string | null
+): GeofenceClassification {
+  const none: GeofenceClassification = { applicable: false, status: null, distanceM: null };
+  if (keptSiteId) {
+    const kept = sites.find((s) => s.id === keptSiteId);
+    return kept ? classifyGeofence(location, accuracyM, kept) : none;
+  }
+  const fenceCheck = detectSite(location, accuracyM, sites.filter((s) => s.requireGeofence));
+  return fenceCheck.hasCandidates ? { applicable: true, status: fenceCheck.status, distanceM: fenceCheck.distanceM } : none;
+}
+
+// The geofence badge for a supervisor clock-in whose site WAS picked by
+// detection (detected or noMatch): same rule as detectClockInSite.
+export function geofenceForDetectedSite(
+  location: { lat: number; lng: number } | null,
+  accuracyM: number | null,
+  sites: DetectableSite[],
+  pick: ClockInSitePick
+): GeofenceClassification {
+  if (pick.kind === "detected") {
+    const matched = sites.find((s) => s.id === pick.siteId);
+    if (!matched || !matched.requireGeofence) return { applicable: false, status: null, distanceM: null };
+    return classifyGeofence(location, accuracyM, matched);
+  }
+  return geofenceForKeptSite(location, accuracyM, sites, null);
+}
+
+// Employee App clock-in: detected = that site; noMatch = none ("Not
+// specified"); fallback = the Phase 3 site (crew code site -> single
+// assigned site -> none).
 export function pickEmployeeClockInSite(
-  detection: ClockInDetection | null,
+  pick: ClockInSitePick | null,
   phase3Site: { siteId: string | null; siteName: string }
 ): { siteId: string | null; siteName: string; autoDetected: boolean } {
-  if (detection && detection.siteId) {
-    return { siteId: detection.siteId, siteName: detection.siteName ?? "", autoDetected: true };
-  }
+  if (pick && pick.kind === "detected") return { siteId: pick.siteId, siteName: pick.siteName, autoDetected: true };
+  if (pick && pick.kind === "noMatch") return { siteId: null, siteName: "", autoDetected: false };
   return { siteId: phase3Site.siteId, siteName: phase3Site.siteName, autoDetected: false };
 }
 

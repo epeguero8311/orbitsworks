@@ -2,9 +2,10 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { timingSafeEqual, randomUUID } from "crypto";
 import { db } from "./shared";
-import { employeeClockPunchSchema, getMyPinVerifierSchema, EmployeeClockAction, PunchLocation } from "./employeeClockValidators";
+import { employeeClockPunchSchema, getMyPinSchema, getMyPinVerifierSchema, EmployeeClockAction, PunchLocation } from "./employeeClockValidators";
 import { locationForPunch } from "./lib/punchLocation";
-import { detectClockInSite, isAccurateEnoughToDetect, isSiteMismatch, loadDetectableSites, pickEmployeeClockInSite, type ShiftFence } from "./geofencing";
+import { isAccurateEnoughToDetect, isSiteMismatch, loadDetectableSites, pickDetectedClockInSite, pickEmployeeClockInSite, type ClockInSitePick, type ShiftFence } from "./geofencing";
+import { PIN_REVEAL_MAX, PIN_REVEAL_WINDOW_MS, type MyPinResult } from "./employeePinTypes";
 import { fenceForClockIn, fenceForNewClockIn } from "./employeeSiteExits";
 import { makePinVerifier, PinVerifierResult } from "./lib/pinVerifier";
 import { queuedPinCheck, readPinHistory } from "./lib/pinHistory";
@@ -39,11 +40,15 @@ import {
 //   6. in/out only: the live clock photo must be this punch's own file
 //      (companies/{c}/clockEvents/{employeeId}/{requestId}.jpg), an image,
 //      uploaded in the last 10 minutes
-//   7. site, clock-in only: Pro + a fix accurate to 500 m inside a job
-//      site = that site (Phase 6, the same detectClockInSite as the
-//      supervisor app); otherwise crew code site if that site is still
-//      active, else the one assigned site if exactly one is assigned, else
-//      none. Core never detects.
+//   7. site, clock-in only (Phase 10 F1/F2, geofencing.ts
+//      pickDetectedClockInSite - the same rule as the supervisor app):
+//      Pro + a usable fix inside a job site = that site, assigned or not
+//      (an unassigned site needs a fix of 100 m or better, an assigned one
+//      500 m). Pro + a fix of 100 m or better inside no site = none ("Not
+//      specified"). Otherwise (Core, no usable fix, no located site, a
+//      100-500 m fix inside none of the assigned sites) the F2 site: crew
+//      code site if that site is still active, else the one assigned site
+//      if exactly one is assigned, else none.
 //      Clock out and breaks copy the site of that shift's clock-in event
 //      (read in the transaction), so a site change mid-shift never splits
 //      one shift across two sites.
@@ -225,31 +230,31 @@ function isProPlan(planTier: unknown): boolean {
   return typeof planTier === "string" && planTier.startsWith("pro_");
 }
 
-// Phase 6 clock-in site. Pro + a fix accurate enough = detection over every
-// active located site (the supervisor app's own detectClockInSite); inside
-// one = that site. Anything else (Core, no fix, a rough fix, outside every
-// site, no located sites) = the Phase 3 site from resolveEmployeeSite.
-// The company and sites are only read when there is a usable fix.
+// Clock-in site (Phase 10 F1/F2, see step 7 in the header). The company
+// and sites are only read when there is a usable fix. "Ask for job site
+// each time" does not change the Employee App (it has no site picker).
 async function resolveClockInSite(
   companyId: string,
   employee: EmployeeDoc,
   location: PunchLocation | null | undefined
 ): Promise<Site & { autoDetected: boolean }> {
-  const canDetect = !!location && isAccurateEnoughToDetect(location.accuracyM);
-  const [phase3, detection] = await Promise.all([
+  const [phase3, pick] = await Promise.all([
     resolveEmployeeSite(companyId, employee),
-    canDetect ? detectForPro(companyId, location as PunchLocation) : Promise.resolve(null),
+    location ? detectForPro(companyId, employee, location) : Promise.resolve(null),
   ]);
-  const picked = pickEmployeeClockInSite(detection, phase3);
+  const picked = pickEmployeeClockInSite(pick, phase3);
   return { ...picked, siteName: picked.siteName || NO_SITE_NAME };
 }
 
-async function detectForPro(companyId: string, location: PunchLocation) {
+async function detectForPro(companyId: string, employee: EmployeeDoc, location: PunchLocation): Promise<ClockInSitePick | null> {
+  // No usable fix (D15 b): nothing to read, the F2 site is used.
+  if (!isAccurateEnoughToDetect(location.accuracyM)) return null;
+  const fix = { lat: location.lat, lng: location.lng };
   const companyRef = db.collection("companies").doc(companyId);
   const company = await companyRef.get();
   if (!isProPlan(company.data()?.planTier)) return null;
   const sites = await loadDetectableSites(companyRef.collection("jobSites"));
-  return detectClockInSite({ lat: location.lat, lng: location.lng }, location.accuracyM, sites);
+  return pickDetectedClockInSite(fix, location.accuracyM, sites, employee.assignedSiteIds);
 }
 
 function expectedPhotoPath(companyId: string, employeeId: string, requestId: string): string {
@@ -629,4 +634,45 @@ export const getMyPinVerifier = onCall(async (request): Promise<PinVerifierResul
   if (!employee || employee.linkedUserId !== request.auth.uid) throw clockError("wrongAccount");
   if (employee.active !== true) return { status: "inactive" };
   return makePinVerifier(employee.pin);
+});
+
+// ---- Employee App: "Show PIN" on the Settings tab (getMyPin, Phase 10 A1) ----
+//
+// The signed-in employee's OWN current PIN, only when they tap Show (D1 a).
+// Same account check as getMyPinVerifier. The phone keeps it in memory for
+// 30 s and never saves it. Never logged. At most PIN_REVEAL_MAX reveals per
+// login in PIN_REVEAL_WINDOW_MS (kept in pinReveals/{uid}, server-only:
+// firestore.rules' catch-all denies every client), so a phone left
+// unlocked can't be used to read the PIN over and over.
+// When the PIN moves to a server-only doc (Phase 10 must-fix, D2 a), only
+// the read below changes.
+export const getMyPin = onCall(async (request): Promise<MyPinResult> => {
+  if (!request.auth) throw clockError("notSignedIn");
+  const role = request.auth.token.role as string | undefined;
+  const companyId = request.auth.token.companyId as string | undefined;
+  const employeeId = request.auth.token.employeeId as string | undefined;
+  if (role !== "employee" || !companyId || !employeeId) throw clockError("wrongAccount");
+  const parsed = getMyPinSchema.safeParse(request.data ?? {});
+  if (!parsed.success) throw clockError("invalid");
+
+  const employeeSnap = await db.collection("companies").doc(companyId).collection("employees").doc(employeeId).get();
+  const employee = employeeSnap.data() as EmployeeDoc | undefined;
+  if (!employee || employee.linkedUserId !== request.auth.uid) throw clockError("wrongAccount");
+  if (employee.active !== true) return { status: "inactive" };
+  if (typeof employee.pin !== "string" || !/^\d{4}$/.test(employee.pin)) return { status: "noPin" };
+
+  const uid = request.auth.uid;
+  const allowed = await db.runTransaction(async (tx) => {
+    const ref = db.collection("pinReveals").doc(uid);
+    const snap = await tx.get(ref);
+    const nowMs = Date.now();
+    const recent = ((snap.data()?.atMs as number[] | undefined) ?? []).filter((t) => nowMs - t < PIN_REVEAL_WINDOW_MS);
+    if (recent.length >= PIN_REVEAL_MAX) return false;
+    tx.set(ref, { atMs: [...recent, nowMs] });
+    return true;
+  });
+  if (!allowed) {
+    throw new HttpsError("resource-exhausted", "You've checked your PIN a lot. Try again in a few minutes.", { reason: "tooMany" });
+  }
+  return { status: "ok", pin: employee.pin };
 });

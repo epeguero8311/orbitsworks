@@ -102,14 +102,70 @@ test("detectClockInSite: accuracy counts in the worker's favor", () => {
   assert.equal(detectClockInSite({ lat: 29.951, lng: -90.07 }, 20, [XULA]).siteId, "xula");
 });
 
-test("pickEmployeeClockInSite: detected wins, else the Phase 3 site", () => {
-  const inside = detectClockInSite({ lat: 29.95, lng: -90.07 }, 5, [XULA]);
-  assert.deepEqual(pickEmployeeClockInSite(inside, PHASE3), { siteId: "xula", siteName: "Xula", autoDetected: true });
-  const outside = detectClockInSite({ lat: 30.5, lng: -91 }, 5, [XULA]);
-  assert.deepEqual(pickEmployeeClockInSite(outside, PHASE3), { ...PHASE3, autoDetected: false });
+// ---- Phase 10 F1/F2: pickDetectedClockInSite (both apps) ----
+const { pickDetectedClockInSite, geofenceForKeptSite, geofenceForDetectedSite, UNASSIGNED_DETECTION_MAX_ACCURACY_M } = require("../lib/geofencing.js");
+const AT_XULA = { lat: 29.95, lng: -90.07 };
+const FAR = { lat: 30.5, lng: -91 };
+
+test("pick: good fix inside an UNASSIGNED site = that site (F1, D14 a)", () => {
+  assert.deepEqual(pickDetectedClockInSite(AT_XULA, 5, [XULA, HOME], ["home"]), { kind: "detected", siteId: "xula", siteName: "Xula" });
+  assert.deepEqual(pickDetectedClockInSite(AT_XULA, 100, [XULA], []), { kind: "detected", siteId: "xula", siteName: "Xula" }, "100 m is still good enough");
+});
+
+test("pick: good fix (100 m or better) inside no site = noMatch (Not specified)", () => {
+  assert.deepEqual(pickDetectedClockInSite(FAR, 5, [XULA, HOME], ["xula"]), { kind: "noMatch" });
+  assert.deepEqual(pickDetectedClockInSite(FAR, 100, [XULA], []), { kind: "noMatch" });
+});
+
+test("pick: 100-500 m fix matches ASSIGNED sites only; no assigned match = fallback (D18 b)", () => {
+  assert.equal(UNASSIGNED_DETECTION_MAX_ACCURACY_M, 100);
+  assert.deepEqual(pickDetectedClockInSite(AT_XULA, 101, [XULA], ["xula"]), { kind: "detected", siteId: "xula", siteName: "Xula" });
+  assert.deepEqual(pickDetectedClockInSite(AT_XULA, 300, [XULA], ["home"]), { kind: "fallback" }, "unassigned site not trusted at 300 m");
+  assert.deepEqual(pickDetectedClockInSite(AT_XULA, 500, [XULA], []), { kind: "fallback" });
+  assert.deepEqual(pickDetectedClockInSite(FAR, 300, [XULA], ["xula"]), { kind: "fallback" }, "rough fix inside no assigned site");
+});
+
+test("pick: no usable fix = fallback (D15 b)", () => {
+  assert.deepEqual(pickDetectedClockInSite(null, 5, [XULA], ["xula"]), { kind: "fallback" });
+  assert.deepEqual(pickDetectedClockInSite(undefined, 5, [XULA], []), { kind: "fallback" });
+  for (const acc of [null, undefined, 501, 5000, -1, NaN, Infinity]) {
+    assert.deepEqual(pickDetectedClockInSite(AT_XULA, acc, [XULA], ["xula"]), { kind: "fallback" }, String(acc));
+  }
+});
+
+test("pick: no located site at all = fallback (keep today's flow)", () => {
+  assert.deepEqual(pickDetectedClockInSite(AT_XULA, 5, [{ id: "x", name: "X", active: true }], ["x"]), { kind: "fallback" });
+  assert.deepEqual(pickDetectedClockInSite(AT_XULA, 5, [], []), { kind: "fallback" });
+});
+
+test("pick: overlapping sites = closest inside wins; assignedSiteIds junk ignored", () => {
+  assert.equal(pickDetectedClockInSite({ lat: 29.951, lng: -90.07 }, 5, [BIG, SMALL], null).siteId, "small");
+  assert.equal(pickDetectedClockInSite({ lat: 29.951, lng: -90.07 }, 300, [BIG, SMALL], ["big", 7]).siteId, "big", "rough fix: only the assigned site");
+});
+
+test("pickEmployeeClockInSite: detected wins, noMatch = none, fallback = the Phase 3 site", () => {
+  assert.deepEqual(pickEmployeeClockInSite({ kind: "detected", siteId: "xula", siteName: "Xula" }, PHASE3), { siteId: "xula", siteName: "Xula", autoDetected: true });
+  assert.deepEqual(pickEmployeeClockInSite({ kind: "noMatch" }, PHASE3), { siteId: null, siteName: "", autoDetected: false });
+  assert.deepEqual(pickEmployeeClockInSite({ kind: "fallback" }, PHASE3), { ...PHASE3, autoDetected: false });
   assert.deepEqual(pickEmployeeClockInSite(null, PHASE3), { ...PHASE3, autoDetected: false });
-  const none = { siteId: null, siteName: "Not specified" };
-  assert.deepEqual(pickEmployeeClockInSite(outside, none), { ...none, autoDetected: false });
+});
+
+test("geofence for a kept pick: its own fence, else the fenced-only check", () => {
+  const kept = geofenceForKeptSite(FAR, 5, [XULA, HOME], "xula");
+  assert.equal(kept.applicable, true);
+  assert.equal(kept.status, "outside");
+  assert.equal(geofenceForKeptSite(AT_XULA, 5, [XULA], "xula").status, "inside");
+  assert.equal(geofenceForKeptSite(FAR, 5, [XULA, HOME], "home").applicable, false, "unfenced kept site: no badge");
+  assert.equal(geofenceForKeptSite(FAR, 5, [XULA, HOME], "gone").applicable, false, "kept site not located: no badge");
+  const none = geofenceForKeptSite(null, null, [XULA, HOME], null);
+  assert.equal(none.status, "outside", "no pick, no fix, a fenced site exists = outside");
+});
+
+test("geofence for a detected pick: same as detectClockInSite", () => {
+  const d = geofenceForDetectedSite(AT_XULA, 5, [XULA], { kind: "detected", siteId: "xula", siteName: "Xula" });
+  assert.equal(d.status, "inside");
+  assert.equal(geofenceForDetectedSite({ lat: 29.9946, lng: -90.2417 }, 5, [HOME, XULA], { kind: "detected", siteId: "home", siteName: "Home" }).applicable, false);
+  assert.equal(geofenceForDetectedSite(FAR, 5, [HOME, XULA], { kind: "noMatch" }).status, "outside");
 });
 
 test("isAccurateEnoughToDetect: up to 500 m; none or worse = skip detection", () => {

@@ -791,3 +791,52 @@ test("pin verifier: rejects signed out, wrong role, unlinked login and any input
   await db.doc(`companies/${c}/employees/emp1`).update({ linkedUserId: "uid1" });
   await assert.rejects(verifier(c, employeeAuth(c), { employeeId: "emp2" }), reasonIs("invalid"));
 });
+
+// ===================== getMyPin (Phase 10 A1: Show PIN on Settings) =====================
+
+const showPin = (c, auth = employeeAuth(c), data = {}) => funcs.getMyPin.run({ data, auth, rawRequest: {} });
+const clearReveals = () => db.doc("pinReveals/uid1").delete();
+
+test("getMyPin: the employee's own current PIN; a PIN changed on the website shows the new one", async () => {
+  const c = "ec-show-ok";
+  await seed(c);
+  await clearReveals();
+  assert.deepEqual(await showPin(c), { status: "ok", pin: PIN });
+  await db.doc(`companies/${c}/employees/emp1`).update({ pin: "4321" });
+  assert.deepEqual(await showPin(c), { status: "ok", pin: "4321" });
+});
+
+test("getMyPin: inactive and no-PIN employees get no PIN", async () => {
+  const c = "ec-show-states";
+  await seed(c, { employee: { active: false } });
+  await clearReveals();
+  assert.deepEqual(await showPin(c), { status: "inactive" });
+  await db.doc(`companies/${c}/employees/emp1`).update({ active: true, pin: admin.firestore.FieldValue.delete() });
+  assert.deepEqual(await showPin(c), { status: "noPin" });
+  await db.doc(`companies/${c}/employees/emp1`).update({ pin: "12" });
+  assert.deepEqual(await showPin(c), { status: "noPin" });
+});
+
+test("getMyPin: rejects signed out, wrong role, unlinked login and any input (never another employee)", async () => {
+  const c = "ec-show-auth";
+  await seed(c, { employee: { linkedUserId: "someoneElse" } });
+  await clearReveals();
+  await assert.rejects(showPin(c), reasonIs("wrongAccount"));
+  await assert.rejects(showPin(c, employeeAuth(c, { role: "supervisor" })), reasonIs("wrongAccount"));
+  await assert.rejects(showPin(c, employeeAuth(c, { role: "admin" })), reasonIs("wrongAccount"));
+  await assert.rejects(showPin(c, null), reasonIs("notSignedIn"));
+  await db.doc(`companies/${c}/employees/emp1`).update({ linkedUserId: "uid1" });
+  await assert.rejects(showPin(c, employeeAuth(c), { employeeId: "emp2" }), reasonIs("invalid"));
+});
+
+test("getMyPin: 10 reveals per 10 minutes per login, then tooMany; old reveals age out", async () => {
+  const c = "ec-show-limit";
+  await seed(c);
+  await clearReveals();
+  for (let i = 0; i < 10; i++) assert.equal((await showPin(c)).status, "ok");
+  await assert.rejects(showPin(c), reasonIs("tooMany"));
+  const old = Date.now() - 11 * 60 * 1000;
+  await db.doc("pinReveals/uid1").set({ atMs: Array(10).fill(old) });
+  assert.equal((await showPin(c)).status, "ok");
+  await clearReveals();
+});

@@ -121,17 +121,19 @@ test("Pro, inside a site: the detected site wins (not the assigned one), locatio
   assert.equal(ev.locationFixAtMs, punchMs - 2000);
 });
 
-test("Pro, outside every site: Phase 3 rule - crew code site, else single assigned, else none", async () => {
+test("Pro, good fix outside every site: Not specified (F1), even with a crew code or one assigned site", async () => {
   const c1 = "sd-out-crew";
   await seed(c1);
   await seedCrewCode(c1);
   const r1 = await punch(c1, "in", { at: NOWHERE });
-  assert.equal(r1.siteId, "crew");
-  assert.equal((await eventOf(c1, r1.eventId)).siteAutoDetected, undefined);
+  assert.equal(r1.siteId, null);
+  const ev1 = await eventOf(c1, r1.eventId);
+  assert.equal(ev1.siteName, "Not specified");
+  assert.equal(ev1.siteAutoDetected, undefined);
 
   const c2 = "sd-out-assigned";
   await seed(c2);
-  assert.equal((await punch(c2, "in", { at: NOWHERE })).siteId, "siteB");
+  assert.equal((await punch(c2, "in", { at: NOWHERE })).siteId, null);
 
   const c3 = "sd-out-none";
   await seed(c3, { employee: { assignedSiteIds: ["siteA", "siteB"] } });
@@ -173,8 +175,31 @@ test("Pro, accuracy worse than 500 m (or unknown): no detection, Phase 3 site, f
   assert.equal((await punch(c2, "in", { at: AT_A, accuracyM: null })).siteId, "siteB");
 
   const c3 = "sd-500";
+  await seed(c3, { employee: { assignedSiteIds: ["siteA"] } });
+  assert.equal((await punch(c3, "in", { at: AT_A, accuracyM: 500 })).siteId, "siteA", "500 m still matches an assigned site");
+});
+
+test("Pro, 100-500 m fix: only an ASSIGNED site can match; else the F2 site (D18 b)", async () => {
+  const c1 = "sd-rough-unassigned";
+  await seed(c1);
+  const r1 = await punch(c1, "in", { at: AT_A, accuracyM: 300 });
+  assert.equal(r1.siteId, "siteB", "Site A unassigned: not trusted at 300 m, single assigned site used");
+  assert.equal((await eventOf(c1, r1.eventId)).siteAutoDetected, undefined);
+
+  const c2 = "sd-rough-assigned";
+  await seed(c2, { employee: { assignedSiteIds: ["siteA", "siteB"] } });
+  const r2 = await punch(c2, "in", { at: AT_A, accuracyM: 300 });
+  assert.equal(r2.siteId, "siteA");
+  assert.equal((await eventOf(c2, r2.eventId)).siteAutoDetected, true);
+
+  const c3 = "sd-rough-crew";
   await seed(c3);
-  assert.equal((await punch(c3, "in", { at: AT_A, accuracyM: 500 })).siteId, "siteA");
+  await seedCrewCode(c3);
+  assert.equal((await punch(c3, "in", { at: NOWHERE, accuracyM: 300 })).siteId, "crew", "rough fix inside no assigned site = crew code site");
+
+  const c4 = "sd-100";
+  await seed(c4);
+  assert.equal((await punch(c4, "in", { at: AT_A, accuracyM: 100 })).siteId, "siteA", "100 m trusts an unassigned site");
 });
 
 test("Pro, two overlapping sites: the closest one the fix is inside wins", async () => {
@@ -328,7 +353,7 @@ test("mismatch: no detection (outside, rough fix, Core) -> never set", async () 
   await seed(c1, { employee: { assignedSiteIds: ["siteB"] } });
   await seedCrewCode(c1);
   const r1 = await punch(c1, "in", { at: NOWHERE });
-  assert.equal(r1.siteId, "crew");
+  assert.equal(r1.siteId, null);
   assert.equal((await eventOf(c1, r1.eventId)).siteMismatch, undefined);
 
   const c2 = "sd-mm-rough";

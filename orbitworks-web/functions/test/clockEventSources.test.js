@@ -48,9 +48,12 @@ const CLOCK_PHOTO_URL =
 const PRO = "pro_tier1";
 const CORE = "core2_tier1";
 
-async function seedCompany(companyId, planTier) {
-  await db.collection("companies").doc(companyId).set({ planTier });
+// appSettings: Phase 10 D16 a - "Ask for job site each time" (missing =
+// on, the website default) keeps the supervisor's pick.
+async function seedCompany(companyId, planTier, appSettings) {
+  await db.collection("companies").doc(companyId).set({ planTier, ...(appSettings ? { appSettings } : {}) });
 }
+const DETECT = { askJobSiteEachTime: false };
 
 async function seedEmployee(companyId, { withSelfie }) {
   await db
@@ -246,7 +249,7 @@ test("employeeApp Core with a location: saved as is, no geofence", async () => {
 
 test("pin still gets auto site detection (unchanged)", async () => {
   const c = "src-pin-site";
-  await seedCompany(c, PRO);
+  await seedCompany(c, PRO, DETECT);
   await seedEmployee(c, { withSelfie: false });
   await seedNearbySite(c);
   const { event } = await createAndTrigger(c, "e1", {
@@ -262,7 +265,7 @@ test("pin still gets auto site detection (unchanged)", async () => {
 
 test("pin mismatch via the shared isSiteMismatch: set when not assigned, not when assigned (unchanged)", async () => {
   const c = "src-pin-mismatch";
-  await seedCompany(c, PRO);
+  await seedCompany(c, PRO, DETECT);
   await seedEmployee(c, { withSelfie: false });
   await seedNearbySite(c);
   await db.doc(`companies/${c}/employees/emp1`).update({ assignedSiteIds: ["other"] });
@@ -275,7 +278,7 @@ test("pin mismatch via the shared isSiteMismatch: set when not assigned, not whe
 
 test("pin outside every site: no site, auto-detected (unchanged after the shared-helper refactor)", async () => {
   const c = "src-pin-outside";
-  await seedCompany(c, PRO);
+  await seedCompany(c, PRO, DETECT);
   await seedEmployee(c, { withSelfie: false });
   await seedNearbySite(c);
   const { event } = await createAndTrigger(c, "e1", { source: "pin", siteId: "assigned", siteName: "Assigned Site", ...FAR_AWAY });
@@ -286,7 +289,7 @@ test("pin outside every site: no site, auto-detected (unchanged after the shared
 
 test("pin geofence via the shared helper: inside a fenced site / outside every fenced site (unchanged)", async () => {
   const c = "src-pin-fence";
-  await seedCompany(c, PRO);
+  await seedCompany(c, PRO, DETECT);
   await seedEmployee(c, { withSelfie: false });
   await seedFencedSite(c);
   const inside = await createAndTrigger(c, "e1", { source: "pin", ...AT_NEAR_SITE });
@@ -296,6 +299,108 @@ test("pin geofence via the shared helper: inside a fenced site / outside every f
   assert.equal(outside.event.siteId, null);
   assert.equal(outside.event.geofenceStatus, "outside");
   assert.ok(outside.event.distanceFromSiteM > 1000);
+});
+
+// ---- Phase 10 F1/F2 on the supervisor app (D15 b, D16 a, D18 b) ----
+
+test("pin, Ask for job site each time on (or never saved): the pick is kept, never re-detected", async () => {
+  for (const [c, settings] of [["src-ask-on", { askJobSiteEachTime: true }], ["src-ask-missing", undefined]]) {
+    await seedCompany(c, PRO, settings);
+    await seedEmployee(c, { withSelfie: false });
+    await seedNearbySite(c);
+    const { event } = await createAndTrigger(c, "e1", { source: "pin", siteId: "assigned", siteName: "Assigned Site", ...AT_NEAR_SITE });
+    assert.equal(event.siteId, "assigned", c);
+    assert.equal(event.siteAutoDetected, undefined, c);
+    assert.equal(event.siteCorrected, undefined, c);
+  }
+});
+
+test("pin, ask on: a kept fenced pick still gets its own geofence badge", async () => {
+  const c = "src-ask-fence";
+  await seedCompany(c, PRO);
+  await seedEmployee(c, { withSelfie: false });
+  await seedFencedSite(c);
+  const { event } = await createAndTrigger(c, "e1", { source: "pin", siteId: "fenced", siteName: "Fenced Site", ...FAR_AWAY });
+  assert.equal(event.siteId, "fenced");
+  assert.equal(event.geofenceStatus, "outside");
+});
+
+test("pin, no usable fix (none, no accuracy, worse than 500 m): the pick is kept (D15 b)", async () => {
+  const c = "src-pin-nofix";
+  await seedCompany(c, PRO, DETECT);
+  await seedEmployee(c, { withSelfie: false });
+  await seedNearbySite(c);
+  const cases = [
+    { location: null, locationAccuracyM: null },
+    { location: { lat: 29.95, lng: -90.07 }, locationAccuracyM: null },
+    { location: { lat: 29.95, lng: -90.07 }, locationAccuracyM: 800 },
+  ];
+  for (const [i, fix] of cases.entries()) {
+    const { event } = await createAndTrigger(c, "e" + i, { source: "pin", siteId: "assigned", siteName: "Assigned Site", ...fix });
+    assert.equal(event.siteId, "assigned", JSON.stringify(fix));
+    assert.equal(event.siteAutoDetected, undefined);
+  }
+});
+
+test("pin, 100-500 m fix: an assigned site matches, an unassigned one keeps the pick (D18 b)", async () => {
+  const c = "src-pin-rough";
+  await seedCompany(c, PRO, DETECT);
+  await seedEmployee(c, { withSelfie: false });
+  await seedNearbySite(c);
+  const rough = { location: { lat: 29.95, lng: -90.07 }, locationAccuracyM: 300 };
+  const a = await createAndTrigger(c, "e1", { source: "pin", siteId: "assigned", siteName: "Assigned Site", ...rough });
+  assert.equal(a.event.siteId, "assigned", "near is unassigned: not trusted at 300 m");
+  await db.doc(`companies/${c}/employees/emp1`).update({ assignedSiteIds: ["near"] });
+  const b = await createAndTrigger(c, "e2", { source: "pin", siteId: "assigned", siteName: "Assigned Site", ...rough });
+  assert.equal(b.event.siteId, "near");
+  assert.equal(b.event.siteAutoDetected, true);
+});
+
+// ---- Phase 10 D19 a: supervisor breaks + override clock-out copy the shift site ----
+
+const T = (iso) => admin.firestore.Timestamp.fromDate(new Date(iso));
+
+test("supervisor break, auto break end and override clock-out take the shift's clock-in site", async () => {
+  const c = "src-copy-site";
+  await seedCompany(c, PRO);
+  await seedEmployee(c, { withSelfie: false });
+  await createAndTrigger(c, "in1", { source: "supervisorOverride", siteId: "near", siteName: "Near Site", timestamp: T("2026-10-21T14:00:00Z") });
+  const bs = await createAndTrigger(c, "bs", { source: "supervisorPin", type: "breakStart", timestamp: T("2026-10-21T16:00:00Z") });
+  assert.equal(bs.event.siteId, "near");
+  assert.equal(bs.event.siteName, "Near Site");
+  const be = await createAndTrigger(c, "be", { source: "autoBreakEnd", type: "breakEnd", timestamp: T("2026-10-21T16:20:00Z") });
+  assert.equal(be.event.siteId, "near");
+  const out = await createAndTrigger(c, "out", { source: "supervisorOverride", type: "out", siteId: "pill", siteName: "Pill Site", timestamp: T("2026-10-21T22:00:00Z") });
+  assert.equal(out.event.siteId, "near", "never the site filter pill");
+  assert.equal(out.event.siteAutoDetected, undefined);
+  const emp = await getDoc(`companies/${c}/employees/emp1`);
+  assert.equal(emp.lastEventSiteId, "near");
+});
+
+test("shift site copy: clock-in with no site = Not specified; the right shift by time; no clock-in = unchanged", async () => {
+  const c = "src-copy-edges";
+  await seedCompany(c, PRO);
+  await seedEmployee(c, { withSelfie: false });
+  const none = await createAndTrigger(c, "bs0", { source: "supervisorPin", type: "breakStart", siteId: "x", siteName: "X", timestamp: T("2026-10-20T10:00:00Z") });
+  assert.equal(none.event.siteId, "x", "no clock-in yet: nothing changes");
+  await createAndTrigger(c, "in1", { source: "pin", siteId: null, siteName: "Not specified", timestamp: T("2026-10-21T08:00:00Z") });
+  await createAndTrigger(c, "in2", { source: "supervisorOverride", siteId: "later", siteName: "Later", timestamp: T("2026-10-22T08:00:00Z") });
+  const bs = await createAndTrigger(c, "bs1", { source: "supervisorPin", type: "breakStart", siteId: "x", siteName: "X", timestamp: T("2026-10-21T12:00:00Z") });
+  assert.equal(bs.event.siteId, null, "its own shift (in1), not the later one");
+  assert.equal(bs.event.siteName, "Not specified");
+});
+
+test("shift site copy never touches adminManual breaks, Employee App breaks or override clock-ins", async () => {
+  const c = "src-copy-skip";
+  await seedCompany(c, PRO);
+  await seedEmployee(c, { withSelfie: false });
+  await createAndTrigger(c, "in1", { source: "supervisorOverride", siteId: "near", siteName: "Near Site", timestamp: T("2026-10-21T08:00:00Z") });
+  const admin1 = await createAndTrigger(c, "bs-admin", { source: "adminManual", type: "breakStart", siteId: "chosen", siteName: "Chosen", timestamp: T("2026-10-21T10:00:00Z") });
+  assert.equal(admin1.event.siteId, "chosen");
+  const ea = await createAndTrigger(c, "bs-ea", { source: "employeeApp", type: "breakStart", siteId: "own", siteName: "Own", timestamp: T("2026-10-21T11:00:00Z") });
+  assert.equal(ea.event.siteId, "own");
+  const oin = await createAndTrigger(c, "in2", { source: "supervisorOverride", siteId: "pill", siteName: "Pill", timestamp: T("2026-10-21T12:00:00Z") });
+  assert.equal(oin.event.siteId, "pill");
 });
 
 for (const source of ["pin", "supervisorOverride", "tempLink"]) {

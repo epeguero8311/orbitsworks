@@ -2,6 +2,8 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { randomBytes, randomUUID } from "crypto";
 import { db } from "./shared";
+import { listActiveTempClockLinksSchema, listTempClockLinkHistorySchema } from "./tempClockLinkValidators";
+import { TEMP_LINK_HISTORY_PAGE_SIZE, type ActiveTempLinkEntry, type TempLinkHistoryEntry, type TempLinkHistoryPage } from "./tempClockLinkTypes";
 
 const ALLOWED_DURATIONS_MINUTES = new Set([10, 30, 60]);
 const TOKEN_BYTES = 24;
@@ -149,7 +151,12 @@ export const generateTempClockLink = onCall(async (request) => {
 // still-active link - the collection itself is unreadable by clients (see
 // the deny-by-default comment above), so this is the only way the admin
 // UI can find out about a link it didn't just create in this session.
-export const listActiveTempClockLinks = onCall(async (request) => {
+//
+// Phase 10 (W1): only links that haven't expired are read (expiresAt > now
+// in the query, same composite index companyId + revoked + expiresAt desc).
+// Expired links are never revoked, so the old query read every link the
+// company ever made.
+export const listActiveTempClockLinks = onCall(async (request): Promise<{ links: ActiveTempLinkEntry[] }> => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
@@ -158,28 +165,30 @@ export const listActiveTempClockLinks = onCall(async (request) => {
   if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
+  if (!listActiveTempClockLinksSchema.safeParse(request.data ?? {}).success) {
+    throw new HttpsError("invalid-argument", "Invalid request.");
+  }
 
   const now = admin.firestore.Timestamp.now();
   const snap = await db
     .collection("tempClockLinks")
     .where("companyId", "==", callerCompanyId)
     .where("revoked", "==", false)
+    .where("expiresAt", ">", now)
     .orderBy("expiresAt", "desc")
     .get();
 
-  const links = snap.docs
-    .map((d) => {
-      const data = d.data();
-      return {
-        token: d.id,
-        siteId: (data.siteId as string | null) ?? null,
-        siteName: data.siteName as string,
-        createdByName: data.createdByName as string,
-        expiresAt: (data.expiresAt as admin.firestore.Timestamp).toMillis(),
-        durationMinutes: data.durationMinutes as number,
-      };
-    })
-    .filter((l) => l.expiresAt > now.toMillis());
+  const links = snap.docs.map((d) => {
+    const data = d.data();
+    return {
+      token: d.id,
+      siteId: (data.siteId as string | null) ?? null,
+      siteName: data.siteName as string,
+      createdByName: data.createdByName as string,
+      expiresAt: (data.expiresAt as admin.firestore.Timestamp).toMillis(),
+      durationMinutes: data.durationMinutes as number,
+    };
+  });
 
   return { links };
 });
@@ -191,7 +200,11 @@ export const listActiveTempClockLinks = onCall(async (request) => {
 // is generated, who made it and when is visible to every admin/owner on
 // the company forever. No corresponding write path is exposed here on
 // purpose: this list is read-only by design, not just by UI convention.
-export const listTempClockLinkHistory = onCall(async (request) => {
+//
+// Phase 10 (W1): 10 at a time (TEMP_LINK_HISTORY_PAGE_SIZE). No input = the
+// newest 10; afterToken = the last link already shown, the next 10 start
+// right after it. One extra doc is read to know whether there are more.
+export const listTempClockLinkHistory = onCall(async (request): Promise<TempLinkHistoryPage> => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
@@ -200,15 +213,27 @@ export const listTempClockLinkHistory = onCall(async (request) => {
   if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
+  const parsed = listTempClockLinkHistorySchema.safeParse(request.data ?? {});
+  if (!parsed.success) {
+    throw new HttpsError("invalid-argument", "Invalid request.");
+  }
 
-  const snap = await db
+  let q = db
     .collection("tempClockLinks")
     .where("companyId", "==", callerCompanyId)
-    .orderBy("createdAt", "desc")
-    .limit(100)
-    .get();
+    .orderBy("createdAt", "desc");
+  if (parsed.data.afterToken) {
+    const after = await db.collection("tempClockLinks").doc(parsed.data.afterToken).get();
+    // Another company's link (or none) is never a starting point.
+    if (!after.exists || after.data()?.companyId !== callerCompanyId) {
+      throw new HttpsError("not-found", "Link not found.");
+    }
+    q = q.startAfter(after);
+  }
+  const snap = await q.limit(TEMP_LINK_HISTORY_PAGE_SIZE + 1).get();
+  const docs = snap.docs.slice(0, TEMP_LINK_HISTORY_PAGE_SIZE);
 
-  const links = snap.docs.map((d) => {
+  const links: TempLinkHistoryEntry[] = docs.map((d) => {
     const data = d.data();
     return {
       token: d.id,
@@ -220,8 +245,9 @@ export const listTempClockLinkHistory = onCall(async (request) => {
       revoked: data.revoked === true,
     };
   });
+  const nextAfterToken = snap.docs.length > TEMP_LINK_HISTORY_PAGE_SIZE ? docs[docs.length - 1].id : null;
 
-  return { links };
+  return { links, nextAfterToken };
 });
 
 export const revokeTempClockLink = onCall(async (request) => {
