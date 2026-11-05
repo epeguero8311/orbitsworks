@@ -37,7 +37,10 @@
 //        | { type: "notify", exitId, atMs, siteName } | { type: "cancelNotify", exitId }
 
 const { fenceSide, SITE_EXIT_DWELL_MS, EXIT_MAX_ACCURACY_M } = require("./validators/siteExit");
-const { SYNCED_KEEP_MS } = require("./punchQueueLogic");
+// Leave tracking rows are dropped 4 days after syncing (or failing). Its own
+// number since Phase 10: the Sync tab's punches are now kept 8 days
+// (punchQueueLogic SYNCED_KEEP_MS), job site rows never show there.
+const SITE_EXIT_KEEP_MS = 4 * 24 * 60 * 60 * 1000;
 const { commentGate } = require("./commentQueueLogic");
 
 // F1 b: a "left" that ended (returned) within this is shown gray "short".
@@ -255,7 +258,7 @@ function siteExitsToSend(rows, punches, companyId, employeeId, nowMs) {
 // Synced / failed rows are dropped after the same 4 days as punches.
 function siteExitsToDrop(rows, nowMs) {
   return rows
-    .filter((r) => (r.status === "synced" || r.status === "failed") && nowMs - (r.syncedAt || r.createdAt || 0) > SYNCED_KEEP_MS)
+    .filter((r) => (r.status === "synced" || r.status === "failed") && nowMs - (r.syncedAt || r.createdAt || 0) > SITE_EXIT_KEEP_MS)
     .map((r) => r.requestId);
 }
 

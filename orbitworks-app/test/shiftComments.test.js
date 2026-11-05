@@ -96,15 +96,16 @@ test("comments screen: a server comment still saving (no time yet) shows on top"
   assert.deepEqual(rows.map((r) => r.id), ["s2", "s1"]);
 });
 
-test("sync tab: comments, same window as punches; unsynced always show", () => {
+test("sync tab: comments, same this-week window as punches (Wed shows from Monday); unsynced always show", () => {
   const items = [
     comment({ requestId: "w", status: "waiting", madeAtMs: NOW - 5 * DAY }),
-    comment({ requestId: "f", status: "failed", madeAtMs: NOW - 6 * DAY }),
+    comment({ requestId: "f", status: "failed", madeAtMs: NOW - 20 * DAY }),
     comment({ requestId: "s-new", status: "synced", madeAtMs: NOW - DAY }),
+    comment({ requestId: "s-mon", status: "synced", madeAtMs: NOW - 2 * DAY }),
     comment({ requestId: "s-old", status: "synced", madeAtMs: NOW - 3 * DAY }),
     comment({ requestId: "x", employeeId: "emp2" }),
   ];
-  assert.deepEqual(c.visibleComments(items, CO, E, NOW, TZ).map((i) => i.requestId), ["s-new", "w", "f"]);
+  assert.deepEqual(c.visibleComments(items, CO, E, NOW, TZ).map((i) => i.requestId), ["s-new", "s-mon", "w", "f"]);
 });
 
 test("sync tab: punches and comments in one list, newest first, Comment rows labelled", () => {

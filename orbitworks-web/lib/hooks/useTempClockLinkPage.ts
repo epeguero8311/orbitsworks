@@ -7,27 +7,9 @@ import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useSites } from "@/lib/hooks/useSites";
 import { isProPlan } from "@/lib/stripe/tiers";
+import type { ActiveTempLink, TempLinkDuration, TempLinkHistoryEntry, TempLinkHistoryPage } from "@/lib/types";
 
-export type TempLinkDuration = 10 | 30 | 60;
-
-export interface ActiveTempLink {
-  token: string;
-  siteId: string | null;
-  siteName: string;
-  createdByName: string;
-  expiresAt: number;
-  durationMinutes: TempLinkDuration;
-}
-
-export interface TempLinkHistoryEntry {
-  token: string;
-  siteName: string;
-  createdByName: string;
-  createdAt: number;
-  expiresAt: number;
-  durationMinutes: TempLinkDuration;
-  revoked: boolean;
-}
+export type { ActiveTempLink, TempLinkDuration, TempLinkHistoryEntry };
 
 // Mirrors useAnalyticsPage's plan-check shape - same reasoning applies
 // here: this is a UX paywall (like every other Pro-gated page in this
@@ -42,6 +24,10 @@ export function useTempClockLinkPage() {
   const [linksLoading, setLinksLoading] = useState(true);
   const [history, setHistory] = useState<TempLinkHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  // Phase 10 (W1): history comes 10 at a time. nextAfterToken = where
+  // "Load older" starts; null = nothing older.
+  const [nextAfterToken, setNextAfterToken] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [siteId, setSiteId] = useState("");
   const [durationMinutes, setDurationMinutes] = useState<TempLinkDuration>(10);
   const [generating, setGenerating] = useState(false);
@@ -79,12 +65,15 @@ export function useTempClockLinkPage() {
   }, []);
 
   // Same not-loading-synchronously reasoning as refreshLinks above.
+  // Always the newest page (after a generate or on open) - older pages
+  // loaded before are dropped and can be loaded again.
   const refreshHistory = useCallback(async () => {
     try {
       const historyFn = httpsCallable(functions, "listTempClockLinkHistory");
-      const result = await historyFn();
-      const { links } = result.data as { links: TempLinkHistoryEntry[] };
-      setHistory(links);
+      const result = await historyFn({});
+      const page = result.data as TempLinkHistoryPage;
+      setHistory(page.links);
+      setNextAfterToken(page.nextAfterToken);
     } catch (err) {
       console.error("Failed to load temp clock-in link history:", err);
     } finally {
@@ -121,6 +110,22 @@ export function useTempClockLinkPage() {
     }
   }
 
+  async function loadOlderHistory() {
+    if (!nextAfterToken || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const historyFn = httpsCallable(functions, "listTempClockLinkHistory");
+      const result = await historyFn({ afterToken: nextAfterToken });
+      const page = result.data as TempLinkHistoryPage;
+      setHistory((prev) => [...prev, ...page.links.filter((l) => !prev.some((p) => p.token === l.token))]);
+      setNextAfterToken(page.nextAfterToken);
+    } catch (err) {
+      console.error("Failed to load older temp clock-in links:", err);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
+
   async function revokeLink(token: string) {
     try {
       const revokeFn = httpsCallable(functions, "revokeTempClockLink");
@@ -146,6 +151,9 @@ export function useTempClockLinkPage() {
     linksLoading,
     history,
     historyLoading,
+    hasOlderHistory: nextAfterToken !== null,
+    loadingOlder,
+    loadOlderHistory,
     generateLink,
     revokeLink,
   };

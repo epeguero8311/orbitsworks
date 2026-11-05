@@ -217,8 +217,8 @@ function commentsLoadNotice(server) {
 }
 
 // Sync tab: this employee's comments - every unsynced one, plus Synced ones
-// typed today or in the 2 days before (company time), newest first. Same
-// window as visibleItems for punches.
+// typed this week (Monday to today, company time), newest first. Same
+// window as visibleItems for punches (Phase 10 A2).
 function visibleComments(items, companyId, employeeId, nowMs, timeZone) {
   const startKey = syncWindowStartKey(nowMs, timeZone);
   return mine(items, companyId, employeeId)

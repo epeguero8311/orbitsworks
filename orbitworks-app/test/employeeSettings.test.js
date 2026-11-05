@@ -1,7 +1,7 @@
 // Employee App Phase 5 - Settings data (lib/employeeSettings.js): the rows
-// the Settings tab shows from the self view, the company, the assigned job
-// sites and the app update, plus what a Notifications / Location switch tap
-// does. Run: node --test test/employeeSettings.test.js
+// the Settings tab shows from the self view, the company and the app
+// update, the Show PIN states, plus what a Notifications / Location switch
+// tap does. Run: node --test test/employeeSettings.test.js
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const s = require("../lib/employeeSettings");
@@ -15,10 +15,6 @@ const view = {
   subcontractorId: "sub1",
   subcontractorName: "Lopez Drywall",
 };
-const sites = {
-  site1: { name: "Main St", active: true },
-  site2: { name: "Oak Ave", active: true },
-};
 
 test("birthday: YYYY-MM-DD as a long date, never shifted a day; missing or bad -> Not set", () => {
   assert.equal(s.formatBirthday("1990-01-31"), "January 31, 1990");
@@ -30,24 +26,6 @@ test("birthday: YYYY-MM-DD as a long date, never shifted a day; missing or bad -
   assert.equal(s.NOT_SET, "Not set");
 });
 
-test("subcontractor: the name, or None", () => {
-  assert.equal(s.subcontractorLabel(view), "Lopez Drywall");
-  assert.equal(s.subcontractorLabel({ ...view, subcontractorName: null }), "None");
-  assert.equal(s.subcontractorLabel({ ...view, subcontractorName: "" }), "None");
-  assert.equal(s.subcontractorLabel(null), "None");
-});
-
-test("job site: assigned sites in assigned order, comma-separated; closed or unknown skipped; none -> None", () => {
-  assert.equal(s.jobSiteLabel(view.assignedSiteIds, sites), "Oak Ave, Main St");
-  assert.equal(s.jobSiteLabel(["site1"], sites), "Main St");
-  assert.equal(s.jobSiteLabel(["site1", "gone"], sites), "Main St", "a site that can't be read is skipped");
-  assert.equal(s.jobSiteLabel(["site1", "site2"], { ...sites, site2: { name: "Oak Ave", active: false } }), "Main St", "closed site skipped");
-  assert.equal(s.jobSiteLabel(["site1"], { site1: { name: "", active: true } }), "Not specified", "a site with no name");
-  assert.equal(s.jobSiteLabel([], sites), "None");
-  assert.equal(s.jobSiteLabel(undefined, sites), "None");
-  assert.equal(s.jobSiteLabel(["site1"], {}), "None");
-});
-
 test("update line: first 8 characters of the update id, or Built-in", () => {
   assert.equal(s.updateLabel({ updateId: "0a1b2c3d-4e5f-6789-abcd-ef0123456789", isEmbeddedLaunch: false }), "0a1b2c3d");
   assert.equal(s.updateLabel({ updateId: "0a1b2c3d-4e5f", isEmbeddedLaunch: true }), "Built-in", "running the bundle inside the build");
@@ -56,11 +34,10 @@ test("update line: first 8 characters of the update id, or Built-in", () => {
   assert.equal(s.updateLabel(null), "Built-in");
 });
 
-test("settings info: every row from the self view, company, sites and update", () => {
+test("settings info: every row from the self view, company and update (no subcontractor / job site)", () => {
   const info = s.buildSettingsInfo({
     view,
     companyName: "Acme Builders",
-    sites,
     update: { updateId: "0a1b2c3d-4e5f", isEmbeddedLaunch: false },
   });
   assert.deepEqual(info, {
@@ -69,41 +46,39 @@ test("settings info: every row from the self view, company, sites and update", (
     email: "ana@example.com",
     birthday: "January 31, 1990",
     company: "Acme Builders",
-    subcontractor: "Lopez Drywall",
-    jobSite: "Oak Ave, Main St",
     update: "0a1b2c3d",
   });
 });
 
 test("settings info: nothing loaded yet -> safe placeholders, never undefined", () => {
-  const info = s.buildSettingsInfo({ view: null, companyName: "", sites: {}, update: null });
+  const info = s.buildSettingsInfo({ view: null, companyName: "", update: null });
   assert.deepEqual(info, {
     photoUrl: null,
     name: "",
     email: "Not set",
     birthday: "Not set",
     company: "",
-    subcontractor: "None",
-    jobSite: "None",
     update: "Built-in",
   });
 });
 
-// Decided 2026-11-03: no email on the self view -> the login's own email.
-test("settings info: email falls back to the login's email; Not set only when both are missing", () => {
-  const base = { view, companyName: "Acme", sites, update: null };
-  assert.equal(s.buildSettingsInfo({ ...base, loginEmail: "login@example.com" }).email, "ana@example.com", "self view wins");
-  assert.equal(s.buildSettingsInfo({ ...base, view: { ...view, email: null }, loginEmail: "login@example.com" }).email, "login@example.com");
-  assert.equal(s.buildSettingsInfo({ ...base, view: { ...view, email: "" }, loginEmail: "login@example.com" }).email, "login@example.com");
+// Phase 10 A1: the email they signed in with; the self view's only when
+// the login has none.
+test("settings info: email is the login's; the self view's only as a fallback; Not set when both are missing", () => {
+  const base = { view, companyName: "Acme", update: null };
+  assert.equal(s.buildSettingsInfo({ ...base, loginEmail: "login@example.com" }).email, "login@example.com", "login wins");
+  assert.equal(s.buildSettingsInfo({ ...base, loginEmail: null }).email, "ana@example.com");
+  assert.equal(s.buildSettingsInfo({ ...base, loginEmail: "" }).email, "ana@example.com");
   assert.equal(s.buildSettingsInfo({ ...base, view: null, loginEmail: "login@example.com" }).email, "login@example.com", "self view not in yet");
   assert.equal(s.buildSettingsInfo({ ...base, view: { ...view, email: null }, loginEmail: null }).email, "Not set");
   assert.equal(s.buildSettingsInfo({ ...base, view: { ...view, email: null } }).email, "Not set");
 });
 
 test("settings info: the self view never shows a PIN or rate, even if one slipped in", () => {
-  const info = s.buildSettingsInfo({ view: { ...view, pin: "1234", hourlyRate: 25 }, companyName: "Acme", sites, update: null });
+  const info = s.buildSettingsInfo({ view: { ...view, pin: "1234", hourlyRate: 25 }, companyName: "Acme", update: null });
   assert.ok(!JSON.stringify(info).includes("1234"));
-  assert.equal(Object.keys(info).length, 8);
+  assert.ok(!JSON.stringify(info).includes("Lopez Drywall"), "never the subcontractor");
+  assert.equal(Object.keys(info).length, 6);
 });
 
 // Same flow as the Location switch (locationPermission.js +
@@ -127,19 +102,47 @@ test("switch tap: what to do for each permission state", () => {
 });
 
 // Layer 7c: the view-only rows, in order, under the photo and name.
-test("settings rows: labels and order, PIN always masked", () => {
-  const info = s.buildSettingsInfo({ view, companyName: "Acme Builders", sites, update: null, loginEmail: null });
+test("settings rows: Email, PIN, Birthday, Company - no Subcontractor or Job site (Phase 10 A1)", () => {
+  const info = s.buildSettingsInfo({ view, companyName: "Acme Builders", update: null, loginEmail: null });
   assert.deepEqual(s.settingsRows(info), [
-    ["Logged in as", "ana@example.com"],
+    ["Email", "ana@example.com"],
     ["PIN", "****"],
     ["Birthday", "January 31, 1990"],
     ["Company", "Acme Builders"],
-    ["Subcontractor", "Lopez Drywall"],
-    ["Job site", "Oak Ave, Main St"],
   ]);
-  const empty = s.settingsRows(s.buildSettingsInfo({ view: null, companyName: "", sites: {}, update: null }));
-  assert.deepEqual(empty.map((r) => r[1]), ["Not set", "****", "Not set", "", "None", "None"]);
+  assert.deepEqual(s.settingsRows(info, "4821")[1], ["PIN", "4821"], "the shown PIN");
+  const empty = s.settingsRows(s.buildSettingsInfo({ view: null, companyName: "", update: null }));
+  assert.deepEqual(empty.map((r) => r[1]), ["Not set", "****", "Not set", ""]);
   assert.equal(s.PIN_MASK, "****");
+});
+
+test("Show PIN: row text and button for every state; hidden after 30 s", () => {
+  assert.equal(s.pinRowText({ status: "hidden" }), "****");
+  assert.equal(s.pinRowText(null), "****");
+  assert.equal(s.pinRowText({ status: "shown", pin: "4821" }), "4821");
+  assert.equal(s.pinRowText({ status: "shown" }), "****", "no PIN in hand: masked");
+  assert.equal(s.pinRowText({ status: "loading" }), "Loading...");
+  assert.equal(s.pinRowText({ status: "offline" }), "Connect to the internet to see your PIN");
+  assert.equal(s.pinRowText({ status: "noPin" }), "Not set - ask your admin");
+  assert.equal(s.pinRowText({ status: "inactive" }), "Your account is inactive");
+  assert.equal(s.pinRowText({ status: "tooMany" }), "Try again in a few minutes");
+  assert.equal(s.pinRowText({ status: "error" }), "Couldn't load your PIN. Try again.");
+  assert.equal(s.pinButtonLabel({ status: "shown", pin: "1" }), "Hide");
+  assert.equal(s.pinButtonLabel({ status: "loading" }), null);
+  for (const status of ["hidden", "offline", "noPin", "tooMany", "error"]) assert.equal(s.pinButtonLabel({ status }), "Show", status);
+  assert.equal(s.PIN_SHOW_MS, 30000);
+});
+
+test("Show PIN: getMyPin answers and errors -> state", () => {
+  assert.deepEqual(s.pinStateFromResult({ status: "ok", pin: "4821" }), { status: "shown", pin: "4821" });
+  assert.deepEqual(s.pinStateFromResult({ status: "noPin" }), { status: "noPin" });
+  assert.deepEqual(s.pinStateFromResult({ status: "inactive" }), { status: "inactive" });
+  assert.deepEqual(s.pinStateFromResult({ status: "ok" }), { status: "error" });
+  assert.deepEqual(s.pinStateFromResult(null), { status: "error" });
+  assert.deepEqual(s.pinStateFromResult(null, { code: "functions/resource-exhausted", details: { reason: "tooMany" } }), { status: "tooMany" });
+  assert.deepEqual(s.pinStateFromResult(null, { code: "functions/unavailable" }), { status: "offline" });
+  assert.deepEqual(s.pinStateFromResult(null, { code: "functions/deadline-exceeded" }), { status: "offline" });
+  assert.deepEqual(s.pinStateFromResult(null, { code: "functions/permission-denied" }), { status: "error" });
 });
 
 // Log out warning (decision 7c-A): unsynced punches AND comments stay on
@@ -186,11 +189,4 @@ test("Phase 8: log out warning counts leave tracking rows too", () => {
   ];
   assert.equal(s.logoutCounts([], [], "co1", "emp1", exits).siteExits, 1);
   assert.equal(s.logoutCounts([], [], "co1", "emp1").siteExits, 0);
-});
-
-test("Phase 8: Settings location access label", () => {
-  assert.equal(s.locationAccessLabel("always"), "Always");
-  assert.equal(s.locationAccessLabel("whileUsing"), "While using");
-  assert.equal(s.locationAccessLabel("off"), "Off");
-  assert.equal(s.locationAccessLabel(undefined), "Off");
 });

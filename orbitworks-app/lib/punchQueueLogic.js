@@ -9,7 +9,7 @@
 // uses its own time (fast sync). The server decides if it counts (see
 // orbitworks-web/functions/src/employeeClockQueued.ts).
 
-const { dayKey, effectiveMs, formatClockTime, sortEvents, toMs } = require("./employeeHome");
+const { dayKey, effectiveMs, formatClockTime, sortEvents, toMs, weekKey } = require("./employeeHome");
 
 const SECOND_MS = 1000;
 const HOUR_MS = 60 * 60 * SECOND_MS;
@@ -29,13 +29,14 @@ const BADGE_DELAY_MS = 10 * SECOND_MS;
 // recorded, and a saved PIN is deleted.
 const QUEUED_MAX_AGE_MS = DAY_MS;
 const PIN_KEEP_MS = DAY_MS;
-// Sync tab (decided 2026-11-02, S1): Synced rows show for today and the 2
-// days before, by punch time in the company's time zone (Wednesday shows
-// Monday-Wednesday). Waiting / Syncing / Failed rows always show. The phone
-// keeps Synced rows 4 days by the clock, so a row that window shows is
-// never deleted early (cleanup doesn't know the time zone).
-const SYNC_TAB_DAYS = 3;
-const SYNCED_KEEP_MS = 4 * DAY_MS;
+// Sync tab (Phase 10 A2, D5 a): Synced rows show for THIS WEEK - Monday to
+// today by punch time in the company's time zone (same week as History).
+// Waiting / Syncing / Failed rows always show, however old. The phone
+// keeps Synced rows 8 days by the clock, so on a Sunday Monday's rows are
+// still there (cleanup doesn't know the time zone). SYNC_TAB_DAYS = the
+// longest the week window can be.
+const SYNC_TAB_DAYS = 7;
+const SYNCED_KEEP_MS = 8 * DAY_MS;
 
 const NOT_RECORDED_MESSAGE = "Not recorded, tell your admin.";
 const COULDNT_SYNC_MESSAGE = "Couldn't sync, please speak to your supervisor.";
@@ -209,16 +210,14 @@ function hasQueueAhead(items, companyId, employeeId) {
   return badgeCount(items, companyId, employeeId) > 0;
 }
 
-// "YYYY-MM-DD" of the first day the Sync tab shows: 2 calendar days
-// before today in timeZone (undefined = the phone's own zone).
+// "YYYY-MM-DD" of the first day the Sync tab shows: this week's Monday in
+// timeZone (undefined = the phone's own zone).
 function syncWindowStartKey(nowMs, timeZone) {
-  const [y, m, d] = dayKey(nowMs, timeZone).split("-").map(Number);
-  const start = new Date(Date.UTC(y, m - 1, d - (SYNC_TAB_DAYS - 1)));
-  return start.toISOString().slice(0, 10);
+  return weekKey(nowMs, timeZone);
 }
 
 // Sync tab rows, newest first: every unsynced row, plus Synced rows made
-// today or in the 2 days before (company time zone).
+// this week (Monday to today, company time zone).
 function visibleItems(items, companyId, employeeId, nowMs, timeZone) {
   const startKey = syncWindowStartKey(nowMs, timeZone);
   return mine(items, companyId, employeeId)

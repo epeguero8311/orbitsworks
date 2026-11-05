@@ -144,34 +144,39 @@ test("badge counts Waiting + Syncing + Failed; new punches queue behind them", (
   assert.equal(q.hasQueueAhead([item({ status: "synced", syncedAt: NOW })], C, E), false);
 });
 
-test("Sync tab: newest first, synced rows for today and the 2 days before (company zone)", () => {
-  // NOW = Sun Nov 1 2026, 10:00 AM in Chicago -> shows Fri Oct 30 to Sun Nov 1.
+test("Sync tab: newest first, synced rows for THIS WEEK only (Monday, company zone); failed always", () => {
+  // NOW = Sun Nov 1 2026, 10:00 AM in Chicago -> the week started Mon Oct 26.
   const TZ = "America/Chicago";
-  assert.equal(q.syncWindowStartKey(NOW, TZ), "2026-10-30");
-  const friEarly = item({ status: "synced", queuedAtMs: Date.parse("2026-10-30T05:30:00Z"), syncedAt: NOW - 50 * HOUR }); // Fri 12:30 AM CT
-  const thuLate = item({ status: "synced", queuedAtMs: Date.parse("2026-10-30T04:30:00Z"), syncedAt: NOW - 50 * HOUR }); // Thu 11:30 PM CT
+  assert.equal(q.syncWindowStartKey(NOW, TZ), "2026-10-26");
+  const monEarly = item({ status: "synced", queuedAtMs: Date.parse("2026-10-26T05:30:00Z"), syncedAt: NOW - 140 * HOUR }); // Mon 12:30 AM CT
+  const sunLate = item({ status: "synced", queuedAtMs: Date.parse("2026-10-26T04:30:00Z"), syncedAt: NOW - 140 * HOUR }); // Sun Oct 25 11:30 PM CT
   const recent = item({ status: "synced", queuedAtMs: NOW - 3 * HOUR, syncedAt: NOW - 2 * HOUR });
   const waiting = item({ queuedAtMs: NOW - MIN });
-  const oldFailed = item({ status: "failed", failKind: "notRecorded", queuedAtMs: NOW - 9 * 24 * HOUR });
-  const oldWaiting = item({ status: "waiting", queuedAtMs: NOW - 6 * 24 * HOUR });
-  const rows = q.visibleItems([friEarly, thuLate, recent, waiting, oldFailed, oldWaiting], C, E, NOW, TZ);
+  const oldFailed = item({ status: "failed", failKind: "notRecorded", queuedAtMs: NOW - 30 * 24 * HOUR });
+  const lastWeekFailed = item({ status: "failed", failKind: "couldntSync", queuedAtMs: Date.parse("2026-10-20T15:00:00Z") });
+  const oldWaiting = item({ status: "waiting", queuedAtMs: NOW - 9 * 24 * HOUR });
+  const rows = q.visibleItems([monEarly, sunLate, recent, waiting, oldFailed, lastWeekFailed, oldWaiting], C, E, NOW, TZ);
   assert.deepEqual(
     rows.map((r) => r.requestId),
-    [waiting.requestId, recent.requestId, friEarly.requestId, oldWaiting.requestId, oldFailed.requestId]
+    [waiting.requestId, recent.requestId, monEarly.requestId, oldWaiting.requestId, lastWeekFailed.requestId, oldFailed.requestId]
   );
 });
 
-test("Sync tab: a Wednesday shows Monday to Wednesday", () => {
+test("Sync tab: a Wednesday and a Monday both start on that week's Monday", () => {
   const wed = Date.parse("2026-11-04T18:00:00Z"); // Wed noon in Chicago
   assert.equal(q.syncWindowStartKey(wed, "America/Chicago"), "2026-11-02");
-  assert.equal(q.syncWindowStartKey(Date.parse("2026-03-01T12:00:00Z"), "UTC"), "2026-02-27");
+  const mon = Date.parse("2026-11-02T06:30:00Z"); // Mon 12:30 AM in Chicago
+  assert.equal(q.syncWindowStartKey(mon, "America/Chicago"), "2026-11-02");
+  assert.equal(q.syncWindowStartKey(Date.parse("2026-11-02T05:30:00Z"), "America/Chicago"), "2026-10-26", "Sun 11:30 PM CT is last week");
+  assert.equal(q.syncWindowStartKey(Date.parse("2026-03-01T12:00:00Z"), "UTC"), "2026-02-23");
 });
 
-test("cleanup keeps synced rows 4 days, so nothing the Sync tab shows is deleted", () => {
-  const old = item({ status: "synced", queuedAtMs: NOW - 98 * HOUR, syncedAt: NOW - 97 * HOUR });
-  const kept = item({ status: "synced", queuedAtMs: NOW - 70 * HOUR, syncedAt: NOW - 70 * HOUR });
+test("cleanup keeps synced rows 8 days, so nothing the Sync tab shows is deleted (Sunday still sees Monday)", () => {
+  const old = item({ status: "synced", queuedAtMs: NOW - 194 * HOUR, syncedAt: NOW - 193 * HOUR });
+  const kept = item({ status: "synced", queuedAtMs: NOW - 7 * 24 * HOUR, syncedAt: NOW - 7 * 24 * HOUR });
   const waiting = item({ queuedAtMs: NOW - MIN });
-  assert.deepEqual(q.syncedToDrop([old, kept, waiting], NOW), [old.requestId]);
+  const failed = item({ status: "failed", failKind: "notRecorded", queuedAtMs: NOW - 40 * 24 * HOUR });
+  assert.deepEqual(q.syncedToDrop([old, kept, waiting, failed], NOW), [old.requestId]);
   assert.ok(q.SYNCED_KEEP_MS >= (q.SYNC_TAB_DAYS + 1) * 24 * HOUR - 1);
 });
 

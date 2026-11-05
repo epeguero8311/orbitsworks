@@ -1,26 +1,28 @@
 // Employee App Phase 5 - what the Settings tab shows (decided 2026-11-03,
-// Settings 14-20), with no React Native, Expo or Firebase imports so
-// test/employeeSettings.test.js can run it under `node --test` (same
-// pattern as historyDays.js).
-//   - photo, name, email, birthday, subcontractor: the employee's own self
-//     view (employeeSelfViews, server-written, no PIN / rate / face). No
-//     email there -> the login's own email (decided 2026-11-03)
-//   - company: the company that created them (useEmployeeAppConfig)
-//   - job site: the assigned jobSites docs, comma-separated
+// Settings 14-20; Phase 10 A1), with no React Native, Expo or Firebase
+// imports so test/employeeSettings.test.js can run it under `node --test`
+// (same pattern as historyDays.js).
+//   - email: the one they signed in with (the login's), else the self view's
+//   - photo, name, birthday: the employee's own self view (employeeSelfViews,
+//     server-written, no PIN / rate / face)
+//   - PIN: **** until they tap Show (getMyPin, online only - useMyPin.js)
+//   - company: the company the account is under - the parent company,
+//     never the subcontractor (useEmployeeAppConfig)
 //   - Update: the first 8 characters of the OTA update id, or "Built-in"
+// Phase 10 (A1): no Subcontractor, Job site or Location access rows.
 // Everything is view only. The Notifications and Location switches mirror
 // the phone's own permission (permissionToggleAction); no push token.
 
 const { pendingSiteExitCount } = require("./siteExitLogic");
-const { NO_SITE_NAME } = require("./employeeHome");
 const { badgeCount } = require("./punchQueueLogic");
 
 const NOT_SET = "Not set";
-const NONE = "None";
 const BUILT_IN = "Built-in";
 const UPDATE_ID_CHARS = 8;
-// The PIN itself is never kept on the phone for display.
+// Shown until Show is tapped. The PIN is never saved on the phone.
 const PIN_MASK = "****";
+// How long a shown PIN stays on screen before it hides again.
+const PIN_SHOW_MS = 30 * 1000;
 
 // "1990-01-31" -> "January 31, 1990" (formatted in UTC so the day never
 // shifts). Missing or not a real date -> "Not set".
@@ -36,22 +38,6 @@ function textOr(value, fallback) {
   return typeof value === "string" && value !== "" ? value : fallback;
 }
 
-function subcontractorLabel(view) {
-  return textOr(view && view.subcontractorName, NONE);
-}
-
-// The assigned sites, in the order they are assigned, as one line. A site
-// that couldn't be read or is closed (active: false) is left out.
-// sites = { [siteId]: { name, active } }
-function jobSiteLabel(assignedSiteIds, sites) {
-  const ids = Array.isArray(assignedSiteIds) ? assignedSiteIds : [];
-  const names = ids
-    .map((id) => sites && sites[id])
-    .filter((site) => site && site.active !== false)
-    .map((site) => textOr(site.name, NO_SITE_NAME));
-  return names.length ? names.join(", ") : NONE;
-}
-
 // update = { updateId, isEmbeddedLaunch } from expo-updates. The bundle
 // inside the build (no OTA update running) is "Built-in".
 function updateLabel(update) {
@@ -61,31 +47,64 @@ function updateLabel(update) {
 
 // The rows Settings shows. Only these fields - nothing else from the self
 // view is ever passed on. loginEmail = the signed-in login's email.
-function buildSettingsInfo({ view, companyName, sites, update, loginEmail }) {
+function buildSettingsInfo({ view, companyName, update, loginEmail }) {
   const v = view || {};
   return {
     photoUrl: textOr(v.photoUrl, null),
     name: textOr(v.name, ""),
-    email: textOr(v.email, textOr(loginEmail, NOT_SET)),
+    email: textOr(loginEmail, textOr(v.email, NOT_SET)),
     birthday: formatBirthday(v.dob),
     company: textOr(companyName, ""),
-    subcontractor: subcontractorLabel(view),
-    jobSite: jobSiteLabel(v.assignedSiteIds, sites),
     update: updateLabel(update),
   };
 }
 
 // The Settings tab's view-only rows under the photo and name, in order:
-// [label, value]. info = buildSettingsInfo(...).
-function settingsRows(info) {
+// [label, value]. info = buildSettingsInfo(...), pinText = pinRowText(...)
+// (the PIN row also gets the Show / Hide button on the screen).
+function settingsRows(info, pinText = PIN_MASK) {
   return [
-    ["Logged in as", info.email],
-    ["PIN", PIN_MASK],
+    ["Email", info.email],
+    ["PIN", pinText],
     ["Birthday", info.birthday],
     ["Company", info.company],
-    ["Subcontractor", info.subcontractor],
-    ["Job site", info.jobSite],
   ];
+}
+
+// The PIN row's text for each Show PIN state (useMyPin.js):
+//   hidden | loading | shown | offline | noPin | inactive | tooMany | error
+function pinRowText(state) {
+  const status = state && state.status;
+  if (status === "shown" && typeof state.pin === "string") return state.pin;
+  if (status === "loading") return "Loading...";
+  if (status === "offline") return "Connect to the internet to see your PIN";
+  if (status === "noPin") return "Not set - ask your admin";
+  if (status === "inactive") return "Your account is inactive";
+  if (status === "tooMany") return "Try again in a few minutes";
+  if (status === "error") return "Couldn't load your PIN. Try again.";
+  return PIN_MASK;
+}
+
+// The PIN row's button: Hide while shown, nothing while loading, else Show.
+function pinButtonLabel(state) {
+  const status = state && state.status;
+  if (status === "shown") return "Hide";
+  if (status === "loading") return null;
+  return "Show";
+}
+
+// getMyPin's answer (or error) -> the next Show PIN state.
+function pinStateFromResult(result, err) {
+  if (err) {
+    const reason = err.details && err.details.reason;
+    if (reason === "tooMany" || err.code === "functions/resource-exhausted") return { status: "tooMany" };
+    if (err.code === "functions/unavailable" || err.code === "functions/deadline-exceeded") return { status: "offline" };
+    return { status: "error" };
+  }
+  if (result && result.status === "ok" && typeof result.pin === "string") return { status: "shown", pin: result.pin };
+  if (result && result.status === "noPin") return { status: "noPin" };
+  if (result && result.status === "inactive") return { status: "inactive" };
+  return { status: "error" };
 }
 
 // A Notifications or Location switch tap. wantOn = the new switch value,
@@ -135,21 +154,15 @@ function logoutWarning(punches, comments, siteExits) {
   return `${list} ${p + c + x === 1 ? "is" : "are"} not synced yet`;
 }
 
-// Phase 8: the Settings "Location access" row.
-function locationAccessLabel(access) {
-  if (access === "always") return "Always";
-  if (access === "whileUsing") return "While using";
-  return "Off";
-}
-
 module.exports = {
-  locationAccessLabel,
   NOT_SET,
   PIN_MASK,
+  PIN_SHOW_MS,
   settingsRows,
+  pinRowText,
+  pinButtonLabel,
+  pinStateFromResult,
   formatBirthday,
-  subcontractorLabel,
-  jobSiteLabel,
   updateLabel,
   buildSettingsInfo,
   permissionToggleAction,

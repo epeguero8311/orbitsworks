@@ -1,4 +1,5 @@
 import { deriveStatus } from "./clockStatus";
+import { openShiftSiteId } from "./activeSiteFilter";
 
 // Pure status rules for useTodayShift (no Firestore, no React) so they can
 // be checked against real data off the phone.
@@ -71,11 +72,17 @@ export function buildShiftStatus({ activeEmployees, inactiveEmployees, windowEve
   const windowLatest = latestByEmployee(windowEvents);
   const latestFor = (id) => todayLatest[id] || windowLatest[id] || latestById[id] || null;
 
-  const employees = activeEmployees.map((emp) => ({ ...emp, status: deriveStatus(latestFor(emp.id)?.type) }));
+  // Phase 10 (A3): shiftSiteId = the open shift's site, for the site
+  // filter (lib/activeSiteFilter.js). null when not clocked in.
+  const withShift = (emp, status) => {
+    const row = { ...emp, status };
+    return { ...row, shiftSiteId: openShiftSiteId(row, windowEvents) };
+  };
+  const employees = activeEmployees.map((emp) => withShift(emp, deriveStatus(latestFor(emp.id)?.type)));
   for (const emp of inactiveEmployees) {
     if (!isInactiveCandidate(emp, windowLatest)) continue;
     const latest = latestFor(emp.id);
-    if (latest && latest.type !== "out") employees.push({ ...emp, status: deriveStatus(latest.type) });
+    if (latest && latest.type !== "out") employees.push(withShift(emp, deriveStatus(latest.type)));
   }
 
   const todayIns = [];

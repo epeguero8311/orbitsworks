@@ -27,6 +27,7 @@ import type {
 } from "@/lib/types";
 import { ALL_COMPANIES, companyMatches, type CompanyFilter } from "@/lib/reportCompanyFilter";
 import { APPROVALS_CUTOVER_DATE } from "@/lib/reportUtils";
+import { approvalsQueryStart } from "@/lib/approvalsWindow";
 import {
   type EventWithDate,
   computeExcludedEventIds,
@@ -109,7 +110,9 @@ export function useReports() {
         const approvalsRef = collection(db, "companies", companyId, "timesheetApprovals");
         const approvalsQuery = query(
           approvalsRef,
-          where("date", ">=", APPROVALS_CUTOVER_DATE),
+          // Phase 10 (W8 a): from the range's start (one day early), not
+          // from the cutover - lib/approvalsWindow.ts.
+          where("date", ">=", approvalsQueryStart(startDate, APPROVALS_CUTOVER_DATE)),
           where("date", "<=", endDate)
         );
         const approvalsSnapshot = await getDocs(approvalsQuery);
