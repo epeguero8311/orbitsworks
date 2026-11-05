@@ -274,3 +274,48 @@ export function formatGeofenceDistance(meters: number): string {
   const miles = meters / 1609.344;
   return `${miles.toFixed(1)} mi`;
 }
+
+// ---- Employee App Phase 8: leaving the job site ----
+//
+// One rule for "is this fix inside or outside the shift's fence", used by
+// recordSiteExit to re-check every exit the phone sends (the phone's own
+// copy is orbitworks-app/lib/validators/siteExit.js - keep both in sync).
+// Only fixes accurate to EXIT_MAX_ACCURACY_M count. Inside = distance -
+// accuracy <= radius (accuracy in the worker's favor, same as
+// classifyGeofence). Outside = distance > radius + max(accuracy,
+// EXIT_MIN_BUFFER_M). Anything else is "unsure" and changes nothing.
+// Never blocks or changes a punch.
+export const EXIT_MAX_ACCURACY_M = 100;
+export const EXIT_MIN_BUFFER_M = 25;
+
+export interface ShiftFence {
+  lat: number;
+  lng: number;
+  radiusM: number;
+}
+
+export type FenceSide = "inside" | "outside" | "unsure";
+
+export function fenceSide(
+  fix: { lat: number; lng: number; accuracyM: number | null } | null | undefined,
+  fence: ShiftFence | null | undefined
+): FenceSide {
+  if (!fix || !fence || !(fence.radiusM > 0)) return "unsure";
+  const acc = fix.accuracyM;
+  if (typeof acc !== "number" || !Number.isFinite(acc) || acc < 0 || acc > EXIT_MAX_ACCURACY_M) return "unsure";
+  const d = haversineMeters(fix.lat, fix.lng, fence.lat, fence.lng);
+  if (d - acc <= fence.radiusM) return "inside";
+  if (d > fence.radiusM + Math.max(acc, EXIT_MIN_BUFFER_M)) return "outside";
+  return "unsure";
+}
+
+// A site's fence, or null when it is not geofenced (toggle off, or no
+// coordinates / radius saved). radiusM overrides the site's radius - the
+// shift's radius is locked at clock-in (ClockEvent.geofenceRadiusM).
+export function fenceForSite(site: GeofenceSite | null | undefined, radiusM?: number): ShiftFence | null {
+  if (!site || site.requireGeofence !== true) return null;
+  if (typeof site.lat !== "number" || typeof site.lng !== "number") return null;
+  const radius = radiusM ?? site.radiusMeters;
+  if (typeof radius !== "number" || !(radius > 0)) return null;
+  return { lat: site.lat, lng: site.lng, radiusM: radius };
+}

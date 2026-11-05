@@ -121,6 +121,20 @@ export function maxHoursText(workedHours: number, thresholdHours: number): Emplo
   };
 }
 
+// Phase 8 - the employee's own Alerts tab entry for leaving the job site.
+// Written when the exit syncs, never pushed (the phone already showed its
+// own "You have left the job site" notification at the time).
+export function leftSiteText(siteName: string, startMs: number): EmployeeAlertText {
+  const site = siteName || "the job site";
+  const time = formatMinutesOfDay(localMinutesOfDay(new Date(startMs)));
+  return {
+    alertType: "leftSite",
+    title: "You have left the job site",
+    message: `You left ${site} at ${time}.`,
+    reason: "Your company flags leaving the job site while you are clocked in. You were outside its area for 2 minutes.",
+  };
+}
+
 export function overtimeText(weekHours: number, thresholdHours: number): EmployeeAlertText {
   return {
     alertType: "overtime",

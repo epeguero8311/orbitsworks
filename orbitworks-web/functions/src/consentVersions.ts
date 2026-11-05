@@ -14,7 +14,11 @@
 // BIOMETRIC_CONSENT_VERSION, so every stored consent record points at the
 // exact words the person agreed to.
 
-export const PRIVACY_POLICY_VERSION = "2026-10-14-r5";
+// r6 (2026-11-04, Employee App Phase 8): the privacy policy and employee
+// notice now cover Always location while clocked in on a Pro company with
+// a geofenced job site. Bumping this also shows the website's Terms
+// re-accept prompt to owners (TERMS_VERSION).
+export const PRIVACY_POLICY_VERSION = "2026-11-04-r6";
 
 export const BIOMETRIC_CONSENT_VERSION = "employee-signup-2026-10-23-v1";
 
@@ -31,3 +35,22 @@ export const CONSENT_VERSIONS = {
   biometricConsentVersion: BIOMETRIC_CONSENT_VERSION,
   biometricConsentText: BIOMETRIC_CONSENT_TEXT,
 } as const;
+
+// ---- Employee App Phase 8: location tracking consent ----
+//
+// Asked once in the app before the "Always" location prompt (after the
+// first Pro clock-in at a geofenced job site), and again whenever this
+// version or PRIVACY_POLICY_VERSION changes. Stored on
+// employeeConsents/{employeeId} by acceptLocationConsent (server-only).
+// Changing LOCATION_CONSENT_TEXT in any way means bumping
+// LOCATION_CONSENT_VERSION. Lawyer review is a Phase 10 item.
+export const LOCATION_CONSENT_VERSION = "employee-location-2026-11-04-v1";
+
+export const LOCATION_CONSENT_TEXT =
+  "I agree that while I am clocked in at a job site with a geofence, OrbitsWorks " +
+  "can check my phone's location in the background to see when I leave and " +
+  "come back to the job site. It only runs while I am clocked in, never when " +
+  "I am clocked out. Only the time and place I left and came back are saved, " +
+  "never a trail of where I went. My employer sees those times on my shift. " +
+  "The places are deleted after 90 days. Leaving never stops a clock-in or " +
+  "clock-out. I can turn this off in my phone's Settings at any time.";

@@ -28,6 +28,8 @@ const ALERT_TITLE: Record<AlertDoc["alertType"], string> = {
   syncedLateApproved: "Late Punch on Approved Timesheet",
   // Never sent either - written via createAlertIfNew (createPinChangedAlert).
   pinChanged: "PIN Changed",
+  // Never sent either - written via createAlertIfNew (createLeftJobSiteAlert).
+  leftJobSite: "Left Job Site",
 };
 
 // Sends one alert to every registered, notification-enabled device on the

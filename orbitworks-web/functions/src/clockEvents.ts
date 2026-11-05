@@ -13,6 +13,7 @@ import {
 import { MAPBOX_TOKEN, haversineMeters, reverseGeocode } from "./geocoding";
 import { classifyGeofence, detectClockInSite, isSiteMismatch, loadDetectableSites, GeofenceStatus } from "./geofencing";
 import { checkLateClockIn, checkEarlyClockOut, checkOutsideGeofence, checkSiteMismatch, createAlertIfNew } from "./alerts";
+import { closeOpenSiteExits } from "./employeeSiteExits";
 import { checkFaceMatch, REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY } from "./rekognition";
 
 // Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
@@ -574,6 +575,16 @@ export const onClockEventCreated = onDocumentCreated(
     // extra .catch here is belt-and-suspenders against a future edit to
     // that function accidentally removing its internal guard.
     await handleDeviceTracking(event).catch(() => {});
+
+    // Employee App Phase 8 (leave tracking): any clock-out - the phone's,
+    // a supervisor's, an admin's or an auto clock-out - ends the employee's
+    // open "left" / "tracking off" stretches at the clock-out time. Fully
+    // isolated: it only ever touches siteExits, never this event, and never
+    // throws (closeOpenSiteExits catches everything).
+    if (data.type === "out") {
+      const outMs = (data.adjustedTimestamp ?? data.timestamp)?.toMillis?.() ?? Date.now();
+      await closeOpenSiteExits(companyId, employeeId, outMs, data.source === "autoClockOut" ? "autoClockOut" : "clockOut");
+    }
 
     // Phone sync always wins (Auto Clock-Out) - fully isolated from
     // everything above: never blocks or rejects the real punch that just

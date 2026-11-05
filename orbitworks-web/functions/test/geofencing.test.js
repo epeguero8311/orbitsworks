@@ -130,3 +130,31 @@ test("isSiteMismatch: detected site outside the assigned list only", () => {
   assert.equal(isSiteMismatch("a", "a"), false);
   assert.equal(isSiteMismatch(null, ["b"]), false);
 });
+
+// ---- Phase 8: leave tracking fence rule (mirrors the phone's copy) ----
+
+const g8 = require("../lib/geofencing");
+const FENCE8 = { lat: 30, lng: -97, radiusM: 100 };
+const north = (m, accuracyM) => ({ lat: 30 + m / 111195, lng: -97, accuracyM });
+
+test("fenceSide: inside / outside / unsure, same cases as the phone", () => {
+  assert.equal(g8.fenceSide(north(0, 10), FENCE8), "inside");
+  assert.equal(g8.fenceSide(north(150, 60), FENCE8), "inside");
+  assert.equal(g8.fenceSide(north(120, 5), FENCE8), "unsure");
+  assert.equal(g8.fenceSide(north(130, 5), FENCE8), "outside");
+  assert.equal(g8.fenceSide(north(170, 60), FENCE8), "outside");
+  assert.equal(g8.fenceSide(north(1000, 101), FENCE8), "unsure");
+  assert.equal(g8.fenceSide(north(1000, null), FENCE8), "unsure");
+  assert.equal(g8.fenceSide(null, FENCE8), "unsure");
+  assert.equal(g8.fenceSide(north(1000, 5), null), "unsure");
+});
+
+test("fenceForSite: only a geofenced site with a place; a locked radius wins", () => {
+  const site = { lat: 1, lng: 2, radiusMeters: 150, requireGeofence: true };
+  assert.deepEqual(g8.fenceForSite(site), { lat: 1, lng: 2, radiusM: 150 });
+  assert.deepEqual(g8.fenceForSite(site, 300), { lat: 1, lng: 2, radiusM: 300 });
+  assert.equal(g8.fenceForSite({ ...site, requireGeofence: false }), null);
+  assert.equal(g8.fenceForSite({ ...site, lat: undefined }), null);
+  assert.equal(g8.fenceForSite({ ...site, radiusMeters: undefined }), null);
+  assert.equal(g8.fenceForSite(undefined), null);
+});

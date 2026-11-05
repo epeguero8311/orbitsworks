@@ -91,3 +91,13 @@ export {
 
 // Employee App Phase 7: the employee's own push token + alerts cleanup.
 export { registerEmployeePushToken, clearEmployeePushToken, cleanupEmployeeAlerts } from "./employeeAlerts";
+
+// Employee App Phase 8: leaving the job site (Pro, flag only) + the
+// location consent asked before Always location.
+export {
+  recordSiteExit,
+  getShiftFence,
+  cleanupSiteExitLocations,
+  getLocationConsent,
+  acceptLocationConsent,
+} from "./employeeSiteExits";

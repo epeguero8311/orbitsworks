@@ -36,7 +36,8 @@ function alertsCol(companyId: string) {
 }
 
 // Same account check as employeeClockPunch: role employee + claims.
-function employeeClaims(request: CallableRequest): { companyId: string; employeeId: string } {
+// Exported for the Phase 8 leave tracking calls (employeeSiteExits.ts).
+export function employeeClaims(request: CallableRequest): { companyId: string; employeeId: string } {
   if (!request.auth) throw new HttpsError("unauthenticated", "You must be signed in.");
   const role = request.auth.token.role as string | undefined;
   const companyId = request.auth.token.companyId as string | undefined;
@@ -101,9 +102,13 @@ export interface EmployeeAlertInput extends EmployeeAlertText {
   companyId: string;
   employeeId: string;
   // Makes the id: one alert per (type, key). Shift alerts use the shift's
-  // first event id; overtime uses employeeId + week.
+  // first event id; overtime uses employeeId + week; leftSite uses the
+  // SiteExit id.
   key: string;
   shiftId: string | null;
+  // Phase 8: false = save the alert but send no push (leftSite - the phone
+  // already showed its own local notification). Default true.
+  push?: boolean;
 }
 
 export function employeeAlertId(alertType: string, key: string): string {
@@ -161,6 +166,7 @@ export async function sendEmployeeAlert(input: EmployeeAlertInput): Promise<bool
     return false;
   }
 
+  if (input.push === false) return true;
   try {
     await pushToEmployee(companyId, employeeId, alertId, input);
   } catch (err) {

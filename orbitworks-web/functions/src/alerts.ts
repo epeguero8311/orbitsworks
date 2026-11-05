@@ -16,6 +16,7 @@ import {
 import { applyAutoBreak, splitShiftSegments } from "./autoBreak";
 import { sendEmployeeAlert } from "./employeeAlerts";
 import {
+  formatMinutesOfDay,
   maxHoursText,
   openShiftStart,
   overtimeText,
@@ -71,6 +72,12 @@ export const ALERT_TYPES = [
   // Keyed per sync operation (eventId = the create's employeeId or the
   // edit's updateId), so each change is its own alert.
   "pinChanged",
+  // Employee App Phase 8 - an employee left the clock-in site's radius for
+  // 2+ minutes (not on a break). Website Overview + supervisor Alerts tab,
+  // never pushed (createAlertIfNew directly). One per SiteExit: keyed by
+  // siteExitId; eventId is the shift's clock-in. Behind the company's
+  // leftJobSiteAlert setting (default on). See employeeSiteExits.ts.
+  "leftJobSite",
 ] as const;
 
 export type AlertType = (typeof ALERT_TYPES)[number];
@@ -103,6 +110,8 @@ export const ALERT_SEVERITY: Record<AlertType, "urgent" | "warning" | "info"> = 
   syncWrongPin: "warning",
   syncedLateApproved: "warning",
   pinChanged: "warning",
+  // Flag only - leaving never blocks or ends anything.
+  leftJobSite: "warning",
 };
 
 // The untrusted-input boundary for alert generation: validates every id
@@ -125,6 +134,9 @@ export const alertInputSchema = z.object({
   // every other type, same convention as eventId/siteId being present but
   // unused outside their own alert types.
   employeeUpdateId: z.string().min(1).nullable(),
+  // Phase 8 - set only for leftJobSite (the SiteExit doc id, which keys
+  // the alert). Optional so every other type stays as it was.
+  siteExitId: z.string().min(1).nullable().optional(),
   dateKey: z.string().min(1),
 });
 
@@ -173,6 +185,8 @@ export const ALERT_SETTINGS_DEFAULTS = {
   faceMismatchAlert: true,
   faceNoFaceAlert: true,
   faceBadReferenceAlert: true,
+  // Employee App Phase 8 - "Left the job site" feed entry (default on).
+  leftJobSiteAlert: true,
 } as const;
 
 type AlertSettings = typeof ALERT_SETTINGS_DEFAULTS;
@@ -245,6 +259,8 @@ const ALERT_ID_PREFIX: Record<AlertType, string> = {
   // Keyed by the late event's own id (eventId-keyed branch below).
   syncedLateApproved: "latesync",
   pinChanged: "pinchanged",
+  // Keyed by the SiteExit id (siteExitId branch below).
+  leftJobSite: "left",
 };
 
 function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string): string {
@@ -281,7 +297,9 @@ export async function createAlertIfNew(input: AlertInput, occurredAt: Timestamp)
   // `eventId` is always the CLOCK-IN event's id, not the auto-written
   // "out" event's id (see functions/src/autoClockOut.ts).
   const subjectId =
-    data.alertType === "clockedInOutsideGeofence" ||
+    data.alertType === "leftJobSite"
+      ? data.siteExitId ?? data.eventId ?? data.employeeId ?? "company"
+      : data.alertType === "clockedInOutsideGeofence" ||
     data.alertType === "siteMismatch" ||
     data.alertType === "autoClockOut" ||
     data.alertType === "syncedLateApproved" ||
@@ -517,6 +535,54 @@ export async function checkSiteMismatch(
     },
     data.timestamp ?? admin.firestore.Timestamp.now()
   );
+}
+
+// Employee App Phase 8 - "Left the job site" (employeeSiteExits.ts calls
+// this once per new SiteExit of kind "left" that did not start on a
+// break). Feed only: written with createAlertIfNew, never pushed - same as
+// autoClockOut. Never throws; a failure never touches the exit or a punch.
+export async function createLeftJobSiteAlert(input: {
+  companyId: string;
+  employeeId: string;
+  employeeName: string;
+  siteId: string | null;
+  siteName: string;
+  clockInEventId: string;
+  siteExitId: string;
+  startMs: number;
+  distanceM: number | null;
+}): Promise<boolean> {
+  try {
+    if (!ALERTS_FEED_ENABLED.value()) return false;
+    if (!isCompanyInTestScope(input.companyId)) return false;
+    const ctx = await getCompanyAlertContext(input.companyId);
+    if (!ctx || !ctx.alerts.leftJobSiteAlert) return false;
+
+    const started = new Date(input.startMs);
+    const siteName = input.siteName || "the job site";
+    const time = formatMinutesOfDay(localMinutesOfDay(started));
+    const away = input.distanceM != null ? ` (${formatGeofenceDistance(input.distanceM)} away)` : "";
+    const created = await createAlertIfNew(
+      {
+        companyId: input.companyId,
+        alertType: "leftJobSite",
+        employeeId: input.employeeId,
+        employeeName: input.employeeName || "An employee",
+        siteId: input.siteId,
+        siteName: input.siteName || null,
+        message: `Left ${siteName} at ${time}${away}`,
+        eventId: input.clockInEventId,
+        employeeUpdateId: null,
+        siteExitId: input.siteExitId,
+        dateKey: localDateKey(started),
+      },
+      admin.firestore.Timestamp.fromMillis(input.startMs)
+    );
+    return created !== null;
+  } catch (err) {
+    console.warn("leftJobSite alert failed", { companyId: input.companyId, error: String(err) });
+    return false;
+  }
 }
 
 // Face Verification (Pro) - called from functions/src/rekognition.ts

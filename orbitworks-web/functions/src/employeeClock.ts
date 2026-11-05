@@ -4,7 +4,8 @@ import { timingSafeEqual, randomUUID } from "crypto";
 import { db } from "./shared";
 import { employeeClockPunchSchema, getMyPinVerifierSchema, EmployeeClockAction, PunchLocation } from "./employeeClockValidators";
 import { locationForPunch } from "./lib/punchLocation";
-import { detectClockInSite, isAccurateEnoughToDetect, isSiteMismatch, loadDetectableSites, pickEmployeeClockInSite } from "./geofencing";
+import { detectClockInSite, isAccurateEnoughToDetect, isSiteMismatch, loadDetectableSites, pickEmployeeClockInSite, type ShiftFence } from "./geofencing";
+import { fenceForClockIn, fenceForNewClockIn } from "./employeeSiteExits";
 import { makePinVerifier, PinVerifierResult } from "./lib/pinVerifier";
 import { queuedPinCheck, readPinHistory } from "./lib/pinHistory";
 import { pinHistoryRef } from "./pins";
@@ -52,6 +53,11 @@ import {
 //      so two punches for the same employee can never both pass the state
 //      check.
 // A rejected in/out punch deletes its photo, so no face photo is left over.
+//
+// Leave tracking (Phase 8, Pro): a clock-in at a geofenced site gets
+// geofenceRadiusM (the radius locked for the shift) and its result carries
+// that fence, so the phone can watch it. Reading it can never reject a
+// punch - a failed read just means no tracking for that shift.
 //
 // Location (Phase 6, every plan): the phone's fix is saved on the event as
 // location {lat,lng} + locationAccuracyM + locationFixAtMs when the phone
@@ -333,7 +339,7 @@ type EventData = {
   photoUrl?: string;
 };
 
-function resultFrom(eventId: string, data: EventData, replayed: boolean) {
+function resultFrom(eventId: string, data: EventData, replayed: boolean, fence: ShiftFence | null = null) {
   const siteId = data.siteId ?? null;
   return {
     eventId,
@@ -347,7 +353,16 @@ function resultFrom(eventId: string, data: EventData, replayed: boolean) {
     // The phone saves (server time, its uptime) after every call, to work
     // out phoneClockOff later (see employeeClockQueued.ts).
     serverNowMs: Date.now(),
+    // Phase 8: the shift's fence on a tracked clock-in, else null.
+    fence,
   };
+}
+
+// A replayed clock-in returns its fence again (read fresh; null on error).
+async function withReplayFence(companyId: string, result: ReturnType<typeof resultFrom>, data: EventData | undefined) {
+  if (result.type !== "in" || !data) return result;
+  const fence = await fenceForClockIn(companyId, data).catch(() => null);
+  return { ...result, fence };
 }
 
 // A requestId already used by THIS employee for THIS action is a replay.
@@ -397,7 +412,7 @@ export const employeeClockPunch = onCall(async (request) => {
   // 3. double tap (not for a PIN check, which never writes an event)
   const existing = input.checkPinOnly ? null : await eventRef.get();
   const replay = existing ? replayOf(eventRef.id, existing.data() as EventData | undefined, employeeId, input.action) : null;
-  if (replay) return replay;
+  if (replay) return withReplayFence(companyId, replay, existing?.data() as EventData | undefined);
 
   // 4. account
   const employeeSnap = await employeeRef.get();
@@ -466,6 +481,8 @@ export const employeeClockPunch = onCall(async (request) => {
 
   // 7. site (clock-in only - see the header)
   const clockInSite = input.action === "in" ? await resolveClockInSite(companyId, employee, location) : null;
+  // 7b. Phase 8 leave tracking fence (clock-in only, never rejects).
+  const clockInFence = clockInSite ? await fenceForNewClockIn(companyId, clockInSite.siteId).catch(() => null) : null;
 
   // 8. state + write, atomically
   const latestQuery = companyRef
@@ -534,6 +551,7 @@ export const employeeClockPunch = onCall(async (request) => {
         data.locationAccuracyM = location ? location.accuracyM : null;
         data.locationFixAtMs = location ? location.fixAtMs : null;
       }
+      if (clockInSite && clockInFence) data.geofenceRadiusM = clockInFence.radiusM;
       if (clockInSite?.autoDetected) {
         data.siteAutoDetected = true;
         // Same rule as the supervisor app's pin clock-in (geofencing.ts).
@@ -559,9 +577,9 @@ export const employeeClockPunch = onCall(async (request) => {
   if (outcome.kind === "rejected") return reject(outcome.err);
   if (outcome.kind === "replay") {
     const again = replayOf(eventRef.id, outcome.data, employeeId, input.action);
-    if (again) return again;
+    if (again) return withReplayFence(companyId, again, outcome.data);
   }
-  return resultFrom(eventRef.id, outcome.data, false);
+  return resultFrom(eventRef.id, outcome.data, false, clockInFence);
 });
 
 // ---- Employee App Home: where the next clock-in would land ----
@@ -583,7 +601,10 @@ export const getEmployeeHomeSite = onCall(async (request) => {
   if (!employee || employee.linkedUserId !== request.auth.uid) throw clockError("wrongAccount");
 
   const site = await resolveEmployeeSite(companyId, employee);
-  return { siteId: site.siteId, siteName: site.siteId ? site.siteName : null };
+  // Phase 8: the fence a clock-in here would be watched with - the phone
+  // keeps it for an offline clock-in (the server re-checks every exit).
+  const fence = await fenceForNewClockIn(companyId, site.siteId).catch(() => null);
+  return { siteId: site.siteId, siteName: site.siteId ? site.siteName : null, fence };
 });
 
 // ---- Employee App: the PIN check value for the phone (getMyPinVerifier) ----
