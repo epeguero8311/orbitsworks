@@ -18,8 +18,9 @@ import { localDateKey, dateKey, startOfWeek } from "@/lib/reportUtils";
 import { applyAutoBreak } from "@/lib/autoBreak";
 import { evaluateSessionWarnings, type SessionWarning } from "@/lib/sessionWarnings";
 import { useSiteExitsByClockIn } from "@/lib/hooks/useSiteExitsByClockIn";
+import { useShiftCommentsByClockIn } from "@/lib/hooks/useShiftCommentsByClockIn";
 import { clockInIds } from "@/lib/shiftComments";
-import type { ClockEvent, Flag, TimesheetApproval } from "@/lib/types";
+import type { ClockEvent, Flag, ShiftNote, SiteExit, TimesheetApproval } from "@/lib/types";
 
 export type ApprovalRow = {
   key: string;
@@ -49,6 +50,11 @@ export type ApprovalRow = {
   // the old hasGeofenceWarning/hasSiteMismatchWarning/hasNoSiteDetectedWarning
   // booleans, which only covered 3 of the ~13 warning types this now does.
   warnings: SessionWarning[];
+  // Phase 9 (H6 a): the employee's comments on this shift (a comment icon
+  // on the row + a card in the warnings window - not a warning) and every
+  // job site stretch, gray ones too (red ones are also a leftSite warning).
+  comments: ShiftNote[];
+  siteExits: SiteExit[];
 };
 
 type EventWithId = Omit<ClockEvent, "id"> & { id: string };
@@ -85,6 +91,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
   // Timesheet Approvals warning).
   const shiftIds = useMemo(() => clockInIds(events), [events]);
   const { exitsByClockIn } = useSiteExitsByClockIn(userData?.companyId, shiftIds);
+  const { commentsByClockIn } = useShiftCommentsByClockIn(userData?.companyId, shiftIds);
 
   useEffect(() => {
     if (!userData?.companyId) return;
@@ -317,7 +324,10 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
                 faceVerification: settings.faceVerification,
                 isPro,
                 siteExits: exitsByClockIn.get(pendingIn.id) ?? [],
+                sessionEvents: empEvents.filter((e) => sessionIds.includes(e.id)),
               }),
+              comments: commentsByClockIn.get(pendingIn.id) ?? [],
+              siteExits: exitsByClockIn.get(pendingIn.id) ?? [],
               jobId: approval?.jobId ?? null,
               defaultJobId: employee.jobId ?? null,
             });
@@ -359,6 +369,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     settings.faceVerification,
     isPro,
     exitsByClockIn,
+    commentsByClockIn,
   ]);
 
   const pendingCount = useMemo(

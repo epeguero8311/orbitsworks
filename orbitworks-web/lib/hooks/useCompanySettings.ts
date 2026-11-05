@@ -156,6 +156,10 @@ export function useCompanySettings() {
   // Email invites (Phase 3B): Core or Pro, not past_due. Same rule as the
   // server's companyCanUseInvites; the server still enforces it.
   const [canUseInvites, setCanUseInvites] = useState(false);
+  // Phase 9 (H2/H3): the one invite form's plan state - seats from the
+  // company doc (employeeCap from the plan, activeEmployeeCount from
+  // onEmployeeWrite), same source as crew codes (lib/joinCodes/server.ts).
+  const [plan, setPlan] = useState<{ pastDue: boolean; activeCap: number | null; activeCount: number }>({ pastDue: false, activeCap: null, activeCount: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -165,6 +169,11 @@ export function useCompanySettings() {
       const data = snapshot.exists() ? snapshot.data() : {};
       setIsPro(isProPlan(data.planTier as string | undefined));
       setCanUseInvites(isCoreOrProPlan(data.planTier as string | undefined) && data.subscriptionStatus !== "past_due");
+      setPlan({
+        pastDue: data.subscriptionStatus === "past_due",
+        activeCap: typeof data.employeeCap === "number" ? data.employeeCap : null,
+        activeCount: typeof data.activeEmployeeCount === "number" ? data.activeEmployeeCount : 0,
+      });
       setSettings({
         name: data.name ?? null,
         logoUrl: data.logoUrl ?? null,
@@ -204,5 +213,6 @@ export function useCompanySettings() {
     return unsubscribe;
   }, [userData?.companyId]);
 
-  return { settings, isPro, canUseInvites, loading };
+  const seatsLeft = plan.activeCap === null ? null : Math.max(0, plan.activeCap - plan.activeCount);
+  return { settings, isPro, canUseInvites, loading, pastDue: plan.pastDue, activeCap: plan.activeCap, seatsLeft };
 }

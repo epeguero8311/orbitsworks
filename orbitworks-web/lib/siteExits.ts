@@ -73,3 +73,76 @@ export function groupSiteExitsByClockIn<T extends Pick<SiteExit, "clockInEventId
   for (const list of map.values()) list.sort((a, b) => a.startMs - b.startMs);
   return map;
 }
+
+// ---- Phase 9: totals for Reports / Excel / Approvals ----
+
+// Minutes of one stretch. An open one counts up to openEndMs (the shift's
+// clock-out, or now while still clocked in).
+export function exitMinutes(exit: Pick<SiteExit, "startMs" | "endMs">, openEndMs: number): number {
+  const end = exit.endMs ?? openEndMs;
+  return Math.max(0, Math.round((end - exit.startMs) / 60000));
+}
+
+export interface SiteExitSummary {
+  redCount: number;
+  redMinutes: number;
+  grayCount: number;
+  grayMinutes: number; // on break + short "left"
+  trackingOffMinutes: number;
+}
+
+export function summarizeSiteExits(exits: ExitLike[], openEndMs: number): SiteExitSummary {
+  const out: SiteExitSummary = { redCount: 0, redMinutes: 0, grayCount: 0, grayMinutes: 0, trackingOffMinutes: 0 };
+  for (const e of exits) {
+    const min = exitMinutes(e, openEndMs);
+    if (e.kind === "trackingOff") {
+      out.grayCount += 1;
+      out.trackingOffMinutes += min;
+    } else if (siteExitTone(e) === "red") {
+      out.redCount += 1;
+      out.redMinutes += min;
+    } else {
+      out.grayCount += 1;
+      out.grayMinutes += min;
+    }
+  }
+  return out;
+}
+
+// The tag for one stretch in Reports / Excel.
+export function siteExitTag(exit: Pick<SiteExit, "kind" | "startMs" | "endMs" | "endReason" | "onBreak" | "offReason">): string {
+  if (exit.kind === "trackingOff") return `Tracking off${exit.offReason ? ` (${OFF_REASON_TEXT[exit.offReason] ?? exit.offReason})` : ""}`;
+  if (exit.onBreak) return "Left - on break";
+  if (isShortExit(exit)) return "Left - short";
+  return "Left the job site";
+}
+
+// ---- Phase 9 (H8 a): the Overview "Left the job site" card ----
+//   outsideNow - red "left" stretches with no end yet (still clocked in and
+//                outside the site right now), newest first
+//   todayByPerson - every stretch that started today, per person, newest
+//                first; more than MAX_PER_PERSON shows "+N more"
+
+export const MAX_PER_PERSON = 3;
+
+export function outsideNow<T extends Pick<SiteExit, "kind" | "startMs" | "endMs" | "endReason" | "onBreak">>(exits: T[]): T[] {
+  return exits.filter((e) => e.endMs === null && siteExitTone(e) === "red").sort((a, b) => b.startMs - a.startMs);
+}
+
+export interface PersonExits<T> {
+  employeeId: string;
+  employeeName: string;
+  shown: T[];
+  more: number;
+}
+
+export function todayByPerson<T extends Pick<SiteExit, "employeeId" | "employeeName" | "startMs">>(exits: T[]): PersonExits<T>[] {
+  const byId = new Map<string, T[]>();
+  for (const e of exits) byId.set(e.employeeId, [...(byId.get(e.employeeId) ?? []), e]);
+  return [...byId.entries()]
+    .map(([employeeId, list]) => {
+      const sorted = [...list].sort((a, b) => b.startMs - a.startMs);
+      return { employeeId, employeeName: sorted[0].employeeName, shown: sorted.slice(0, MAX_PER_PERSON), more: Math.max(0, sorted.length - MAX_PER_PERSON) };
+    })
+    .sort((a, b) => b.shown[0].startMs - a.shown[0].startMs);
+}

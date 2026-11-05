@@ -4,6 +4,7 @@ import type {
   EmployeeExportRecord,
   AttendanceRecord,
   ShiftNote,
+  SiteExit,
   Job,
   RoundingIncrement,
 } from "@/lib/types";
@@ -15,6 +16,7 @@ import {
   addPhotosSheet,
   addEmployeesSheet,
   addAttendanceSheet,
+  addSiteExitsSheet,
 } from "@/lib/reportExcelSheets";
 import {
   buildDayRows,
@@ -193,13 +195,15 @@ export async function exportAllReportsExcel(
   roundTotalMinutes: RoundingIncrement,
   companyName: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  // Phase 9 (H7 a): Detail's job site columns + the "Job site exits" sheet.
+  siteExits: SiteExit[] = []
 ) {
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
 
   addSummarySheet(workbook, summaries, companyName, startDate, endDate);
-  addDetailSheet(workbook, sessions, companyName, startDate, endDate);
+  addDetailSheet(workbook, sessions, companyName, startDate, endDate, siteExits);
   addNotesSheet(workbook, shiftNotes, startDate, endDate);
   await addPhotosSheet(workbook, sessions, startDate, endDate);
   addEmployeesSheet(workbook, employeeRecords, companyName, startDate, endDate);
@@ -216,6 +220,7 @@ export async function exportAllReportsExcel(
   addPayrollSheet(workbook, summaries, jobs, dayRows, roundTotalMinutes, companyName, startDate, endDate);
 
   addAttendanceSheet(workbook, attendanceRecords, companyName, startDate, endDate);
+  addSiteExitsSheet(workbook, siteExits, startDate, endDate);
 
   await downloadWorkbook(
     workbook,

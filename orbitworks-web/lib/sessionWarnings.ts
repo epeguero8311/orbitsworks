@@ -1,6 +1,7 @@
 import type { Timestamp } from "firebase/firestore";
 import type { ClockEvent, SiteExit } from "@/lib/types";
 import { redSiteExits } from "@/lib/siteExits";
+import { syncedLatePunches, type SyncedLatePunch } from "@/lib/syncedLate";
 import type { Alerts, FaceVerificationSettings } from "@/lib/hooks/useCompanySettings";
 
 // Timesheet Approvals' per-session warning icon/modal (SessionWarningsModal,
@@ -31,7 +32,9 @@ export type SessionWarningType =
   | "autoClockOut"
   // Employee App Phase 8: left the job site during the shift (red ones
   // only - on a break, short and tracking off are gray, no warning).
-  | "leftSite";
+  | "leftSite"
+  // Phase 9 (H6 a): punches of this session that reached the server late.
+  | "syncedLate";
 
 // Single source of truth for severity - evaluateSessionWarnings below reads
 // this rather than hardcoding a severity per warning, so a type's color can
@@ -57,6 +60,8 @@ export const WARNING_SEVERITY: Record<SessionWarningType, WarningSeverity> = {
   autoClockOut: "yellow",
   // Red per D15 - a flag only, never changes the hours.
   leftSite: "red",
+  // Yellow (H6 a) - the punch time is the phone's, it only arrived late.
+  syncedLate: "yellow",
 };
 
 // Below FACE_MATCH_THRESHOLD (90, functions/src/rekognition.ts) but at or
@@ -81,6 +86,7 @@ export type SessionWarning =
   | { type: "faceNoFace"; severity: WarningSeverity; direction: Direction; event: ClockEvent }
   | { type: "supervisorOverride"; severity: WarningSeverity; overrideEventId: string }
   | { type: "leftSite"; severity: WarningSeverity; exits: SiteExit[] }
+  | { type: "syncedLate"; severity: WarningSeverity; punches: SyncedLatePunch[] }
   | {
       type: "autoClockOut";
       severity: WarningSeverity;
@@ -144,6 +150,9 @@ export interface EvaluateSessionWarningsInput {
   // Employee App Phase 8: this shift's stretches (siteExits), oldest first.
   // Optional - absent = none.
   siteExits?: SiteExit[];
+  // Phase 9: every event of the session (in, breaks, out) - for Synced
+  // late. Optional - absent = just the clock-in and clock-out.
+  sessionEvents?: ClockEvent[];
 }
 
 export function evaluateSessionWarnings(input: EvaluateSessionWarningsInput): SessionWarning[] {
@@ -260,6 +269,10 @@ export function evaluateSessionWarnings(input: EvaluateSessionWarningsInput): Se
     const red = redSiteExits(input.siteExits ?? []);
     if (red.length > 0) warnings.push(withSeverity("leftSite", { exits: red }));
   }
+
+  // Phase 9 (H6 a) - not gated by a toggle (it's about the record itself).
+  const late = syncedLatePunches(input.sessionEvents ?? [clockInEvent, clockOutEvent]);
+  if (late.length > 0) warnings.push(withSeverity("syncedLate", { punches: late }));
 
   // Face Verification (Pro) - no isPro check needed here: faceCheck is only
   // ever written by functions/src/rekognition.ts for Pro companies, and

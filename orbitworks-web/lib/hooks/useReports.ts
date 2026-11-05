@@ -22,8 +22,10 @@ import type {
   EmployeeExportRecord,
   AttendanceRecord,
   ShiftNote,
+  SiteExit,
   Job,
 } from "@/lib/types";
+import { ALL_COMPANIES, companyMatches, type CompanyFilter } from "@/lib/reportCompanyFilter";
 import { APPROVALS_CUTOVER_DATE } from "@/lib/reportUtils";
 import {
   type EventWithDate,
@@ -38,6 +40,7 @@ import {
 export function useReports() {
   const { userData } = useAuth();
   const { settings } = useCompanySettings();
+  const companyId = userData?.companyId;
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -52,6 +55,9 @@ export function useReports() {
   const [employeeRecords, setEmployeeRecords] = useState<EmployeeExportRecord[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [shiftNotes, setShiftNotes] = useState<ShiftNote[]>([]);
+  // Phase 9 (H7 a): job site exits that started in the range (Reports
+  // table, Excel Detail columns + "Job site exits" sheet).
+  const [siteExits, setSiteExits] = useState<SiteExit[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [employeeJobIdById, setEmployeeJobIdById] = useState<Map<string, string | null>>(
     new Map()
@@ -67,8 +73,12 @@ export function useReports() {
   >(new Map());
 
   const runReport = useCallback(
-    async (startDate: string, endDate: string) => {
-      if (!userData?.companyId) return;
+    // Phase 9 (H9 a/a): companyFilter narrows EVERY section and export to
+    // one company, by the employee's current company (same as the reports
+    // already show). Supervisor site notes (no employee) only show under
+    // "All companies".
+    async (startDate: string, endDate: string, companyFilter: CompanyFilter = ALL_COMPANIES) => {
+      if (!companyId) return;
       setError("");
       setLoading(true);
       setSummaries(null);
@@ -77,7 +87,7 @@ export function useReports() {
         const start = new Date(startDate + "T00:00:00");
         const end = new Date(endDate + "T23:59:59");
 
-        const eventsRef = collection(db, "companies", userData.companyId, "clockEvents");
+        const eventsRef = collection(db, "companies", companyId, "clockEvents");
         const q = query(
           eventsRef,
           where("timestamp", ">=", Timestamp.fromDate(start)),
@@ -96,7 +106,7 @@ export function useReports() {
           return { id: d.id, ...data, timestamp: effectiveTimestamp };
         });
 
-        const approvalsRef = collection(db, "companies", userData.companyId, "timesheetApprovals");
+        const approvalsRef = collection(db, "companies", companyId, "timesheetApprovals");
         const approvalsQuery = query(
           approvalsRef,
           where("date", ">=", APPROVALS_CUTOVER_DATE),
@@ -149,13 +159,17 @@ export function useReports() {
         setApprovedJobIdByEmployeeDay(approvedJobIdByEmployeeDayOut);
 
         const excludedEventIds = computeExcludedEventIds(events, approvalStatusByClockInId);
-        const gatedEvents = events.filter((event) => !excludedEventIds.has(event.id));
 
-        const employeesRef = collection(db, "companies", userData.companyId, "employees");
+        const employeesRef = collection(db, "companies", companyId, "employees");
         const employeesSnapshot = await getDocs(employeesRef);
+        const companyOfEmployee = new Map(employeesSnapshot.docs.map((d) => [d.id, (d.data().subcontractorId as string | null | undefined) ?? null]));
+        const inCompany = (employeeId: string | null | undefined) =>
+          !!employeeId && companyMatches(companyFilter, companyOfEmployee.get(employeeId) ?? null);
+        const gatedEvents = events.filter((event) => !excludedEventIds.has(event.id) && inCompany(event.employeeId));
+        const employeeDocs = employeesSnapshot.docs.filter((d) => inCompany(d.id));
 
         // ---- Jobs (name + live hourly rate) ----
-        const jobsRef = collection(db, "companies", userData.companyId, "jobs");
+        const jobsRef = collection(db, "companies", companyId, "jobs");
         const jobsSnapshot = await getDocs(jobsRef);
         const jobsMap = new Map<string, Job>();
         jobsSnapshot.docs.forEach((d) => {
@@ -165,10 +179,10 @@ export function useReports() {
         setJobs(Array.from(jobsMap.values()));
 
         const { employeeJobIdById: employeeJobIdByIdOut, defaultRateByEmployeeId, subcontractorByEmployeeId } =
-          buildEmployeeDerivedMaps(employeesSnapshot.docs, jobsMap);
+          buildEmployeeDerivedMaps(employeeDocs, jobsMap);
         setEmployeeJobIdById(employeeJobIdByIdOut);
 
-        const sitesRef = collection(db, "companies", userData.companyId, "jobSites");
+        const sitesRef = collection(db, "companies", companyId, "jobSites");
         const sitesSnapshot = await getDocs(sitesRef);
         let activeSites = 0;
         const siteNameByIdAll = new Map<string, string>();
@@ -181,7 +195,7 @@ export function useReports() {
 
         setEmployeeRecords(
           buildEmployeeExportRecords(
-            employeesSnapshot.docs,
+            employeeDocs,
             jobsMap,
             siteNameByIdAll,
             defaultRateByEmployeeId
@@ -190,7 +204,7 @@ export function useReports() {
 
         // ---- Shift notes (supervisor-written, scoped to the same date range) ----
         const usersRef = collection(db, "users");
-        const usersQuery = query(usersRef, where("companyId", "==", userData.companyId));
+        const usersQuery = query(usersRef, where("companyId", "==", companyId));
         const usersSnapshot = await getDocs(usersQuery);
         const nameByUid = new Map<string, string>();
         usersSnapshot.docs.forEach((d) => {
@@ -198,7 +212,7 @@ export function useReports() {
           nameByUid.set(d.id, data.name ?? "Unknown");
         });
 
-        const notesRef = collection(db, "companies", userData.companyId, "shiftNotes");
+        const notesRef = collection(db, "companies", companyId, "shiftNotes");
         const notesQuery = query(
           notesRef,
           where("timestamp", ">=", Timestamp.fromDate(start)),
@@ -206,7 +220,25 @@ export function useReports() {
           orderBy("timestamp", "asc")
         );
         const notesSnapshot = await getDocs(notesQuery);
-        setShiftNotes(buildShiftNotes(notesSnapshot.docs, nameByUid));
+        setShiftNotes(
+          buildShiftNotes(notesSnapshot.docs, nameByUid).filter((n) =>
+            n.employeeId ? inCompany(n.employeeId) : companyFilter === ALL_COMPANIES
+          )
+        );
+
+        const exitsSnapshot = await getDocs(
+          query(
+            collection(db, "companies", companyId, "siteExits"),
+            where("startMs", ">=", start.getTime()),
+            where("startMs", "<=", end.getTime()),
+            orderBy("startMs", "asc")
+          )
+        );
+        setSiteExits(
+          exitsSnapshot.docs
+            .map((d) => ({ id: d.id, ...(d.data() as Omit<SiteExit, "id">) }))
+            .filter((x) => inCompany(x.employeeId))
+        );
 
         const payroll = computePayrollAndSessions(
           gatedEvents,
@@ -244,7 +276,7 @@ export function useReports() {
       }
     },
     [
-      userData?.companyId,
+      companyId,
       settings.businessHours.open,
       settings.attendanceRules.gracePeriodMinutes,
       settings.exportSettings.automaticBreakMinutes,
@@ -266,6 +298,7 @@ export function useReports() {
     employeeRecords,
     attendanceRecords,
     shiftNotes,
+    siteExits,
     jobs,
     employeeJobIdById,
     hoursByEmployeeDay,
