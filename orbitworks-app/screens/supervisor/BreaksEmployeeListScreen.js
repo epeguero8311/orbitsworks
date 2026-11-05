@@ -6,6 +6,7 @@ import * as Sentry from "@sentry/react-native";
 import { useAuth } from "../../lib/AuthContext";
 import { useTheme } from "../../lib/ThemeContext";
 import { useSiteSession } from "../../lib/SiteSessionContext";
+import { activeAtSite } from "../../lib/activeSiteFilter";
 import { useTodayShift } from "../../lib/hooks/useTodayShift";
 import { useLocalStatusOverlay } from "../../lib/hooks/useLocalStatusOverlay";
 import { queueBreakEvent } from "../../lib/clockQueue";
@@ -31,17 +32,12 @@ export default function BreaksEmployeeListScreen({ navigation, route }) {
   const isNoneSite = selectedSite?.id === "none";
   const siteLabel = selectedSite ? (isNoneSite ? "No Site" : selectedSite.name) : "All Sites";
 
-  const eligible = useMemo(() => {
-    const bySite =
-      selectedSite && !isNoneSite
-        ? employees.filter((e) => e.assignedSiteIds?.includes(selectedSite.id))
-        : isNoneSite
-        ? employees.filter((e) => !e.assignedSiteIds || e.assignedSiteIds.length === 0)
-        : employees;
-    return bySite
-      .filter((e) => e.status === "in" || e.status === "break")
-      .sort((a, b) => STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status]);
-  }, [employees, selectedSite, isNoneSite]);
+  // Phase 10 (A3, D6 a): clocked in AT the picked site (the open shift's
+  // site), not assigned to it.
+  const eligible = useMemo(
+    () => activeAtSite(employees, selectedSite).sort((a, b) => STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status]),
+    [employees, selectedSite]
+  );
 
   const toggleSelect = (id) => {
     setSelectedIds((prev) =>

@@ -6,6 +6,7 @@ import { Feather } from "@expo/vector-icons";
 import { useAuth } from "../../lib/AuthContext";
 import { useTheme } from "../../lib/ThemeContext";
 import { useSiteSession } from "../../lib/SiteSessionContext";
+import { activeAtSite } from "../../lib/activeSiteFilter";
 import { useTodayShift } from "../../lib/hooks/useTodayShift";
 import { useCompanySettings } from "../../lib/hooks/useCompanySettings";
 import { useTabBarSpace } from "../../lib/hooks/useTabBarSpace";
@@ -94,15 +95,12 @@ export default function DashboardScreen({ navigation }) {
       : null;
 
   const isNoneSite = selectedSite?.id === "none";
-  const filteredEmployees =
-    selectedSite && !isNoneSite
-      ? employees.filter((e) => e.assignedSiteIds?.includes(selectedSite.id))
-      : isNoneSite
-      ? employees.filter((e) => !e.assignedSiteIds || e.assignedSiteIds.length === 0)
-      : employees;
-
-  const clockedInCount = filteredEmployees.filter((e) => e.status === "in" || e.status === "break").length;
-  const onBreakCount = filteredEmployees.filter((e) => e.status === "break").length;
+  // Phase 10 (A3): people clocked in AT the picked site right now (their
+  // open shift's site), not the people assigned to it. No Site = clocked in
+  // with no site on the shift.
+  const activeHere = activeAtSite(employees, selectedSite);
+  const clockedInCount = activeHere.length;
+  const onBreakCount = activeHere.filter((e) => e.status === "break").length;
 
   const siteLabel = selectedSite ? (isNoneSite ? "No Site" : selectedSite.name) : "All Sites";
 

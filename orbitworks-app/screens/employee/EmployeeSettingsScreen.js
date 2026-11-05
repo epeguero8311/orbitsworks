@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { View, Text, Switch, StyleSheet, Linking } from "react-native";
+import { useCallback, useState } from "react";
+import { View, Text, Switch, StyleSheet, Linking, Pressable } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { useAuth } from "../../lib/AuthContext";
@@ -10,12 +11,13 @@ import { useEmployeeAppConfig } from "../../lib/hooks/useEmployeeAppConfig";
 import { useEmployeeSettingsData } from "../../lib/hooks/useEmployeeSettingsData";
 import { useNotificationPermission } from "../../lib/hooks/useNotificationPermission";
 import { useLocationPermission } from "../../lib/hooks/useLocationPermission";
+import { useMyPin } from "../../lib/hooks/useMyPin";
 import { usePunchQueue } from "../../lib/hooks/usePunchQueue";
 import { useCommentQueue } from "../../lib/hooks/useCommentQueue";
 import { useSiteExitQueue } from "../../lib/hooks/useSiteExitQueue";
 import { useNow } from "../../lib/hooks/useNow";
 import { formatWhen } from "../../lib/punchQueueLogic";
-import { locationAccessLabel, logoutCounts, logoutWarning, settingsRows } from "../../lib/employeeSettings";
+import { logoutCounts, logoutWarning, pinButtonLabel, pinRowText, settingsRows } from "../../lib/employeeSettings";
 import TabPage from "../../components/ui/TabPage";
 import ListRow from "../../components/ui/ListRow";
 import ConfirmModal from "../../components/ui/ConfirmModal";
@@ -23,26 +25,32 @@ import Avatar from "../../components/Avatar";
 import DevPunchTimings from "../../components/employee/DevPunchTimings";
 import { signOutEmployee } from "../../lib/employeeSignOut";
 
-// Employee App Settings tab (Phase 5, decisions 14-20). View only: photo,
-// name, email (the login's when the self view has none), PIN ****,
-// birthday ("Not set"), company, subcontractor ("None") and job site - all
-// from useEmployeeSettingsData, saved on the phone for offline. Switches:
+// Employee App Settings tab (Phase 5, decisions 14-20; Phase 10 A1). View
+// only: photo, name, the email they signed in with, PIN (**** until Show -
+// getMyPin, online only, hides after 30 s or when leaving the tab, never
+// saved), birthday ("Not set") and the company the account is under (the
+// parent company, never the subcontractor) - from useEmployeeSettingsData,
+// saved on the phone for offline. No job site and no Location access row
+// (D3 a: the Home banner says when location or Always is off). Switches:
 // Dark mode (same saved setting as the supervisor app), Notifications and
 // Location - the phone's own permission is the switch (no push token);
 // turning one off opens the phone's Settings app. Then Last synced, App
 // version, Update (OTA id or Built-in), dev punch timings (dev builds only)
 // and Log out - with a warning when punches or comments are still waiting
 // on the phone (they stay, and sync only when this employee signs back in).
-export default function EmployeeSettingsScreen({ navigation }) {
+export default function EmployeeSettingsScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const styles = useStyles();
   const { signOutUser, userData, linkedEmployeeId } = useAuth();
   const companyId = userData?.companyId;
   const employeeId = linkedEmployeeId || userData?.employeeId;
-  const { timezone, isPro } = useEmployeeAppConfig(companyId);
+  const { timezone } = useEmployeeAppConfig(companyId);
   const { info } = useEmployeeSettingsData(companyId, employeeId);
   const notifications = useNotificationPermission();
   const location = useLocationPermission();
+  const { state: pinState, show: showPin, hide: hidePin } = useMyPin();
+  // Leaving the tab hides a shown PIN at once.
+  useFocusEffect(useCallback(() => () => hidePin(), [hidePin]));
   const queue = usePunchQueue(companyId, employeeId);
   const comments = useCommentQueue(companyId, employeeId, timezone);
   const siteExits = useSiteExitQueue(companyId, employeeId);
@@ -57,7 +65,8 @@ export default function EmployeeSettingsScreen({ navigation }) {
     if (on) location.fixPermission();
     else if (location.granted) Linking.openSettings();
   };
-  const rows = settingsRows(info);
+  const rows = settingsRows(info, pinRowText(pinState));
+  const pinButton = pinButtonLabel(pinState);
   const toggles = [
     ["Dark mode", isDark, toggleTheme],
     ["Notifications", notifications.granted, notifications.setEnabled],
@@ -69,9 +78,6 @@ export default function EmployeeSettingsScreen({ navigation }) {
   // Everything still on the phone, even saved a second ago (no badge delay).
   const waiting = logoutCounts(queue.all, comments.all, companyId, employeeId, siteExits);
   const notSynced = logoutWarning(waiting.punches, waiting.comments, waiting.siteExits);
-  // Phase 8 (D19): Always / While using / Off. Pro: tap = the job site
-  // alerts screen (consent + Always); otherwise the phone's Settings.
-  const openLocationAccess = () => (isPro ? navigation.navigate("AlwaysLocation") : Linking.openSettings());
   const onLogout = () => (notSynced ? setConfirmLogout(true) : logOut());
 
   return (
@@ -85,7 +91,22 @@ export default function EmployeeSettingsScreen({ navigation }) {
 
       <View style={styles.section}>
         {rows.map(([label, value], i) => (
-          <ListRow key={label} divider={i < rows.length - 1}>
+          <ListRow
+            key={label}
+            divider={i < rows.length - 1}
+            right={
+              label === "PIN" && pinButton ? (
+                <Pressable
+                  onPress={pinState.status === "shown" ? hidePin : showPin}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${pinButton} PIN`}
+                >
+                  <Text style={styles.pinButton}>{pinButton}</Text>
+                </Pressable>
+              ) : undefined
+            }
+          >
             <Text style={styles.label}>{label}</Text>
             <Text style={styles.value}>{value}</Text>
           </ListRow>
@@ -110,12 +131,6 @@ export default function EmployeeSettingsScreen({ navigation }) {
             <Text style={styles.rowText}>{label}</Text>
           </ListRow>
         ))}
-      </View>
-
-      <View style={styles.section}>
-        <ListRow divider={false} onPress={openLocationAccess} right={<Text style={styles.rightText}>{locationAccessLabel(location.access)}</Text>}>
-          <Text style={styles.rowText}>Location access</Text>
-        </ListRow>
       </View>
 
       <View style={styles.section}>
@@ -173,5 +188,6 @@ const useStyles = makeStyles((colors) => ({
   value: { fontSize: fontSizes.md, color: colors.text, marginTop: 2 },
   rowText: { fontSize: fontSizes.md, color: colors.text },
   rightText: { fontSize: fontSizes.sm, color: colors.subtext },
+  pinButton: { fontSize: fontSizes.sm, fontWeight: "600", color: colors.accent },
   logout: { fontSize: fontSizes.md, fontWeight: "600", color: colors.redStrong },
 }));

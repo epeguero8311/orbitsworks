@@ -6,6 +6,7 @@ import * as Sentry from "@sentry/react-native";
 import { useAuth } from "../../lib/AuthContext";
 import { useTheme } from "../../lib/ThemeContext";
 import { useSiteSession } from "../../lib/SiteSessionContext";
+import { activeAtSite, assignedToSite } from "../../lib/activeSiteFilter";
 import { useTodayShift } from "../../lib/hooks/useTodayShift";
 import { useLocalStatusOverlay } from "../../lib/hooks/useLocalStatusOverlay";
 import { useCompanySettings } from "../../lib/hooks/useCompanySettings";
@@ -31,15 +32,13 @@ export default function OverrideEmployeeListScreen({ navigation, route }) {
   const isNoneSite = selectedSite?.id === "none";
   const siteLabel = selectedSite ? (isNoneSite ? "No Site" : selectedSite.name) : "All Sites";
 
-  const bySite = useMemo(() => {
-    if (selectedSite && !isNoneSite) {
-      return employees.filter((e) => e.assignedSiteIds?.includes(selectedSite.id));
-    }
-    if (isNoneSite) {
-      return employees.filter((e) => !e.assignedSiteIds || e.assignedSiteIds.length === 0);
-    }
-    return employees;
-  }, [employees, selectedSite, isNoneSite]);
+  // Phase 10 (A3, D6 a): clocking OUT lists the people clocked in AT the
+  // picked site (their open shift's site); clocking IN still lists the
+  // people assigned to it.
+  const bySite = useMemo(
+    () => (direction === "out" ? activeAtSite(employees, selectedSite) : assignedToSite(employees, selectedSite)),
+    [employees, selectedSite, direction]
+  );
 
   const STATUS_SORT_ORDER = { in: 0, break: 0, out: 1 };
 

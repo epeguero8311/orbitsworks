@@ -171,14 +171,24 @@ export default function ClockCameraScreen({ route, navigation }) {
           siteId = lastSite.siteId;
           siteName = lastSite.siteName || "Not specified";
         } else {
-          // Optimistic guess across every located site - the server's own
-          // detectSite is the final say once this syncs.
+          // Optimistic guess - the server (onClockEventCreated) is the final
+          // say once this syncs. Phase 10 (D15 b, D18 b): when the fix
+          // can't tell (none, worse than 500 m, or 100-500 m and inside none
+          // of the employee's assigned sites), the site filter pick is used
+          // and the server keeps it.
           const detected = await detectLocalSite(
             location?.lat != null && location?.lng != null ? location : null,
-            location?.accuracyM ?? null
+            location?.accuracyM ?? null,
+            employee.assignedSiteIds
           );
-          siteId = detected.siteId;
-          siteName = detected.siteName;
+          if (detected.usable) {
+            siteId = detected.siteId;
+            siteName = detected.siteName;
+          } else {
+            const isNone = selectedSite?.id === "none";
+            siteId = !selectedSite || isNone ? null : selectedSite.id;
+            siteName = !selectedSite || isNone ? "Not specified" : selectedSite.name;
+          }
         }
       } else {
         const isNone = selectedSite?.id === "none";

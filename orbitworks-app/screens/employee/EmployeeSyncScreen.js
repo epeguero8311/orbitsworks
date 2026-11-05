@@ -28,8 +28,9 @@ const CONNECTION = {
 
 // Employee App Sync tab: this employee's punches saved on the phone
 // (lib/punchQueue.js) - Waiting, Syncing, Synced or Failed - with Last
-// synced and Sync now. Synced rows show for today and the 2 days before
-// (company time zone); Waiting, Syncing and Failed always show. A Failed
+// synced and Sync now. Synced rows show for this week - Monday to today,
+// company time zone (Phase 10 A2); Waiting, Syncing and Failed always show,
+// however old. A Failed
 // row offers Remove (it can't be recorded - the confirm says so and to tell
 // the supervisor). Phase 5: no Redo - a punch made with the PIN that was
 // right at the time syncs even if an admin changed the PIN since. Shift
