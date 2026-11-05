@@ -1,7 +1,11 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import type { ClockEvent } from "@/lib/types";
 import { deriveStatus } from "@/lib/clockStatus";
 import { formatDuration } from "@/lib/dashboardOverviewUtils";
+import { CollapseButton } from "@/components/dashboard/CollapseButton";
 
 export default function EmployeesClockedInTable({
   loading,
@@ -14,11 +18,14 @@ export default function EmployeesClockedInTable({
   activeOverflow: number;
   workedMsByEmployee: Map<string, number>;
 }) {
+  // Phase 10 (W2): open on every visit.
+  const [open, setOpen] = useState(true);
+  const total = activeDisplay.length + activeOverflow;
   return (
     <div className="mt-6 overflow-hidden rounded-xl border border-gray-200 bg-white">
-      <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-        <h2 className="text-base font-semibold text-gray-950">
-          Employees clocked in
+      <div className={`flex items-center justify-between px-6 py-4 ${open ? "border-b border-gray-200" : ""}`}>
+        <h2>
+          <CollapseButton title="Employees clocked in" open={open} onToggle={() => setOpen((o) => !o)} count={loading ? undefined : total} />
         </h2>
         <Link
           href="/dashboard/time"
@@ -28,7 +35,7 @@ export default function EmployeesClockedInTable({
         </Link>
       </div>
 
-      {loading ? (
+      {!open ? null : loading ? (
         <p className="p-6 text-sm text-gray-600">Loading...</p>
       ) : activeDisplay.length === 0 ? (
         <p className="p-6 text-sm text-gray-600">
@@ -80,7 +87,7 @@ export default function EmployeesClockedInTable({
         </table>
       )}
 
-      {activeOverflow > 0 && (
+      {open && activeOverflow > 0 && (
         <Link
           href="/dashboard/time"
           className="block border-t border-gray-200 px-6 py-3 text-center text-sm font-medium text-accent hover:underline"

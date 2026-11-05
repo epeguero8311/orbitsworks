@@ -9,6 +9,8 @@ import type { ClockEvent } from "@/lib/types";
 import { ClockPhoto } from "@/components/time/ClockPhoto";
 import { ReferencePhoto } from "@/components/time/ReferencePhoto";
 import { faceResultText } from "@/lib/clockPhoto";
+import { alertsCapNote } from "@/lib/alertsWindow";
+import { CollapseButton } from "@/components/dashboard/CollapseButton";
 import {
   ALERT_SEVERITY,
   AlertItem,
@@ -55,6 +57,8 @@ export default function AlertsPanel({
   const [alertActionSubmitting, setAlertActionSubmitting] = useState<string | null>(null);
   const [alertActionError, setAlertActionError] = useState<string | null>(null);
   const [ignoringAll, setIgnoringAll] = useState(false);
+  // Phase 10 (W2): open on every visit.
+  const [open, setOpen] = useState(true);
 
   // currentlyActive already carries each employee's latest event (whether
   // that's an "in" or a still-open "breakStart") - see useDashboardStatus's
@@ -209,8 +213,10 @@ export default function AlertsPanel({
   return (
     <div className="mt-6 rounded-xl border border-gray-200 bg-white p-6">
       <div className="flex items-start justify-between gap-3">
-        <h2 className="text-base font-semibold text-gray-950">Alerts</h2>
-        {visibleAlertItems.length > 0 && (
+        <h2>
+          <CollapseButton title="Alerts" open={open} onToggle={() => setOpen((o) => !o)} count={isLoading ? undefined : visibleAlertItems.length} />
+        </h2>
+        {open && visibleAlertItems.length > 0 && (
           <button
             type="button"
             disabled={ignoringAll}
@@ -221,6 +227,8 @@ export default function AlertsPanel({
           </button>
         )}
       </div>
+      {open && (
+      <>
       <p className="mt-1 text-sm text-gray-600">
         Driven by your alert settings - turn these on or off in Settings.
       </p>
@@ -452,6 +460,11 @@ export default function AlertsPanel({
           })
         )}
       </div>
+      {!isLoading && alertsCapNote(serverAlerts.length) && (
+        <p className="mt-3 text-xs text-gray-600">{alertsCapNote(serverAlerts.length)}</p>
+      )}
+      </>
+      )}
     </div>
   );
 }

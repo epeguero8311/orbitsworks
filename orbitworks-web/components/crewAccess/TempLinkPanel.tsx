@@ -182,7 +182,7 @@ export default function TempLinkPanel() {
         <p className="mt-1 text-xs text-gray-600">
           Every temp link this company has ever created - who authorized it, when, and when it
           expired. Permanent record, visible to every admin; nothing here can be edited or
-          deleted.
+          deleted. Newest 10 first; load older ones below.
         </p>
         {t.historyLoading ? (
           <p className="mt-2 text-sm text-gray-600">Loading...</p>
@@ -226,6 +226,19 @@ export default function TempLinkPanel() {
                 })}
               </tbody>
             </table>
+            {/* Phase 10 (W1): history comes 10 at a time from the server. */}
+            {t.hasOlderHistory && (
+              <div className="flex justify-center border-t border-gray-200 px-4 py-2.5">
+                <button
+                  type="button"
+                  onClick={t.loadOlderHistory}
+                  disabled={t.loadingOlder}
+                  className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-950 transition-colors hover:border-gray-300 disabled:opacity-60"
+                >
+                  {t.loadingOlder ? "Loading..." : "Load older links"}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -9,6 +9,7 @@ import { worstSeverity } from "@/lib/sessionWarnings";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import ConfirmDeleteSessionModal from "@/components/dashboard/timesheetApprovals/ConfirmDeleteSessionModal";
 import SessionWarningsModal from "@/components/dashboard/timesheetApprovals/SessionWarningsModal";
+import { approvalsColumnCount, buildColumnWidths } from "@/lib/approvalsColumns";
 
 function formatHours(hours: number | null) {
   if (hours == null) return "-";
@@ -36,95 +37,12 @@ function formatDayLabel(dateKeyStr: string) {
   });
 }
 
-// The table has no minimum width - it is always exactly 100% of its card,
-// on any desktop window, so it can never need a horizontal scrollbar. A
-// forced minimum here was what caused one: on a card narrower than that
-// minimum, the table stayed at the minimum instead of shrinking, and the
-// wrapper's overflow-x-auto kicked in. The overflow-x-auto wrapper stays
-// only as a fallback for genuinely tiny (phone-width) viewports.
-
-// The checkbox column is a fixed 40px - it never needs to grow with the
-// window. Every other column is a percentage of the table's own width, but
-// scaled down by the same 40px (via calc) so the full set of columns,
-// fixed column included, always sums to exactly 100% of the container.
-// Without that adjustment, a plain "9%" + a hardcoded "40px" column would
-// not add up to 100% and the table would either overflow its card or fall
-// short of it.
-const CHECKBOX_COLUMN_WIDTH = "40px";
-const CHECKBOX_COLUMN_PX = 40;
-
-function scaledWidth(percent: number): string {
-  const reservedPx = (percent * CHECKBOX_COLUMN_PX) / 100;
-  return `calc(${percent}% - ${reservedPx}px)`;
-}
-
-// Target percentages (of the full table width) for every column after the
-// fixed checkbox column. Day mode has no Date column, so its Name/Company
-// pick up the width Date would have used. Both variants total 100. Status
-// gets 20% on both - paired with the tightened, shrink-0 select and icon
-// buttons below, that is enough for "Approved" plus the chevron and both
-// icon buttons on a normal desktop window without forcing the table wider
-// than its card.
-// Job sits right after Site (same "where/what" grouping) and before Time.
-// Its 12% comes out of Time (-6), Status (-3), Shift/Break/Worked (-1
-// each), so every other column just gets a little tighter rather than the
-// layout being redone - Status still fits "Approved" + the chevron + both
-// icon buttons on a normal desktop window.
-const DAY_PERCENTAGES = {
-  name: 15,
-  company: 11,
-  site: 10,
-  job: 12,
-  time: 14,
-  shift: 7,
-  breakCol: 7,
-  worked: 7,
-  status: 17,
-};
-const WEEK_PERCENTAGES = {
-  date: 8,
-  name: 12,
-  company: 10,
-  site: 10,
-  job: 12,
-  time: 10,
-  shift: 7,
-  breakCol: 7,
-  worked: 7,
-  status: 17,
-};
-
-function buildColumnWidths(mode: "day" | "week"): string[] {
-  if (mode === "week") {
-    const p = WEEK_PERCENTAGES;
-    return [
-      CHECKBOX_COLUMN_WIDTH,
-      scaledWidth(p.date),
-      scaledWidth(p.name),
-      scaledWidth(p.company),
-      scaledWidth(p.site),
-      scaledWidth(p.job),
-      scaledWidth(p.time),
-      scaledWidth(p.shift),
-      scaledWidth(p.breakCol),
-      scaledWidth(p.worked),
-      scaledWidth(p.status),
-    ];
-  }
-  const p = DAY_PERCENTAGES;
-  return [
-    CHECKBOX_COLUMN_WIDTH,
-    scaledWidth(p.name),
-    scaledWidth(p.company),
-    scaledWidth(p.site),
-    scaledWidth(p.job),
-    scaledWidth(p.time),
-    scaledWidth(p.shift),
-    scaledWidth(p.breakCol),
-    scaledWidth(p.worked),
-    scaledWidth(p.status),
-  ];
-}
+// Column widths (no Shift column since Phase 10 W6) live in
+// lib/approvalsColumns.ts - the table is always exactly 100% of its card,
+// so it never needs a horizontal scrollbar on a desktop window. The
+// overflow-x-auto wrapper stays only as a fallback for phone-width windows.
+// Phase 10 (W6, D13 a): cells use tighter padding below 1280 px wide
+// (laptops), the old roomy padding from xl up.
 
 export function ApprovalsTable({
   rows,
@@ -327,10 +245,10 @@ export function ApprovalsTable({
     ? [editingRow.clockInEvent, editingRow.clockOutEvent]
     : [];
 
-  // checkbox + (Date in week mode) + Name/Company/Site/Job/Time/Shift/Break/
+  // checkbox + (Date in week mode) + Name/Company/Site/Job/Time/Break/
   // Worked/Status - the pencil/trash actions live inside the Status cell,
   // not a column of their own, so there is no separate actions column here.
-  const columnCount = mode === "week" ? 11 : 10;
+  const columnCount = approvalsColumnCount(mode);
   const activeJobs = jobs.filter((j) => j.active);
   const columnWidths = buildColumnWidths(mode);
 
@@ -344,7 +262,7 @@ export function ApprovalsTable({
         key={row.key}
         className={`border-b border-gray-200 last:border-0 ${highlightClass}`}
       >
-        <td className="px-6 py-5">
+        <td className="px-3 py-4 xl:px-6 xl:py-5">
           <input
             type="checkbox"
             checked={selectedKeys.has(row.key)}
@@ -354,9 +272,9 @@ export function ApprovalsTable({
           />
         </td>
         {mode === "week" && (
-          <td className="px-6 py-5 text-gray-600">{formatDayLabel(row.date)}</td>
+          <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{formatDayLabel(row.date)}</td>
         )}
-        <td className="px-6 py-5 font-medium text-gray-950">
+        <td className="px-3 py-4 xl:px-6 xl:py-5 font-medium text-gray-950">
           <span className="flex flex-wrap items-center gap-2">
             {row.employeeName}
             {row.isClockedInNow && (
@@ -394,7 +312,7 @@ export function ApprovalsTable({
             )}
           </span>
         </td>
-        <td className="px-6 py-5 text-gray-600">
+        <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">
           {row.isSubcontractor ? (
             <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
               {row.companyName}
@@ -403,8 +321,8 @@ export function ApprovalsTable({
             row.companyName
           )}
         </td>
-        <td className="px-6 py-5 text-gray-600">{row.siteName}</td>
-        <td className="px-6 py-5">
+        <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{row.siteName}</td>
+        <td className="px-3 py-4 xl:px-6 xl:py-5">
           <select
             value={effectiveJobId(row)}
             onChange={(e) => handleJobChange(row, e.target.value)}
@@ -418,13 +336,12 @@ export function ApprovalsTable({
             ))}
           </select>
         </td>
-        <td className="px-6 py-5 font-mono text-xs text-gray-600">
+        <td className="px-3 py-4 xl:px-6 xl:py-5 font-mono text-xs text-gray-600">
           {formatTime(row.clockInEvent)} - {formatTime(row.clockOutEvent)}
         </td>
-        <td className="px-6 py-5 text-gray-600">{formatHours(row.hours)}</td>
-        <td className="px-6 py-5 text-gray-600">{formatHours(row.breakHours)}</td>
-        <td className="px-6 py-5 text-gray-600">{formatWorked(row.hours, row.breakHours)}</td>
-        <td className="px-4 py-5">
+        <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{formatHours(row.breakHours)}</td>
+        <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{formatWorked(row.hours, row.breakHours)}</td>
+        <td className="px-3 py-4 xl:px-4 xl:py-5">
           <div className="flex items-center gap-2">
             <select
               value={displayStatus}
@@ -543,7 +460,7 @@ export function ApprovalsTable({
             </colgroup>
             <thead className="border-b border-gray-200 text-gray-600">
               <tr>
-                <th className="px-6 py-3.5 font-medium">
+                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">
                   <input
                     ref={headerCheckboxRef}
                     type="checkbox"
@@ -554,16 +471,15 @@ export function ApprovalsTable({
                   />
                   <span className="sr-only">Select All</span>
                 </th>
-                {mode === "week" && <th className="px-6 py-3.5 font-medium">Date</th>}
-                <th className="px-6 py-3.5 font-medium">Name</th>
-                <th className="px-6 py-3.5 font-medium">Company</th>
-                <th className="px-6 py-3.5 font-medium">Site</th>
-                <th className="px-6 py-3.5 font-medium">Job</th>
-                <th className="px-6 py-3.5 font-medium">Time</th>
-                <th className="px-6 py-3.5 font-medium">Shift</th>
-                <th className="px-6 py-3.5 font-medium">Break</th>
-                <th className="px-6 py-3.5 font-medium">Worked</th>
-                <th className="px-4 py-3.5 font-medium">Status</th>
+                {mode === "week" && <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Date</th>}
+                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Name</th>
+                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Company</th>
+                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Site</th>
+                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Job</th>
+                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Time</th>
+                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Break</th>
+                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Worked</th>
+                <th className="px-3 py-3 xl:px-4 xl:py-3.5 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>{renderBody()}</tbody>
