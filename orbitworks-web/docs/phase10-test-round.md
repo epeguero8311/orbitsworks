@@ -53,12 +53,12 @@ broken, see C2).
 | 6-P1 | both | At Site A, online: in, break, end break, out | Green screens instant; map + address on all 4 on the website | |
 | 6-P2 | both | Airplane mode, clock in, 10 min, back online | Saved offline; original time + map after sync; Site A | |
 | 6-P3 | both | Location Never; clock in + out | Punches as fast; banner; "No location recorded"; Site B | |
-| 6-D1 | both | At Site A (assigned only Site B), clock in | Site A + "Auto-detected" | |
+| 6-D1 | both | At Site A (assigned only Site B), clock in (needs a fix of 100 m or better - fix round 1 D18 b) | Site A + "Auto-detected" | |
 | 6-D1b | both | D1 clock-in, then assign Site A, out, in again | Mismatch alert first time only; never on out/breaks | |
 | 6-D3 | both | Precise Location off, clock in at Site A | Site B, no Auto-detected, rough location shown | |
 | 6-D4 | both | Clock in at Site A, break, end, out | All 4 events Site A, each with its own location | |
 | 6-D5 | both | Core employee at Core Site, in + out | Phase 3 site, never Core Site; map shows | |
-| 5-N5 | phone | Open Sync tab | Synced rows today + 2 days before only; old Failed still shows | |
+| 5-N5 | phone | Open Sync tab | Synced rows from this week only (Monday to today, company time - fix round 1 A2); an old Failed (last week or older) still shows | |
 | 7-N1 | phone | Reinstall, sign in, clock in, let green close | Notifications asked once after the green screen; token saved | |
 | 7-N2 | phone | Reinstall, Don't Allow, break, then Settings switch on | Break normal; switch on after; token saved | |
 | 7-N3 | phone | Reinstall, Not Now, break, out | Nothing blocked; no second question | |
@@ -83,7 +83,7 @@ broken, see C2).
 | 8-P1 | both | Turn Site A geofence ON (Step 0 Phase 8). Reinstall, clock in at Site A | After notifications: consent screen, Agree, Always prompts; not asked again | |
 | 8-P2 | phone | Reinstall, Keep Only While Using | Walk-through steps; closes by itself when Always is on | |
 | 8-P3 | both | Reinstall, consent Not now, 5 min, out | Orange banner; gray "Tracking off ... (location permission off)" | |
-| 8-P5 | both | (I reset consent) Settings > Location access; website as owner | Consent again; Terms re-accept prompt r6 on the website | |
+| 8-P5 | both | (I reset consent) clock in at Site A, tap the orange Home banner (Settings has no Location access row since fix round 1 D3 a); website as owner | Consent again; Terms re-accept prompt r6 on the website | |
 | 8-P6 | phone | Crew code sign-up to "Share your location" | Geofence wording; While Using only | |
 | 9-E4 | both | Sign up via crew code with same name + birthday as an existing employee; dismiss | Badge + Edit box + open link; dismiss clears, other untouched | |
 
@@ -91,7 +91,7 @@ broken, see C2).
 
 | ID | Where | What to do | Expected | Result |
 |---|---|---|---|---|
-| 6-D2 | both | 2+ km from every site, clock in | Site B, no Auto-detected; outside badge + alert if Site B fenced | |
+| 6-D2 | both | 2+ km from every site, clock in (good fix, 100 m or better) | "Not specified" (fix round 1 F1), no Auto-detected, no outside badge (see the round's open choice E3) | |
 | 8-P4 | both | No consent; tap banner, Agree, Always; walk out 5 min, back | Gray tracking off ends; then red exit | |
 | 8-W1 | both | Walk out 10 min, back 5 min (phone locked) | Notification ~2 min after leaving; red line on website; Overview alert; Alerts tab entry | |
 | 8-W2 | web | Clock out after W1; Timesheet Approvals | Red warning, hours unchanged | |
@@ -128,7 +128,7 @@ broken, see C2).
 | 90d-1 | - | Site exit locations cleared after 90 days | Can't test in round (functions test covers it) | SKIP |
 | 90d-2 | - | Employee alerts deleted after 90 days | Can't test in round (functions test covers it) | SKIP |
 | 90d-3 | - | Clock photos deleted after 90 days -> "Photo removed" (website + Excel) | Can't test in round unless I set photoRemovedAt on one dev event | SKIP |
-| 4d-1 | - | Synced queue rows dropped after 4 days (Sync tab) | Can't test in round (app tests cover it) | SKIP |
+| 4d-1 | - | Synced queue rows dropped after 8 days (Sync tab, fix round 1 A2 - was 4) | Can't test in round (app tests cover it) | SKIP |
 
 Not in this round, still open (see C): Phase 4 smoke tests T4, T6, T7, T8,
 T9, T10, T11, T12, T13, T15 (phase4-test-checklist.md); Android.
@@ -164,8 +164,8 @@ add any Phase 10 item from it that is missing here.
 - "Join with crew code" in the real app: prod joinLinks, associated domains / intent filters, apphosting.yaml vars.
 - "Open in the app" on /j dead-ends when the app isn't installed - fall back to store buttons.
 - Android assetlinks.json for /j/ and /i/ links (dev + prod package + signing fingerprints).
-- The current PIN is plain text on the employee doc - decide (hash or move to a server-only doc).
-- Unify the employee break site with main (employee breaks still copy the clock-in site).
+- Move the current PIN off the employee doc to a server-only doc (decided fix round 1, D2 a - not hashed: the website PIN field, the supervisor PIN table and Settings "Show PIN" all need it; dev-functions-pending.md).
+- Unify the employee break site with main - built in fix round 1 (D19 a: supervisor breaks + override clock-outs copy the shift's clock-in site on the server); ships with the functions deploy, test 10-F6.
 - Run the Phase 4 smoke tests never run: T4, T6, T7, T8, T9, T10, T11, T12, T13, T15.
 - Write temp link API tests (generate, list, history, revoke, public clock-in).
 - Face check missing on one clock-out (dev event e43e4076-..., before a229a46) - include in the recheck.
@@ -184,6 +184,37 @@ add any Phase 10 item from it that is missing here.
 - One-time prod recheck of selfies wrongly flagged "no usable face" (faceReference bad + same photo -> DetectFaces), report counts only.
 - Owners will see the Terms re-accept prompt (r6) on prod after the site deploy - expected, tell customers.
 - Prod instance cap left from old deploys (about 40 prod functions at maxInstances 20) - decide on one cap in code.
+
+### C5. Phase 10 fix round 1 - tests once deployed (new app build + dev functions + dev website)
+
+Same rules as A: send "done <ID>", Result OK / FAILED / SKIP.
+
+| ID | Where | What to do | Expected | Result |
+|---|---|---|---|---|
+| 10-A1a | phone | Employee Settings | Rows: Email (the sign-in email), PIN ****, Birthday, Company; switches; no Subcontractor, Job site or Location access | |
+| 10-A1b | phone | Tap Show on PIN; wait 30 s; Show again, switch tab | Your PIN shows; hides after 30 s; hides when leaving the tab | |
+| 10-A1c | both | Website: change the PIN; phone: Show | The new PIN | |
+| 10-A1d | phone | Airplane mode, tap Show | "Connect to the internet to see your PIN" | |
+| 10-A1e | phone | Sub Co employee (9-E5), Settings | Company = the parent company, never Sub Co | |
+| 10-A2 | phone | Sync tab on any day after Monday, with a synced punch from last week and an old Failed one | Last week's synced row gone; this week's rows and the old Failed row show | |
+| 10-A3a | phone | Supervisor app (jc-pro-sup): employee assigned only Site B clocks in at Site A; pill = Site A, then Site B | Counted under Site A (Active card), not under Site B | |
+| 10-A3b | phone | Same, Breaks list and Override "Clock out" list with pill = Site A / Site B | Listed under Site A only; Override "Clock in" list still by assigned sites | |
+| 10-A3c | phone | Supervisor app offline: clock someone in at Site A, pill = Site A | Counted at Site A at once | |
+| 10-A3d | phone | Pill = No Site | Only people clocked in with no site | |
+| 10-W1 | web | (I make 12 temp links) Crew Access > Temp link | History shows 10, "Load older links" adds 2 then goes away; Active list only unexpired links | |
+| 10-W2 | web | Overview: close Alerts, Employees clocked in, On break; reload | Each closes with its count; all open again after reload | |
+| 10-W3 | web | Employees: search a name, an email, a word that matches nobody; 25+ employees: Show 20 more; Show inactive | Search filters both lists; 20 then the rest; inactive in their own list, 20 at a time | |
+| 10-W4 | web | Jobs > Sites with 11+ sites | 10, then Show 1 more | |
+| 10-W5 | web | Jobs > Titles & Pay: Edit a title, change the rate (effective date), Deactivate, Delete a test title | Edit opens a window; rate asks for the date; row has only Edit; 10 at a time | |
+| 10-W6 | web | Timesheet Approvals, Day + Week, laptop width (1280-1366 px) | No Shift column; no sideways scrolling; Status select + icons fit | |
+| 10-W8a | web | (I add an alert dated 31+ days ago) Overview | It doesn't show; newer ones do | |
+| 10-W8b | web | Reports for last week: approved hours vs Timesheet Approvals | Same totals as before the deploy (only approvals from the range are read now) | |
+| 10-F1 | both | Pro employee app, good fix at Site A, assigned only Site B | Site A + Auto-detected + site mismatch alert (= 6-D1) | |
+| 10-F2 | both | Pro employee app, good fix 2+ km from every site, crew-code employee | "Not specified" (= 6-D2) | |
+| 10-F3 | both | Pro employee app, Precise Location off (rough fix) or location Never | Crew code / single assigned site (= 6-D3, 6-P3) | |
+| 10-F4 | both | Core employee app at Site A | Phase 3 site, never detected (= 6-D5) | |
+| 10-F5 | both | Supervisor app, Pro: Ask for job site each time ON, pick Site B at Site A; then OFF and clock in at Site A with pill Site B | ON: Site B kept; OFF: Site A + Auto-detected | |
+| 10-F6 | both | Supervisor app: clock in at Site A, break start/end, Override clock-out with pill = Site B | Break events and the clock-out show Site A on the website | |
 
 ### C4. Can wait until after launch
 - phoneClockOff only catches a clock set back (needs a native sleep-proof clock + boot id).

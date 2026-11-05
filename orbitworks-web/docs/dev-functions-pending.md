@@ -461,3 +461,48 @@ Employees page with Dismiss (H4).
   lib/reportExcelSheets.ts (any), components ApprovalsTable.tsx and the
   Reports page body (set-state-in-effect), the Overview page body
   (unescaped quotes).
+
+## Phase 10 fix round 1 (done 2026-11-05, code only - not deployed yet)
+
+From the dev test round. Plan + decisions (D1-D19, W8) in the round's
+chat; tests in phase10-test-round.md section C5.
+
+- **Deploy needs 3 parts** (dev only): functions (new: getMyPin; changed:
+  employeeClockPunch, onClockEventCreated, listActiveTempClockLinks,
+  listTempClockLinkHistory), the dev website, and a NEW APP BUILD (A1
+  Settings, A2 Sync tab, A3 site filter, supervisor clock-in site guess).
+  No rules change (pinReveals/{uid} is covered by the catch-all), no index
+  change (alerts: single-field occurredAt; approvals: single-field date;
+  temp links: the existing companyId + revoked + expiresAt index; shift
+  site lookup: the existing employeeId + type + timestamp desc index).
+- **Must fix before prod (D2 a): move the PIN off the employee doc** to a
+  server-only doc (for example companies/{c}/employeePins/{employeeId}, no
+  client read). The website PIN field, the supervisor PIN table
+  (getPinSyncTable) and getMyPin (Settings "Show PIN") then read it through
+  functions. Do NOT hash it: hashing breaks all three.
+- **"Ask for job site each time" defaults to ON** (website App Settings,
+  DEFAULT_APP_SETTINGS) - since this round the server keeps the
+  supervisor's pick whenever it is on (D16 a), so a Pro company only gets
+  supervisor-app detection after an admin turns it off. The Employee App
+  still always detects on Pro (its half of D16 a is not built - open
+  choice in the round's report).
+- **W7 uncapped website fetches still open** (items 1 and 5 fixed this
+  round: Overview alerts = last 30 days, max 200; Reports / Analytics
+  approvals from the range start):
+  - lib/hooks/useEmployeeInvites.ts: every Employee App invite ever
+    (Employees page).
+  - lib/hooks/useInvites.ts: every supervisor/admin invite ever (Employees
+    page InviteManager).
+  - lib/joinCodes/server.ts listJoinCodes: every crew code token ever (the
+    Crew Access list pages 10 at a time from memory).
+  - Grow with company size only: useReports + useSiteCosts (employees,
+    jobs, sites, users), DevicesCard.tsx (users), useBillingPage (active +
+    inactive employees), useDevices, useSubcontractors, useJobs, useSites,
+    useEmployees (W3-W5 cap the display only, D8 a).
+  - Date-bounded, no row cap: useClockEventsByDay, useSiteExitsByRange,
+    useTimesheetApprovals, useEmployeeTimesheet.
+- **Lint errors already there before this round** (files touched, not
+  fixed - add to the Phase 10 lint pass): lib/hooks/useTempClockLinkPage.ts
+  (set-state-in-effect on open), lib/hooks/useSiteCosts.ts (manual memo).
+- **Removed:** orbitworks-app/lib/hooks/useMyJobSites.js (Settings was the
+  only user).
