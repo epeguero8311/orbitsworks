@@ -16,7 +16,9 @@ export type SiteExitKind = (typeof SITE_EXIT_KINDS)[number];
 export const SITE_EXIT_END_REASONS = ["returned", "trackingOn", "clockOut", "autoClockOut"] as const;
 export type SiteExitEndReason = (typeof SITE_EXIT_END_REASONS)[number];
 
-export const SITE_EXIT_OFF_REASONS = ["permission", "signedOut", "appStopped"] as const;
+// noFix (E4): the OS said the worker left, but the phone could not get a
+// fix good enough to confirm it - a gap, so a real exit is never lost.
+export const SITE_EXIT_OFF_REASONS = ["permission", "signedOut", "appStopped", "noFix"] as const;
 export type SiteExitOffReason = (typeof SITE_EXIT_OFF_REASONS)[number];
 
 export interface SiteExitDoc {

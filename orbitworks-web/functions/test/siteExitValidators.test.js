@@ -29,6 +29,7 @@ test("record: trackingOff start needs a reason, nothing else takes one", () => {
   assert.ok(parse(base({ kind: "trackingOff", offReason: "permission", location: null })).success);
   assert.ok(parse(base({ kind: "trackingOff", offReason: "signedOut" })).success);
   assert.ok(parse(base({ kind: "trackingOff", offReason: "appStopped" })).success);
+  assert.ok(parse(base({ kind: "trackingOff", offReason: "noFix" })).success);
   assert.ok(!parse(base({ kind: "trackingOff" })).success);
   assert.ok(parse(base({ kind: "trackingOff", phase: "end" })).success);
   assert.ok(!parse(base({ kind: "trackingOff", phase: "end", offReason: "permission" })).success);

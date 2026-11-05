@@ -432,9 +432,10 @@ export type SiteExitKind = "left" | "trackingOff";
 export type SiteExitEndReason = "returned" | "trackingOn" | "clockOut" | "autoClockOut";
 
 // Why tracking was off: Always location lowered or off, the employee
-// signed out of this phone mid-shift, or the phone stopped tracking
-// (restart, app force-stopped).
-export type SiteExitOffReason = "permission" | "signedOut" | "appStopped";
+// signed out of this phone mid-shift, the phone stopped tracking (restart,
+// app force-stopped), or (noFix, E4) the phone saw a region exit but could
+// not get a fix good enough to confirm it.
+export type SiteExitOffReason = "permission" | "signedOut" | "appStopped" | "noFix";
 
 export interface SiteExit {
   id: string;

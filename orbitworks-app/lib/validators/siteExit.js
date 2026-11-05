@@ -18,7 +18,7 @@
 const EXIT_MAX_ACCURACY_M = 100;
 const EXIT_MIN_BUFFER_M = 25;
 const SITE_EXIT_DWELL_MS = 2 * 60 * 1000;
-const OFF_REASONS = ["permission", "signedOut", "appStopped"];
+const OFF_REASONS = ["permission", "signedOut", "appStopped", "noFix"];
 
 function isNum(v) {
   return typeof v === "number" && Number.isFinite(v);
