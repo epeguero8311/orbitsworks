@@ -101,3 +101,6 @@ export {
   getLocationConsent,
   acceptLocationConsent,
 } from "./employeeSiteExits";
+
+// Phase 9: dismiss a possible-duplicate flag (Employees page).
+export { dismissDuplicateFlag } from "./employeeDuplicates";
