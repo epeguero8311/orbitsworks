@@ -93,3 +93,7 @@ export type EmployeeClockPunchInput = z.infer<typeof employeeClockPunchSchema>;
 // ---- getMyPinVerifier input (Employee App PIN check on the phone) ----
 // Takes nothing: who it is comes from the login's claims only.
 export const getMyPinVerifierSchema = z.object({}).strict();
+
+// ---- getMyPin input (Phase 10 A1: "Show PIN" on the Settings tab) ----
+// Takes nothing either: only ever the signed-in employee's own PIN.
+export const getMyPinSchema = z.object({}).strict();
