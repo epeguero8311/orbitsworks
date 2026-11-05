@@ -178,6 +178,14 @@ export interface Employee {
   // for the Employees page - sign-up is never blocked by it.
   possibleDuplicateOf?: string[];
   duplicateFlaggedAt?: Timestamp;
+  // Phase 9 (H4 a): an admin looked and said "not a duplicate"
+  // (dismissDuplicateFlag, server-written only). possibleDuplicateOf /
+  // duplicateFlaggedAt are removed then; the old ids and who dismissed it
+  // stay here for the record.
+  dismissedDuplicateOf?: string[];
+  duplicateDismissedAt?: Timestamp;
+  duplicateDismissedByUid?: string;
+  duplicateDismissedByName?: string;
   // Server-written by employeeClockPunch (functions/src/employeeClock.ts)
   // in the same transaction as each Employee App punch, so two punches for
   // one employee can never both pass the state check. Not read by any UI.
@@ -413,6 +421,12 @@ export interface ClockEvent {
   // clock-ins only; absent = this shift is not tracked.
   geofenceRadiusM?: number;
 }
+
+// ---- Phase 9: one invite form ----
+// The role picked in the Employees page invite form (H1 a). "employee" =
+// an Employee App invite (employeeInvites, createEmployeeInvite);
+// "supervisor" / "admin" = a website/supervisor app invite (invites).
+export type InviteRole = "employee" | "supervisor" | "admin";
 
 // ---- Employee App Phase 8: leaving the job site ----
 //
@@ -769,6 +783,8 @@ export interface JobSiteReport {
 }
 
 export interface SessionRecord {
+  // Phase 9: the session's clock-in event id (links its job site exits).
+  clockInEventId?: string;
   employeeId: string;
   employeeName: string;
   siteName: string;
@@ -778,6 +794,12 @@ export interface SessionRecord {
   breakHours: number | null;
   clockInPhotoUrl?: string;
   clockOutPhotoUrl?: string;
+  // Phase 9: the photo was deleted by a retention sweep (photoRemovedAt) -
+  // Excel says "Photo removed" instead of "No photo".
+  clockInPhotoRemoved?: boolean;
+  clockOutPhotoRemoved?: boolean;
+  // Phase 9: the clock-in or clock-out reached the server 5+ min late.
+  syncedLate?: boolean;
   subcontractorId?: string | null;
   subcontractorName?: string | null;
   // Geofencing (Pro) Part 4 - carried over from the session's clock-in
