@@ -15,7 +15,6 @@ const joinCodeFields = z.object({
   siteId: z.string().trim().min(1, "Pick a job site"),
   // [] = in-house only; [ids] = in-house or one of these subcontractors.
   subcontractorIds: z.array(z.string().trim().min(1)).max(200),
-  locationRequired: z.boolean(),
   // null = no code limit (joins are still capped by the plan's seats).
   userLimit: z.number().int().min(1, "User limit must be at least 1").max(10000).nullable(),
   // ISO date-time with offset, or null = never expires.
