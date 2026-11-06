@@ -227,7 +227,7 @@ export default function ClockCameraScreen({ route, navigation }) {
       // Guard: if the user backed out (impossible right now since back
       // is disabled while submitting, but this also covers the screen
       // being torn down by a parent navigator reset), never fire a
-      // navigation against an unmounted screen — that's what corrupts
+      // navigation against an unmounted screen - that's what corrupts
       // the *next* employee's clock-in flow.
       if (!isMounted.current) return;
       navigation.replace("ClockConfirm", { employeeName: employee.name, resultType });

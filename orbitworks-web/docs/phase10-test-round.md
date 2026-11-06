@@ -231,9 +231,20 @@ Same rules as A: send "done <ID>", Result OK / FAILED / SKIP.
 | 10-S9 | both | Leave tracking during 10-S1 | Exits measured from Site A's fence; the clock-out closes them | |
 | 10-S10 | both | Core employee: clock in at Site A, out at Site B | Both the Phase 3 site, never detected | |
 
+### C7. Clock comments from main (merged eb5468b) - on the end-of-phases build (app v1.1.4) + dev website
+
+The supervisor camera screen's Comment button (prod feature 6bce76a..2bce77a). Rules and dev website already deployed; the phone part needs the final build.
+
+| ID | Where | What to do | Expected | Result |
+|---|---|---|---|---|
+| CC-1 | both | Supervisor app (jc-pro-sup): pick jc-pro-emp, camera screen, tap Comment (top right), type, Save Comment, take the photo; later clock the same person out with no comment | Button shows a check once saved. Website Time Tracking: clock-in Note cell has "View comment" -> "Clock in comment - <time>" + the text; clock-out cell has none; event detail shows "Employee comment: ..."; Approve Hours: blue comment icon opens Shift details with the comment under "Employee comments" (Clock in) | |
+| CC-2 | both | Supervisor app clocks jc-pro-emp in with a comment; then on the employee phone add a shift comment (Home > Comments) on that shift; clock out | Website Note cell on the clock-in: "View comment" (punch comment) and the shift comment both show; Approve Hours icon count = 2; Shift details card lists the Clock in comment, then the shift comment | |
+| CC-3 | both | Supervisor app in airplane mode: clock someone in with a comment, then Cancel/X a second comment edit on the next punch (nothing saved); back online, let it sync | The first punch syncs with its comment on the website (only on that clock-in); the second punch has no comment | |
+
 ### C4. Can wait until after launch
 - phoneClockOff only catches a clock set back (needs a native sleep-proof clock + boot id).
 - Stored PIN check value can be cracked off an unlocked phone (accepted risk, same as supervisor pin_cache).
 - Phone PIN lock resets on reinstall.
 - appStopped gap start is a best guess (uptime pauses in sleep).
 - Remove the leftover ios.buildNumber from app.json (ignored with remote versions).
+- Fix on main later: orbitworks-app/components/ClockCommentModal.js has 1 lint error (react-hooks/set-state-in-effect, the setText in its useEffect). Left as-is in the eb5468b merge to match prod.
