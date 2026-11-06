@@ -159,6 +159,11 @@ export function EventSide({
       {event.note && (
         <p className="mt-2 text-xs text-gray-600">Note: {event.note}</p>
       )}
+      {event.employeeComment && (event.type === "in" || event.type === "out") && (
+        <p className="mt-2 whitespace-pre-line text-xs text-gray-600">
+          Employee comment: {event.employeeComment}
+        </p>
+      )}
 
       {isShowingHistory && hasHistory && (
         <div className="mt-3 space-y-2 rounded-md bg-gray-50 p-3">

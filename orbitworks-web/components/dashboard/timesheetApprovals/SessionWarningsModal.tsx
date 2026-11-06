@@ -12,6 +12,8 @@ import {
   type WarningSeverity,
 } from "@/lib/sessionWarnings";
 import type { ClockEvent, JobSite, OverrideEvent } from "@/lib/types";
+import type { EventComment } from "@/lib/clockEventComments";
+import { EmployeeCommentsList } from "@/components/time/EmployeeCommentsList";
 
 const ACTION_LABEL: Record<OverrideEvent["action"], string> = {
   in: "Clock in",
@@ -277,6 +279,7 @@ export default function SessionWarningsModal({
   sites,
   onAssignSite,
   onClose,
+  comments = [],
 }: {
   employeeName: string;
   siteName: string;
@@ -284,6 +287,10 @@ export default function SessionWarningsModal({
   sites: JobSite[];
   onAssignSite: (siteId: string) => Promise<void>;
   onClose: () => void;
+  // The employee's camera-screen comments on this session's clock-in and
+  // clock-out - a card under the warnings, not a warning. The window also
+  // opens for a session that has comments and no warnings.
+  comments?: EventComment[];
 }) {
   const { userData } = useAuth();
   const overrideWarning = warnings.find((w) => w.type === "supervisorOverride");
@@ -332,7 +339,9 @@ export default function SessionWarningsModal({
         className="w-full max-w-sm rounded-xl bg-white p-6"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-base font-semibold text-gray-950">Session warnings</h2>
+        <h2 className="text-base font-semibold text-gray-950">
+          {warnings.length > 0 ? "Session warnings" : "Shift details"}
+        </h2>
         <p className="mt-0.5 text-xs text-gray-600">{employeeName}</p>
 
         <div className="mt-3 max-h-[70vh] space-y-3 overflow-y-auto">
@@ -478,6 +487,14 @@ export default function SessionWarningsModal({
                 return null;
             }
           })}
+          {comments.length > 0 && (
+            <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
+              <p className="font-medium text-gray-700">Employee comments</p>
+              <div className="mt-2">
+                <EmployeeCommentsList comments={comments} />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="mt-4">

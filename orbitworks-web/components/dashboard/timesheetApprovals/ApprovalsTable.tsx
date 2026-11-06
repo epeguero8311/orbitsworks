@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Pencil, Trash2, Plus, ShieldAlert } from "lucide-react";
+import { Pencil, Trash2, Plus, ShieldAlert, MessageSquare } from "lucide-react";
 import type { ApprovalRow } from "@/lib/hooks/useTimesheetApprovals";
 import type { ClockEvent, Job } from "@/lib/types";
 import { useSites } from "@/lib/hooks/useSites";
@@ -359,6 +359,19 @@ export function ApprovalsTable({
                 Clocked In
               </span>
             )}
+            {/* Employee comments - an icon, not a warning; opens the same
+                window, which shows warnings and comments together. */}
+            {row.comments.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setViewingWarningsRow(row)}
+                className="inline-flex items-center justify-center rounded-full bg-blue-50 p-1 text-accent transition-transform hover:scale-110 hover:bg-blue-100"
+                title={`${row.comments.length} employee comment${row.comments.length === 1 ? "" : "s"}`}
+                aria-label="See employee comments"
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+              </button>
+            )}
             {worst != null && (
               <button
                 type="button"
@@ -566,6 +579,7 @@ export function ApprovalsTable({
           employeeName={viewingWarningsRow.employeeName}
           siteName={viewingWarningsRow.siteName}
           warnings={viewingWarningsRow.warnings}
+          comments={viewingWarningsRow.comments}
           sites={sites}
           onAssignSite={(siteId) =>
             onAssignSite(viewingWarningsRow.key, viewingWarningsRow.sessionEventIds, siteId)
