@@ -8,6 +8,7 @@ import { getDb, runExclusive } from "./db";
 import { notifyQueueChange } from "./queueEvents";
 import { isFaultActive, resolveTimeoutMs, hangForever, fakePermissionDeniedError } from "./syncFaults";
 import { uploadLocalFileToStorage } from "./storageUpload";
+import { cleanEmployeeComment } from "./validators/employeeComment";
 
 // The running drain, or null. Only one drain runs at a time, but it is
 // no longer a "busy, come back later" lock: a drainQueue call that
@@ -271,7 +272,8 @@ async function backupItemIfNeeded(sqlite, companyId, item) {
         siteId: item.siteId ?? null,
         siteName: item.siteName ?? null,
         type: item.type ?? null,
-        note: item.note ?? null,
+        note: null,
+        employeeComment: item.note ?? null,
         source: item.source ?? null,
         authorizedById: item.authorizedById ?? null,
         authorizedByName: item.authorizedByName ?? null,
@@ -323,6 +325,14 @@ async function backupItemIfNeeded(sqlite, companyId, item) {
 // (setDoc, not addDoc) so this is safe to run twice: a replay after a
 // crash or timeout overwrites the identical document instead of creating
 // a second clock event for the same action.
+// { employeeComment } for a clock-in/out row that has one, else {} (no key
+// at all). Matches firestore.rules' isValidEmployeeComment: in/out only.
+function employeeCommentField(item) {
+  if (item.type !== "in" && item.type !== "out") return {};
+  const comment = cleanEmployeeComment(item.note);
+  return comment ? { employeeComment: comment } : {};
+}
+
 function buildEventPayload(item, photoState) {
   return {
     localId: item.localId,
@@ -339,7 +349,14 @@ function buildEventPayload(item, photoState) {
     // gone from the phone before it could be uploaded - shown on the web
     // instead of silently looking like an event that never had one.
     ...photoState,
-    note: item.note ?? null,
+    // The queue's `note` column holds the employee's camera-screen comment
+    // (clockQueue.js). It goes out as employeeComment, never as note -
+    // ClockEvent.note stays admin/system text, and the phone has always
+    // sent null there. The key is left out entirely when there's no
+    // comment (same shape as before this feature), and the value is
+    // re-cleaned here so a bad row can never get the punch refused.
+    note: null,
+    ...employeeCommentField(item),
     authorizedById: item.authorizedById ?? null,
     authorizedByName: item.authorizedByName ?? null,
     reason: item.reason ?? null,

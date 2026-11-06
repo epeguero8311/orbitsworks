@@ -20,6 +20,7 @@ import { evaluateSessionWarnings, type SessionWarning } from "@/lib/sessionWarni
 import { useSiteExitsByClockIn } from "@/lib/hooks/useSiteExitsByClockIn";
 import { useShiftCommentsByClockIn } from "@/lib/hooks/useShiftCommentsByClockIn";
 import { clockInIds } from "@/lib/shiftComments";
+import { sessionComments, type EventComment } from "@/lib/clockEventComments";
 import type { ClockEvent, Flag, ShiftNote, SiteExit, TimesheetApproval } from "@/lib/types";
 
 export type ApprovalRow = {
@@ -55,6 +56,10 @@ export type ApprovalRow = {
   // job site stretch, gray ones too (red ones are also a leftSite warning).
   comments: ShiftNote[];
   siteExits: SiteExit[];
+  // The employee's camera-screen comments on this session's clock-in and
+  // clock-out (each one tied to its own event - see lib/clockEventComments.ts).
+  // Shown with the shift comments above: same icon, same card.
+  punchComments: EventComment[];
 };
 
 type EventWithId = Omit<ClockEvent, "id"> & { id: string };
@@ -328,6 +333,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
               }),
               comments: commentsByClockIn.get(pendingIn.id) ?? [],
               siteExits: exitsByClockIn.get(pendingIn.id) ?? [],
+              punchComments: sessionComments(clockInEvent, clockOutEvent),
               jobId: approval?.jobId ?? null,
               defaultJobId: employee.jobId ?? null,
             });

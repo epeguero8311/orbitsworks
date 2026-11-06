@@ -4,6 +4,7 @@ import { getDb } from "./db";
 import { getCurrentLocalStatus } from "./clockStatusLocal";
 import { notifyQueueChange } from "./queueEvents";
 import { getOrCreateDeviceId, getCachedDeviceName } from "./deviceId";
+import { cleanEmployeeComment } from "./validators/employeeComment";
 
 export function makeLocalId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -90,6 +91,7 @@ export async function queueClockEvent({
   siteName,
   location,
   reason,
+  employeeComment,
 }) {
   const currentStatus = await getCurrentLocalStatus(employee.id);
   const nextType = currentStatus === "out" ? "in" : "out";
@@ -145,6 +147,12 @@ export async function queueClockEvent({
     // for the pending clock-in, never a clock-out, per spec). Harmless to
     // pass through on "out" too since callers never do.
     reason: nextType === "in" ? reason : undefined,
+    // The employee's optional comment from the camera screen. Stored in
+    // the queue's `note` column (it was never filled before this) on THIS
+    // event's row only - never on the synthetic breakEnd above - so a
+    // clock-in comment can only ever reach the clock-in, and a clock-out
+    // comment the clock-out. queueSync.js sends it as employeeComment.
+    note: cleanEmployeeComment(employeeComment),
     clientTimestamp: now,
     createdAt: now,
   });

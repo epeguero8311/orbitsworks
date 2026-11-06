@@ -19,6 +19,8 @@ import type { ClockEvent, JobSite, OverrideEvent, ShiftNote, SiteExit } from "@/
 import { ClockPhoto } from "@/components/time/ClockPhoto";
 import { ReferencePhoto } from "@/components/time/ReferencePhoto";
 import { faceResultText } from "@/lib/clockPhoto";
+import type { EventComment } from "@/lib/clockEventComments";
+import { EmployeeCommentsList } from "@/components/time/EmployeeCommentsList";
 
 const ACTION_LABEL: Record<OverrideEvent["action"], string> = {
   in: "Clock in",
@@ -280,6 +282,7 @@ export default function SessionWarningsModal({
   onAssignSite,
   onClose,
   comments = [],
+  punchComments = [],
   siteExits = [],
 }: {
   employeeName: string;
@@ -293,6 +296,11 @@ export default function SessionWarningsModal({
   // off) show under the warnings, the red ones are the leftSite warning.
   comments?: ShiftNote[];
   siteExits?: SiteExit[];
+  // The employee's camera-screen comments on this session's clock-in and
+  // clock-out - in the same Employee comments card, above the shift
+  // comments. The window also opens for a session that has comments and
+  // no warnings.
+  punchComments?: EventComment[];
 }) {
   const grayExits = siteExits.filter((x) => siteExitTone(x) === "gray");
   const { userData } = useAuth();
@@ -516,10 +524,11 @@ export default function SessionWarningsModal({
               </div>
             </div>
           )}
-          {comments.length > 0 && (
+          {punchComments.length + comments.length > 0 && (
             <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
               <p className="font-medium text-gray-700">Employee comments</p>
-              <div className="mt-1">
+              <div className="mt-2 space-y-2">
+                <EmployeeCommentsList comments={punchComments} />
                 <ShiftCommentsNote comments={comments} />
               </div>
             </div>

@@ -283,14 +283,15 @@ export function ApprovalsTable({
                 Clocked In
               </span>
             )}
-            {/* Phase 9 (H6 a): employee comments - an icon, not a warning;
-                it opens the same window. */}
-            {row.comments.length > 0 && (
+            {/* Employee comments - shift comments (Phase 9 H6 a) and
+                camera-screen punch comments. An icon, not a warning; opens
+                the same window, which shows warnings and comments together. */}
+            {row.comments.length + row.punchComments.length > 0 && (
               <button
                 type="button"
                 onClick={() => setViewingWarningsRow(row)}
-                className="inline-flex items-center justify-center rounded-full bg-gray-100 p-1 text-gray-600 hover:bg-gray-200"
-                title={`${row.comments.length} employee comment${row.comments.length === 1 ? "" : "s"}`}
+                className="inline-flex items-center justify-center rounded-full bg-blue-50 p-1 text-accent transition-transform hover:scale-110 hover:bg-blue-100"
+                title={`${row.comments.length + row.punchComments.length} employee comment${row.comments.length + row.punchComments.length === 1 ? "" : "s"}`}
                 aria-label="See employee comments"
               >
                 <MessageSquare className="h-3.5 w-3.5" />
@@ -509,6 +510,7 @@ export function ApprovalsTable({
           siteName={viewingWarningsRow.siteName}
           warnings={viewingWarningsRow.warnings}
           comments={viewingWarningsRow.comments}
+          punchComments={viewingWarningsRow.punchComments}
           siteExits={viewingWarningsRow.siteExits}
           sites={sites}
           onAssignSite={(siteId) =>

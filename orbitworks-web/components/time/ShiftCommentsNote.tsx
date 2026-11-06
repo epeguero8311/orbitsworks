@@ -1,5 +1,9 @@
+"use client";
+
+import { useState } from "react";
 import type { ClockEvent, ShiftNote, SiteExit } from "@/lib/types";
 import { commentTimeMs } from "@/lib/shiftComments";
+import { eventComment, commentEventLabel, formatCommentTime } from "@/lib/clockEventComments";
 import { SiteExitsNote } from "@/components/time/SiteExitsNote";
 
 // Employee App Phase 5 - the comments an employee left on this shift in
@@ -32,15 +36,42 @@ export function ShiftCommentsNote({ comments }: { comments: ShiftNote[] }) {
   );
 }
 
-// A table's Note cell: the event's own note, then its shift's comments
-// and (Phase 8) "Left the job site" lines (clock-in rows only); "-" when
-// there is none of them.
+// A table's Note cell: the event's own note, then the employee's
+// camera-screen comment on THIS punch (ClockEvent.employeeComment, behind a
+// "View comment" toggle), then its shift's comments and (Phase 8) "Left the
+// job site" lines (clock-in rows only); "-" when there is none of them. The
+// toggle stops the click so it never also opens the row's detail window.
 export function EventNoteCell({ event, comments, exits = [] }: { event: ClockEvent; comments: ShiftNote[]; exits?: SiteExit[] }) {
-  if (!event.note && comments.length === 0 && exits.length === 0) return <>-</>;
+  const [open, setOpen] = useState(false);
+  const punchComment = eventComment(event);
+  if (!event.note && !punchComment && comments.length === 0 && exits.length === 0) return <>-</>;
 
   return (
     <>
       {event.note && <p>{event.note}</p>}
+      {punchComment && (
+        <>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((v) => !v);
+            }}
+            className="text-xs font-medium text-accent hover:underline"
+            aria-expanded={open}
+          >
+            {open ? "Hide comment" : "View comment"}
+          </button>
+          {open && (
+            <p className="mt-1 max-w-xs whitespace-pre-line text-xs text-gray-700">
+              <span className="font-medium">{commentEventLabel(punchComment.eventType)} comment</span>
+              {punchComment.timeMs !== null && <span className="text-gray-400"> - {formatCommentTime(punchComment.timeMs)}</span>}
+              <br />
+              {punchComment.text}
+            </p>
+          )}
+        </>
+      )}
       <ShiftCommentsNote comments={comments} />
       <SiteExitsNote exits={exits} />
     </>
