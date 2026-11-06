@@ -17,6 +17,7 @@ import { useSites } from "@/lib/hooks/useSites";
 import { localDateKey, dateKey, startOfWeek } from "@/lib/reportUtils";
 import { applyAutoBreak } from "@/lib/autoBreak";
 import { evaluateSessionWarnings, type SessionWarning } from "@/lib/sessionWarnings";
+import { sessionComments, type EventComment } from "@/lib/clockEventComments";
 import type { ClockEvent, Flag, TimesheetApproval } from "@/lib/types";
 
 export type ApprovalRow = {
@@ -47,6 +48,10 @@ export type ApprovalRow = {
   // the old hasGeofenceWarning/hasSiteMismatchWarning/hasNoSiteDetectedWarning
   // booleans, which only covered 3 of the ~13 warning types this now does.
   warnings: SessionWarning[];
+  // The employee's camera-screen comments on this session's clock-in and
+  // clock-out (each one tied to its own event - see lib/clockEventComments.ts).
+  // Not a warning: a comment icon on the row + a card in the same window.
+  comments: EventComment[];
 };
 
 type EventWithId = Omit<ClockEvent, "id"> & { id: string };
@@ -306,6 +311,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
                 faceVerification: settings.faceVerification,
                 isPro,
               }),
+              comments: sessionComments(clockInEvent, clockOutEvent),
               jobId: approval?.jobId ?? null,
               defaultJobId: employee.jobId ?? null,
             });
