@@ -12,6 +12,7 @@ import { GeofenceBadge } from "@/components/time/GeofenceBadge";
 import { FaceCheckBadge } from "@/components/time/FaceCheckBadge";
 import { PhotoStatusCell } from "@/components/time/PhotoStatusCell";
 import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
+import { EventNoteCell } from "@/components/time/EventNoteCell";
 
 function latestAdjustment(event: ClockEvent) {
   if (!event.adjustmentHistory || event.adjustmentHistory.length === 0) {
@@ -208,7 +209,7 @@ export default function ClockEventsDayView({
                     <PhotoStatusCell event={event} />
                   </td>
                   <td className="px-4 py-2.5 text-gray-600">
-                    {event.note || "-"}
+                    <EventNoteCell event={event} />
                   </td>
                   <td className="px-4 py-2.5">
                     <GeofenceBadge event={event} />

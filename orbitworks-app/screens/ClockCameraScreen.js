@@ -14,6 +14,7 @@ import { getCurrentLocalStatus, getCurrentLocalSite } from "../lib/clockStatusLo
 import { isAutoDetectionActive, getSitesForEmployeePicker, detectLocalSite } from "../lib/geofenceCheck";
 import ScreenHeader from "../components/ScreenHeader";
 import Spinner from "../components/Spinner";
+import ClockCommentModal from "../components/ClockCommentModal";
 
 // Clock photos only need to be good enough for an admin to recognize the
 // person and for the server's Rekognition face check - full resolution
@@ -40,6 +41,13 @@ export default function ClockCameraScreen({ route, navigation }) {
   // the company has no sites to offer at all).
   const [siteOptions, setSiteOptions] = useState(null);
   const [pickedSite, setPickedSite] = useState(null);
+  // Optional comment for this one punch (Comment button, top right). Rides
+  // on the clock event queued at capture - never on the shift, never on
+  // the other punch. nextType ("in" | "out", null until known) only picks
+  // the modal's wording; the queue re-decides the real type at capture.
+  const [comment, setComment] = useState("");
+  const [commentOpen, setCommentOpen] = useState(false);
+  const [nextType, setNextType] = useState(null);
   const cameraRef = useRef(null);
   const isMounted = useRef(true);
 
@@ -55,6 +63,7 @@ export default function ClockCameraScreen({ route, navigation }) {
     async function resolveSiteGate() {
       const currentStatus = await getCurrentLocalStatus(employee.id);
       const nextType = currentStatus === "out" ? "in" : "out";
+      if (!cancelled) setNextType(nextType);
       // Takes priority over Pro geofencing auto-detection (see
       // handleCapture) - an admin explicitly turning this on means a
       // manual pick every time, even on a company with located sites.
@@ -196,6 +205,7 @@ export default function ClockCameraScreen({ route, navigation }) {
         siteId,
         siteName,
         location,
+        employeeComment: comment,
       });
       // Fire-and-forget: if there is signal right now this starts
       // uploading immediately in the background. If not, useQueueSync
@@ -254,12 +264,35 @@ export default function ClockCameraScreen({ route, navigation }) {
         <Ionicons name="chevron-back" size={26} color="#fff" />
       </TouchableOpacity>
 
+      <TouchableOpacity
+        style={[styles.commentButton, submitting && styles.backButtonDisabled]}
+        onPress={() => !submitting && setCommentOpen(true)}
+        disabled={submitting}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        accessibilityRole="button"
+        accessibilityLabel={comment ? "Edit comment" : "Add a comment"}
+      >
+        <Ionicons name={comment ? "checkmark-circle" : "chatbubble-ellipses-outline"} size={18} color="#fff" />
+        <Text style={styles.commentButtonText}>Comment</Text>
+      </TouchableOpacity>
+
       <View style={styles.overlay}>
         <Text style={styles.name}>{employee.name}</Text>
         <TouchableOpacity style={styles.captureButton} onPress={handleCapture} disabled={submitting}>
           {submitting ? <Spinner size={20} color="#fff" /> : <View style={styles.captureInner} />}
         </TouchableOpacity>
       </View>
+
+      <ClockCommentModal
+        visible={commentOpen}
+        initialText={comment}
+        nextType={nextType}
+        onSave={(text) => {
+          setComment(text);
+          setCommentOpen(false);
+        }}
+        onClose={() => setCommentOpen(false)}
+      />
     </View>
   );
 }
@@ -277,6 +310,12 @@ const styles = StyleSheet.create({
     justifyContent: "center", alignItems: "center",
   },
   backButtonDisabled: { opacity: 0.3 },
+  commentButton: {
+    position: "absolute", top: 50, right: 16, height: 44, paddingHorizontal: 16,
+    borderRadius: 22, backgroundColor: "#3b6fe0",
+    flexDirection: "row", alignItems: "center", gap: 6,
+  },
+  commentButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
   overlay: { position: "absolute", bottom: 40, width: "100%", alignItems: "center" },
   name: { color: "#fff", fontSize: 18, fontWeight: "600", marginBottom: 16 },
   captureButton: {
