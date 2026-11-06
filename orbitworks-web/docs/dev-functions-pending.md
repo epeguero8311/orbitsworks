@@ -40,6 +40,15 @@ npx firebase deploy --only "functions:runAutoClockOut,functions:cleanupClockEven
 The timeout variable is needed because the CLI's default 10 second code-load
 limit times out on this codebase.
 
+## Deploy notes
+
+- **Dev website: ALWAYS** `powershell -File scripts\dev-site-deploy.ps1`,
+  run from orbitworks-web. The script checks the backend env is
+  orbitworks_dev, so prod values are never used. Never use
+  `firebase deploy --only apphosting` for the dev site.
+- Dev functions: `firebase deploy --only functions --project orbitworks-dev-ew`
+  (full deploy; say no if it offers to delete functions not in the code).
+
 ## Face data after a Pro -> Core downgrade (revised 2026-10-26)
 
 The 2026-10-23 plan (delete each employee's `reference.jpg` and `selfie/`
