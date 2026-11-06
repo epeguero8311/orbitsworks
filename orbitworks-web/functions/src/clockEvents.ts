@@ -621,11 +621,18 @@ export const onClockEventCreated = onDocumentCreated(
           updates.distanceFromSiteM = distanceFromSiteM;
         }
 
-        const geofence = classifyGeofence(
-          hasFix ? (rawLocation as { lat: number; lng: number }) : null,
-          (data.locationAccuracyM as number | null | undefined) ?? null,
-          site
-        );
+        const fix = hasFix ? (rawLocation as { lat: number; lng: number }) : null;
+        const fixAccuracyM = (data.locationAccuracyM as number | null | undefined) ?? null;
+        // Phase 10 (E3 b): an Employee App clock-in with no site ("Not
+        // specified") gets the same fenced-only check as a supervisor
+        // clock-in that matched no site - someone nowhere near a geofenced
+        // site is still flagged "outside", with the distance to the
+        // nearest one.
+        const noSiteEmployeeClockIn = data.source === "employeeApp" && data.type === "in" && !siteId;
+        const geofence = noSiteEmployeeClockIn
+          ? geofenceForKeptSite(fix, fixAccuracyM, await loadDetectableSites(jobSitesRef), null)
+          : classifyGeofence(fix, fixAccuracyM, site);
+        if (noSiteEmployeeClockIn && geofence.applicable) updates.distanceFromSiteM = geofence.distanceM;
         if (geofence.applicable) {
           updates.geofenceStatus = geofence.status;
         }

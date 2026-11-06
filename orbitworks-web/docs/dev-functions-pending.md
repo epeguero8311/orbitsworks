@@ -484,8 +484,8 @@ chat; tests in phase10-test-round.md section C5.
   DEFAULT_APP_SETTINGS) - since this round the server keeps the
   supervisor's pick whenever it is on (D16 a), so a Pro company only gets
   supervisor-app detection after an admin turns it off. The Employee App
-  still always detects on Pro (its half of D16 a is not built - open
-  choice in the round's report).
+  still always detects on Pro (decided E1 a: the toggle is the supervisor
+  app's picker setting only).
 - **W7 uncapped website fetches still open** (items 1 and 5 fixed this
   round: Overview alerts = last 30 days, max 200; Reports / Analytics
   approvals from the range start):

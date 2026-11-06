@@ -91,7 +91,7 @@ broken, see C2).
 
 | ID | Where | What to do | Expected | Result |
 |---|---|---|---|---|
-| 6-D2 | both | 2+ km from every site, clock in (good fix, 100 m or better) | "Not specified" (fix round 1 F1), no Auto-detected, no outside badge (see the round's open choice E3) | |
+| 6-D2 | both | 2+ km from every site, clock in (good fix, 100 m or better) | "Not specified" (fix round 1 F1), no Auto-detected; outside badge + alert if the company has a geofenced site (E3 b) | |
 | 8-P4 | both | No consent; tap banner, Agree, Always; walk out 5 min, back | Gray tracking off ends; then red exit | |
 | 8-W1 | both | Walk out 10 min, back 5 min (phone locked) | Notification ~2 min after leaving; red line on website; Overview alert; Alerts tab entry | |
 | 8-W2 | web | Clock out after W1; Timesheet Approvals | Red warning, hours unchanged | |
@@ -210,7 +210,7 @@ Same rules as A: send "done <ID>", Result OK / FAILED / SKIP.
 | 10-W8a | web | (I add an alert dated 31+ days ago) Overview | It doesn't show; newer ones do | |
 | 10-W8b | web | Reports for last week: approved hours vs Timesheet Approvals | Same totals as before the deploy (only approvals from the range are read now) | |
 | 10-F1 | both | Pro employee app, good fix at Site A, assigned only Site B | Site A + Auto-detected + site mismatch alert (= 6-D1) | |
-| 10-F2 | both | Pro employee app, good fix 2+ km from every site, crew-code employee | "Not specified" (= 6-D2) | |
+| 10-F2 | both | Pro employee app, good fix 2+ km from every site, crew-code employee | "Not specified" (= 6-D2); outside badge + alert with the distance to the nearest geofenced site (E3 b) | |
 | 10-F3 | both | Pro employee app, Precise Location off (rough fix) or location Never | Crew code / single assigned site (= 6-D3, 6-P3) | |
 | 10-F4 | both | Core employee app at Site A | Phase 3 site, never detected (= 6-D5) | |
 | 10-F5 | both | Supervisor app, Pro: Ask for job site each time ON, pick Site B at Site A; then OFF and clock in at Site A with pill Site B | ON: Site B kept; OFF: Site A + Auto-detected | |

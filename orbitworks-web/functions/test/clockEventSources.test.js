@@ -224,6 +224,32 @@ test("employeeApp clock-in inside its fenced site: geofenceStatus inside", async
   assert.equal(event.geofenceStatus, "inside");
 });
 
+test("employeeApp clock-in with no site (Not specified): fenced-only check, outside + distance to the nearest fenced site (E3 b)", async () => {
+  const c = "src-ea-nosite-out";
+  await seedCompany(c, PRO);
+  await seedEmployee(c, { withSelfie: false });
+  await seedFencedSite(c);
+  const { event } = await createAndTrigger(c, "e1", { source: "employeeApp", siteId: null, siteName: "Not specified", ...FAR_AWAY });
+  assert.equal(event.siteId, null);
+  assert.equal(event.geofenceStatus, "outside");
+  assert.ok(event.distanceFromSiteM > 1000);
+});
+
+test("employeeApp clock-in with no site: no badge when the company has no geofenced site; never on a clock-out", async () => {
+  const c = "src-ea-nosite-nofence";
+  await seedCompany(c, PRO);
+  await seedEmployee(c, { withSelfie: false });
+  await seedNearbySite(c);
+  const a = await createAndTrigger(c, "e1", { source: "employeeApp", siteId: null, siteName: "Not specified", ...FAR_AWAY });
+  assert.equal(a.event.geofenceStatus, undefined);
+  const c2 = "src-ea-nosite-out-type";
+  await seedCompany(c2, PRO);
+  await seedEmployee(c2, { withSelfie: false });
+  await seedFencedSite(c2);
+  const b = await createAndTrigger(c2, "e1", { source: "employeeApp", type: "out", siteId: null, siteName: "Not specified", ...FAR_AWAY });
+  assert.equal(b.event.geofenceStatus, undefined);
+});
+
 test("employeeApp break with a location: no geofence badge", async () => {
   const c = "src-ea-fence-break";
   await seedCompany(c, PRO);
