@@ -56,7 +56,7 @@ broken, see C2).
 | 6-D1 | both | At Site A (assigned only Site B), clock in (needs a fix of 100 m or better - fix round 1 D18 b) | Site A + "Auto-detected" | |
 | 6-D1b | both | D1 clock-in, then assign Site A, out, in again | Mismatch alert first time only; never on out/breaks | |
 | 6-D3 | both | Precise Location off, clock in at Site A | Site B, no Auto-detected, rough location shown | |
-| 6-D4 | both | Clock in at Site A, break, end, out | All 4 events Site A, each with its own location | |
+| 6-D4 | both | Clock in at Site A, break, end, out (all at Site A) | All 4 events Site A, each with its own location (fix round 2: the clock-out is its own detection - out at Site B would say Site B + Auto-detected, see 10-S1) | |
 | 6-D5 | both | Core employee at Core Site, in + out | Phase 3 site, never Core Site; map shows | |
 | 5-N5 | phone | Open Sync tab | Synced rows from this week only (Monday to today, company time - fix round 1 A2); an old Failed (last week or older) still shows | |
 | 7-N1 | phone | Reinstall, sign in, clock in, let green close | Notifications asked once after the green screen; token saved | |
@@ -105,7 +105,7 @@ broken, see C2).
 | 8-O3 | both | Force-quit app, out 10, back, open | Write down: notification yes/no; never a wrong time | |
 | 8-O4 | both | Restart phone, out 10, back, open | Write down: notification yes/no; else gray "phone stopped tracking" | |
 | 8-O5 | both | Leave through bad GPS (garage), out 5, back | Gray "no good location fix" then red, or just red; never nothing | |
-| 8-E1 | both | Out 5 min, clock out from outside | "Left ... - clock-out <time>"; tracking stops | |
+| 8-E1 | both | Out 5 min, clock out from outside | "Left ... - clock-out <time>"; tracking stops; the clock-out itself says "Not specified" (good fix inside no site, fix round 2) or the site you're standing in - hours still under Site A | |
 | 8-E3 | both | Break, out 5, back, end break | Notification; gray "(on break)"; no alerts | |
 | 8-C1 | both | Core employee, walk out 10 | Nothing | |
 | 8-C2 | both | Toggle Site A geofence OFF mid-shift, open app, walk out | No exit recorded after the switch | |
@@ -215,6 +215,21 @@ Same rules as A: send "done <ID>", Result OK / FAILED / SKIP.
 | 10-F4 | both | Core employee app at Site A | Phase 3 site, never detected (= 6-D5) | |
 | 10-F5 | both | Supervisor app, Pro: Ask for job site each time ON, pick Site B at Site A; then OFF and clock in at Site A with pill Site B | ON: Site B kept; OFF: Site A + Auto-detected | |
 | 10-F6 | both | Supervisor app: clock in at Site A, break start/end, Override clock-out with pill = Site B | Break events and the clock-out show Site A on the website | |
+
+### C6. Phase 10 fix round 2 - clock-out site detection (dev functions + dev website, no new app build)
+
+| ID | Where | What to do | Expected | Result |
+|---|---|---|---|---|
+| 10-S1 | both | Pro employee app: clock in at Site A, walk to Site B, clock out (good fix) | In: Site A + Auto-detected; Out: Site B + Auto-detected; the phone's green screen still says Site A (J a), History and Sync say Site B after sync | |
+| 10-S2 | web | Timesheet Approvals + Reports for 10-S1 | Row and hours under Site A; under the site "Clocked out at Site B"; event detail of the clock-out says "Clocked in at Site A - the shift's hours count there"; no new alert | |
+| 10-S3 | both | Clock out 2+ km from every site (good fix) | Out "Not specified", no tag; outside badge if the company has a geofenced site | |
+| 10-S4 | both | Clock out with Precise Location off (or location Never) | Out = the clock-in site, no Auto-detected tag | |
+| 10-S5 | both | Assigned only Site A: clock out at Site B with a rough 100-500 m fix (if you can get one) | Out = Site A (an unassigned site needs 100 m or better) | |
+| 10-S6 | both | Site B geofenced: clock out inside Site B | Geofence "At site" (checked against Site B, not the clock-in site) | |
+| 10-S7 | both | Supervisor app (Ask for job site each time OFF): clock in at Site A, clock out at Site B | Out: Site B + Auto-detected; ON: out = Site A, no tag | |
+| 10-S8 | both | Breaks during 10-S1; auto clock-out (8-E2 setup) | Breaks Site A; auto clock-out Site A | |
+| 10-S9 | both | Leave tracking during 10-S1 | Exits measured from Site A's fence; the clock-out closes them | |
+| 10-S10 | both | Core employee: clock in at Site A, out at Site B | Both the Phase 3 site, never detected | |
 
 ### C4. Can wait until after launch
 - phoneClockOff only catches a clock set back (needs a native sleep-proof clock + boot id).

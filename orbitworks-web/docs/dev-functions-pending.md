@@ -506,3 +506,23 @@ chat; tests in phase10-test-round.md section C5.
   (set-state-in-effect on open), lib/hooks/useSiteCosts.ts (manual memo).
 - **Removed:** orbitworks-app/lib/hooks/useMyJobSites.js (Settings was the
   only user).
+
+## Phase 10 fix round 2 - clock-out site detection (done 2026-11-05, code only - not deployed yet)
+
+Clock in and clock out are two separate detections (same rule as fix
+round 1: unassigned site only on a fix of 100 m or better, no usable fix =
+the shift's clock-in site, good fix inside no site = Not specified). Core
+unchanged. Tests: phase10-test-round.md C6.
+
+- **Deploy needs 2 parts** (dev only): functions (changed:
+  employeeClockPunch, onClockEventCreated) and the dev website (the
+  "Clocked out at <site>" note). No app build (J a), no rules or index
+  change.
+- **Kept on the clock-in site:** the shift's hours everywhere (Reports,
+  Excel, site costs, Approvals - A a), breaks (C a), the leave tracking
+  fence (E a), auto clock-out and override clock-out (G a). A clock-out
+  never raises a site-mismatch flag (H a).
+- **Fixed in passing:** a supervisor clock-out that copied the clock-in
+  site was still tagged Auto-detected; now only a detected clock-out is.
+- **The phone's clock-out green screen** still shows the shift's site; the
+  detected one shows in History and Sync after the punch syncs (J a).
