@@ -236,6 +236,9 @@ export const onClockEventCreated = onDocumentCreated(
     let resolvedSiteId: string | null | undefined;
     let resolvedSiteName: string | null | undefined;
     let siteCorrected = false;
+    // false = the site was set back to the shift's clock-in site (a
+    // supervisor clock-out that couldn't detect) - no Auto-detected tag.
+    let resolvedAutoDetected = true;
     let siteMismatch = false;
     let resolvedGeofenceApplicable = false;
     let resolvedGeofenceStatus: GeofenceStatus | null = null;
@@ -290,35 +293,43 @@ export const onClockEventCreated = onDocumentCreated(
           resolvedDistanceM = geofence.distanceM;
         }
       } else {
-        // type === "out": never re-detect - a clock-out always keeps the
-        // clock-in's site (per spec), verified with a direct
-        // classifyGeofence check against that one known site rather than a
-        // fresh search. Searching again could otherwise land the clock-out
-        // on a *different* site than the one actually worked, if the
-        // worker's last GPS fix happens to be closer to another site on
-        // their way out. Gated on "any active, located site exists" (not
-        // "any geofenced site") to match the broader attribution above -
-        // classifyGeofence below still only ever applies/flags anything
-        // when the resolved site's own requireGeofence is true.
-        const locatedSitesExist = await jobSitesRef
-          .where("active", "==", true)
-          .limit(1)
-          .get();
-        if (!locatedSitesExist.empty) {
-          resolvedSiteId = employeeData?.lastEventSiteId ?? null;
-          resolvedSiteName = employeeData?.lastEventSiteName ?? null;
-          siteCorrected = resolvedSiteId !== clientSiteId;
-
-          if (resolvedSiteId) {
-            const siteSnap = await jobSitesRef.doc(resolvedSiteId).get();
-            const site = siteSnap.data() as
-              | { lat?: number; lng?: number; radiusMeters?: number; requireGeofence?: boolean }
-              | undefined;
-            const classification = classifyGeofence(rawLocation, accuracyM, site);
-            resolvedGeofenceApplicable = classification.applicable;
-            resolvedGeofenceStatus = classification.status;
-            resolvedDistanceM = classification.distanceM;
+        // type === "out" (fix round 2, F a): its own detection, same rule
+        // as the clock-in (pickDetectedClockInSite). Its fallback is the
+        // shift's clock-in site = the employee's lastEventSiteId (set by
+        // clock-ins and clock-outs only, never breaks):
+        //   - "Ask for job site each time" on: the clock-in site (there is
+        //     no picker on a clock-out)
+        //   - detected: that site, Auto-detected (never a mismatch flag -
+        //     only a clock-in raises it, H a)
+        //   - noMatch (fix 100 m or better inside no site): no site
+        //   - fallback (no usable fix, a rough fix outside the assigned
+        //     sites, no located site): the clock-in site, not tagged
+        // Geofence badge (D a): the detected site's fence; noMatch = the
+        // fenced-only check; fallback = the clock-in site's fence.
+        // Gated on "any active site exists", same as before.
+        const activeSitesExist = await jobSitesRef.where("active", "==", true).limit(1).get();
+        if (!activeSitesExist.empty) {
+          const allCandidates = await loadDetectableSites(jobSitesRef);
+          const shiftSiteId = employeeData?.lastEventSiteId ?? null;
+          const pick = askJobSiteEachTime
+            ? ({ kind: "fallback" } as const)
+            : pickDetectedClockInSite(rawLocation, accuracyM, allCandidates, employeeData?.assignedSiteIds);
+          if (pick.kind === "fallback") {
+            resolvedSiteId = shiftSiteId;
+            resolvedSiteName = employeeData?.lastEventSiteName ?? null;
+            resolvedAutoDetected = false;
+          } else {
+            resolvedSiteId = pick.kind === "detected" ? pick.siteId : null;
+            resolvedSiteName = pick.kind === "detected" ? pick.siteName : null;
           }
+          siteCorrected = resolvedSiteId !== clientSiteId;
+          const geofence =
+            pick.kind === "fallback"
+              ? geofenceForKeptSite(rawLocation, accuracyM, allCandidates, shiftSiteId)
+              : geofenceForDetectedSite(rawLocation, accuracyM, allCandidates, pick);
+          resolvedGeofenceApplicable = geofence.applicable;
+          resolvedGeofenceStatus = geofence.status;
+          resolvedDistanceM = geofence.distanceM;
         }
       }
     }
@@ -422,7 +433,7 @@ export const onClockEventCreated = onDocumentCreated(
       if (siteWasResolved) {
         eventUpdates.siteId = resolvedSiteId;
         eventUpdates.siteName = resolvedSiteName ?? "";
-        eventUpdates.siteAutoDetected = true;
+        if (resolvedAutoDetected) eventUpdates.siteAutoDetected = true;
         if (siteCorrected) eventUpdates.siteCorrected = true;
         if (siteMismatch) eventUpdates.siteMismatch = true;
       }
@@ -628,7 +639,9 @@ export const onClockEventCreated = onDocumentCreated(
         // clock-in that matched no site - someone nowhere near a geofenced
         // site is still flagged "outside", with the distance to the
         // nearest one.
-        const noSiteEmployeeClockIn = data.source === "employeeApp" && data.type === "in" && !siteId;
+        // Fix round 2 (D a): an Employee App clock-out that matched no site
+        // gets the same check.
+        const noSiteEmployeeClockIn = data.source === "employeeApp" && (data.type === "in" || data.type === "out") && !siteId;
         const geofence = noSiteEmployeeClockIn
           ? geofenceForKeptSite(fix, fixAccuracyM, await loadDetectableSites(jobSitesRef), null)
           : classifyGeofence(fix, fixAccuracyM, site);

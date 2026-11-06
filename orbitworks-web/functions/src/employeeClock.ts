@@ -4,7 +4,7 @@ import { timingSafeEqual, randomUUID } from "crypto";
 import { db } from "./shared";
 import { employeeClockPunchSchema, getMyPinSchema, getMyPinVerifierSchema, EmployeeClockAction, PunchLocation } from "./employeeClockValidators";
 import { locationForPunch } from "./lib/punchLocation";
-import { isAccurateEnoughToDetect, isSiteMismatch, loadDetectableSites, pickDetectedClockInSite, pickEmployeeClockInSite, type ClockInSitePick, type ShiftFence } from "./geofencing";
+import { isAccurateEnoughToDetect, isSiteMismatch, loadDetectableSites, pickDetectedClockInSite, pickEmployeeClockInSite, pickEmployeeClockOutSite, type ClockInSitePick, type ShiftFence } from "./geofencing";
 import { PIN_REVEAL_MAX, PIN_REVEAL_WINDOW_MS, type MyPinResult } from "./employeePinTypes";
 import { fenceForClockIn, fenceForNewClockIn } from "./employeeSiteExits";
 import { makePinVerifier, PinVerifierResult } from "./lib/pinVerifier";
@@ -49,9 +49,14 @@ import {
 //      100-500 m fix inside none of the assigned sites) the F2 site: crew
 //      code site if that site is still active, else the one assigned site
 //      if exactly one is assigned, else none.
-//      Clock out and breaks copy the site of that shift's clock-in event
-//      (read in the transaction), so a site change mid-shift never splits
-//      one shift across two sites.
+//      Clock out (fix round 2): its own detection, same rule - detected =
+//      that site (Auto-detected); a fix of 100 m or better inside no site
+//      = none; otherwise (Core, no usable fix, ...) the shift's clock-in
+//      site. Never a site-mismatch flag on a clock-out.
+//      Breaks copy the site of that shift's clock-in event (read in the
+//      transaction). The shift's hours always count under the clock-in
+//      site (Reports, Excel, site costs, Approvals), and the leave
+//      tracking fence stays the clock-in site's.
 //   8. ONE transaction: re-check active/linked, read the latest clock event,
 //      reject a wrong-state punch, write the event with server time. The
 //      employee doc is written in the same transaction (lastPunchRequestId)
@@ -484,8 +489,10 @@ export const employeeClockPunch = onCall(async (request) => {
   // by the phone's clock (queuedAtMs; every current app punch sends it).
   const location = locationForPunch(input.location, input.queuedAtMs ?? nowMs);
 
-  // 7. site (clock-in only - see the header)
+  // 7. site (see the header). Clock-in: its site now. Clock-out: what its
+  // own fix says (null = no usable fix / Core: copy the clock-in site).
   const clockInSite = input.action === "in" ? await resolveClockInSite(companyId, employee, location) : null;
+  const clockOutPick = input.action === "out" && location ? await detectForPro(companyId, employee, location) : null;
   // 7b. Phase 8 leave tracking fence (clock-in only, never rejects).
   const clockInFence = clockInSite ? await fenceForNewClockIn(companyId, clockInSite.siteId).catch(() => null) : null;
 
@@ -528,10 +535,16 @@ export const employeeClockPunch = onCall(async (request) => {
       if (message) return { kind: "rejected", err: clockError("wrongState", message, { status: statusAfter(latestType) }) };
 
       let site: Site = clockInSite ?? { siteId: null, siteName: NO_SITE_NAME };
+      let clockOutDetected = false;
       if (!clockInSite) {
         const inSnap = await tx.get(shiftInQuery);
         const shiftIn = inSnap.empty ? undefined : (inSnap.docs[0].data() as EventData);
         if (shiftIn?.siteId) site = { siteId: shiftIn.siteId, siteName: shiftIn.siteName || NO_SITE_NAME };
+        if (input.action === "out") {
+          const out = pickEmployeeClockOutSite(clockOutPick, site);
+          site = { siteId: out.siteId, siteName: out.siteName || NO_SITE_NAME };
+          clockOutDetected = out.autoDetected;
+        }
       }
 
       const timestamp = admin.firestore.Timestamp.fromMillis(eventMs);
@@ -557,6 +570,7 @@ export const employeeClockPunch = onCall(async (request) => {
         data.locationFixAtMs = location ? location.fixAtMs : null;
       }
       if (clockInSite && clockInFence) data.geofenceRadiusM = clockInFence.radiusM;
+      if (clockOutDetected) data.siteAutoDetected = true;
       if (clockInSite?.autoDetected) {
         data.siteAutoDetected = true;
         // Same rule as the supervisor app's pin clock-in (geofencing.ts).

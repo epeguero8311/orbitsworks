@@ -150,6 +150,16 @@ test("pickEmployeeClockInSite: detected wins, noMatch = none, fallback = the Pha
   assert.deepEqual(pickEmployeeClockInSite(null, PHASE3), { ...PHASE3, autoDetected: false });
 });
 
+test("pickEmployeeClockOutSite (fix round 2): detected = that site + tag; noMatch = none; fallback = the clock-in site", () => {
+  const { pickEmployeeClockOutSite } = require("../lib/geofencing.js");
+  const IN = { siteId: "a", siteName: "Site A" };
+  assert.deepEqual(pickEmployeeClockOutSite({ kind: "detected", siteId: "b", siteName: "Site B" }, IN), { siteId: "b", siteName: "Site B", autoDetected: true });
+  assert.deepEqual(pickEmployeeClockOutSite({ kind: "noMatch" }, IN), { siteId: null, siteName: "", autoDetected: false });
+  assert.deepEqual(pickEmployeeClockOutSite({ kind: "fallback" }, IN), { ...IN, autoDetected: false });
+  assert.deepEqual(pickEmployeeClockOutSite(null, IN), { ...IN, autoDetected: false }, "Core / no usable fix");
+  assert.deepEqual(pickEmployeeClockOutSite(null, { siteId: null, siteName: "Not specified" }), { siteId: null, siteName: "Not specified", autoDetected: false });
+});
+
 test("geofence for a kept pick: its own fence, else the fenced-only check", () => {
   const kept = geofenceForKeptSite(FAR, 5, [XULA, HOME], "xula");
   assert.equal(kept.applicable, true);

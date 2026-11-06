@@ -239,7 +239,7 @@ test("Core, inside a site: no detection (Phase 3 site), location still saved", a
 
 // ---- shift: out and breaks ----
 
-test("clock out and breaks copy the detected clock-in site; each saves its own location", async () => {
+test("breaks copy the detected clock-in site (C a); each saves its own location", async () => {
   const c = "sd-shift";
   await seed(c);
   const t0 = Date.now() - 60 * 60 * 1000;
@@ -247,13 +247,137 @@ test("clock out and breaks copy the detected clock-in site; each saves its own l
   assert.equal(rin.siteId, "siteA");
   const rbs = await punch(c, "breakStart", { at: AT_B, punchMs: t0 + 60000 });
   const rbe = await punch(c, "breakEnd", { location: null, punchMs: t0 + 120000 });
-  const rout = await punch(c, "out", { at: NOWHERE, punchMs: t0 + 180000 });
-  for (const r of [rbs, rbe, rout]) assert.equal(r.siteId, "siteA");
+  for (const r of [rbs, rbe]) assert.equal(r.siteId, "siteA");
   assert.deepEqual((await eventOf(c, rbs.eventId)).location, AT_B);
   assert.equal((await eventOf(c, rbe.eventId)).location, null);
-  const out = await eventOf(c, rout.eventId);
-  assert.deepEqual(out.location, NOWHERE);
-  assert.equal(out.siteAutoDetected, undefined);
+  assert.equal((await eventOf(c, rbs.eventId)).siteAutoDetected, undefined);
+});
+
+// ---- Fix round 2: clock-out is its own detection ----
+
+async function shift(c, outOpts, inOpts = { at: AT_A }) {
+  const t0 = Date.now() - 60 * 60 * 1000;
+  const rin = await punch(c, "in", { ...inOpts, punchMs: t0 });
+  const rout = await punch(c, "out", { ...outOpts, punchMs: t0 + 180000 });
+  return { rin, rout, inEv: await eventOf(c, rin.eventId), outEv: await eventOf(c, rout.eventId) };
+}
+
+test("clock out: in at A, out at B - each event its own detected site, both tagged; no mismatch on the clock-out (H a)", async () => {
+  const c = "sd-out-b";
+  await seed(c, { employee: { assignedSiteIds: ["siteA"] } });
+  const { rin, rout, inEv, outEv } = await shift(c, { at: AT_B });
+  assert.equal(rin.siteId, "siteA");
+  assert.equal(inEv.siteAutoDetected, true);
+  assert.equal(rout.siteId, "siteB");
+  assert.equal(outEv.siteName, "Site B");
+  assert.equal(outEv.siteAutoDetected, true);
+  assert.equal(outEv.siteMismatch, undefined, "Site B is unassigned, still no flag on a clock-out");
+  assert.deepEqual(outEv.location, AT_B);
+});
+
+test("clock out: good fix inside no site = Not specified, not tagged", async () => {
+  const c = "sd-out-nowhere";
+  await seed(c);
+  const { rout, outEv } = await shift(c, { at: NOWHERE });
+  assert.equal(rout.siteId, null);
+  assert.equal(outEv.siteName, "Not specified");
+  assert.equal(outEv.siteAutoDetected, undefined);
+});
+
+test("clock out: no usable fix (none, no accuracy, worse than 500 m, too old) = the clock-in site, not tagged (D15 b)", async () => {
+  const cases = [
+    ["sd-out-nofix", { location: null }],
+    ["sd-out-noacc", { at: AT_B, accuracyM: null }],
+    ["sd-out-rough", { at: AT_B, accuracyM: 800 }],
+    ["sd-out-old", { at: AT_B, fixAgoMs: 10 * 60 * 1000 }],
+  ];
+  for (const [c, opts] of cases) {
+    await seed(c);
+    const { rout, outEv } = await shift(c, opts);
+    assert.equal(rout.siteId, "siteA", c);
+    assert.equal(outEv.siteAutoDetected, undefined, c);
+  }
+});
+
+test("clock out: 100-500 m fix - an assigned site matches, an unassigned one falls back to the clock-in site (D18 b, E2 a)", async () => {
+  const c1 = "sd-out-rough-unassigned";
+  await seed(c1, { employee: { assignedSiteIds: ["siteA"] } });
+  assert.equal((await shift(c1, { at: AT_B, accuracyM: 300 })).rout.siteId, "siteA");
+  const c2 = "sd-out-rough-assigned";
+  await seed(c2, { employee: { assignedSiteIds: ["siteA", "siteB"] } });
+  const r2 = await shift(c2, { at: AT_B, accuracyM: 300 });
+  assert.equal(r2.rout.siteId, "siteB");
+  assert.equal(r2.outEv.siteAutoDetected, true);
+  const c3 = "sd-out-rough-nowhere";
+  await seed(c3);
+  assert.equal((await shift(c3, { at: NOWHERE, accuracyM: 300 })).rout.siteId, "siteA", "rough fix inside no assigned site = fallback");
+});
+
+test("clock out: Core never detects - the clock-in site", async () => {
+  const c = "sd-out-core";
+  await seed(c, { plan: "core2_tier1" });
+  const { rin, rout, outEv } = await shift(c, { at: AT_A }, { at: AT_A });
+  assert.equal(rin.siteId, "siteB");
+  assert.equal(rout.siteId, "siteB");
+  assert.equal(outEv.siteAutoDetected, undefined);
+});
+
+async function trigger(c, eventId) {
+  const ref = db.doc(`companies/${c}/clockEvents/${eventId}`);
+  const data = (await ref.get()).data();
+  await funcs.onClockEventCreated.run({ params: { companyId: c, eventId }, data: { data: () => data, ref } });
+  return (await ref.get()).data();
+}
+
+test("clock out at another site: the approval (hours) stays the clock-in site's; the clock-out keeps its own site and tag (A a)", async () => {
+  const c = "sd-out-approval";
+  await seed(c);
+  const { rin, rout } = await shift(c, { at: AT_B });
+  await trigger(c, rin.eventId);
+  const outEv = await trigger(c, rout.eventId);
+  assert.equal(outEv.siteId, "siteB");
+  assert.equal(outEv.siteAutoDetected, true);
+  const approval = (await db.doc(`companies/${c}/timesheetApprovals/${rin.eventId}`).get()).data();
+  assert.equal(approval.siteId, "siteA");
+  const emp = (await db.doc(`companies/${c}/employees/emp1`).get()).data();
+  assert.equal(emp.lastEventSiteId, "siteB", "the last event's own site");
+});
+
+test("clock-out geofence badge (D a): the detected site's fence; inside no site = the fenced-only check", async () => {
+  const c = "sd-out-fence";
+  await seed(c, {
+    sites: {
+      siteA: { name: "Site A", active: true, ...AT_A, radiusMeters: 150, requireGeofence: true },
+      siteB: { name: "Site B", active: true, ...AT_B, radiusMeters: 150, requireGeofence: true },
+    },
+  });
+  const t0 = Date.now() - 60 * 60 * 1000;
+  const rin = await punch(c, "in", { at: AT_A, punchMs: t0 });
+  await trigger(c, rin.eventId);
+  const rout = await punch(c, "out", { at: AT_B, punchMs: t0 + 60000 });
+  const atB = await trigger(c, rout.eventId);
+  assert.equal(atB.siteId, "siteB");
+  assert.equal(atB.geofenceStatus, "inside", "inside Site B's own fence, not outside Site A's");
+
+  const rin2 = await punch(c, "in", { at: AT_A, punchMs: t0 + 120000 });
+  await trigger(c, rin2.eventId);
+  const rout2 = await punch(c, "out", { at: NOWHERE, punchMs: t0 + 180000 });
+  const nowhere = await trigger(c, rout2.eventId);
+  assert.equal(nowhere.siteId, null);
+  assert.equal(nowhere.geofenceStatus, "outside");
+  assert.ok(nowhere.distanceFromSiteM > 1000);
+});
+
+test("leave tracking stays on the clock-in site's fence; the clock-out has none (E a)", async () => {
+  const c = "sd-out-leave";
+  await seed(c, { sites: { siteA: { name: "Site A", active: true, ...AT_A, radiusMeters: 150, requireGeofence: true }, siteB: { name: "Site B", active: true, ...AT_B } } });
+  const t0 = Date.now() - 60 * 60 * 1000;
+  const rin = await punch(c, "in", { at: AT_A, punchMs: t0 });
+  assert.ok(rin.fence, "the shift is watched with Site A's fence");
+  assert.equal((await eventOf(c, rin.eventId)).geofenceRadiusM, 150);
+  const rout = await punch(c, "out", { at: AT_B, punchMs: t0 + 60000 });
+  assert.equal(rout.fence, null);
+  assert.equal((await eventOf(c, rout.eventId)).geofenceRadiusM, undefined);
 });
 
 // ---- offline / time window ----

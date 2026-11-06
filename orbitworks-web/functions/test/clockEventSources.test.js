@@ -235,7 +235,7 @@ test("employeeApp clock-in with no site (Not specified): fenced-only check, outs
   assert.ok(event.distanceFromSiteM > 1000);
 });
 
-test("employeeApp clock-in with no site: no badge when the company has no geofenced site; never on a clock-out", async () => {
+test("employeeApp clock-in with no site: no badge when the company has no geofenced site; never on a break; a no-site clock-out too (fix round 2)", async () => {
   const c = "src-ea-nosite-nofence";
   await seedCompany(c, PRO);
   await seedEmployee(c, { withSelfie: false });
@@ -246,8 +246,10 @@ test("employeeApp clock-in with no site: no badge when the company has no geofen
   await seedCompany(c2, PRO);
   await seedEmployee(c2, { withSelfie: false });
   await seedFencedSite(c2);
-  const b = await createAndTrigger(c2, "e1", { source: "employeeApp", type: "out", siteId: null, siteName: "Not specified", ...FAR_AWAY });
-  assert.equal(b.event.geofenceStatus, undefined);
+  const b = await createAndTrigger(c2, "e1", { source: "employeeApp", type: "breakStart", siteId: null, siteName: "Not specified", ...FAR_AWAY });
+  assert.equal(b.event.geofenceStatus, undefined, "never on a break");
+  const o = await createAndTrigger(c2, "e2", { source: "employeeApp", type: "out", siteId: null, siteName: "Not specified", ...FAR_AWAY });
+  assert.equal(o.event.geofenceStatus, "outside", "fix round 2: a clock-out with no site gets the check too");
 });
 
 test("employeeApp break with a location: no geofence badge", async () => {
@@ -380,6 +382,71 @@ test("pin, 100-500 m fix: an assigned site matches, an unassigned one keeps the 
   const b = await createAndTrigger(c, "e2", { source: "pin", siteId: "assigned", siteName: "Assigned Site", ...rough });
   assert.equal(b.event.siteId, "near");
   assert.equal(b.event.siteAutoDetected, true);
+});
+
+// ---- Fix round 2 (F a): a supervisor clock-out is its own detection ----
+
+async function setShiftSite(c, siteId, siteName) {
+  await db.doc(`companies/${c}/employees/emp1`).update({ lastEventSiteId: siteId, lastEventSiteName: siteName, assignedSiteIds: ["shift"] });
+}
+
+test("pin clock-out, ask off: detected at its own site, tagged; no mismatch flag on a clock-out (H a)", async () => {
+  const c = "src-out-detect";
+  await seedCompany(c, PRO, DETECT);
+  await seedEmployee(c, { withSelfie: false });
+  await seedNearbySite(c);
+  await setShiftSite(c, "shift", "Shift Site");
+  const { event } = await createAndTrigger(c, "o1", { source: "pin", type: "out", siteId: "shift", siteName: "Shift Site", ...AT_NEAR_SITE });
+  assert.equal(event.siteId, "near");
+  assert.equal(event.siteAutoDetected, true);
+  assert.equal(event.siteMismatch, undefined);
+  const emp = await getDoc(`companies/${c}/employees/emp1`);
+  assert.equal(emp.lastEventSiteId, "near");
+});
+
+test("pin clock-out, ask off, good fix inside no site: no site", async () => {
+  const c = "src-out-nomatch";
+  await seedCompany(c, PRO, DETECT);
+  await seedEmployee(c, { withSelfie: false });
+  await seedNearbySite(c);
+  await setShiftSite(c, "shift", "Shift Site");
+  const { event } = await createAndTrigger(c, "o1", { source: "pin", type: "out", siteId: "shift", siteName: "Shift Site", ...FAR_AWAY });
+  assert.equal(event.siteId, null);
+});
+
+test("pin clock-out falls back to the clock-in site with no Auto-detected tag: ask on, no fix, rough fix", async () => {
+  const cases = [
+    ["src-out-ask", undefined, AT_NEAR_SITE],
+    ["src-out-nofix", DETECT, { location: null, locationAccuracyM: null }],
+    ["src-out-roughfix", DETECT, { location: { lat: 29.95, lng: -90.07 }, locationAccuracyM: 300 }],
+  ];
+  for (const [c, settings, fix] of cases) {
+    await seedCompany(c, PRO, settings);
+    await seedEmployee(c, { withSelfie: false });
+    await seedNearbySite(c);
+    await setShiftSite(c, "shift", "Shift Site");
+    const { event } = await createAndTrigger(c, "o1", { source: "pin", type: "out", siteId: "shift", siteName: "Shift Site", ...fix });
+    assert.equal(event.siteId, "shift", c);
+    assert.equal(event.siteAutoDetected, undefined, c);
+  }
+});
+
+test("pin clock-out geofence badge (D a): the detected site's fence, else the clock-in site's", async () => {
+  const c = "src-out-fence";
+  await seedCompany(c, PRO, DETECT);
+  await seedEmployee(c, { withSelfie: false });
+  await seedFencedSite(c);
+  await setShiftSite(c, "fenced", "Fenced Site");
+  const inside = await createAndTrigger(c, "o1", { source: "pin", type: "out", siteId: "fenced", siteName: "Fenced Site", ...AT_NEAR_SITE });
+  assert.equal(inside.event.geofenceStatus, "inside");
+  const c2 = "src-out-fence-ask";
+  await seedCompany(c2, PRO);
+  await seedEmployee(c2, { withSelfie: false });
+  await seedFencedSite(c2);
+  await setShiftSite(c2, "fenced", "Fenced Site");
+  const kept = await createAndTrigger(c2, "o1", { source: "pin", type: "out", siteId: "fenced", siteName: "Fenced Site", ...FAR_AWAY });
+  assert.equal(kept.event.siteId, "fenced");
+  assert.equal(kept.event.geofenceStatus, "outside");
 });
 
 // ---- Phase 10 D19 a: supervisor breaks + override clock-out copy the shift site ----

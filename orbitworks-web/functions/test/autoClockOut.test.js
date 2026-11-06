@@ -176,3 +176,16 @@ test("a phone/offline punch wins: real out removes the auto clock-out and its al
   await funcs.runAutoClockOut.run({});
   assert.equal((await getAutoOut(companyId, "in1")).exists, false);
 });
+
+// Fix round 2 (G a): an auto clock-out has no location - it keeps the
+// clock-in's site (clock-outs from the phones are detected on their own).
+test("auto clock-out keeps the clock-in's site", async () => {
+  const companyId = "real-co-site";
+  await seedCompany(companyId, { enabled: true, maxWorkedHours: 12 });
+  await seedOpenShift(companyId, "in1", 13);
+  await db.collection("companies").doc(companyId).collection("clockEvents").doc("in1").update({ siteId: "siteA", siteName: "Site A" });
+  await funcs.runAutoClockOut.run({});
+  const out = await getAutoOut(companyId, "in1");
+  assert.equal(out.data().siteId, "siteA");
+  assert.equal(out.data().siteName, "Site A");
+});

@@ -245,7 +245,12 @@ export function isSiteMismatch(detectedSiteId: string | null | undefined, assign
   return !assignedSiteIds.includes(detectedSiteId);
 }
 
-// ---- Which site a Pro clock-in gets (Phase 10 F1/F2, both apps) ----
+// ---- Which site a Pro clock-in or clock-out gets (Phase 10 F1/F2, both
+// apps; clock-outs since fix round 2) ----
+//
+// Clock in and clock out are two separate detections with the same rule.
+// A clock-out's "fallback" is the shift's clock-in site (breaks always
+// copy it, and the shift's hours count under it everywhere).
 //
 // D18 b: how good the fix must be. Up to 500 m (accuracy, the phone's own
 // number) it can match one of the employee's ASSIGNED sites; an unassigned
@@ -328,6 +333,19 @@ export function geofenceForDetectedSite(
     return classifyGeofence(location, accuracyM, matched);
   }
   return geofenceForKeptSite(location, accuracyM, sites, null);
+}
+
+// Employee App clock-out (fix round 2): detected = that site (tagged
+// Auto-detected); noMatch = none ("Not specified"); fallback = the shift's
+// clock-in site, not tagged. Never a site-mismatch flag (H a: only a
+// clock-in raises it).
+export function pickEmployeeClockOutSite(
+  pick: ClockInSitePick | null,
+  clockInSite: { siteId: string | null; siteName: string }
+): { siteId: string | null; siteName: string; autoDetected: boolean } {
+  if (pick && pick.kind === "detected") return { siteId: pick.siteId, siteName: pick.siteName, autoDetected: true };
+  if (pick && pick.kind === "noMatch") return { siteId: null, siteName: "", autoDetected: false };
+  return { siteId: clockInSite.siteId, siteName: clockInSite.siteName, autoDetected: false };
 }
 
 // Employee App clock-in: detected = that site; noMatch = none ("Not
