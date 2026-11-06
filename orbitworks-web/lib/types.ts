@@ -207,7 +207,15 @@ export interface ClockEvent {
     | "autoBreakEnd"
     | "employeeDeactivated"
     | "tempLink";
+  // Admin/system text (manual entries, "Clocked out from alert", auto
+  // clock-out). Never the employee's own words - see employeeComment.
   note?: string;
+  // The employee's optional comment on THIS clock event, typed on the
+  // camera screen (e.g. why they're late on a clock-in, or why they're
+  // leaving early on a clock-out). Only ever on type "in"/"out", 1-500
+  // chars, written once at creation and never edited (firestore.rules).
+  // Absent on every event from older app builds and every other source.
+  employeeComment?: string;
   photoUrl?: string;
   // Mobile sync (app versions after 1.1.2): the event doc is written
   // first and its photo attached a moment later. photoPending is true
