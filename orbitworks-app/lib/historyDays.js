@@ -214,6 +214,17 @@ function timelineRows(day) {
   }));
 }
 
+// The My Hours list: only days the employee worked (decided 2026-11-06 -
+// a day off has no row). A day with an open shift has 0 counted hours
+// until the clock-out (closed shifts only, same as Home), so it stays
+// listed while it's In progress or has a Missing clock-out; so does a day
+// with a punch that failed to sync. Never changes the hours themselves.
+// days = buildWeekHistory's days, order kept.
+function workedDays(days) {
+  if (!Array.isArray(days)) return [];
+  return days.filter((d) => d.workedMs > 0 || d.inProgress || d.missingClockOut || d.notSynced);
+}
+
 // One day of this week by its "YYYY-MM-DD" key, or null (e.g. a day from
 // an older week left open on the screen).
 function findDay(days, key) {
@@ -229,6 +240,7 @@ module.exports = {
   dayBadges,
   timelineRows,
   findDay,
+  workedDays,
   formatWorked,
   formatDuration,
   dayLabel,

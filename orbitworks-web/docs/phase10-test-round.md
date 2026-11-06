@@ -241,6 +241,25 @@ The supervisor camera screen's Comment button (prod feature 6bce76a..2bce77a). R
 | CC-2 | both | Supervisor app clocks jc-pro-emp in with a comment; then on the employee phone add a shift comment (Home > Comments) on that shift; clock out | Website Note cell on the clock-in: "View comment" (punch comment) and the shift comment both show; Approve Hours icon count = 2; Shift details card lists the Clock in comment, then the shift comment | |
 | CC-3 | both | Supervisor app in airplane mode: clock someone in with a comment, then Cancel/X a second comment edit on the next punch (nothing saved); back online, let it sync | The first punch syncs with its comment on the website (only on that clock-in); the second punch has no comment | |
 
+### C8. Phase 10 additions (asked 2026-11-06) - on the end-of-phases build
+
+Plan:
+- 10-H My Hours shows only days worked - DONE (employee app only; lib/historyDays.js workedDays). A day off has no row. A day with an open shift (In progress / Missing clock-out) or a punch that failed to sync stays, since open shifts count 0 until the clock-out. Hours math unchanged (walkShifts, Home's rule).
+- 10-PIN Settings shows the PIN plainly, no Show step, no server call on the screen, fallback text when it isn't on the phone - WAITING on the storage decision (the phone keeps only a PIN check hash today, never the PIN; replaces 10-A1b and 10-A1d once built).
+- 10-FN No face vs no match - WAITING on plan OK. Server already records "noFace" and a separate "No Face Detected" alert; to add: the employee's message and the website's own no-face toggle.
+
+| ID | Where | What to do | Expected | Result |
+|---|---|---|---|---|
+| 10-H1 | both | Work Mon and Wed (clock out each day), nothing Tue; open My Hours on Wed after the clock-out | Wednesday and Monday only - no Tuesday row; each day's hours = Approve Hours on the website for that day | |
+| 10-H2 | phone | Monday before any punch, open My Hours; then clock in | "No hours worked yet this week."; after clock-in: Today with In progress | |
+| 10-H3 | phone | Leave a past day's shift with no clock-out (Missing clock-out), and a day off | The missing day still shows (0m, Missing clock-out pill); the day off doesn't | |
+| 10-PIN1 | both | Employee Settings | PIN shows as the real digits at once - no Show button, no wait; same PIN as the website | |
+| 10-PIN2 | both | Website: change the PIN; phone: reopen the app online, Settings | The new PIN | |
+| 10-PIN3 | phone | Case where the PIN isn't on the phone (per the chosen option - e.g. first sign-in offline) | A clear message, never a blank row | |
+| 10-FN1 | both | Pro employee app: clock in with the face out of frame (camera at the ceiling) | Punch saved; website Face check "No face" + Overview "No Face Detected" (not Face Mismatch); the employee gets the no-face message (per the chosen option) | |
+| 10-FN2 | both | Pro employee app: clock in with someone else's face | "Mismatch" + "Face Mismatch" alert; no no-face message | |
+| 10-FN3 | both | Website Settings: turn off only the no-face toggle; repeat 10-FN1 and 10-FN2 | No "No Face Detected" alert, badge still "No face"; Face Mismatch still fires | |
+
 ### C4. Can wait until after launch
 - phoneClockOff only catches a clock set back (needs a native sleep-proof clock + boot id).
 - Stored PIN check value can be cracked off an unlocked phone (accepted risk, same as supervisor pin_cache).

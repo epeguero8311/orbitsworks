@@ -321,3 +321,53 @@ test("day lookup: a day of this week by key; any other key -> null", () => {
   assert.equal(hist.findDay(week.days, ""), null);
   assert.equal(hist.findDay(undefined, "2026-11-03"), null);
 });
+
+// ---- My Hours list: only days worked (decided 2026-11-06) ----
+
+test("my hours list: worked Mon and Wed, off Tue -> Wed and Mon only, hours unchanged", () => {
+  // NOW is Wed 3 PM, so Wednesday's shift is closed by 2 PM.
+  const events = [
+    ev("in", "2026-11-02T07:00"), ev("out", "2026-11-02T14:00"),
+    ev("in", "2026-11-04T07:00"), ev("out", "2026-11-04T14:00"),
+  ];
+  const week = hist.buildWeekHistory(events, NOW, TZ, NO_AUTO);
+  const shown = hist.workedDays(week.days);
+  assert.deepEqual(shown.map((d) => [d.key, hist.formatWorked(d.workedMs)]), [
+    ["2026-11-04", "7h 0m"],
+    ["2026-11-02", "7h 0m"],
+  ]);
+  assert.equal(week.days.length, 3, "the week data itself still has every day (day screen lookups)");
+  assert.equal(dayOf(week, "2026-11-03").workedMs, 0);
+});
+
+test("my hours list: same hours as Home's rule with the auto break", () => {
+  const events = [ev("in", "2026-11-02T07:00"), ev("out", "2026-11-02T15:00")];
+  const week = hist.buildWeekHistory(events, NOW, TZ, AUTO);
+  const [mon] = hist.workedDays(week.days);
+  assert.equal(mon.workedMs, home.computeHours(events, NOW, TZ, AUTO).weekMs);
+  assert.equal(hist.formatWorked(mon.workedMs), "7h 30m");
+});
+
+test("my hours list: a week with no work is empty", () => {
+  assert.deepEqual(hist.workedDays(hist.buildWeekHistory([], NOW, TZ, NO_AUTO).days), []);
+  assert.deepEqual(hist.workedDays(undefined), []);
+});
+
+test("my hours list: an open shift (0 counted until clock-out) still shows - In progress and Missing clock-out", () => {
+  const events = [ev("in", "2026-11-02T07:00"), ev("in", "2026-11-04T08:00")];
+  const shown = hist.workedDays(hist.buildWeekHistory(events, NOW, TZ, NO_AUTO).days);
+  assert.deepEqual(shown.map((d) => [d.key, d.inProgress, d.missingClockOut]), [
+    ["2026-11-04", true, false],
+    ["2026-11-02", false, true],
+  ]);
+});
+
+test("my hours list: a day whose only punch failed to sync still shows; a 0-hour day with nothing to fix doesn't", () => {
+  const base = { workedMs: 0, inProgress: false, missingClockOut: false, notSynced: false };
+  const days = [
+    { ...base, key: "a", notSynced: true },
+    { ...base, key: "b", hasActivity: true },
+    { ...base, key: "c", workedMs: MIN },
+  ];
+  assert.deepEqual(hist.workedDays(days).map((d) => d.key), ["a", "c"]);
+});
