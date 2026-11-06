@@ -150,8 +150,8 @@ and earlier phase notes. The Build Phases doc itself is not in this repo -
 add any Phase 10 item from it that is missing here.
 
 ### C1. Blocks this build
-- Re-authenticate Apple credentials in EAS (build 20 got "Apple 401" / failed to fetch provisioning profiles).
-- Confirm the APNs push key is on the Expo project for com.orbitworks.app.dev and Push Notifications is enabled on that App ID (needed for every Phase 7 push test).
+- RESOLVED 2026-11-06: Apple credentials in EAS (build 20 got "Apple 401" / failed to fetch provisioning profiles) - employeeDev builds 21 and 22 both finished after it.
+- RESOLVED 2026-11-06: push for com.orbitworks.app.dev - the App ID has Push Notifications (build 22's App Store profile carries aps-environment = production) and the Expo project has the APNs key (LVWC99Y4AY, team 6ZU7MHT284).
 
 ### C2. Must fix before prod
 - Find why EAS Updates never reach the dev app (update 01a1833d, builds 10/11); prod hotfixes depend on OTA.

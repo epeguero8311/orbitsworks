@@ -392,16 +392,16 @@ jc-test-core-dev.
   18:49-18:53 UTC) already landed with server time (0.1-0.8 s before
   createdAt) and no queued / syncedLate / phoneClockOff.
 
-- **Wire the History tabs to real clock events** (decided 2026-10-29).
-  `screens/employee/EmployeeHistoryScreen.js` and
-  `EmployeeHistoryDayScreen.js` still use `MOCK_CLOCK_EVENTS` /
-  `MOCK_HISTORY_EMPTY` from `lib/mockData.js`. Phase 4 leaves them on mock.
+- **Wire the History tabs to real clock events** - done (Phase 5).
+  `EmployeeHistoryScreen.js` (My Hours) and `EmployeeHistoryDayScreen.js`
+  read real clock events plus the phone's queued punches
+  (`lib/hooks/useMyHistoryWeek.js`); `lib/mockData.js` is gone.
 - **Wire Settings email, birthday and the Notifications / Location
-  switches** (decided 2026-10-29). Still `MOCK_SETTINGS` in
-  `EmployeeSettingsScreen.js`. Phase 4 only wires "Last synced", the PIN
-  row ("****") and the sign-out warning.
+  switches** - done (Phase 5, Phase 10 A1). `EmployeeSettingsScreen.js`
+  reads `useEmployeeSettingsData`; the switches mirror the phone's own
+  permissions; the PIN row shows the saved PIN (D1 revised 2026-11-06).
 
-## Phase 7 to-do (done 2026-11-04, code only - not deployed yet)
+## Phase 7 to-do (done 2026-11-04; deployed to dev - rules eb5468b, indexes, functions 2026-11-06)
 
 - **Wire the employee Alerts tab** - done. Real data
   (`lib/hooks/useEmployeeAlerts.js`: own employeeAlerts + this phone's
@@ -418,7 +418,7 @@ jc-test-core-dev.
   composite + collection-group `token` overrides on employeePushTokens and
   pushTokens - registerEmployeePushToken needs them on a real project).
 
-## Phase 8 (done 2026-11-05, code only - not deployed yet)
+## Phase 8 (done 2026-11-05; deployed to dev - rules eb5468b, indexes, functions + site 2026-11-06)
 
 Leaving the job site (Pro, flag only). Design: header of
 functions/src/employeeSiteExits.ts. Phone tests: test-run-phase8.md, on
@@ -455,7 +455,7 @@ in any build on TestFlight today.
    Same binary as the supervisor app: the text shows there too, but only
    the employee login ever asks for Always.
 
-## Phase 9 (done 2026-11-05, code only - not deployed yet)
+## Phase 9 (done 2026-11-05; deployed to dev - rules eb5468b, functions + site 2026-11-06)
 
 Website catch-up. Website test run: test-run-phase9.md (no new phone
 build). Both old Phase 9 items are done: leaving the job site in Reports,
@@ -503,7 +503,7 @@ Tests: phase10-test-round.md section C8 (10-H, 10-PIN, 10-FN).
   reads don't check alertType; company alerts settings aren't key-checked).
   No index change. Phone parts ship in the end-of-phases build.
 
-## Phase 10 fix round 1 (done 2026-11-05, code only - not deployed yet)
+## Phase 10 fix round 1 (done 2026-11-05; deployed to dev - functions + site 2026-11-06)
 
 From the dev test round. Plan + decisions (D1-D19, W8) in the round's
 chat; tests in phase10-test-round.md section C5.
@@ -548,7 +548,7 @@ chat; tests in phase10-test-round.md section C5.
 - **Removed:** orbitworks-app/lib/hooks/useMyJobSites.js (Settings was the
   only user).
 
-## Phase 10 fix round 2 - clock-out site detection (done 2026-11-05, code only - not deployed yet)
+## Phase 10 fix round 2 - clock-out site detection (done 2026-11-05; deployed to dev - functions + site 2026-11-06)
 
 Clock in and clock out are two separate detections (same rule as fix
 round 1: unassigned site only on a fix of 100 m or better, no usable fix =
