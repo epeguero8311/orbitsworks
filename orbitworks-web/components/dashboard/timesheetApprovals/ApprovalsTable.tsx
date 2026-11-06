@@ -10,6 +10,7 @@ import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal"
 import ConfirmDeleteSessionModal from "@/components/dashboard/timesheetApprovals/ConfirmDeleteSessionModal";
 import SessionWarningsModal from "@/components/dashboard/timesheetApprovals/SessionWarningsModal";
 import { approvalsColumnCount, buildColumnWidths } from "@/lib/approvalsColumns";
+import { clockOutSiteNote } from "@/lib/clockOutSite";
 
 function formatHours(hours: number | null) {
   if (hours == null) return "-";
@@ -321,7 +322,14 @@ export function ApprovalsTable({
             row.companyName
           )}
         </td>
-        <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{row.siteName}</td>
+        <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">
+          {row.siteName}
+          {/* Fix round 2 (B b): the hours count under the clock-in site;
+              this says where the clock-out was detected. Info only. */}
+          {!row.isClockedInNow && clockOutSiteNote(row.clockInEvent, row.clockOutEvent) && (
+            <span className="mt-1 block text-xs text-gray-500">{clockOutSiteNote(row.clockInEvent, row.clockOutEvent)}</span>
+          )}
+        </td>
         <td className="px-3 py-4 xl:px-6 xl:py-5">
           <select
             value={effectiveJobId(row)}
