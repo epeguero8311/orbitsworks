@@ -64,3 +64,18 @@ test("time label: time only today, date + time on another day (company time zone
   // 11:30 PM Chicago on Nov 3 = 05:30 UTC Nov 4: still "yesterday" in Chicago.
   assert.equal(v.alertTimeLabel(Date.parse("2026-11-04T05:30:00Z"), NOW, TZ), "Nov 3, 11:30 PM");
 });
+
+test("no face found in a punch photo (2026-11-06): its own Alerts tab row with the server's text", () => {
+  const data = {
+    alertType: "faceNoFace",
+    title: "Couldn't detect a face",
+    message: "Couldn't detect a face in your clock-in photo at 9:14 AM - please take a better picture next time.",
+    reason: "Your company checks each clock photo for your face. Your punch was still saved.",
+    createdAt: ts(NOW - MIN),
+  };
+  const row = v.serverAlertRow("faceNoFace-evt1", data, NOW);
+  assert.equal(row.alertType, "faceNoFace");
+  assert.equal(row.title, "Couldn't detect a face");
+  assert.match(row.message, /please take a better picture/);
+  assert.equal(v.serverAlertRow("faceNoFace-evt2", { alertType: "faceNoFace", createdAt: null }, NOW).title, "Couldn't detect a face", "title fallback");
+});

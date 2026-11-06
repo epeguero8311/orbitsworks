@@ -135,6 +135,21 @@ export function leftSiteText(siteName: string, startMs: number): EmployeeAlertTe
   };
 }
 
+// 2026-11-06 - the employee's own Alerts tab entry + push when the server
+// found no face in the photo of one of their app punches. The punch is
+// already saved; this only asks for a better photo next time. Never used
+// for a mismatch (decided: the employee is never told about a mismatch).
+export function faceNoFaceText(eventType: string | undefined, atMs: number): EmployeeAlertText {
+  const punch = eventType === "in" ? "clock-in" : eventType === "out" ? "clock-out" : "clock";
+  const time = formatMinutesOfDay(localMinutesOfDay(new Date(atMs)));
+  return {
+    alertType: "faceNoFace",
+    title: "Couldn't detect a face",
+    message: `Couldn't detect a face in your ${punch} photo at ${time} - please take a better picture next time.`,
+    reason: "Your company checks each clock photo for your face. Your punch was still saved. Hold the phone at face level, in good light, with nothing covering your face.",
+  };
+}
+
 export function overtimeText(weekHours: number, thresholdHours: number): EmployeeAlertText {
   return {
     alertType: "overtime",

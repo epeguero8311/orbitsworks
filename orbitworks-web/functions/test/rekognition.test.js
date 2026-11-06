@@ -639,3 +639,140 @@ test("old app path: create trigger's claimed check runs; a later photo-added eve
   assert.equal(sendCallCount, 1);
   assert.equal((await getEvent(companyId, "evt1")).faceCheck.similarity, 100);
 });
+
+// ---- 2026-11-06: separate no-face handling ----
+// The employee is told about no face (Alerts tab + push) only for their own
+// Employee App punch, on its first check. Never on a mismatch. Each admin
+// alert type has its own sub-toggle under faceVerification.alertsEnabled,
+// and faceNoFaceAlert also gates the employee message.
+
+async function getEmployeeAlerts(companyId) {
+  const snap = await db.collection("companies").doc(companyId).collection("employeeAlerts").get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+const LINKED = { linkedUserId: "uid-emp1" };
+
+test("no face on an Employee App punch: admin alert + the employee's own 'Couldn't detect a face'", async () => {
+  const companyId = "face-noface-employee";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "emp1", LINKED);
+  await seedClockEvent(companyId, "evt1", { source: "employeeApp" });
+  sendImpl = async () => ({ FaceMatches: [], UnmatchedFaces: [] });
+
+  await rekognitionModule.checkFaceMatch(companyId, "evt1", { claim: true });
+
+  assert.equal((await getEvent(companyId, "evt1")).faceCheck.status, "noFace");
+  assert.equal((await getAlertsByType(companyId, "faceNoFace")).length, 1);
+  assert.equal((await getAlertsByType(companyId, "faceMismatch")).length, 0);
+  const mine = await getEmployeeAlerts(companyId);
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].id, "faceNoFace-evt1");
+  assert.equal(mine[0].alertType, "faceNoFace");
+  assert.equal(mine[0].employeeId, "emp1");
+  assert.equal(mine[0].title, "Couldn't detect a face");
+  assert.match(mine[0].message, /^Couldn't detect a face in your clock-in photo at \d{1,2}:\d{2} [AP]M - please take a better picture next time\.$/);
+  assert.match(mine[0].reason, /punch was still saved/);
+  assert.equal(mine[0].shiftId, "evt1");
+});
+
+test("no face on an Employee App clock-out: the message says clock-out", async () => {
+  const companyId = "face-noface-employee-out";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "emp1", LINKED);
+  await seedClockEvent(companyId, "evt1", { source: "employeeApp", type: "out" });
+  sendImpl = async () => ({ FaceMatches: [], UnmatchedFaces: [] });
+
+  await rekognitionModule.checkFaceMatch(companyId, "evt1", { claim: true });
+
+  const [mine] = await getEmployeeAlerts(companyId);
+  assert.match(mine.message, /your clock-out photo/);
+  assert.equal(mine.shiftId, null);
+});
+
+test("no face on a supervisor-app punch: admin alert only, nothing to the employee", async () => {
+  const companyId = "face-noface-supervisor";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "emp1", LINKED);
+  await seedClockEvent(companyId, "evt1", { source: "faceMatch" });
+  sendImpl = async () => ({ FaceMatches: [], UnmatchedFaces: [] });
+
+  await rekognitionModule.checkFaceMatch(companyId, "evt1", { claim: true });
+
+  assert.equal((await getAlertsByType(companyId, "faceNoFace")).length, 1);
+  assert.equal((await getEmployeeAlerts(companyId)).length, 0);
+});
+
+test("mismatch on an Employee App punch: admin alert only - the employee is never told", async () => {
+  const companyId = "face-mismatch-employee";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "emp1", LINKED);
+  await seedClockEvent(companyId, "evt1", { source: "employeeApp" });
+  sendImpl = async () => ({ FaceMatches: [{ Similarity: 38.12 }], UnmatchedFaces: [] });
+
+  await rekognitionModule.checkFaceMatch(companyId, "evt1", { claim: true });
+
+  assert.equal((await getAlertsByType(companyId, "faceMismatch")).length, 1);
+  assert.equal((await getEmployeeAlerts(companyId)).length, 0);
+});
+
+test("reassign re-check (no claim) with no face: admin alert, nothing to the employee", async () => {
+  const companyId = "face-noface-reassign";
+  await seedCompany(companyId);
+  await seedEmployee(companyId, "emp1", LINKED);
+  await seedClockEvent(companyId, "evt1", { source: "employeeApp" });
+  sendImpl = async () => ({ FaceMatches: [], UnmatchedFaces: [] });
+
+  await rekognitionModule.checkFaceMatch(companyId, "evt1");
+
+  assert.equal((await getAlertsByType(companyId, "faceNoFace")).length, 1);
+  assert.equal((await getEmployeeAlerts(companyId)).length, 0);
+});
+
+test("'No face detected' sub-toggle off: no admin no-face alert, no employee message; check still saved; mismatch still alerts", async () => {
+  const companyId = "face-noface-subtoggle-off";
+  await seedCompany(companyId, { alerts: { faceNoFaceAlert: false } });
+  await seedEmployee(companyId, "emp1", LINKED);
+  await seedClockEvent(companyId, "evt1", { source: "employeeApp" });
+  await seedClockEvent(companyId, "evt2", { source: "employeeApp" });
+  sendImpl = async () => ({ FaceMatches: [], UnmatchedFaces: [] });
+  await rekognitionModule.checkFaceMatch(companyId, "evt1", { claim: true });
+  sendImpl = async () => ({ FaceMatches: [{ Similarity: 38.12 }], UnmatchedFaces: [] });
+  await rekognitionModule.checkFaceMatch(companyId, "evt2", { claim: true });
+
+  assert.equal((await getEvent(companyId, "evt1")).faceCheck.status, "noFace");
+  assert.equal((await getAlertsByType(companyId, "faceNoFace")).length, 0);
+  assert.equal((await getEmployeeAlerts(companyId)).length, 0);
+  assert.equal((await getAlertsByType(companyId, "faceMismatch")).length, 1);
+});
+
+test("'Face didn't match' sub-toggle off: no mismatch alert; no face still alerts and tells the employee", async () => {
+  const companyId = "face-mismatch-subtoggle-off";
+  await seedCompany(companyId, { alerts: { faceMismatchAlert: false } });
+  await seedEmployee(companyId, "emp1", LINKED);
+  await seedClockEvent(companyId, "evt1", { source: "employeeApp" });
+  await seedClockEvent(companyId, "evt2", { source: "employeeApp" });
+  sendImpl = async () => ({ FaceMatches: [{ Similarity: 38.12 }], UnmatchedFaces: [] });
+  await rekognitionModule.checkFaceMatch(companyId, "evt1", { claim: true });
+  sendImpl = async () => ({ FaceMatches: [], UnmatchedFaces: [] });
+  await rekognitionModule.checkFaceMatch(companyId, "evt2", { claim: true });
+
+  assert.equal((await getEvent(companyId, "evt1")).faceCheck.status, "mismatch");
+  assert.equal((await getAlertsByType(companyId, "faceMismatch")).length, 0);
+  assert.equal((await getAlertsByType(companyId, "faceNoFace")).length, 1);
+  assert.equal((await getEmployeeAlerts(companyId)).length, 1);
+});
+
+test("main 'Face recognition alerts' off: no no-face alert and no employee message, even with the sub-toggle on", async () => {
+  const companyId = "face-noface-main-off";
+  await seedCompany(companyId, { faceVerification: { alertsEnabled: false } });
+  await seedEmployee(companyId, "emp1", LINKED);
+  await seedClockEvent(companyId, "evt1", { source: "employeeApp" });
+  sendImpl = async () => ({ FaceMatches: [], UnmatchedFaces: [] });
+
+  await rekognitionModule.checkFaceMatch(companyId, "evt1", { claim: true });
+
+  assert.equal((await getEvent(companyId, "evt1")).faceCheck.status, "noFace");
+  assert.equal((await getAlertsByType(companyId, "faceNoFace")).length, 0);
+  assert.equal((await getEmployeeAlerts(companyId)).length, 0);
+});

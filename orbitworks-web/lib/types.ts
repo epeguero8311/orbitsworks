@@ -933,7 +933,7 @@ export interface JoinCodeListResponse {
 // both in sync), kept 90 days.
 // Phase 8 adds leftSite: written when a SiteExit syncs (no push - the phone
 // already showed its own notification when it happened).
-export type EmployeeAlertType = "shiftEnding" | "stillClockedIn" | "maxHours" | "overtime" | "leftSite";
+export type EmployeeAlertType = "shiftEnding" | "stillClockedIn" | "maxHours" | "overtime" | "leftSite" | "faceNoFace";
 
 export interface EmployeeAlert {
   id: string;

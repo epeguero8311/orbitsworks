@@ -104,45 +104,18 @@ test("switch tap: what to do for each permission state", () => {
 // Layer 7c: the view-only rows, in order, under the photo and name.
 test("settings rows: Email, PIN, Birthday, Company - no Subcontractor or Job site (Phase 10 A1)", () => {
   const info = s.buildSettingsInfo({ view, companyName: "Acme Builders", update: null, loginEmail: null });
-  assert.deepEqual(s.settingsRows(info), [
+  assert.deepEqual(s.settingsRows(info, "4821"), [
     ["Email", "ana@example.com"],
-    ["PIN", "****"],
+    ["PIN", "4821"],
     ["Birthday", "January 31, 1990"],
     ["Company", "Acme Builders"],
   ]);
-  assert.deepEqual(s.settingsRows(info, "4821")[1], ["PIN", "4821"], "the shown PIN");
   const empty = s.settingsRows(s.buildSettingsInfo({ view: null, companyName: "", update: null }));
-  assert.deepEqual(empty.map((r) => r[1]), ["Not set", "****", "Not set", ""]);
-  assert.equal(s.PIN_MASK, "****");
+  assert.deepEqual(empty.map((r) => r[1]), ["Not set", "Connect to the internet once to load your PIN", "Not set", ""], "no PIN text: the fallback, never blank");
 });
 
-test("Show PIN: row text and button for every state; hidden after 30 s", () => {
-  assert.equal(s.pinRowText({ status: "hidden" }), "****");
-  assert.equal(s.pinRowText(null), "****");
-  assert.equal(s.pinRowText({ status: "shown", pin: "4821" }), "4821");
-  assert.equal(s.pinRowText({ status: "shown" }), "****", "no PIN in hand: masked");
-  assert.equal(s.pinRowText({ status: "loading" }), "Loading...");
-  assert.equal(s.pinRowText({ status: "offline" }), "Connect to the internet to see your PIN");
-  assert.equal(s.pinRowText({ status: "noPin" }), "Not set - ask your admin");
-  assert.equal(s.pinRowText({ status: "inactive" }), "Your account is inactive");
-  assert.equal(s.pinRowText({ status: "tooMany" }), "Try again in a few minutes");
-  assert.equal(s.pinRowText({ status: "error" }), "Couldn't load your PIN. Try again.");
-  assert.equal(s.pinButtonLabel({ status: "shown", pin: "1" }), "Hide");
-  assert.equal(s.pinButtonLabel({ status: "loading" }), null);
-  for (const status of ["hidden", "offline", "noPin", "tooMany", "error"]) assert.equal(s.pinButtonLabel({ status }), "Show", status);
-  assert.equal(s.PIN_SHOW_MS, 30000);
-});
-
-test("Show PIN: getMyPin answers and errors -> state", () => {
-  assert.deepEqual(s.pinStateFromResult({ status: "ok", pin: "4821" }), { status: "shown", pin: "4821" });
-  assert.deepEqual(s.pinStateFromResult({ status: "noPin" }), { status: "noPin" });
-  assert.deepEqual(s.pinStateFromResult({ status: "inactive" }), { status: "inactive" });
-  assert.deepEqual(s.pinStateFromResult({ status: "ok" }), { status: "error" });
-  assert.deepEqual(s.pinStateFromResult(null), { status: "error" });
-  assert.deepEqual(s.pinStateFromResult(null, { code: "functions/resource-exhausted", details: { reason: "tooMany" } }), { status: "tooMany" });
-  assert.deepEqual(s.pinStateFromResult(null, { code: "functions/unavailable" }), { status: "offline" });
-  assert.deepEqual(s.pinStateFromResult(null, { code: "functions/deadline-exceeded" }), { status: "offline" });
-  assert.deepEqual(s.pinStateFromResult(null, { code: "functions/permission-denied" }), { status: "error" });
+test("the Show PIN step is gone (D1 revised 2026-11-06: PIN saved on the phone, shown plainly)", () => {
+  for (const name of ["PIN_MASK", "PIN_SHOW_MS", "pinRowText", "pinButtonLabel", "pinStateFromResult"]) assert.equal(s[name], undefined, name);
 });
 
 // Log out warning (decision 7c-A): unsynced punches AND comments stay on

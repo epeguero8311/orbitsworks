@@ -191,10 +191,10 @@ Same rules as A: send "done <ID>", Result OK / FAILED / SKIP.
 
 | ID | Where | What to do | Expected | Result |
 |---|---|---|---|---|
-| 10-A1a | phone | Employee Settings | Rows: Email (the sign-in email), PIN ****, Birthday, Company; switches; no Subcontractor, Job site or Location access | |
-| 10-A1b | phone | Tap Show on PIN; wait 30 s; Show again, switch tab | Your PIN shows; hides after 30 s; hides when leaving the tab | |
-| 10-A1c | both | Website: change the PIN; phone: Show | The new PIN | |
-| 10-A1d | phone | Airplane mode, tap Show | "Connect to the internet to see your PIN" | |
+| 10-A1a | phone | Employee Settings | Rows: Email (the sign-in email), PIN (the digits - D1 revised, see C8 10-PIN1), Birthday, Company; switches; no Subcontractor, Job site or Location access | |
+| 10-A1b | - | (replaced by 10-PIN1 - no Show step since D1 was revised 2026-11-06) | - | SKIP |
+| 10-A1c | - | (replaced by 10-PIN2) | - | SKIP |
+| 10-A1d | - | (replaced by 10-PIN3) | - | SKIP |
 | 10-A1e | phone | Sub Co employee (9-E5), Settings | Company = the parent company, never Sub Co | |
 | 10-A2 | phone | Sync tab on any day after Monday, with a synced punch from last week and an old Failed one | Last week's synced row gone; this week's rows and the old Failed row show | |
 | 10-A3a | phone | Supervisor app (jc-pro-sup): employee assigned only Site B clocks in at Site A; pill = Site A, then Site B | Counted under Site A (Active card), not under Site B | |
@@ -245,20 +245,24 @@ The supervisor camera screen's Comment button (prod feature 6bce76a..2bce77a). R
 
 Plan:
 - 10-H My Hours shows only days worked - DONE (employee app only; lib/historyDays.js workedDays). A day off has no row. A day with an open shift (In progress / Missing clock-out) or a punch that failed to sync stays, since open shifts count 0 until the clock-out. Hours math unchanged (walkShifts, Home's rule).
-- 10-PIN Settings shows the PIN plainly, no Show step, no server call on the screen, fallback text when it isn't on the phone - WAITING on the storage decision (the phone keeps only a PIN check hash today, never the PIN; replaces 10-A1b and 10-A1d once built).
-- 10-FN No face vs no match - WAITING on plan OK. Server already records "noFace" and a separate "No Face Detected" alert; to add: the employee's message and the website's own no-face toggle.
+- 10-PIN Settings shows the PIN plainly - DONE (1A, D1 revised). The phone saves the PIN in SecureStore (encrypted, this device only, only while unlocked) next to the PIN check hash, refreshed at the same times (sign-in, app open, reconnect, a wrong PIN), deleted on log out. getMyPin is only called when the saved PIN no longer matches a fresh hash. No server call on the Settings screen; "Connect to the internet once to load your PIN" when none is saved. App only (+ a comment in getMyPin). Replaces 10-A1b..10-A1d.
+- 10-FN No face vs no match - DONE (3A-a). Functions: on "noFace" for an Employee App punch (first check only, never an admin reassign re-check) the employee gets "Couldn't detect a face" on the Alerts tab + push; the punch stays saved. Never anything to the employee on a mismatch. Website Settings > Alerts: "Face recognition alerts" keeps its switch with two sub-toggles under it, "Face didn't match" and "No face detected" (both default on, existing server keys faceMismatchAlert / faceNoFaceAlert). Each type needs the main switch and its own - admin alert, its push, the Timesheet Approvals warning, and (no face) the employee message. Deploys: functions + dev website (no rules change).
 
 | ID | Where | What to do | Expected | Result |
 |---|---|---|---|---|
 | 10-H1 | both | Work Mon and Wed (clock out each day), nothing Tue; open My Hours on Wed after the clock-out | Wednesday and Monday only - no Tuesday row; each day's hours = Approve Hours on the website for that day | |
 | 10-H2 | phone | Monday before any punch, open My Hours; then clock in | "No hours worked yet this week."; after clock-in: Today with In progress | |
 | 10-H3 | phone | Leave a past day's shift with no clock-out (Missing clock-out), and a day off | The missing day still shows (0m, Missing clock-out pill); the day off doesn't | |
-| 10-PIN1 | both | Employee Settings | PIN shows as the real digits at once - no Show button, no wait; same PIN as the website | |
-| 10-PIN2 | both | Website: change the PIN; phone: reopen the app online, Settings | The new PIN | |
-| 10-PIN3 | phone | Case where the PIN isn't on the phone (per the chosen option - e.g. first sign-in offline) | A clear message, never a blank row | |
-| 10-FN1 | both | Pro employee app: clock in with the face out of frame (camera at the ceiling) | Punch saved; website Face check "No face" + Overview "No Face Detected" (not Face Mismatch); the employee gets the no-face message (per the chosen option) | |
-| 10-FN2 | both | Pro employee app: clock in with someone else's face | "Mismatch" + "Face Mismatch" alert; no no-face message | |
-| 10-FN3 | both | Website Settings: turn off only the no-face toggle; repeat 10-FN1 and 10-FN2 | No "No Face Detected" alert, badge still "No face"; Face Mismatch still fires | |
+| 10-PIN1 | both | Sign in online, Employee Settings; then airplane mode, kill + reopen, Settings | PIN shows as the digits at once - no Show button, no wait, same PIN as the website; still shows offline | |
+| 10-PIN2 | both | Website: change the PIN; phone: reopen the app online, Settings (or punch with the old PIN online) | The new PIN | |
+| 10-PIN3 | phone | Delete + reinstall, sign in, and turn on airplane mode right away (before the first sync), then open Settings; then turn airplane mode off | "Connect to the internet once to load your PIN" (never a blank row); the digits a moment after going back online | |
+| 10-PIN4 | phone | Log out, sign in as another employee on the same phone, Settings | Only the new employee's PIN - the first one's is gone | |
+| 10-FN1 | both | Pro employee app: clock in with the face out of frame (camera at the ceiling) | Punch saved (green screen as usual); website Face check "No face" + Overview "No Face Detected" (not Face Mismatch) + red no-face warning in Approve Hours; phone: push + Alerts tab "Couldn't detect a face" (clock-in photo, time) | |
+| 10-FN2 | both | Pro employee app: clock in with someone else's face | "Mismatch" + "Face Mismatch" alert on the website; nothing on the phone | |
+| 10-FN3 | both | Website Settings > Alerts: turn off only "No face detected"; repeat 10-FN1 and 10-FN2 | No "No Face Detected" alert, no warning, no phone message; badge still "No face"; Face Mismatch still fires | |
+| 10-FN4 | both | Turn off only "Face didn't match"; repeat 10-FN2 and 10-FN1; then turn off the main "Face recognition alerts" and repeat 10-FN1 | Mismatch: no alert/warning, badge still shows; no face still alerts + phone message. Main off: sub-toggles greyed, no alerts and no phone message | |
+| 10-FN5 | both | Supervisor app (jc-pro-sup): clock jc-pro-emp in with the face out of frame | Website "No Face Detected" alert; nothing on jc-pro-emp's phone (supervisor punches never message the employee) | |
+| 10-FN6 | both | Offline Employee App punch with the face out of frame; back online | The phone message arrives after the punch syncs; punch time is the original time | |
 
 ### C4. Can wait until after launch
 - phoneClockOff only catches a clock set back (needs a native sleep-proof clock + boot id).

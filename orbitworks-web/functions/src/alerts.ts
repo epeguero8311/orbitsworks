@@ -16,6 +16,7 @@ import {
 import { applyAutoBreak, splitShiftSegments } from "./autoBreak";
 import { sendEmployeeAlert } from "./employeeAlerts";
 import {
+  faceNoFaceText,
   formatMinutesOfDay,
   maxHoursText,
   openShiftStart,
@@ -176,12 +177,13 @@ export const ALERT_SETTINGS_DEFAULTS = {
   earlyClockOutAlert: true,
   clockedInOutsideGeofence: true,
   siteMismatchWarning: true,
-  // Face Verification (Pro) - default true per spec.
-  // Dead weight in practice - no UI ever writes these, so they always
-  // resolve to the true default here. The real on/off switch for
-  // faceMismatch/faceNoFace is company.faceVerification.alertsEnabled,
-  // read separately below (getCompanyAlertContext's faceAlertsEnabled) -
-  // faceBadReference never checks either one, it always fires.
+  // Face Verification (Pro) - default true per spec. faceMismatchAlert and
+  // faceNoFaceAlert are the website's two sub-toggles (2026-11-06) under
+  // "Face recognition alerts" = company.faceVerification.alertsEnabled
+  // (getCompanyAlertContext's faceAlertsEnabled): each type needs the main
+  // switch AND its own. faceNoFaceAlert also gates the employee's own
+  // "Couldn't detect a face" message. faceBadReference never checks any of
+  // them, it always fires.
   faceMismatchAlert: true,
   faceNoFaceAlert: true,
   faceBadReferenceAlert: true,
@@ -644,12 +646,17 @@ export async function createFaceMismatchAlert(
   );
 }
 
+// opts.notifyEmployee (rekognition.ts: the first check of an Employee App
+// punch only) also sends the employee "Couldn't detect a face" - Alerts tab
+// + push, same gates as the admin alert. eventType picks "clock-in" /
+// "clock-out" in the text.
 export async function createFaceNoFaceAlert(
   companyId: string,
   eventId: string,
   employeeId: string,
   employeeName: string,
-  timestamp: admin.firestore.Timestamp | null
+  timestamp: admin.firestore.Timestamp | null,
+  opts: { notifyEmployee?: boolean; eventType?: string } = {}
 ): Promise<void> {
   if (!ALERTS_FEED_ENABLED.value()) return;
   if (!isCompanyInTestScope(companyId)) return;
@@ -673,6 +680,15 @@ export async function createFaceNoFaceAlert(
     },
     timestamp ?? admin.firestore.Timestamp.now()
   );
+  if (opts.notifyEmployee) {
+    await sendEmployeeAlert({
+      companyId,
+      employeeId,
+      key: eventId,
+      shiftId: opts.eventType === "in" ? eventId : null,
+      ...faceNoFaceText(opts.eventType, ts.getTime()),
+    });
+  }
 }
 
 // faceBadReference is the one alert type that breaks the "one per

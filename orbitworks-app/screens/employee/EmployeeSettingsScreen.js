@@ -1,6 +1,5 @@
-import { useCallback, useState } from "react";
-import { View, Text, Switch, StyleSheet, Linking, Pressable } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
+import { useState } from "react";
+import { View, Text, Switch, StyleSheet, Linking } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import { useAuth } from "../../lib/AuthContext";
@@ -11,13 +10,14 @@ import { useEmployeeAppConfig } from "../../lib/hooks/useEmployeeAppConfig";
 import { useEmployeeSettingsData } from "../../lib/hooks/useEmployeeSettingsData";
 import { useNotificationPermission } from "../../lib/hooks/useNotificationPermission";
 import { useLocationPermission } from "../../lib/hooks/useLocationPermission";
-import { useMyPin } from "../../lib/hooks/useMyPin";
+import { useSavedPin } from "../../lib/hooks/useSavedPin";
 import { usePunchQueue } from "../../lib/hooks/usePunchQueue";
 import { useCommentQueue } from "../../lib/hooks/useCommentQueue";
 import { useSiteExitQueue } from "../../lib/hooks/useSiteExitQueue";
 import { useNow } from "../../lib/hooks/useNow";
 import { formatWhen } from "../../lib/punchQueueLogic";
-import { logoutCounts, logoutWarning, pinButtonLabel, pinRowText, settingsRows } from "../../lib/employeeSettings";
+import { logoutCounts, logoutWarning, settingsRows } from "../../lib/employeeSettings";
+import { savedPinText } from "../../lib/savedPin";
 import TabPage from "../../components/ui/TabPage";
 import ListRow from "../../components/ui/ListRow";
 import ConfirmModal from "../../components/ui/ConfirmModal";
@@ -26,9 +26,9 @@ import DevPunchTimings from "../../components/employee/DevPunchTimings";
 import { signOutEmployee } from "../../lib/employeeSignOut";
 
 // Employee App Settings tab (Phase 5, decisions 14-20; Phase 10 A1). View
-// only: photo, name, the email they signed in with, PIN (**** until Show -
-// getMyPin, online only, hides after 30 s or when leaving the tab, never
-// saved), birthday ("Not set") and the company the account is under (the
+// only: photo, name, the email they signed in with, PIN (shown plainly
+// from the copy saved on the phone - useSavedPin, D1 revised 2026-11-06;
+// "Connect to the internet once..." until one is saved), birthday ("Not set") and the company the account is under (the
 // parent company, never the subcontractor) - from useEmployeeSettingsData,
 // saved on the phone for offline. No job site and no Location access row
 // (D3 a: the Home banner says when location or Always is off). Switches:
@@ -48,9 +48,7 @@ export default function EmployeeSettingsScreen() {
   const { info } = useEmployeeSettingsData(companyId, employeeId);
   const notifications = useNotificationPermission();
   const location = useLocationPermission();
-  const { state: pinState, show: showPin, hide: hidePin } = useMyPin();
-  // Leaving the tab hides a shown PIN at once.
-  useFocusEffect(useCallback(() => () => hidePin(), [hidePin]));
+  const savedPin = useSavedPin(companyId, employeeId);
   const queue = usePunchQueue(companyId, employeeId);
   const comments = useCommentQueue(companyId, employeeId, timezone);
   const siteExits = useSiteExitQueue(companyId, employeeId);
@@ -65,8 +63,7 @@ export default function EmployeeSettingsScreen() {
     if (on) location.fixPermission();
     else if (location.granted) Linking.openSettings();
   };
-  const rows = settingsRows(info, pinRowText(pinState));
-  const pinButton = pinButtonLabel(pinState);
+  const rows = settingsRows(info, savedPin.loaded ? savedPinText(savedPin.record) : "");
   const toggles = [
     ["Dark mode", isDark, toggleTheme],
     ["Notifications", notifications.granted, notifications.setEnabled],
@@ -91,22 +88,7 @@ export default function EmployeeSettingsScreen() {
 
       <View style={styles.section}>
         {rows.map(([label, value], i) => (
-          <ListRow
-            key={label}
-            divider={i < rows.length - 1}
-            right={
-              label === "PIN" && pinButton ? (
-                <Pressable
-                  onPress={pinState.status === "shown" ? hidePin : showPin}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel={`${pinButton} PIN`}
-                >
-                  <Text style={styles.pinButton}>{pinButton}</Text>
-                </Pressable>
-              ) : undefined
-            }
-          >
+          <ListRow key={label} divider={i < rows.length - 1}>
             <Text style={styles.label}>{label}</Text>
             <Text style={styles.value}>{value}</Text>
           </ListRow>
@@ -188,6 +170,5 @@ const useStyles = makeStyles((colors) => ({
   value: { fontSize: fontSizes.md, color: colors.text, marginTop: 2 },
   rowText: { fontSize: fontSizes.md, color: colors.text },
   rightText: { fontSize: fontSizes.sm, color: colors.subtext },
-  pinButton: { fontSize: fontSizes.sm, fontWeight: "600", color: colors.accent },
   logout: { fontSize: fontSizes.md, fontWeight: "600", color: colors.redStrong },
 }));

@@ -13,7 +13,10 @@ import type { Timestamp } from "firebase-admin/firestore";
 //   overtime       - this week passed the company's overtime threshold
 //   leftSite       - Phase 8: left the job site (written when the SiteExit
 //                    syncs, never pushed - the phone already notified)
-export const EMPLOYEE_ALERT_TYPES = ["shiftEnding", "stillClockedIn", "maxHours", "overtime", "leftSite"] as const;
+//   faceNoFace     - 2026-11-06: the server found no face in the photo of
+//                    one of the employee's own app punches (pushed). Never
+//                    sent for a mismatch.
+export const EMPLOYEE_ALERT_TYPES = ["shiftEnding", "stillClockedIn", "maxHours", "overtime", "leftSite", "faceNoFace"] as const;
 export type EmployeeAlertType = (typeof EMPLOYEE_ALERT_TYPES)[number];
 
 // companies/{companyId}/employeeAlerts/{alertId} - one per underlying

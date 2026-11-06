@@ -650,14 +650,16 @@ export const getMyPinVerifier = onCall(async (request): Promise<PinVerifierResul
   return makePinVerifier(employee.pin);
 });
 
-// ---- Employee App: "Show PIN" on the Settings tab (getMyPin, Phase 10 A1) ----
+// ---- Employee App: the PIN on the Settings tab (getMyPin, Phase 10 A1) ----
 //
-// The signed-in employee's OWN current PIN, only when they tap Show (D1 a).
-// Same account check as getMyPinVerifier. The phone keeps it in memory for
-// 30 s and never saves it. Never logged. At most PIN_REVEAL_MAX reveals per
-// login in PIN_REVEAL_WINDOW_MS (kept in pinReveals/{uid}, server-only:
-// firestore.rules' catch-all denies every client), so a phone left
-// unlocked can't be used to read the PIN over and over.
+// The signed-in employee's OWN current PIN. Same account check as
+// getMyPinVerifier. Since D1 was revised (2026-11-06) the phone saves it in
+// SecureStore (orbitworks-app/lib/pinCheck.js) and shows it plainly; it
+// only asks here when its saved copy no longer matches a fresh
+// getMyPinVerifier hash (none saved yet, or an admin changed the PIN).
+// Never logged. At most PIN_REVEAL_MAX reads per login in
+// PIN_REVEAL_WINDOW_MS (kept in pinReveals/{uid}, server-only:
+// firestore.rules' catch-all denies every client).
 // When the PIN moves to a server-only doc (Phase 10 must-fix, D2 a), only
 // the read below changes.
 export const getMyPin = onCall(async (request): Promise<MyPinResult> => {

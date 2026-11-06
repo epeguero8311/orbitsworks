@@ -471,6 +471,38 @@ Employees page with Dismiss (H4).
   Reports page body (set-state-in-effect), the Overview page body
   (unescaped quotes).
 
+## Phase 10 additions (2026-11-06) - PIN in Settings, My Hours, no face vs no match
+
+Tests: phase10-test-round.md section C8 (10-H, 10-PIN, 10-FN).
+
+- **D1 revised (2026-11-06): the employee's PIN is kept on the phone.** Was
+  D1 a: "Show PIN" via getMyPin, held in memory 30 s, never saved. Now the
+  app saves it in SecureStore (encrypted, this device only, only while the
+  phone is unlocked) next to the PIN check hash, refreshes it at the same
+  times (sign-in, app open, reconnect, a wrong PIN), deletes it on log out,
+  and Settings shows it plainly with no Show step and no server call.
+  Why: the phone already kept a salted hash of a 4-digit PIN, which anyone
+  with the unlocked phone could work out in moments (accepted risk, C4), so
+  keeping the PIN itself adds little real exposure and removes a step.
+  getMyPin is only called when the saved PIN no longer matches a fresh
+  hash, so its 10-per-10-min limit is never hit in normal use. When the PIN
+  moves to a server-only doc (D2 a) nothing on the phone changes.
+- **No face vs no match (3A-a).** The server already wrote faceCheck
+  "noFace" vs "mismatch" and separate faceNoFace / faceMismatch alerts. New:
+  an Employee App punch with no face (first check only) also sends the
+  employee "Couldn't detect a face" (employeeAlerts type faceNoFace + push);
+  the punch stays saved; never anything to the employee on a mismatch.
+  Website Settings > Alerts: two sub-toggles under "Face recognition
+  alerts" - "Face didn't match" and "No face detected" (alerts.faceMismatchAlert
+  / faceNoFaceAlert, default on). Each type needs the main switch and its
+  own sub-toggle, for the admin alert, its push, the Approvals warning and
+  (no face) the employee message.
+- **Deploy (dev only):** functions (rekognition.ts / alerts.ts changed:
+  onClockEventCreated, onClockEventPhotoAdded, reassignClockEvent; plus a
+  getMyPin comment) and the dev website. No rules change (employeeAlerts
+  reads don't check alertType; company alerts settings aren't key-checked).
+  No index change. Phone parts ship in the end-of-phases build.
+
 ## Phase 10 fix round 1 (done 2026-11-05, code only - not deployed yet)
 
 From the dev test round. Plan + decisions (D1-D19, W8) in the round's

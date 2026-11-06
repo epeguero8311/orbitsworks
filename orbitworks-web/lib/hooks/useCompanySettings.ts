@@ -38,6 +38,12 @@ export type Alerts = {
   // Default on. Leaving never blocks anything. Mirrors
   // functions/src/alerts.ts ALERT_SETTINGS_DEFAULTS.leftJobSiteAlert.
   leftJobSiteAlert: boolean;
+  // Face Verification (Pro) sub-toggles under "Face recognition alerts"
+  // (faceVerification.alertsEnabled, the main switch). Default on. Mirror
+  // ALERT_SETTINGS_DEFAULTS in functions/src/alerts.ts. faceNoFaceAlert
+  // also controls the employee's own "Couldn't detect a face" message.
+  faceMismatchAlert: boolean;
+  faceNoFaceAlert: boolean;
 };
 
 export type AppSettings = {
@@ -104,6 +110,8 @@ export const DEFAULT_ALERTS: Alerts = {
   lateClockInAlert: true,
   earlyClockOutAlert: true,
   leftJobSiteAlert: true,
+  faceMismatchAlert: true,
+  faceNoFaceAlert: true,
 };
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {

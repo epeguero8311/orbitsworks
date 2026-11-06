@@ -155,6 +155,25 @@ export function AlertsCard({
             disabled={!isPro}
             badge={!isPro && <ProBadgeLink />}
           />
+          {/* Each type has its own switch under the main one (both on by
+              default); off here or on the main switch = that alert, its
+              push and its Timesheet Approvals warning stop. */}
+          <div className="ml-6 border-l border-gray-200 pl-4">
+            <Toggle
+              label="Face didn't match"
+              description="A face is in the clock photo but it doesn't match the employee's profile photo. The employee is never told."
+              checked={alerts.faceMismatchAlert}
+              onChange={(v) => setAlerts((prev) => ({ ...prev, faceMismatchAlert: v }))}
+              disabled={!isPro || !faceVerification.alertsEnabled}
+            />
+            <Toggle
+              label="No face detected"
+              description="No face could be found in the clock photo. Employee App users also get a message asking for a better picture next time. The punch is always saved."
+              checked={alerts.faceNoFaceAlert}
+              onChange={(v) => setAlerts((prev) => ({ ...prev, faceNoFaceAlert: v }))}
+              disabled={!isPro || !faceVerification.alertsEnabled}
+            />
+          </div>
           {isPro && (
             <p className="mt-1 pl-0 text-xs text-gray-500">
               Before enabling face checks for an employee (adding their

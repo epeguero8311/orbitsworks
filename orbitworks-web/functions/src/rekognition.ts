@@ -136,6 +136,8 @@ type ClockEventFaceData = {
   employeeId?: string;
   employeeName?: string;
   timestamp?: admin.firestore.Timestamp;
+  type?: string;
+  source?: string;
 };
 
 type EmployeeFaceData = {
@@ -270,7 +272,13 @@ export async function checkFaceMatch(
         },
       });
       console.info("Face check", { companyId, eventId, employeeId, status: "noFace" });
-      await createFaceNoFaceAlert(companyId, eventId, employeeId, data.employeeName ?? "An employee", data.timestamp ?? null);
+      // The employee is told too (2026-11-06) - only for their own Employee
+      // App punch and only on its first check (claim), never on an admin's
+      // reassign re-check. A mismatch never tells the employee anything.
+      await createFaceNoFaceAlert(companyId, eventId, employeeId, data.employeeName ?? "An employee", data.timestamp ?? null, {
+        notifyEmployee: opts.claim === true && data.source === "employeeApp",
+        eventType: data.type,
+      });
       return;
     }
 

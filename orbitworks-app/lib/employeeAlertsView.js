@@ -14,6 +14,8 @@ const SERVER_TITLES = {
   overtime: "Overtime",
   // Phase 8 - written when a "left the job site" syncs (no push).
   leftSite: "You have left the job site",
+  // 2026-11-06 - no face found in the photo of one of their own punches.
+  faceNoFace: "Couldn't detect a face",
 };
 
 function toMs(value) {

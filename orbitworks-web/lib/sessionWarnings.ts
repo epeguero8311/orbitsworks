@@ -3,6 +3,9 @@ import type { ClockEvent, SiteExit } from "@/lib/types";
 import { redSiteExits } from "@/lib/siteExits";
 import { syncedLatePunches, type SyncedLatePunch } from "@/lib/syncedLate";
 import type { Alerts, FaceVerificationSettings } from "@/lib/hooks/useCompanySettings";
+import { faceWarningType, FACE_LOW_CONFIDENCE_FLOOR } from "@/lib/faceWarnings";
+
+export { FACE_LOW_CONFIDENCE_FLOOR };
 
 // Timesheet Approvals' per-session warning icon/modal (SessionWarningsModal,
 // ApprovalsTable) - distinct from the company-wide Overview alerts feed
@@ -63,11 +66,6 @@ export const WARNING_SEVERITY: Record<SessionWarningType, WarningSeverity> = {
   // Yellow (H6 a) - the punch time is the phone's, it only arrived late.
   syncedLate: "yellow",
 };
-
-// Below FACE_MATCH_THRESHOLD (90, functions/src/rekognition.ts) but at or
-// above this floor: "low confidence" (yellow) rather than an outright
-// mismatch (red).
-export const FACE_LOW_CONFIDENCE_FLOOR = 70;
 
 type Direction = "in" | "out";
 
@@ -279,25 +277,15 @@ export function evaluateSessionWarnings(input: EvaluateSessionWarningsInput): Se
   // only once both a clock photo and a usable employee pfp were available
   // (see checkFaceMatch) - its mere presence already means "this check was
   // applicable and ran," so absence is the only suppression needed.
-  if (input.faceVerification.alertsEnabled) {
-    const directional: [Direction, ClockEvent][] = [
-      ["in", clockInEvent],
-      ["out", clockOutEvent],
-    ];
-    for (const [direction, event] of directional) {
-      const faceCheck = event.faceCheck;
-      if (!faceCheck) continue;
-
-      if (faceCheck.status === "noFace") {
-        warnings.push(withSeverity("faceNoFace", { direction, event }));
-      } else if (faceCheck.status === "mismatch") {
-        if (faceCheck.similarity != null && faceCheck.similarity >= FACE_LOW_CONFIDENCE_FLOOR) {
-          warnings.push(withSeverity("faceLowConfidence", { direction, event }));
-        } else {
-          warnings.push(withSeverity("faceMismatch", { direction, event }));
-        }
-      }
-    }
+  // The main "Face recognition alerts" switch plus each type's own
+  // sub-toggle (2026-11-06) - lib/faceWarnings.ts.
+  const directional: [Direction, ClockEvent][] = [
+    ["in", clockInEvent],
+    ["out", clockOutEvent],
+  ];
+  for (const [direction, event] of directional) {
+    const type = faceWarningType(event.faceCheck, alerts, input.faceVerification);
+    if (type) warnings.push(withSeverity(type, { direction, event }));
   }
 
   return warnings;

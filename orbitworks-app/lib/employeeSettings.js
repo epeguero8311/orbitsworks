@@ -5,7 +5,8 @@
 //   - email: the one they signed in with (the login's), else the self view's
 //   - photo, name, birthday: the employee's own self view (employeeSelfViews,
 //     server-written, no PIN / rate / face)
-//   - PIN: **** until they tap Show (getMyPin, online only - useMyPin.js)
+//   - PIN: shown plainly from the copy saved on the phone (lib/savedPin.js,
+//     useSavedPin.js - D1 revised 2026-11-06)
 //   - company: the company the account is under - the parent company,
 //     never the subcontractor (useEmployeeAppConfig)
 //   - Update: the first 8 characters of the OTA update id, or "Built-in"
@@ -15,14 +16,11 @@
 
 const { pendingSiteExitCount } = require("./siteExitLogic");
 const { badgeCount } = require("./punchQueueLogic");
+const { PIN_NOT_LOADED } = require("./savedPin");
 
 const NOT_SET = "Not set";
 const BUILT_IN = "Built-in";
 const UPDATE_ID_CHARS = 8;
-// Shown until Show is tapped. The PIN is never saved on the phone.
-const PIN_MASK = "****";
-// How long a shown PIN stays on screen before it hides again.
-const PIN_SHOW_MS = 30 * 1000;
 
 // "1990-01-31" -> "January 31, 1990" (formatted in UTC so the day never
 // shifts). Missing or not a real date -> "Not set".
@@ -60,51 +58,15 @@ function buildSettingsInfo({ view, companyName, update, loginEmail }) {
 }
 
 // The Settings tab's view-only rows under the photo and name, in order:
-// [label, value]. info = buildSettingsInfo(...), pinText = pinRowText(...)
-// (the PIN row also gets the Show / Hide button on the screen).
-function settingsRows(info, pinText = PIN_MASK) {
+// [label, value]. info = buildSettingsInfo(...), pinText = savedPinText(...)
+// (lib/savedPin.js).
+function settingsRows(info, pinText = PIN_NOT_LOADED) {
   return [
     ["Email", info.email],
     ["PIN", pinText],
     ["Birthday", info.birthday],
     ["Company", info.company],
   ];
-}
-
-// The PIN row's text for each Show PIN state (useMyPin.js):
-//   hidden | loading | shown | offline | noPin | inactive | tooMany | error
-function pinRowText(state) {
-  const status = state && state.status;
-  if (status === "shown" && typeof state.pin === "string") return state.pin;
-  if (status === "loading") return "Loading...";
-  if (status === "offline") return "Connect to the internet to see your PIN";
-  if (status === "noPin") return "Not set - ask your admin";
-  if (status === "inactive") return "Your account is inactive";
-  if (status === "tooMany") return "Try again in a few minutes";
-  if (status === "error") return "Couldn't load your PIN. Try again.";
-  return PIN_MASK;
-}
-
-// The PIN row's button: Hide while shown, nothing while loading, else Show.
-function pinButtonLabel(state) {
-  const status = state && state.status;
-  if (status === "shown") return "Hide";
-  if (status === "loading") return null;
-  return "Show";
-}
-
-// getMyPin's answer (or error) -> the next Show PIN state.
-function pinStateFromResult(result, err) {
-  if (err) {
-    const reason = err.details && err.details.reason;
-    if (reason === "tooMany" || err.code === "functions/resource-exhausted") return { status: "tooMany" };
-    if (err.code === "functions/unavailable" || err.code === "functions/deadline-exceeded") return { status: "offline" };
-    return { status: "error" };
-  }
-  if (result && result.status === "ok" && typeof result.pin === "string") return { status: "shown", pin: result.pin };
-  if (result && result.status === "noPin") return { status: "noPin" };
-  if (result && result.status === "inactive") return { status: "inactive" };
-  return { status: "error" };
 }
 
 // A Notifications or Location switch tap. wantOn = the new switch value,
@@ -156,12 +118,7 @@ function logoutWarning(punches, comments, siteExits) {
 
 module.exports = {
   NOT_SET,
-  PIN_MASK,
-  PIN_SHOW_MS,
   settingsRows,
-  pinRowText,
-  pinButtonLabel,
-  pinStateFromResult,
   formatBirthday,
   updateLabel,
   buildSettingsInfo,
