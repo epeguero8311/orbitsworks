@@ -1,9 +1,11 @@
 # Phase 10 dev test round (one build, phone + dev website)
 
 One TestFlight build of OrbitsWorks Dev (com.orbitworks.app.dev, employeeDev
-profile, iOS build 21 / v1.1.3) and the dev website (orbitworks-dev-ew, site
-at 402fe14). Build only - no OTA updates in this round (OTA to the dev app is
-broken, see C2).
+profile, iOS build 23 / v1.1.5, from dd203ee, 2026-11-06) and the dev website
+(orbitworks-dev-ew, site at dd203ee, App Hosting build-2026-11-06-004). Dev
+functions: all 70 deployed from bfdd3e3 (same functions code as dd203ee);
+rules from eb5468b; indexes match firestore.indexes.json. Build only - no OTA
+updates in this round (OTA to the dev app is broken, see C2).
 
 - Every test keeps its original ID with its phase in front (6-L1 is L1 from
   test-run-phase6.md). The full steps, setup ("Step 0") and what I check are
@@ -22,6 +24,18 @@ broken, see C2).
 ---
 
 ## A. MASTER TEST LIST
+
+Run order on build 23: Sessions 1-4 below, with the C5-C8 tests slotted in
+(web-only ones at the end of Session 1):
+- Session 1 (web): + 10-W1..10-W8b.
+- Session 2 (desk): after 6-L4 also 7-N1..7-N3 and 10-PIN3 (all need a
+  reinstall); after 5d-5: 10-PIN1, 10-PIN2, 10-PIN4, 10-A1a, 10-A1e; after
+  6-D5: 10-F1, 10-F3, 10-F4, 10-F5, 10-F6, then 10-FN1..10-FN6; after 5-N5:
+  10-A2, 10-H3; then the supervisor app: 10-A3a..10-A3d, CC-1..CC-3;
+  then 7-N4 onward as listed.
+- Session 3 (outside): + 10-F2, 10-S1..10-S10 (10-S2 on the website).
+- Session 4 (multi-day): + 10-H1 (Mon + Wed worked) and 10-H2 (Monday
+  morning).
 
 ### Session 1 - website only (desk, no phone)
 
@@ -150,7 +164,7 @@ and earlier phase notes. The Build Phases doc itself is not in this repo -
 add any Phase 10 item from it that is missing here.
 
 ### C1. Blocks this build
-- RESOLVED 2026-11-06: Apple credentials in EAS (build 20 got "Apple 401" / failed to fetch provisioning profiles) - employeeDev builds 21 and 22 both finished after it.
+- RESOLVED 2026-11-06: Apple credentials in EAS (build 20 got "Apple 401" / failed to fetch provisioning profiles) - employeeDev builds 21, 22 and 23 all finished and submitted. Apple still answers 401 to EAS's server-side profile check (EAS falls back to its local check); the interactive re-auth stays a release task (C3).
 - RESOLVED 2026-11-06: push for com.orbitworks.app.dev - the App ID has Push Notifications (build 22's App Store profile carries aps-environment = production) and the Expo project has the APNs key (LVWC99Y4AY, team 6ZU7MHT284).
 
 ### C2. Must fix before prod
