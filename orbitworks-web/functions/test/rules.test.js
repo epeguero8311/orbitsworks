@@ -491,3 +491,100 @@ test("faceCheckClaims is server-only: clients can neither read nor write it", as
   await assertFails(setDoc(doc(db, "companies", COMPANY_A, "faceCheckClaims", "l1"), { claimedAt: new Date() }));
   await assertFails(getDoc(doc(db, "companies", COMPANY_A, "faceCheckClaims", "l1")));
 });
+
+// ---- Employee comment on a clock event (camera screen) ----
+// ClockEvent.employeeComment: optional, 1-500 chars, "in"/"out" only,
+// write-once (firestore.rules isValidEmployeeComment + update denylist).
+
+function commentPayload(localId, extra = {}) {
+  return { ...docFirstPayload(localId), ...extra };
+}
+
+test("comment: old app payload with no employeeComment key still creates", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  const payload = docFirstPayload("c-old");
+  assert.equal("employeeComment" in payload, false);
+  await assertSucceeds(setDoc(doc(db, "companies", COMPANY_A, "clockEvents", "c-old"), payload, { merge: true }));
+});
+
+test("comment: clock-in and clock-out can each carry a comment", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  await assertSucceeds(
+    setDoc(doc(db, "companies", COMPANY_A, "clockEvents", "c-in"), commentPayload("c-in", { employeeComment: "Traffic on I-95" }), { merge: true })
+  );
+  await assertSucceeds(
+    setDoc(
+      doc(db, "companies", COMPANY_A, "clockEvents", "c-out"),
+      commentPayload("c-out", { type: "out", employeeComment: "Doctor appointment" }),
+      { merge: true }
+    )
+  );
+});
+
+test("comment: exactly 500 chars is allowed, 501 is refused", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  await assertSucceeds(
+    setDoc(doc(db, "companies", COMPANY_A, "clockEvents", "c-500"), commentPayload("c-500", { employeeComment: "a".repeat(500) }), { merge: true })
+  );
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "clockEvents", "c-501"), commentPayload("c-501", { employeeComment: "a".repeat(501) }), { merge: true })
+  );
+});
+
+test("comment: empty string, null and non-string are refused", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  for (const [id, value] of [["c-empty", ""], ["c-null", null], ["c-num", 42]]) {
+    await assertFails(
+      setDoc(doc(db, "companies", COMPANY_A, "clockEvents", id), commentPayload(id, { employeeComment: value }), { merge: true })
+    );
+  }
+});
+
+test("comment: refused on a break event", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  await assertFails(
+    setDoc(
+      doc(db, "companies", COMPANY_A, "clockEvents", "c-break"),
+      commentPayload("c-break", { type: "breakStart", employeeComment: "lunch" }),
+      { merge: true }
+    )
+  );
+});
+
+test("comment: same-payload replay and the later photo merge still succeed", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  const ref = doc(db, "companies", COMPANY_A, "clockEvents", "c-replay");
+  const payload = commentPayload("c-replay", { employeeComment: "Gate was locked" });
+  await assertSucceeds(setDoc(ref, payload, { merge: true }));
+  await assertSucceeds(setDoc(ref, payload, { merge: true }));
+  await assertSucceeds(setDoc(ref, { photoUrl: PHOTO_URL, photoPending: false }, { merge: true }));
+  const snap = await getDoc(ref);
+  assert.equal(snap.data().employeeComment, "Gate was locked");
+});
+
+test("comment: read-only after creation - supervisor replay cannot change it", async () => {
+  await seedSupervisor();
+  const db = supervisorContext().firestore();
+  const ref = doc(db, "companies", COMPANY_A, "clockEvents", "c-lock");
+  await assertSucceeds(setDoc(ref, commentPayload("c-lock", { employeeComment: "first" }), { merge: true }));
+  await assertFails(setDoc(ref, commentPayload("c-lock", { employeeComment: "edited" }), { merge: true }));
+});
+
+test("comment: read-only after creation - admin cannot add, edit or remove it", async () => {
+  const { deleteField } = require("firebase/firestore");
+  await seedSupervisor();
+  const ref = doc(supervisorContext().firestore(), "companies", COMPANY_A, "clockEvents", "c-admin");
+  await assertSucceeds(setDoc(ref, commentPayload("c-admin", { employeeComment: "first" }), { merge: true }));
+  const adminDb = adminContext().firestore();
+  const adminRef = doc(adminDb, "companies", COMPANY_A, "clockEvents", "c-admin");
+  await assertFails(updateDoc(adminRef, { employeeComment: "edited" }));
+  await assertFails(updateDoc(adminRef, { employeeComment: deleteField() }));
+  // evt1 (seeded) has no comment - adding one later is refused too.
+  await assertFails(updateDoc(doc(adminDb, "companies", COMPANY_A, "clockEvents", "evt1"), { employeeComment: "late add" }));
+});

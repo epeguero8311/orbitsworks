@@ -106,6 +106,23 @@ service cloud.firestore {
       return data.type in ['in', 'out', 'breakStart', 'breakEnd'];
     }
 
+    // The employee's optional comment on one clock-in or clock-out (typed on
+    // the app's camera screen). Optional: older app builds and every other
+    // source never send it, and the app sends no key at all when there's no
+    // comment. When present: a 1-500 char string, only on an "in" or "out".
+    // Mirrors lib/validators/employeeComment.ts and the app's
+    // lib/validators/employeeComment.js. Read-only after creation (see the
+    // update denylist below).
+    function isValidEmployeeComment(data) {
+      return !('employeeComment' in data) ||
+        (
+          data.employeeComment is string &&
+          data.employeeComment.size() >= 1 &&
+          data.employeeComment.size() <= 500 &&
+          data.type in ['in', 'out']
+        );
+    }
+
     // True only when an update targets the identical logical event a
     // supervisor already created - same localId, same author. This is
     // what an idempotent retry looks like after an app crash between
@@ -338,6 +355,7 @@ service cloud.firestore {
           ) &&
           request.resource.data.createdByUid == request.auth.uid &&
           isValidOverride(companyId, request.resource.data) &&
+          isValidEmployeeComment(request.resource.data) &&
           // Auto Clock-Out (functions/src/autoClockOut.ts) - only the
           // Admin SDK (bypasses rules entirely) may ever write source
           // "autoClockOut" or a doc id in its reserved "auto-" id space
@@ -393,7 +411,12 @@ service cloud.firestore {
               // onClockEventCreated/reassignClockEvent (Admin SDK) - see
               // functions/src/rekognition.ts. Never trust a client-supplied
               // match result, same reasoning as geofenceStatus above.
-              'faceCheck'
+              'faceCheck',
+              // The employee's own words on this punch - set once at
+              // creation, never added, changed or removed afterwards by
+              // anyone (admins included). A same-payload replay leaves it
+              // unchanged, so it never counts as affected.
+              'employeeComment'
             ]) &&
           (
             isAdminOrOwner() ||
