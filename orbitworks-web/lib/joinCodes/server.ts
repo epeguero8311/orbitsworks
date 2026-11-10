@@ -10,7 +10,7 @@ import {
   joinCodeUpdateSchema,
   withActiveCap,
 } from "@/lib/validators/joinCode";
-import type { JoinCode, JoinCodeListItem, JoinCodeListResponse, JoinCodeStatus } from "@/lib/types";
+import type { JoinCode, JoinCodeListItem, JoinCodeListResponse, JoinCodeStatus, PlanFullReason } from "@/lib/types";
 
 // Server-only logic for the Pro company join code (QR). Used by
 // app/api/join-codes/* and app/j/[token]. joinCodes/{token} is denied to
@@ -32,13 +32,17 @@ interface CompanyPlanFields {
   name?: string;
   planTier?: string | null;
   employeeCap?: number | null;
-  activeEmployeeCount?: number;
+  totalEmployeeCap?: number | null;
 }
 
 export interface Seats {
   activeCap: number | null;
   activeCount: number;
   seatsLeft: number | null;
+  totalCap: number | null;
+  totalCount: number;
+  // Which plan cap stops a new join right now, or null if one more fits.
+  planFull: PlanFullReason | null;
 }
 
 export interface ProAdminCaller {
@@ -78,13 +82,25 @@ export async function readJsonBody(request: NextRequest): Promise<unknown> {
   }
 }
 
-// Seats come from the company doc only: employeeCap (set by the Stripe
-// webhook from the tier) and activeEmployeeCount (onEmployeeWrite counter).
-export function seatsFrom(company: CompanyPlanFields): Seats {
+// Caps come from the company doc (employeeCap / totalEmployeeCap, set by the
+// Stripe webhook from the tier). Counts are LIVE count queries, not the
+// activeEmployeeCount counter. Same rule as overSeatCaps in
+// functions/src/lib/signupShared.ts (what getJoinInfo and joinCompany use),
+// so the website never calls a code active that the app turns away.
+export function seatsFrom(company: CompanyPlanFields, counts: { active: number; total: number }): Seats {
   const activeCap = company.employeeCap ?? null;
-  const activeCount = company.activeEmployeeCount ?? 0;
-  const seatsLeft = activeCap === null ? null : Math.max(0, activeCap - activeCount);
-  return { activeCap, activeCount, seatsLeft };
+  const totalCap = company.totalEmployeeCap ?? null;
+  const seatsLeft = activeCap === null ? null : Math.max(0, activeCap - counts.active);
+  let planFull: PlanFullReason | null = null;
+  if (activeCap !== null && activeCap - counts.active <= 0) planFull = "active";
+  else if (totalCap !== null && totalCap - counts.total <= 0) planFull = "total";
+  return { activeCap, activeCount: counts.active, seatsLeft, totalCap, totalCount: counts.total, planFull };
+}
+
+async function liveSeats(companyId: string, company: CompanyPlanFields): Promise<Seats> {
+  const employees = adminDb.collection("companies").doc(companyId).collection("employees");
+  const [active, total] = await Promise.all([employees.where("active", "==", true).count().get(), employees.count().get()]);
+  return seatsFrom(company, { active: active.data().count, total: total.data().count });
 }
 
 // Every /api/join-codes/* route: valid ID token, role admin|owner from
@@ -112,18 +128,18 @@ export async function requireProAdmin(request: NextRequest): Promise<ProAdminCal
   if (!companySnap.exists || !isProPlan(company.planTier)) {
     throw new ApiError(403, "QR codes are a Pro feature.");
   }
-  return { uid: decoded.uid, companyId, seats: seatsFrom(company) };
+  return { uid: decoded.uid, companyId, seats: await liveSeats(companyId, company) };
 }
 
 export function generateJoinToken(): string {
   return randomBytes(TOKEN_BYTES).toString("base64url");
 }
 
-export function computeJoinCodeStatus(code: JoinCodeDoc, seatsLeft: number | null, nowMs: number = Date.now()): JoinCodeStatus {
+export function computeJoinCodeStatus(code: JoinCodeDoc, planFull: PlanFullReason | null, nowMs: number = Date.now()): JoinCodeStatus {
   if (code.status === "revoked" || code.replacedByToken) return "revoked";
   if (code.expiresAt && code.expiresAt.toMillis() <= nowMs) return "expired";
-  if (code.userLimit !== null && code.joinedCount >= code.userLimit) return "full";
-  if (seatsLeft === 0) return "noSeats";
+  if (code.userLimit !== null && (code.joinedCount ?? 0) >= code.userLimit) return "full";
+  if (planFull !== null) return "noSeats";
   return "active";
 }
 
@@ -164,7 +180,7 @@ export async function listJoinCodes(caller: ProAdminCaller): Promise<JoinCodeLis
     userLimit: data.userLimit,
     expiresAt: data.expiresAt ? data.expiresAt.toMillis() : null,
     joinedCount: data.joinedCount ?? 0,
-    status: computeJoinCodeStatus(data, caller.seats.seatsLeft, now),
+    status: computeJoinCodeStatus(data, caller.seats.planFull, now),
     createdAt: data.createdAt ? data.createdAt.toMillis() : null,
   }));
   codes.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
@@ -322,7 +338,7 @@ export async function getPublicJoinState(rawToken: string): Promise<PublicJoinSt
     const code = snap.data() as JoinCodeDoc;
     const companySnap = await adminDb.collection("companies").doc(code.companyId).get();
     const company = (companySnap.data() ?? {}) as CompanyPlanFields;
-    const status = computeJoinCodeStatus(code, seatsFrom(company).seatsLeft);
+    const status = computeJoinCodeStatus(code, (await liveSeats(code.companyId, company)).planFull);
     if (status === "revoked" || status === "expired") return { state: "inactive" };
     if (!companySnap.exists || !isProPlan(company.planTier) || status !== "active") return { state: "accountProblem" };
     return { state: "live", companyName: company.name ?? "your company" };

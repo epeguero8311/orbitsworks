@@ -5,7 +5,7 @@ const STATUS_LABEL: Record<JoinCodeStatus, string> = {
   expired: "Expired",
   revoked: "Revoked",
   full: "Full",
-  noSeats: "No seats left",
+  noSeats: "Plan full",
 };
 
 const STATUS_CLASS: Record<JoinCodeStatus, string> = {

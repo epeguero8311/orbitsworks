@@ -897,8 +897,15 @@ export interface JoinCode {
   replacedByToken: string | null;
 }
 
-// Status shown in the list. Anything other than "active" is dead.
+// Status shown in the list. "noSeats" (shown as "Plan full") is the code
+// itself being fine but the company's plan having no room for one more
+// employee - it works again once a seat frees up. The rest besides
+// "active" are dead.
 export type JoinCodeStatus = "active" | "expired" | "revoked" | "full" | "noSeats";
+
+// Which plan cap is used up: "active" = active employee cap (employeeCap),
+// "total" = employee records cap (totalEmployeeCap, counts inactive too).
+export type PlanFullReason = "active" | "total";
 
 // One row of GET /api/join-codes - dates as epoch millis (JSON-safe).
 export interface JoinCodeListItem {
@@ -921,6 +928,10 @@ export interface JoinCodeListResponse {
   activeCap: number | null;
   activeCount: number;
   seatsLeft: number | null;
+  // Employee records cap (null = none) and live count of all employee docs.
+  totalCap: number | null;
+  totalCount: number;
+  planFull: PlanFullReason | null;
   codes: JoinCodeListItem[];
 }
 

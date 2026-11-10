@@ -10,10 +10,11 @@ import type { JoinCodeListItem } from "@/lib/types";
 
 interface ActiveJoinCodesProps {
   codes: JoinCodeListItem[];
+  planFullNote: string | null;
   onAction: (action: JoinCodeAction, code: JoinCodeListItem) => void;
 }
 
-function ActiveJoinCodeCard({ code, onAction }: { code: JoinCodeListItem; onAction: ActiveJoinCodesProps["onAction"] }) {
+function ActiveJoinCodeCard({ code, planFullNote, onAction }: { code: JoinCodeListItem; planFullNote: string | null; onAction: ActiveJoinCodesProps["onAction"] }) {
   const l = useJoinCodeLink(code);
   return (
     <div className="flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-5 sm:flex-row sm:items-center">
@@ -27,6 +28,7 @@ function ActiveJoinCodeCard({ code, onAction }: { code: JoinCodeListItem; onActi
         <p className="mt-0.5 text-xs text-gray-600">
           {formatUses(code)} joined &middot; {code.expiresAt === null ? "Never expires" : `Expires ${formatCompanyDateTime(code.expiresAt)}`}
         </p>
+        {code.status === "noSeats" && planFullNote && <p className="mt-2 text-xs text-amber-700">{planFullNote}</p>}
         <div className="mt-3">
           <JoinCodeActionButtons
             code={code}
@@ -44,7 +46,7 @@ function ActiveJoinCodeCard({ code, onAction }: { code: JoinCodeListItem; onActi
 }
 
 // Top of the Crew onboarding tab: one card per active code, QR showing.
-export function ActiveJoinCodes({ codes, onAction }: ActiveJoinCodesProps) {
+export function ActiveJoinCodes({ codes, planFullNote, onAction }: ActiveJoinCodesProps) {
   return (
     <div>
       <h2 className="text-sm font-semibold text-gray-950">Active crew codes</h2>
@@ -53,7 +55,7 @@ export function ActiveJoinCodes({ codes, onAction }: ActiveJoinCodesProps) {
       ) : (
         <div className="mt-3 space-y-2">
           {codes.map((c) => (
-            <ActiveJoinCodeCard key={c.token} code={c} onAction={onAction} />
+            <ActiveJoinCodeCard key={c.token} code={c} planFullNote={planFullNote} onAction={onAction} />
           ))}
         </div>
       )}

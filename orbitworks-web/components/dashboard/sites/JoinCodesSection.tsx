@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useSites } from "@/lib/hooks/useSites";
 import { useSubcontractors } from "@/lib/hooks/useSubcontractors";
 import { useJoinCodes } from "@/lib/hooks/useJoinCodes";
+import { planFullMessage } from "@/lib/joinCodes/planFull";
 import { JoinCodeModal } from "@/components/dashboard/sites/JoinCodeModal";
 import { type JoinCodeAction } from "@/components/dashboard/sites/JoinCodeActionButtons";
 import { ActiveJoinCodes } from "@/components/dashboard/sites/ActiveJoinCodes";
@@ -27,7 +28,10 @@ export default function JoinCodesSection() {
   // after a regenerate or revoke refreshes the list.
   const [infoCodeId, setInfoCodeId] = useState<string | null>(null);
   const infoCode = data?.codes.find((c) => c.codeId === infoCodeId) ?? null;
-  const activeCodes = data ? data.codes.filter((c) => c.status === "active") : [];
+  // Plan-full codes stay here (with a warning): the code itself is fine and
+  // works again as soon as a seat frees up.
+  const activeCodes = data ? data.codes.filter((c) => c.status === "active" || c.status === "noSeats") : [];
+  const planFullNote = data ? planFullMessage(data) : null;
 
   function handleAction(action: JoinCodeAction, code: JoinCodeListItem) {
     if (action === "edit") {
@@ -69,7 +73,7 @@ export default function JoinCodesSection() {
         <>
           {data && (
             <div className="mt-6">
-              <ActiveJoinCodes codes={activeCodes} onAction={handleAction} />
+              <ActiveJoinCodes codes={activeCodes} planFullNote={planFullNote} onAction={handleAction} />
             </div>
           )}
           <h2 className="mt-8 text-sm font-semibold text-gray-950">All crew codes</h2>
@@ -92,7 +96,7 @@ export default function JoinCodesSection() {
         </>
       )}
 
-      {infoCode && <JoinCodeInfoModal code={infoCode} onAction={handleAction} onClose={() => setInfoCodeId(null)} />}
+      {infoCode && <JoinCodeInfoModal code={infoCode} planFullNote={planFullNote} onAction={handleAction} onClose={() => setInfoCodeId(null)} />}
 
       {modal && data && (
         <JoinCodeModal

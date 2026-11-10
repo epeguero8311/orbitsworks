@@ -10,6 +10,7 @@ import type { JoinCodeListItem } from "@/lib/types";
 
 interface JoinCodeInfoModalProps {
   code: JoinCodeListItem;
+  planFullNote: string | null;
   onAction: (action: JoinCodeAction, code: JoinCodeListItem) => void;
   onClose: () => void;
 }
@@ -24,7 +25,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 // Everything about one crew code, with its actions along the bottom.
-export function JoinCodeInfoModal({ code, onAction, onClose }: JoinCodeInfoModalProps) {
+export function JoinCodeInfoModal({ code, planFullNote, onAction, onClose }: JoinCodeInfoModalProps) {
   const l = useJoinCodeLink(code);
   const revoked = code.status === "revoked";
 
@@ -54,6 +55,10 @@ export function JoinCodeInfoModal({ code, onAction, onClose }: JoinCodeInfoModal
             <JoinCodeQr link={l.link} size={176} />
             <p className="w-full break-all rounded-md bg-gray-50 px-3 py-2 text-center text-xs text-gray-950">{l.link}</p>
           </div>
+        )}
+
+        {code.status === "noSeats" && planFullNote && (
+          <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">{planFullNote}</p>
         )}
 
         <dl className="mt-4 text-sm">
