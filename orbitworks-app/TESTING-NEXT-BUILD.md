@@ -49,3 +49,21 @@ to refresh, type the **new** PIN.
 - [ ] Expected, not a bug: if the PIN was changed on the website while the
       phone was offline, the new PIN shows as wrong until the phone is back
       online (decided 2026-11-02, unchanged).
+
+## App sign-up Back / Cancel buttons (employee-app bf6e148)
+
+Open a crew code (scan its QR in the app, or open its /j/ link) and start
+creating an account. Both buttons are the app's blue button style, in the
+top bar beside "Step X of 2".
+
+- [ ] Step 1 ("Create your account") shows Cancel only, no Back. Cancel
+      goes straight to the Login screen, no confirm.
+- [ ] Step 2 ("A few more details"): Back returns to Step 1 and everything
+      typed on Step 1 is still filled in.
+- [ ] Step 2: Cancel shows "Leave sign-up? What you entered will be lost."
+      Stay keeps you on Step 2 with everything still filled in. Leave goes
+      to the Login screen.
+- [ ] While the account is being created (after tapping Create account),
+      Back and Cancel are both greyed out and do nothing.
+- [ ] Unchanged: the selfie camera's Cancel and the QR scanner's Cancel
+      look and work as before.
