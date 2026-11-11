@@ -10,6 +10,8 @@
 const PIN_PATTERN = /^\d{4}$/;
 // Shown when nothing is saved yet (e.g. first sign-in with no signal).
 const PIN_NOT_LOADED = "Connect to the internet once to load your PIN";
+// Shown while Settings fetches it (online, nothing saved yet).
+const PIN_LOADING = "Loading your PIN...";
 
 function okRecord(pin) {
   return typeof pin === "string" && PIN_PATTERN.test(pin) ? { status: "ok", pin } : null;
@@ -52,16 +54,18 @@ function readSavedPin(raw) {
   }
 }
 
-// The Settings PIN row's text. Never blank.
-function savedPinText(record) {
+// The Settings PIN row's text. Never blank. loading = Settings is
+// fetching it right now (nothing saved yet).
+function savedPinText(record, { loading = false } = {}) {
   if (record && record.status === "ok" && okRecord(record.pin)) return record.pin;
   if (record && record.status === "noPin") return "Not set - ask your admin";
   if (record && record.status === "inactive") return "Your account is inactive";
-  return PIN_NOT_LOADED;
+  return loading ? PIN_LOADING : PIN_NOT_LOADED;
 }
 
 module.exports = {
   PIN_NOT_LOADED,
+  PIN_LOADING,
   savedPinFromResult,
   savedPinFromVerifier,
   serializeSavedPin,

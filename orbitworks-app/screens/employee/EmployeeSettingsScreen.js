@@ -63,7 +63,7 @@ export default function EmployeeSettingsScreen() {
     if (on) location.fixPermission();
     else if (location.granted) Linking.openSettings();
   };
-  const rows = settingsRows(info, savedPin.loaded ? savedPinText(savedPin.record) : "");
+  const rows = settingsRows(info, savedPin.loaded ? savedPinText(savedPin.record, { loading: savedPin.fetching }) : "");
   const toggles = [
     ["Dark mode", isDark, toggleTheme],
     ["Notifications", notifications.granted, notifications.setEnabled],

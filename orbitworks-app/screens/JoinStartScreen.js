@@ -10,6 +10,7 @@ import { useJoinSubmit } from "../lib/hooks/useJoinSubmit";
 import { useJoinPrefill } from "../lib/hooks/useJoinPrefill";
 import { validateEmail, validateFullName } from "../lib/validators/joinSignup";
 import { setScrubValue, clearScrubValues } from "../lib/sentryScrub";
+import { rememberJoinedPin } from "../lib/pinCheck";
 import { finishJoinSignIn, watchForHomeSwitch, setLoginPrefill, SIGN_IN_MESSAGES } from "../lib/joinSignIn";
 import Spinner from "../components/Spinner";
 import SelfieCamera from "../components/join/SelfieCamera";
@@ -245,6 +246,8 @@ export default function JoinStartScreen({ navigation }) {
       ...(kind === "invite" && nameFromPrefill ? { nameFromPrefill: true } : {}),
     });
     if (res.ok) {
+      // Settings shows this PIN right away after sign-in (lib/savedPinStore.js).
+      rememberJoinedPin(res.pin);
       deleteLocalPhoto(form.selfie);
       credsRef.current = { email: email.value, password: form.password };
       setScrubValue("doneEmail", email.value);

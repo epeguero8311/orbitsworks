@@ -90,3 +90,27 @@ Check that each looks the same as the Step 1 / Step 2 buttons above.
       returns to Step 2. No plain "Back" link.
 - [ ] The "Face the camera..." hint sits below the Back button, not
       under it.
+
+## Settings PIN row (saved PIN fixes, build 27)
+
+What changed: a failed or slow PIN fetch no longer deletes the saved PIN,
+fetches at the same time share one request (30 s timeout), Settings
+fetches once when nothing is saved ("Loading your PIN..." meanwhile), and
+a new joiner's PIN is saved straight from sign-up. Code:
+`lib/savedPinStore.js`, wired in `lib/pinCheck.js`.
+
+- [ ] Fresh joiner: join with a crew code, tap Done on the PIN screen,
+      open Settings. The PIN shows right away, the same PIN the welcome
+      screen showed. Never "Connect to the internet once to load your PIN".
+- [ ] Airplane mode: with the PIN showing, turn on airplane mode, close
+      and reopen the app, open Settings. The PIN still shows.
+- [ ] PIN changed on the website: with the phone in airplane mode, change
+      this employee's PIN on the dev website. Settings still shows the old
+      PIN (expected while offline). Turn airplane mode off, bring the app
+      to the front, open Settings: the new PIN shows within a few seconds.
+- [ ] Log out: Settings > Log out, then sign in as the same employee with
+      airplane mode on. Settings shows "Connect to the internet once to
+      load your PIN" (the saved copy was removed at log out). Turn
+      airplane mode off: "Loading your PIN..." then the PIN.
+- [ ] The PIN check on the clock screen still works as in the PIN check
+      section above (unchanged).
