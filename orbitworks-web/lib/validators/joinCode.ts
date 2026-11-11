@@ -12,7 +12,8 @@ export const joinCodeTokenField = z.string().regex(/^[A-Za-z0-9_-]{32,128}$/, "I
 
 const joinCodeFields = z.object({
   name: z.string().trim().min(1, "Name is required").max(80),
-  siteId: z.string().trim().min(1, "Pick a job site"),
+  // null = no job site (people who join get no assigned sites).
+  siteId: z.string().trim().min(1, "Pick a job site").nullable(),
   // [] = in-house only; [ids] = in-house or one of these subcontractors.
   subcontractorIds: z.array(z.string().trim().min(1)).max(200),
   // null = no code limit (joins are still capped by the plan's seats).

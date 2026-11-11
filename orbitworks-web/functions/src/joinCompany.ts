@@ -78,7 +78,7 @@ export interface JoinCompanyResult {
 export interface JoinCodeData {
   codeId: string;
   companyId: string;
-  siteId: string;
+  siteId: string | null; // null = no job site
   subcontractorIds?: string[];
   userLimit: number | null;
   joinedCount?: number;
@@ -314,7 +314,9 @@ export async function runJoinCompany(raw: unknown, hooks: JoinHooks = {}): Promi
         dob: input.birthday,
         active: true,
         faceStatus: "not_enrolled",
-        assignedSiteIds: [codeData.siteId],
+        // A code with no job site gives no assigned sites (an admin assigns
+        // one later), same as an admin-created employee.
+        assignedSiteIds: codeData.siteId ? [codeData.siteId] : [],
         pin,
         subcontractorId: input.subcontractorId,
         subcontractorName: sub && sub.exists ? String(sub.get("name") ?? "") : null,

@@ -103,7 +103,8 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
     if (expiresLocal && !expiresAt) return setError("Pick a valid expiry date and time.");
     const limitText = userLimit.trim();
     const limit = limitText === "" ? null : Number(limitText);
-    const draft = { name, siteId: siteId === NEW_SITE ? "pending" : siteId, subcontractorIds: subIds, userLimit: limit, expiresAt };
+    // "" = No job site.
+    const draft = { name, siteId: siteId === NEW_SITE ? "pending" : siteId === "" ? null : siteId, subcontractorIds: subIds, userLimit: limit, expiresAt };
 
     const schema = code ? withActiveCap(joinCodeUpdateSchema, activeCap) : withActiveCap(joinCodeCreateSchema, activeCap);
     const check = schema.safeParse(code ? { ...draft, token: code.token } : draft);
@@ -112,7 +113,7 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
     setSaving(true);
     try {
       if (siteId !== NEW_SITE && pickedSite) await saveSiteGeofence(pickedSite);
-      const finalSiteId = siteId === NEW_SITE ? await createSiteInline() : siteId;
+      const finalSiteId = siteId === NEW_SITE ? await createSiteInline() : draft.siteId;
       await onSave({ ...draft, siteId: finalSiteId }, code?.token ?? null);
       onClose();
     } catch (err) {
@@ -143,14 +144,17 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
           </div>
 
           <div>
-            <label htmlFor="jcSite" className={labelClass}>Job site</label>
-            <select id="jcSite" required value={siteId} onChange={(e) => pickSite(e.target.value)} className={inputClass}>
-              <option value="" disabled>Pick a job site</option>
+            <label htmlFor="jcSite" className={labelClass}>Job site (optional)</label>
+            <select id="jcSite" value={siteId} onChange={(e) => pickSite(e.target.value)} className={inputClass}>
+              <option value="">No job site</option>
               {siteOptions.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}{s.active ? "" : " (inactive)"}</option>
               ))}
               <option value={NEW_SITE}>+ New job site</option>
             </select>
+            {siteId === "" && (
+              <p className="mt-1 text-xs text-gray-600">People who join get no assigned job site. You can assign one later on the Employees page.</p>
+            )}
             {siteId === NEW_SITE && (
               <div className="mt-3 flex flex-col gap-3 rounded-md border border-gray-200 p-3">
                 <div>

@@ -877,7 +877,8 @@ export interface JoinCode {
   codeId: string;
   name: string;
   companyId: string;
-  siteId: string;
+  // null = no job site: people who join get no assigned sites.
+  siteId: string | null;
   // [] = in-house only; [ids] = in-house or one of these subcontractors.
   subcontractorIds: string[];
   // Phase 8: the old locationRequired field is no longer read or written
@@ -912,8 +913,8 @@ export interface JoinCodeListItem {
   token: string;
   codeId: string;
   name: string;
-  siteId: string;
-  siteName: string;
+  siteId: string | null;
+  siteName: string; // "No job site" when siteId is null
   subcontractorIds: string[];
   subcontractorNames: string[];
   userLimit: number | null;

@@ -165,7 +165,7 @@ export async function listJoinCodes(caller: ProAdminCaller): Promise<JoinCodeLis
     .map((d) => ({ token: d.id, data: d.data() as JoinCodeDoc }))
     .filter((d) => !d.data.replacedByToken);
 
-  const siteNames = await namesById(caller.companyId, "jobSites", docs.map((d) => d.data.siteId));
+  const siteNames = await namesById(caller.companyId, "jobSites", docs.flatMap((d) => (d.data.siteId ? [d.data.siteId] : [])));
   const subNames = await namesById(caller.companyId, "subcontractors", docs.flatMap((d) => d.data.subcontractorIds ?? []));
   const now = Date.now();
 
@@ -173,8 +173,8 @@ export async function listJoinCodes(caller: ProAdminCaller): Promise<JoinCodeLis
     token,
     codeId: data.codeId,
     name: data.name,
-    siteId: data.siteId,
-    siteName: siteNames.get(data.siteId) ?? "(deleted site)",
+    siteId: data.siteId ?? null,
+    siteName: data.siteId ? siteNames.get(data.siteId) ?? "(deleted site)" : NO_JOB_SITE,
     subcontractorIds: data.subcontractorIds ?? [],
     subcontractorNames: (data.subcontractorIds ?? []).map((id) => subNames.get(id) ?? "(deleted)"),
     userLimit: data.userLimit,
@@ -192,15 +192,19 @@ function parseOrThrow<T>(result: { success: true; data: T } | { success: false; 
   return result.data;
 }
 
-// Site and subcontractors must belong to the caller's company. A newly
-// picked site/sub must be active; one already on the code may stay even if
-// it was deactivated since.
-async function assertReferences(companyId: string, siteId: string, subIds: string[], existing?: JoinCodeDoc) {
+const NO_JOB_SITE = "No job site";
+
+// Site (if any) and subcontractors must belong to the caller's company. A
+// newly picked site/sub must be active; one already on the code may stay
+// even if it was deactivated since. siteId null = no job site.
+async function assertReferences(companyId: string, siteId: string | null, subIds: string[], existing?: JoinCodeDoc) {
   const company = adminDb.collection("companies").doc(companyId);
-  const site = await company.collection("jobSites").doc(siteId).get();
-  if (!site.exists) throw new ApiError(400, "Pick a job site.");
-  if (site.get("active") === false && existing?.siteId !== siteId) {
-    throw new ApiError(400, "That job site is inactive.");
+  if (siteId !== null) {
+    const site = await company.collection("jobSites").doc(siteId).get();
+    if (!site.exists) throw new ApiError(400, "Pick a job site.");
+    if (site.get("active") === false && existing?.siteId !== siteId) {
+      throw new ApiError(400, "That job site is inactive.");
+    }
   }
   const unique = [...new Set(subIds)];
   if (unique.length === 0) return;
@@ -293,7 +297,7 @@ export async function regenerateJoinCode(caller: ProAdminCaller, body: unknown):
       codeId: old.codeId,
       name: old.name,
       companyId: old.companyId,
-      siteId: old.siteId,
+      siteId: old.siteId ?? null,
       subcontractorIds: old.subcontractorIds ?? [],
       userLimit: old.userLimit,
       expiresAt: old.expiresAt,
