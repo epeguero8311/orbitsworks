@@ -10,6 +10,7 @@ import type { JobSite, JoinCodeListItem, Subcontractor } from "@/lib/types";
 import { JoinCodeGeofence, GEOFENCE_DRAFT_OFF, geofenceDraftChanged, geofenceDraftFor, type GeofenceDraft } from "@/components/dashboard/sites/JoinCodeGeofence";
 
 const NEW_SITE = "__new__";
+const NO_SITE = "__none__";
 const inputClass =
   "w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent";
 const labelClass = "mb-1.5 block text-sm font-medium text-gray-950";
@@ -29,7 +30,8 @@ interface JoinCodeModalProps {
 
 export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLeft, addSite, updateSite, onSave, onClose }: JoinCodeModalProps) {
   const [name, setName] = useState(code?.name ?? "");
-  const [siteId, setSiteId] = useState(code?.siteId ?? "");
+  // "" = not picked yet (new code); NO_SITE = "No job site" picked on purpose.
+  const [siteId, setSiteId] = useState(code ? code.siteId ?? NO_SITE : "");
   const [newSiteName, setNewSiteName] = useState("");
   const [newSiteAddress, setNewSiteAddress] = useState("");
   const [newSiteLocation, setNewSiteLocation] = useState<PickedLocation | null>(null);
@@ -103,8 +105,8 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
     if (expiresLocal && !expiresAt) return setError("Pick a valid expiry date and time.");
     const limitText = userLimit.trim();
     const limit = limitText === "" ? null : Number(limitText);
-    // "" = No job site.
-    const draft = { name, siteId: siteId === NEW_SITE ? "pending" : siteId === "" ? null : siteId, subcontractorIds: subIds, userLimit: limit, expiresAt };
+    if (siteId === "") return setError("Pick a job site, or choose No job site.");
+    const draft = { name, siteId: siteId === NEW_SITE ? "pending" : siteId === NO_SITE ? null : siteId, subcontractorIds: subIds, userLimit: limit, expiresAt };
 
     const schema = code ? withActiveCap(joinCodeUpdateSchema, activeCap) : withActiveCap(joinCodeCreateSchema, activeCap);
     const check = schema.safeParse(code ? { ...draft, token: code.token } : draft);
@@ -145,14 +147,15 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
 
           <div>
             <label htmlFor="jcSite" className={labelClass}>Job site (optional)</label>
-            <select id="jcSite" value={siteId} onChange={(e) => pickSite(e.target.value)} className={inputClass}>
-              <option value="">No job site</option>
+            <select id="jcSite" required value={siteId} onChange={(e) => pickSite(e.target.value)} className={inputClass}>
+              <option value="" disabled>Pick a job site</option>
+              <option value={NO_SITE}>No job site</option>
               {siteOptions.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}{s.active ? "" : " (inactive)"}</option>
               ))}
               <option value={NEW_SITE}>+ New job site</option>
             </select>
-            {siteId === "" && (
+            {siteId === NO_SITE && (
               <p className="mt-1 text-xs text-gray-600">People who join get no assigned job site. You can assign one later on the Employees page.</p>
             )}
             {siteId === NEW_SITE && (
@@ -198,7 +201,7 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
             )}
           </fieldset>
 
-          {siteId !== "" && (
+          {siteId !== "" && siteId !== NO_SITE && (
             <JoinCodeGeofence
               draft={geofence}
               onChange={setGeofence}
