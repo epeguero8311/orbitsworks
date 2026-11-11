@@ -116,7 +116,7 @@ function optionalTierV2(params: {
   return {
     key: params.key,
     product: params.product,
-    label: `${params.employeeCap} active / ${params.totalCap} total employees`,
+    label: `Up to ${params.employeeCap} active / ${params.totalCap} total employees`,
     employeeCap: params.employeeCap,
     totalCap: params.totalCap,
     priceId: params.priceId,
