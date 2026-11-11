@@ -3,7 +3,7 @@ import * as Crypto from "expo-crypto";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "./firebase";
 import { isOnline } from "./employeeClockApi";
-import { afterWrongPin, hashesMatch, hashInput, lockedError, lockSecondsLeftAt, parseVerifier, readSavedLock, readSavedVerifier } from "./pinVerifier";
+import { hashesMatch, hashInput, lockSecondsLeftAt, parseVerifier, readSavedLock, readSavedVerifier, runPinCheck } from "./pinVerifier";
 import { readSavedPin, savedPinFromResult, savedPinFromVerifier, serializeSavedPin } from "./savedPin";
 
 // Employee App - checks a typed PIN on the phone, online or offline
@@ -147,32 +147,22 @@ async function matches(companyId, employeeId, pin) {
 }
 
 // -> { state: "ok" }                 right PIN
-//    { state: "unknown" }            no verifier on the phone: the server
-//                                    checks the PIN when the punch syncs
+//    { state: "unknown" }            not checked here (no verifier, or the
+//                                    server didn't answer within 3 s): the
+//                                    server checks the PIN at sync
 //    { state: "failed", err }        wrong PIN or locked (err shaped like
 //                                    the server's: details.reason etc.)
-// A wrong PIN while online asks the server for a fresh verifier once (an
-// admin may have just changed the PIN) before it counts as wrong.
-export async function checkPinOnPhone({ companyId, employeeId, pin }) {
+// A saved verifier that matches is instant. Otherwise the phone asks for a
+// fresh one (an admin may have just changed the PIN), waiting 3 s at most
+// in total. Rules and tests: runPinCheck in lib/pinVerifier.js.
+export function checkPinOnPhone({ companyId, employeeId, pin }) {
   const lKey = lockKey(companyId, employeeId);
-  const lock = readSavedLock(await readItem(lKey));
-  const seconds = lockSecondsLeftAt(lock, Date.now());
-  if (seconds > 0) return { state: "failed", err: lockedError(seconds) };
-
-  let ok = await matches(companyId, employeeId, pin);
-  if (ok === null && (await isOnline()) && (await refreshPinVerifier(companyId, employeeId))) {
-    ok = await matches(companyId, employeeId, pin);
-  }
-  if (ok === null) return { state: "unknown" };
-  if (!ok && (await isOnline()) && (await refreshPinVerifier(companyId, employeeId))) {
-    ok = await matches(companyId, employeeId, pin);
-    if (ok === null) return { state: "unknown" };
-  }
-  if (ok) {
-    if (lock) await writeItem(lKey, null);
-    return { state: "ok" };
-  }
-  const next = afterWrongPin(lock, Date.now());
-  await writeItem(lKey, JSON.stringify(next.lock));
-  return { state: "failed", err: next.error };
+  return runPinCheck({
+    pin,
+    readLock: async () => readSavedLock(await readItem(lKey)),
+    writeLock: (lock) => writeItem(lKey, lock ? JSON.stringify(lock) : null),
+    match: (typed) => matches(companyId, employeeId, typed),
+    isOnline,
+    refresh: () => refreshPinVerifier(companyId, employeeId),
+  });
 }

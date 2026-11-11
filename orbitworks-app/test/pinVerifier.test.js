@@ -79,3 +79,120 @@ test("readSavedLock: survives a restart, junk is null", () => {
   assert.equal(p.readSavedLock("nope"), null);
   assert.equal(p.readSavedLock(undefined), null);
 });
+
+// ---- runPinCheck (2026-11-10, option A): fast, and a slow or failed
+// server never makes a right PIN "wrong" ----
+
+// A fake phone. saved: "right" | "stale" | null (no check value).
+// server: "fresh" (answers, saves the right value) | "fails" | "hangs".
+function fakePhone({ saved = "right", online = true, server = "fresh", lock = null } = {}) {
+  const state = { saved, lock, refreshes: 0, onlineChecks: 0 };
+  const deps = {
+    readLock: async () => state.lock,
+    writeLock: async (l) => {
+      state.lock = l;
+    },
+    // The right PIN is 1234. A stale value only matches the old PIN 9999.
+    match: async (pin) => (state.saved === null ? null : state.saved === "right" ? pin === "1234" : pin === "9999"),
+    isOnline: async () => {
+      state.onlineChecks++;
+      return online;
+    },
+    refresh: () => {
+      state.refreshes++;
+      if (server === "hangs") return new Promise(() => {});
+      if (server === "fails") return Promise.resolve(false);
+      state.saved = "right";
+      return Promise.resolve(true);
+    },
+  };
+  return { state, check: (pin, extra = {}) => p.runPinCheck({ pin, ...deps, deadlineMs: 100, ...extra }) };
+}
+
+test("runPinCheck: right PIN with a saved value is instant (no network at all)", async () => {
+  const phone = fakePhone({ server: "hangs" });
+  const t0 = Date.now();
+  assert.deepEqual(await phone.check("1234"), { state: "ok" });
+  assert.ok(Date.now() - t0 < 50);
+  assert.equal(phone.state.refreshes, 0);
+  assert.equal(phone.state.onlineChecks, 0);
+});
+
+test("runPinCheck: right PIN, stale saved value, server answers -> ok, no strike", async () => {
+  const phone = fakePhone({ saved: "stale" });
+  assert.deepEqual(await phone.check("1234"), { state: "ok" });
+  assert.equal(phone.state.lock, null);
+  assert.equal(phone.state.refreshes, 1);
+});
+
+test("runPinCheck: right PIN, stale value, server fails -> unknown (checked at sync), never wrong", async () => {
+  const phone = fakePhone({ saved: "stale", server: "fails" });
+  assert.deepEqual(await phone.check("1234"), { state: "unknown" });
+  assert.equal(phone.state.lock, null);
+});
+
+test("runPinCheck: server hangs -> stops waiting at the deadline, unknown, no strike", async () => {
+  const phone = fakePhone({ saved: "stale", server: "hangs" });
+  const t0 = Date.now();
+  assert.deepEqual(await phone.check("1234"), { state: "unknown" });
+  const took = Date.now() - t0;
+  assert.ok(took >= 90 && took < 400, `took ${took} ms`);
+  assert.equal(phone.state.lock, null);
+});
+
+test("runPinCheck: a hanging connection check also counts toward the same deadline", async () => {
+  const phone = fakePhone({ saved: "stale", server: "hangs" });
+  const t0 = Date.now();
+  const r = await phone.check("1234", { isOnline: () => new Promise(() => {}) });
+  assert.deepEqual(r, { state: "unknown" });
+  assert.ok(Date.now() - t0 < 400);
+});
+
+test("runPinCheck: no saved value and no answer -> unknown", async () => {
+  const phone = fakePhone({ saved: null, server: "hangs" });
+  assert.deepEqual(await phone.check("1234"), { state: "unknown" });
+});
+
+test("runPinCheck: no saved value, server answers -> checked against the fresh value", async () => {
+  const right = fakePhone({ saved: null });
+  assert.deepEqual(await right.check("1234"), { state: "ok" });
+  const wrong = fakePhone({ saved: null });
+  const r = await wrong.check("5555");
+  assert.equal(r.state, "failed");
+  assert.equal(r.err.details.reason, "wrongPin");
+  assert.equal(wrong.state.refreshes, 1);
+});
+
+test("runPinCheck: wrong PIN online (fresh value) is rejected and counts toward the lock", async () => {
+  const phone = fakePhone();
+  for (const left of [2, 1]) {
+    const r = await phone.check("5555");
+    assert.equal(r.state, "failed");
+    assert.equal(r.err.details.reason, "wrongPin");
+    assert.equal(r.err.details.attemptsLeft, left);
+  }
+  const third = await phone.check("5555");
+  assert.equal(third.err.details.reason, "locked");
+  // Locked: even the right PIN waits.
+  assert.equal((await phone.check("1234")).err.details.reason, "locked");
+});
+
+test("runPinCheck: offline with a saved value that doesn't match -> wrong at once (as before)", async () => {
+  const phone = fakePhone({ online: false, server: "hangs" });
+  const t0 = Date.now();
+  const r = await phone.check("5555");
+  assert.equal(r.err.details.reason, "wrongPin");
+  assert.ok(Date.now() - t0 < 50);
+  assert.equal(phone.state.refreshes, 0);
+});
+
+test("runPinCheck: offline right PIN is instant; offline with no value -> unknown", async () => {
+  assert.deepEqual(await fakePhone({ online: false }).check("1234"), { state: "ok" });
+  assert.deepEqual(await fakePhone({ online: false, saved: null }).check("1234"), { state: "unknown" });
+});
+
+test("runPinCheck: a right PIN clears an old strike count", async () => {
+  const phone = fakePhone({ lock: { failed: 2, lockedUntil: 0 } });
+  assert.deepEqual(await phone.check("1234"), { state: "ok" });
+  assert.equal(phone.state.lock, null);
+});
