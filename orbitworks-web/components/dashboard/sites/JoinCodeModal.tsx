@@ -30,8 +30,8 @@ interface JoinCodeModalProps {
 
 export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLeft, addSite, updateSite, onSave, onClose }: JoinCodeModalProps) {
   const [name, setName] = useState(code?.name ?? "");
-  // "" = not picked yet (new code); NO_SITE = "No job site" picked on purpose.
-  const [siteId, setSiteId] = useState(code ? code.siteId ?? NO_SITE : "");
+  // NO_SITE = "No job site" (the default for a new code).
+  const [siteId, setSiteId] = useState(code?.siteId ?? NO_SITE);
   const [newSiteName, setNewSiteName] = useState("");
   const [newSiteAddress, setNewSiteAddress] = useState("");
   const [newSiteLocation, setNewSiteLocation] = useState<PickedLocation | null>(null);
@@ -105,8 +105,8 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
     if (expiresLocal && !expiresAt) return setError("Pick a valid expiry date and time.");
     const limitText = userLimit.trim();
     const limit = limitText === "" ? null : Number(limitText);
-    if (siteId === "") return setError("Pick a job site, or choose No job site.");
-    const draft = { name, siteId: siteId === NEW_SITE ? "pending" : siteId === NO_SITE ? null : siteId, subcontractorIds: subIds, userLimit: limit, expiresAt };
+    // Empty counts as No job site - saving is never blocked over the site.
+    const draft = { name, siteId: siteId === NEW_SITE ? "pending" : siteId === NO_SITE || siteId === "" ? null : siteId, subcontractorIds: subIds, userLimit: limit, expiresAt };
 
     const schema = code ? withActiveCap(joinCodeUpdateSchema, activeCap) : withActiveCap(joinCodeCreateSchema, activeCap);
     const check = schema.safeParse(code ? { ...draft, token: code.token } : draft);
@@ -147,15 +147,14 @@ export function JoinCodeModal({ code, sites, subcontractors, activeCap, seatsLef
 
           <div>
             <label htmlFor="jcSite" className={labelClass}>Job site (optional)</label>
-            <select id="jcSite" required value={siteId} onChange={(e) => pickSite(e.target.value)} className={inputClass}>
-              <option value="" disabled>Pick a job site</option>
+            <select id="jcSite" value={siteId} onChange={(e) => pickSite(e.target.value)} className={inputClass}>
               <option value={NO_SITE}>No job site</option>
               {siteOptions.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}{s.active ? "" : " (inactive)"}</option>
               ))}
               <option value={NEW_SITE}>+ New job site</option>
             </select>
-            {siteId === NO_SITE && (
+            {(siteId === NO_SITE || siteId === "") && (
               <p className="mt-1 text-xs text-gray-600">People who join get no assigned job site. You can assign one later on the Employees page.</p>
             )}
             {siteId === NEW_SITE && (
