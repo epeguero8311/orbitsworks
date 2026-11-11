@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, BackHandler } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, BackHandler, Alert, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "../lib/firebase";
@@ -19,7 +18,7 @@ import JoinAccountStep from "./join/JoinAccountStep";
 import JoinDetailsStep from "./join/JoinDetailsStep";
 import JoinWelcomeStep from "./join/JoinWelcomeStep";
 import JoinLocationStep from "./join/JoinLocationStep";
-import { joinStyles as s, BLUE } from "./join/joinStyles";
+import { joinStyles as s } from "./join/joinStyles";
 
 // Sign-up for a crew code (kind "qr": in-app scanner or phone camera link)
 // or an email invite (kind "invite", Phase 3B: the /i/ link in the email).
@@ -142,6 +141,19 @@ export default function JoinStartScreen({ navigation }) {
     else if (step === "location" || step === "welcome" || step === "switching") return true;
     else exit();
     return true;
+  }, [step, sending, exit]);
+  // Top bar Cancel: leave sign-up. On Step 2 it asks first, since what was
+  // typed (and the selfie) is thrown away.
+  const cancel = useCallback(() => {
+    if (sending) return;
+    if (step !== "details") {
+      exit();
+      return;
+    }
+    Alert.alert("Leave sign-up?", "What you entered will be lost.", [
+      { text: "Stay", style: "cancel" },
+      { text: "Leave", style: "destructive", onPress: exit },
+    ]);
   }, [step, sending, exit]);
   const toWelcome = useCallback(() => setStep("welcome"), []);
 
@@ -307,11 +319,33 @@ export default function JoinStartScreen({ navigation }) {
   return (
     <KeyboardAvoidingView style={s.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <View style={[s.topBar, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity style={s.back} onPress={back} disabled={sending} accessibilityRole="button" accessibilityLabel="Back">
-          <Feather name="chevron-left" size={22} color={BLUE} />
-          <Text style={s.backText}>{isAccount ? "Cancel" : "Back"}</Text>
-        </TouchableOpacity>
+        {/* Back: Step 2 -> Step 1 (keeps what was typed). Step 1 has no
+            step before it, so only Cancel shows there. */}
+        <View style={bar.slot}>
+          {!isAccount && (
+            <TouchableOpacity
+              style={[s.primary, bar.button, sending && s.primaryDisabled]}
+              onPress={back}
+              disabled={sending}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+            >
+              <Text style={[s.primaryText, bar.text]}>Back</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <Text style={s.stepText}>Step {isAccount ? 1 : 2} of 2</Text>
+        <View style={[bar.slot, bar.slotRight]}>
+          <TouchableOpacity
+            style={[s.primary, bar.button, sending && s.primaryDisabled]}
+            onPress={cancel}
+            disabled={sending}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel sign-up"
+          >
+            <Text style={[s.primaryText, bar.text]}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       <ScrollView contentContainerStyle={[s.scroll, { paddingBottom: insets.bottom + 40 }]} keyboardShouldPersistTaps="handled">
         <Text style={s.company}>Joining {info.companyName}</Text>
@@ -348,3 +382,13 @@ export default function JoinStartScreen({ navigation }) {
     </KeyboardAvoidingView>
   );
 }
+
+// Top bar size for the app's blue button (joinStyles primary), so Back and
+// Cancel fit beside "Step X of 2". Equal-width slots keep the step text
+// centered when Back is hidden.
+const bar = StyleSheet.create({
+  slot: { minWidth: 92, flexDirection: "row" },
+  slotRight: { justifyContent: "flex-end" },
+  button: { marginTop: 0, paddingVertical: 8, paddingHorizontal: 18 },
+  text: { fontSize: 15 },
+});
