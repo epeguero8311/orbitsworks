@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, BackHandler, Alert, StyleSheet } from "react-native";
+import { View, Text, ScrollView, KeyboardAvoidingView, Platform, BackHandler, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as FileSystem from "expo-file-system/legacy";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
@@ -13,6 +13,7 @@ import { setScrubValue, clearScrubValues } from "../lib/sentryScrub";
 import { finishJoinSignIn, watchForHomeSwitch, setLoginPrefill, SIGN_IN_MESSAGES } from "../lib/joinSignIn";
 import Spinner from "../components/Spinner";
 import SelfieCamera from "../components/join/SelfieCamera";
+import JoinTopBarButton, { JoinTopBar } from "../components/join/JoinTopBarButton";
 import JoinStatusView from "./join/JoinStatusView";
 import JoinAccountStep from "./join/JoinAccountStep";
 import JoinDetailsStep from "./join/JoinDetailsStep";
@@ -318,35 +319,14 @@ export default function JoinStartScreen({ navigation }) {
   const isAccount = step === "account";
   return (
     <KeyboardAvoidingView style={s.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <View style={[s.topBar, { paddingTop: insets.top + 8 }]}>
-        {/* Back: Step 2 -> Step 1 (keeps what was typed). Step 1 has no
-            step before it, so only Cancel shows there. */}
-        <View style={bar.slot}>
-          {!isAccount && (
-            <TouchableOpacity
-              style={[s.primary, bar.button, sending && s.primaryDisabled]}
-              onPress={back}
-              disabled={sending}
-              accessibilityRole="button"
-              accessibilityLabel="Back"
-            >
-              <Text style={[s.primaryText, bar.text]}>Back</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        <Text style={s.stepText}>Step {isAccount ? 1 : 2} of 2</Text>
-        <View style={[bar.slot, bar.slotRight]}>
-          <TouchableOpacity
-            style={[s.primary, bar.button, sending && s.primaryDisabled]}
-            onPress={cancel}
-            disabled={sending}
-            accessibilityRole="button"
-            accessibilityLabel="Cancel sign-up"
-          >
-            <Text style={[s.primaryText, bar.text]}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      {/* Back: Step 2 -> Step 1 (keeps what was typed). Step 1 has no
+          step before it, so only Cancel shows there. */}
+      <JoinTopBar
+        style={{ paddingTop: insets.top + 8 }}
+        left={!isAccount ? <JoinTopBarButton label="Back" onPress={back} disabled={sending} /> : null}
+        center={<Text style={s.stepText}>Step {isAccount ? 1 : 2} of 2</Text>}
+        right={<JoinTopBarButton label="Cancel" onPress={cancel} disabled={sending} accessibilityLabel="Cancel sign-up" />}
+      />
       <ScrollView contentContainerStyle={[s.scroll, { paddingBottom: insets.bottom + 40 }]} keyboardShouldPersistTaps="handled">
         <Text style={s.company}>Joining {info.companyName}</Text>
         <Text style={s.title}>{isAccount ? "Create your account" : "A few more details"}</Text>
@@ -383,12 +363,3 @@ export default function JoinStartScreen({ navigation }) {
   );
 }
 
-// Top bar size for the app's blue button (joinStyles primary), so Back and
-// Cancel fit beside "Step X of 2". Equal-width slots keep the step text
-// centered when Back is hidden.
-const bar = StyleSheet.create({
-  slot: { minWidth: 92, flexDirection: "row" },
-  slotRight: { justifyContent: "flex-end" },
-  button: { marginTop: 0, paddingVertical: 8, paddingHorizontal: 18 },
-  text: { fontSize: 15 },
-});

@@ -65,5 +65,28 @@ top bar beside "Step X of 2".
       to the Login screen.
 - [ ] While the account is being created (after tapping Create account),
       Back and Cancel are both greyed out and do nothing.
-- [ ] Unchanged: the selfie camera's Cancel and the QR scanner's Cancel
-      look and work as before.
+
+## Join flow top-bar buttons on every screen (shared JoinTopBarButton)
+
+Every join screen now uses the same filled blue button in the top bar.
+Check that each looks the same as the Step 1 / Step 2 buttons above.
+
+- [ ] QR scanner (Login > join with crew code): Cancel at the top right,
+      no button at the bottom. Cancel goes back to Login.
+- [ ] QR scanner with camera access denied ("Camera needed"): Cancel at
+      the top right goes back to Login. No plain "Back" link.
+- [ ] "Checking your crew code..." (shows while the code loads, a few
+      seconds on a cold start): Cancel at the top right goes to Login
+      and nothing joins.
+- [ ] "Can't connect" (turn on airplane mode, then open a crew code):
+      Cancel at the top right goes to Login; Retry still works once the
+      connection is back. No plain "Back to login" link.
+- [ ] "Code no longer active" (open a revoked or expired code): Cancel at
+      the top right goes to Login. No "Back to login" button.
+- [ ] Selfie camera (Step 2 > Take selfie): Back at the top left, no white
+      "Cancel" at the bottom. Back returns to Step 2 with everything still
+      filled in. Back is greyed out while a photo is being taken.
+- [ ] Selfie camera with camera access denied: Back at the top left
+      returns to Step 2. No plain "Back" link.
+- [ ] The "Face the camera..." hint sits below the Back button, not
+      under it.
