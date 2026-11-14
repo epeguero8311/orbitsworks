@@ -25,6 +25,9 @@ function JoinForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const emailFromLink = searchParams.get("email");
+  // The invite this link was made for (absent on links sent before it
+  // existed - acceptInvite then uses the one pending invite for the email).
+  const inviteIdFromLink = searchParams.get("invite") ?? undefined;
   useEffect(() => {
     if (emailFromLink) setEmail(emailFromLink);
   }, [emailFromLink]);
@@ -70,7 +73,10 @@ function JoinForm() {
 
     try {
       const acceptInvite = httpsCallable(functions, "acceptInvite");
-      const result = await acceptInvite({ name });
+      const result = await acceptInvite({
+        name,
+        ...(inviteIdFromLink ? { inviteId: inviteIdFromLink } : {}),
+      });
       const { role } = result.data as { role?: "supervisor" | "admin" };
 
       await user.getIdToken(true);
@@ -98,8 +104,13 @@ function JoinForm() {
             "This company has reached its employee limit. Ask your admin to upgrade the plan or free up a slot before you can join."
           );
         } else if (code === "functions/failed-precondition") {
+          // acceptInvite's failed-precondition messages are all written for
+          // the person joining (past due, more than one invite, invite
+          // already used, already linked) - show the server's.
+          const serverMessage = (err as { message?: string })?.message;
           setError(
-            "Your company's subscription is past due. Ask your admin to resolve billing before you can join."
+            serverMessage ||
+              "Your company's subscription is past due. Ask your admin to resolve billing before you can join."
           );
         } else {
           setError("Something went wrong. Try again.");

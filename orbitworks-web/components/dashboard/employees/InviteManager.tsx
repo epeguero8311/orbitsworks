@@ -64,9 +64,10 @@ export function InviteManager({
   }
 
   async function copyInviteLink(email: string, inviteId: string) {
+    // ?invite= ties the sign-up to THIS invite (acceptInvite).
     const link = `${window.location.origin}/join?email=${encodeURIComponent(
       email
-    )}`;
+    )}&invite=${encodeURIComponent(inviteId)}`;
     await navigator.clipboard.writeText(link);
     setCopiedInviteId(inviteId);
     setTimeout(() => setCopiedInviteId(null), 2000);

@@ -87,8 +87,9 @@ test("appUrls: dev -> dev site, prod -> orbitsworks.com, anything else -> null",
   assert.equal(appUrls.employeeInviteLink(T, "orbitworks-something-else"), null);
   assert.equal(appUrls.employeeInviteLink(T, ""), null);
   assert.equal(appUrls.employeeInviteLink(T, "toString"), null);
-  assert.equal(appUrls.supervisorJoinLink("A+b@x.co", "orbitworks-dev-ew"), "https://orbitsworks-backend--orbitworks-dev-ew.us-central1.hosted.app/join?email=A%2Bb%40x.co");
-  assert.equal(appUrls.supervisorJoinLink("a@x.co", "orbitworks-7ef59"), "https://orbitsworks.com/join?email=a%40x.co");
+  assert.equal(appUrls.supervisorJoinLink("A+b@x.co", undefined, "orbitworks-dev-ew"), "https://orbitsworks-backend--orbitworks-dev-ew.us-central1.hosted.app/join?email=A%2Bb%40x.co");
+  assert.equal(appUrls.supervisorJoinLink("a@x.co", undefined, "orbitworks-7ef59"), "https://orbitsworks.com/join?email=a%40x.co");
+  assert.equal(appUrls.supervisorJoinLink("a@x.co", "inv123", "orbitworks-7ef59"), "https://orbitsworks.com/join?email=a%40x.co&invite=inv123");
   assert.equal(appUrls.siteFor("orbitworks-dev-ew").appName, "OrbitsWorks Dev");
 });
 

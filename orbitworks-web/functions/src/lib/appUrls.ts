@@ -42,9 +42,13 @@ export function siteFor(projectId: string = currentProjectId()): SiteConfig | nu
 
 // Supervisor/admin invite: the website's /join page (decision D1 - this
 // used to always point at prod, even on dev).
-export function supervisorJoinLink(email: string, projectId?: string): string | null {
+// inviteId pins acceptInvite to THIS invite (not any pending invite for the
+// email) - see functions/src/staffInviteValidators.ts.
+export function supervisorJoinLink(email: string, inviteId?: string, projectId?: string): string | null {
   const site = siteFor(projectId);
-  return site ? `${site.baseUrl}/join?email=${encodeURIComponent(email)}` : null;
+  if (!site) return null;
+  const invite = inviteId ? `&invite=${encodeURIComponent(inviteId)}` : "";
+  return `${site.baseUrl}/join?email=${encodeURIComponent(email)}${invite}`;
 }
 
 // Employee App email invite: the /i/{token} landing page, which the app
