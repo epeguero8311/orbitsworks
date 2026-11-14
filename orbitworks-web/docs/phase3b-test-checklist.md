@@ -27,10 +27,12 @@ camera or the queue).
 - B1. QR sign-up still works (useJoinInfo and the sign-up hooks changed).
   Scan a jc-test-pro-dev crew code, sign up end to end, land on Home, clock
   in once.
-- B2. Invite lands. As jc-core-owner: Employees > Invite new person > your
-  Gmail, no site > Send invite. Expect: App invites row Pending, Email
+- B2. Invite lands. (Updated 2026-11-14: Phase 9 merged the invite forms.)
+  As jc-core-owner: Employees > Invite someone > role *Employee (app)* >
+  your Gmail, no site > Send invite. Expect: App invites row Pending, Email
   status Sent; email arrives (check spam); the link opens the /i page
-  showing "JC-Test Core (dev)" on your computer.
+  showing "JC-Test Core (dev)" on your computer, with an "OrbitsWorks Dev"
+  install step in plain text (the dev site has no store link).
 - B3. Copy link + Resend. Copy link on that row: same URL as the email.
   Resend: a second email arrives with the same link, the expiry moves to 7
   days from now, Resend locks for 60 seconds.
@@ -101,10 +103,12 @@ Start each one clocked out unless it says otherwise. Same Pro test employee.
   5. Next Clock Out: the NEW PIN works, the OLD one gets "Wrong PIN".
 - N4. No "Checking PIN..." anywhere. During N1-N3 and a normal online
   Clock In / Clock Out, "Checking PIN..." and "Sending..." never show.
-- N5. Sync tab: today and the 2 days before. Needs punches from 3+ days
-  ago still on the phone (run this 3 days after N1-N3, same phone, no
-  reinstall). Expect: Synced rows only from today and the 2 days before
-  (company time zone); an older Failed row (if any) still shows.
+- N5. Sync tab: this week. (Updated 2026-11-14 - fix round 1 A2 replaced
+  "today + 2 days".) Run it on any day after Monday, same phone, no
+  reinstall, with a synced punch from last week still on the phone.
+  Expect: Synced rows only from this week (Monday to today, company time
+  zone); last week's synced rows gone; an older Failed row (if any) still
+  shows. Same as 5-N5 / 10-A2 in phase10-test-round.md.
 - N6. Auto clock-out on dev (now on for jc-test-pro-dev and
   jc-test-core-dev, 12 h).
   1. Website, jc-test-pro-dev: Settings > Automations > Auto clock-out,

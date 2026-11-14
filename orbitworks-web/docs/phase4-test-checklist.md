@@ -55,8 +55,8 @@ PIN. T4 no longer shows "Checking PIN...".
   - The camera opens right after the 4th digit (no "Checking PIN..." screen).
   - Green overlay right after "Use photo", with no "Will sync when online" line and no "Clocking in..." spinner.
   - No banner on Home. The Sync badge never shows.
-  - Sync tab: the Clock in row Synced within a few seconds (every punch now shows there for 24 h).
-  - Settings: Last synced = "Today, <now>", PIN = `****`.
+  - Sync tab: the Clock in row Synced within a few seconds (it stays there for the rest of this week - updated 2026-11-14, fix round 1 A2; was 24 h).
+  - Settings: Last synced = "Today, <now>", PIN shows your 4 digits (updated 2026-11-14 - D1 revised, 10-PIN1; was `****`).
 - **I check:**
   - The event has no `queued`, no `syncedLate`, no `phoneClockOff`; its time is within about 2 s of `createdAt` (server time).
   - The photo in dev Storage: pixel size (expected 720x1280 portrait), KB, and the face check result.
@@ -326,12 +326,16 @@ of the same dev company. Use 2-3 test employees you can clock in with a PIN.
 
 ### S2. A break keeps the clock-out site
 
+(Updated 2026-11-14: since fix round 1 (D19 a) supervisor breaks copy the
+shift's clock-in site on the server. Judge this step by 10-F6 in
+phase10-test-round.md.)
+
 - **Tap:** For one employee clocked in from S1 (at a site): Start Break, End
   Break, then Clock Out.
 - **You should see:** The break saves with no camera and no location prompt.
 - **I check:**
-  - The 2 break events have no site and no GPS. The website shows "-" for
-    Site, Geofence and Face check on both.
+  - The 2 break events have the clock-in site (copied by the server) and no
+    GPS. The website shows the site; Geofence and Face check are "-".
   - The clock-out has the clock-in site and a geofence result.
 
 ### S3. Offline home count and name after a restart
