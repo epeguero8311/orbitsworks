@@ -631,11 +631,14 @@ service cloud.firestore {
       allow read, delete: if request.auth != null &&
         isAdminOrOwner() &&
         request.auth.token.companyId == resource.data.companyId;
-      allow update: if request.auth != null &&
-        isAdminOrOwner() &&
-        request.auth.token.companyId == resource.data.companyId &&
-        !request.resource.data.diff(resource.data).affectedKeys()
-          .hasAny(['emailStatus', 'emailSentAt', 'emailError', 'lastEmailAttemptAt']);
+      // No client ever updates an invite (the website only creates,
+      // queries and deletes them; the app never touches this collection).
+      // The only updates are server-side: sendInviteEmail/resendInviteEmail
+      // (email status) and acceptInvite (status -> accepted), all via the
+      // Admin SDK. A client update rule let an admin of company A rewrite
+      // companyId to company B, and acceptInvite trusts invite.companyId -
+      // a cross-tenant takeover. To change an invite, delete and recreate.
+      allow update: if false;
     }
 
     match /{document=**} {

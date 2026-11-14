@@ -14,7 +14,7 @@ const {
   assertFails,
   assertSucceeds,
 } = require("@firebase/rules-unit-testing");
-const { setDoc, doc, updateDoc, getDoc, collection, getDocs } = require("firebase/firestore");
+const { setDoc, doc, updateDoc, getDoc, deleteDoc, collection, getDocs } = require("firebase/firestore");
 
 const COMPANY_A = "companyA";
 const COMPANY_B = "companyB";
@@ -587,4 +587,48 @@ test("comment: read-only after creation - admin cannot add, edit or remove it", 
   await assertFails(updateDoc(adminRef, { employeeComment: deleteField() }));
   // evt1 (seeded) has no comment - adding one later is refused too.
   await assertFails(updateDoc(doc(adminDb, "companies", COMPANY_A, "clockEvents", "evt1"), { employeeComment: "late add" }));
+});
+
+// --- invites/{inviteId} (prod-readiness blocker B1) ---
+// acceptInvite trusts invite.companyId, so a client that can rewrite it
+// can grant itself admin in another company. No client updates invites.
+function invitePayload(overrides = {}) {
+  return {
+    email: "new.admin@example.com",
+    companyId: COMPANY_A,
+    role: "admin",
+    assignedSiteIds: [],
+    status: "pending",
+    ...overrides,
+  };
+}
+
+test("invites: admin of company A cannot move their own invite to company B", async () => {
+  const db = adminContext().firestore();
+  const ref = doc(db, "invites", "inv-move");
+  await assertSucceeds(setDoc(ref, invitePayload()));
+  await assertFails(updateDoc(ref, { companyId: COMPANY_B }));
+  const after = await getDoc(ref);
+  assert.equal(after.data().companyId, COMPANY_A);
+});
+
+test("invites: no client update at all, even same-company fields", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "invites", "inv-seeded"), invitePayload());
+  });
+  const ref = doc(adminContext().firestore(), "invites", "inv-seeded");
+  await assertFails(updateDoc(ref, { role: "supervisor" }));
+  await assertFails(updateDoc(ref, { status: "accepted" }));
+  await assertFails(setDoc(ref, invitePayload({ companyId: COMPANY_B })));
+});
+
+test("invites: create, read and delete still work for own company only", async () => {
+  const db = adminContext().firestore();
+  const ref = doc(db, "invites", "inv-crud");
+  await assertFails(setDoc(doc(db, "invites", "inv-other"), invitePayload({ companyId: COMPANY_B })));
+  await assertSucceeds(setDoc(ref, invitePayload()));
+  await assertSucceeds(getDoc(ref));
+  await assertFails(getDoc(doc(crossCompanyContext().firestore(), "invites", "inv-crud")));
+  await assertFails(deleteDoc(doc(crossCompanyContext().firestore(), "invites", "inv-crud")));
+  await assertSucceeds(deleteDoc(ref));
 });
