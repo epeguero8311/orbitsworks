@@ -1,4 +1,4 @@
-import { defineBoolean, defineString } from "firebase-functions/params";
+import { defineBoolean } from "firebase-functions/params";
 
 // Both default OFF. Alert generation and push sending must ship inert -
 // every check in alerts.ts/pushSend.ts reads these before doing anything,
@@ -19,20 +19,8 @@ export const PUSH_NOTIFICATIONS_ENABLED = defineBoolean("PUSH_NOTIFICATIONS_ENAB
 // not this `default`) - see that file for the live value.
 export const AUTO_CLOCK_OUT_ENABLED = defineBoolean("AUTO_CLOCK_OUT_ENABLED", { default: true });
 
-// Optional testing scope, applied on top of ALERTS_FEED_ENABLED. Empty
-// (the default) means no restriction - every company gets alerts once the
-// master switch is on, same as if this didn't exist. Set to a
-// comma-separated list of companyIds to restrict alert generation to just
-// those companies while testing, so flipping the master switch on doesn't
-// immediately affect every real customer. Remove/clear this once testing
-// is done - it's a temporary safety net, not a permanent feature.
-// Does NOT apply to Auto Clock-Out (autoClockOut.ts) - that runs for every
-// company with its own Settings toggle on.
-export const TEST_COMPANY_IDS = defineString("TEST_COMPANY_IDS", { default: "" });
-
-export function isCompanyInTestScope(companyId: string): boolean {
-  const raw = TEST_COMPANY_IDS.value().trim();
-  if (!raw) return true;
-  const allowed = raw.split(",").map((id) => id.trim()).filter(Boolean);
-  return allowed.length === 0 || allowed.includes(companyId);
-}
+// TEST_COMPANY_IDS (a temporary per-company allowlist for alerts/pushes
+// while they were tested on ShipMate) was removed 2026-11-14: every company
+// now gets alerts and pushes, subject only to the switches above and each
+// company's own Settings > Alerts toggles. A leftover TEST_COMPANY_IDS line
+// in a functions/.env.<project> file is ignored.

@@ -4,7 +4,7 @@ import type { Timestamp } from "firebase-admin/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { db, localDateKey, localMinutesOfDay } from "./shared";
-import { ALERTS_FEED_ENABLED, isCompanyInTestScope } from "./flags";
+import { ALERTS_FEED_ENABLED } from "./flags";
 import { sendPushForAlert } from "./pushSend";
 import { formatGeofenceDistance, type GeofenceStatus } from "./geofencing";
 import {
@@ -361,7 +361,6 @@ export async function checkLateClockIn(
   if (!ALERTS_FEED_ENABLED.value()) return;
   if (data?.type !== "in") return;
   if (typeof companyId !== "string" || !companyId) return;
-  if (!isCompanyInTestScope(companyId)) return;
   if (typeof data.employeeId !== "string" || !data.employeeId) return;
 
   const ctx = await getCompanyAlertContext(companyId);
@@ -408,7 +407,6 @@ export async function checkEarlyClockOut(
   // autoClockOut.ts), so this must not fire a second one.
   if (data?.source === "autoClockOut") return;
   if (typeof companyId !== "string" || !companyId) return;
-  if (!isCompanyInTestScope(companyId)) return;
   if (typeof data.employeeId !== "string" || !data.employeeId) return;
 
   const ctx = await getCompanyAlertContext(companyId);
@@ -462,7 +460,6 @@ export async function checkOutsideGeofence(
   if (data?.type !== "in") return;
   if (!geofence.applicable || geofence.status !== "outside") return;
   if (typeof companyId !== "string" || !companyId) return;
-  if (!isCompanyInTestScope(companyId)) return;
   if (typeof data.employeeId !== "string" || !data.employeeId) return;
 
   const ctx = await getCompanyAlertContext(companyId);
@@ -512,7 +509,6 @@ export async function checkSiteMismatch(
   if (data?.type !== "in") return;
   if (!siteMismatch) return;
   if (typeof companyId !== "string" || !companyId) return;
-  if (!isCompanyInTestScope(companyId)) return;
   if (typeof data.employeeId !== "string" || !data.employeeId) return;
 
   const ctx = await getCompanyAlertContext(companyId);
@@ -556,7 +552,6 @@ export async function createLeftJobSiteAlert(input: {
 }): Promise<boolean> {
   try {
     if (!ALERTS_FEED_ENABLED.value()) return false;
-    if (!isCompanyInTestScope(input.companyId)) return false;
     const ctx = await getCompanyAlertContext(input.companyId);
     if (!ctx || !ctx.alerts.leftJobSiteAlert) return false;
 
@@ -623,7 +618,6 @@ export async function createFaceMismatchAlert(
   timestamp: admin.firestore.Timestamp | null
 ): Promise<void> {
   if (!ALERTS_FEED_ENABLED.value()) return;
-  if (!isCompanyInTestScope(companyId)) return;
 
   const ctx = await getCompanyAlertContext(companyId);
   if (!ctx || !ctx.alerts.faceMismatchAlert || !ctx.faceAlertsEnabled) return;
@@ -659,7 +653,6 @@ export async function createFaceNoFaceAlert(
   opts: { notifyEmployee?: boolean; eventType?: string } = {}
 ): Promise<void> {
   if (!ALERTS_FEED_ENABLED.value()) return;
-  if (!isCompanyInTestScope(companyId)) return;
 
   const ctx = await getCompanyAlertContext(companyId);
   if (!ctx || !ctx.alerts.faceNoFaceAlert || !ctx.faceAlertsEnabled) return;
@@ -712,7 +705,6 @@ export async function createOrKeepFaceBadReferenceAlert(
   employeeName: string
 ): Promise<void> {
   if (!ALERTS_FEED_ENABLED.value()) return;
-  if (!isCompanyInTestScope(companyId)) return;
 
   const ctx = await getCompanyAlertContext(companyId);
   if (!ctx || !ctx.alerts.faceBadReferenceAlert) return;
@@ -823,7 +815,6 @@ export async function createEmployeeUpdatedAlert(
   timestamp: admin.firestore.Timestamp
 ): Promise<void> {
   if (!ALERTS_FEED_ENABLED.value()) return;
-  if (!isCompanyInTestScope(companyId)) return;
 
   const alertId = buildEmployeeUpdatedAlertId(updateId);
   const input: AlertInput = {
@@ -990,7 +981,6 @@ function toMinimalEvent(doc: FirebaseFirestore.QueryDocumentSnapshot): MinimalCl
 // never take down the sweep for every other company.
 async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot): Promise<void> {
   const companyId = companyDoc.id;
-  if (!isCompanyInTestScope(companyId)) return;
   const ctx = await getCompanyAlertContext(companyId);
   if (!ctx) return;
   const { alerts } = ctx;
@@ -1237,7 +1227,7 @@ export const checkPeriodicAlerts = onSchedule("every 15 minutes", async () => {
 // Offline employee create/PIN edit (mobile): the PIN the phone handed out
 // offline was already taken by the time it synced, so the server assigned a
 // new one. Written straight through createAlertIfNew (same as autoClockOut's
-// alert) rather than behind ALERTS_FEED_ENABLED/TEST_COMPANY_IDS - an admin
+// alert) rather than behind ALERTS_FEED_ENABLED - an admin
 // has to learn the employee's real PIN somewhere, so this is not a beta
 // feed item. Never throws: a failed alert write must not fail the sync.
 export async function createPinChangedAlert(

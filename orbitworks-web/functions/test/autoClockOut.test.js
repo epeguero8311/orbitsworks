@@ -1,7 +1,7 @@
 // Auto Clock-Out sweep tests (functions/src/autoClockOut.ts). Same setup as
 // alerts.test.js: the REAL compiled functions (lib/) against the Firestore
-// emulator. TEST_COMPANY_IDS is set to ShipMate's id here, same as prod, to
-// prove it no longer limits auto clock-out to ShipMate.
+// emulator. A leftover TEST_COMPANY_IDS (ShipMate's id, as prod's .env had it)
+// is set here to prove it never limited auto clock-out to ShipMate.
 process.env.GCLOUD_PROJECT = "orbitworks-func-test";
 // Port must match firebase.json's emulators.firestore.port.
 process.env.FIRESTORE_EMULATOR_HOST = "localhost:8090";

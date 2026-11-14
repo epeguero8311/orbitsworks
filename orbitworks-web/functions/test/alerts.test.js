@@ -127,7 +127,9 @@ test("kill switch OFF: no alert doc, no push", async () => {
   assert.equal(await countAlerts(companyId), 0);
 });
 
-test("TEST_COMPANY_IDS set: only the allowlisted company gets alerts", async () => {
+// TEST_COMPANY_IDS was removed (2026-11-14). A value left over in a
+// functions/.env.<project> file must not limit alerts to any company.
+test("leftover TEST_COMPANY_IDS value is ignored: every company gets alerts", async () => {
   const allowedCompanyId = "c1-allowed";
   const otherCompanyId = "c1-other";
   await seedCompany(allowedCompanyId);
@@ -146,10 +148,10 @@ test("TEST_COMPANY_IDS set: only the allowlisted company gets alerts", async () 
   );
 
   assert.equal(await countAlerts(allowedCompanyId), 1);
-  assert.equal(await countAlerts(otherCompanyId), 0);
+  assert.equal(await countAlerts(otherCompanyId), 1);
 });
 
-test("TEST_COMPANY_IDS empty/unset: no restriction (today's behavior)", async () => {
+test("no TEST_COMPANY_IDS at all: alerts still fire", async () => {
   const companyId = "c1-unrestricted";
   await seedCompany(companyId);
   setFlags({ alertsFeed: true, pushEnabled: false });
@@ -484,8 +486,8 @@ test("breakTooLong fires via the periodic sweep", async () => {
   assert.equal(snap.size, 1);
 });
 
-test("TEST_COMPANY_IDS restricts the periodic sweep too", async () => {
-  const companyId = "c9-not-allowed";
+test("leftover TEST_COMPANY_IDS value is ignored by the periodic sweep too", async () => {
+  const companyId = "c9-not-in-list";
   await seedCompany(companyId);
   setFlags({ alertsFeed: true, pushEnabled: false, testCompanyIds: "some-other-company" });
 
@@ -509,7 +511,13 @@ test("TEST_COMPANY_IDS restricts the periodic sweep too", async () => {
 
   await funcs.checkPeriodicAlerts.run({});
 
-  assert.equal(await countAlerts(companyId), 0);
+  const snap = await db
+    .collection("companies")
+    .doc(companyId)
+    .collection("alerts")
+    .where("alertType", "==", "breakTooLong")
+    .get();
+  assert.equal(snap.size, 1);
 });
 
 // Max Hours counts the open shift from its clock-in (Phase 7: an overnight
