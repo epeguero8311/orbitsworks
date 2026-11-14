@@ -96,3 +96,30 @@ test("real store app on prod Firebase runs", () => {
 test("local dev client of the real app on dev Firebase still runs (no channel)", () => {
   assert.equal(evaluateRuntime({ channel: null, appVariant: "prod", bundleId: "com.orbitworks.app", projectId: DEV }).ok, true);
 });
+
+// Crew code / invite links (prod-readiness B4): each app opens only its own
+// website's links and its own scheme, so a dev link can never open the
+// real app (or the reverse).
+test("links: real app opens orbitsworks.com + orbitsworks://, dev app never does", () => {
+  const { VARIANTS } = require("../config/envRules");
+  const prod = VARIANTS.prod.joinLinks;
+  const dev = VARIANTS.dev.joinLinks;
+  assert.equal(prod.appUrl, "https://orbitsworks.com");
+  assert.equal(prod.scheme, "orbitsworks");
+  assert.notEqual(new URL(dev.appUrl).host, new URL(prod.appUrl).host);
+  assert.notEqual(dev.scheme, prod.scheme);
+  assert.equal(new URL(dev.appUrl).host.includes("orbitsworks.com"), false);
+});
+
+test("links: a real-app link is not a dev-app link and the reverse", () => {
+  const { VARIANTS } = require("../config/envRules");
+  const { parseAppLink } = require("../lib/joinLink");
+  const tok = "A".repeat(43);
+  const prodUrl = `https://orbitsworks.com/j/${tok}`;
+  const devUrl = `${VARIANTS.dev.joinLinks.appUrl}/j/${tok}`;
+  assert.ok(parseAppLink(prodUrl, VARIANTS.prod.joinLinks));
+  assert.equal(parseAppLink(prodUrl, VARIANTS.dev.joinLinks), null);
+  assert.equal(parseAppLink(devUrl, VARIANTS.prod.joinLinks), null);
+  assert.equal(parseAppLink(`orbitsworks-dev://j/${tok}`, VARIANTS.prod.joinLinks), null);
+  assert.equal(parseAppLink(`orbitsworks://j/${tok}`, VARIANTS.dev.joinLinks), null);
+});

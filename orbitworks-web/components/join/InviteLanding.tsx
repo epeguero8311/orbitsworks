@@ -37,7 +37,17 @@ export default function InviteLanding({ result, token, config }: Props) {
           <div className="mt-6 text-left text-sm text-gray-600">
             <p className="font-medium text-gray-900">Don&apos;t have the app yet?</p>
             <ol className="mt-2 list-decimal space-y-1 pl-5">
-              <li>Install {config.appName} from {config.installFrom}.</li>
+              <li>
+                Install {config.appName} from{" "}
+                {config.installUrl ? (
+                  <a href={config.installUrl} className="font-medium text-accent underline">
+                    {config.installFrom}
+                  </a>
+                ) : (
+                  config.installFrom
+                )}
+                .
+              </li>
               <li>Come back to your invite email on this phone.</li>
               <li>Tap the invite link again.</li>
             </ol>

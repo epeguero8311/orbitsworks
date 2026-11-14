@@ -63,10 +63,28 @@ export function buildAssetLinks(rawPackage: string | undefined, rawFingerprints:
 //                          orbitsworks-dev). Unset = no button.
 //   JOIN_APP_NAME          default "OrbitsWorks"
 //   JOIN_APP_INSTALL_FROM  default "the App Store or Google Play"
+//   JOIN_APP_INSTALL_URL   store page for the install step (prod: the App
+//                          Store listing). Only https links on Apple's or
+//                          Google's store hosts are used; unset or anything
+//                          else = plain text, no link.
 export interface JoinLandingConfig {
   appName: string;
   installFrom: string;
   scheme: string | null;
+  installUrl: string | null;
+}
+
+const INSTALL_HOSTS = new Set(["apps.apple.com", "testflight.apple.com", "play.google.com"]);
+
+export function safeInstallUrl(raw: string | undefined): string | null {
+  const value = (raw ?? "").trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && INSTALL_HOSTS.has(url.host) ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 const SCHEME = /^[a-z][a-z0-9+.-]{1,30}$/;
@@ -77,6 +95,7 @@ export function getJoinLandingConfig(): JoinLandingConfig {
     appName: (process.env.JOIN_APP_NAME ?? "").trim() || "OrbitsWorks",
     installFrom: (process.env.JOIN_APP_INSTALL_FROM ?? "").trim() || "the App Store or Google Play",
     scheme: SCHEME.test(scheme) ? scheme : null,
+    installUrl: safeInstallUrl(process.env.JOIN_APP_INSTALL_URL),
   };
 }
 

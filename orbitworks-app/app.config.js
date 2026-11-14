@@ -30,21 +30,19 @@ function runGuard() {
   }
 }
 
-function devOverrides(config) {
-  const dev = VARIANTS.dev;
-  const host = new URL(dev.joinLinks.appUrl).host;
+// The links this variant opens: its own website host (universal links /
+// Android app links) and its own custom scheme. Same shape for both apps.
+function linkOverrides(config, variant) {
+  const host = new URL(variant.joinLinks.appUrl).host;
   return {
     ...config,
-    name: dev.name,
-    scheme: dev.joinLinks.scheme,
+    scheme: variant.joinLinks.scheme,
     ios: {
       ...config.ios,
-      bundleIdentifier: dev.bundleId,
       associatedDomains: [`applinks:${host}`],
     },
     android: {
       ...config.android,
-      package: dev.bundleId,
       intentFilters: [
         {
           action: "VIEW",
@@ -61,6 +59,16 @@ function devOverrides(config) {
   };
 }
 
+function devOverrides(config) {
+  const dev = VARIANTS.dev;
+  return {
+    ...config,
+    name: dev.name,
+    ios: { ...config.ios, bundleIdentifier: dev.bundleId },
+    android: { ...config.android, package: dev.bundleId },
+  };
+}
+
 module.exports = ({ config }) => {
   runGuard();
   const variant = resolveVariant(process.env.APP_VARIANT);
@@ -72,7 +80,8 @@ module.exports = ({ config }) => {
       adaptiveIcon: { ...config.android.adaptiveIcon, backgroundColor: "#3b6fe0" },
     },
   };
-  const out = variant.key === "dev" ? devOverrides(base) : base;
+  const named = variant.key === "dev" ? devOverrides(base) : base;
+  const out = variant.joinLinks ? linkOverrides(named, variant) : named;
   const extra = { ...out.extra, appVariant: variant.key };
   // Only builds that take crew codes get joinLinks (a null here comes out
   // of expo config as {}, so leave the key off entirely).

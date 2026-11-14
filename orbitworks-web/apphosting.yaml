@@ -123,3 +123,39 @@ env:
     secret: ANTHROPIC_API_KEY
   - variable: GOOGLE_PLACES_API_KEY
     secret: GOOGLE_PLACES_API_KEY
+  # Employee App crew code (/j/) and email invite (/i/) links, served from
+  # orbitsworks.com and opened by the real app (com.orbitworks.app). The dev
+  # site sets its own values in apphosting.orbitworks_dev.yaml.
+  - variable: NEXT_PUBLIC_APP_URL
+    value: "https://orbitsworks.com"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: JOIN_APP_SCHEME
+    value: "orbitsworks"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: JOIN_APP_NAME
+    value: "OrbitsWorks"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: JOIN_APP_INSTALL_FROM
+    value: "the App Store"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: JOIN_APP_INSTALL_URL
+    value: "https://apps.apple.com/app/id6801155800"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Universal links: /.well-known/apple-app-site-association lists the real
+  # app only. Android (assetlinks.json) stays off until there is an Android
+  # app and its Play signing certificate.
+  - variable: APP_LINKS_IOS_APP_IDS
+    value: "6ZU7MHT284.com.orbitworks.app"
+    availability:
+      - BUILD
+      - RUNTIME

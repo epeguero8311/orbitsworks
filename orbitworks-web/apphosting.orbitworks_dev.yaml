@@ -150,6 +150,12 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # No public install link for the TestFlight-only dev app (empty = no link).
+  - variable: JOIN_APP_INSTALL_URL
+    value: ""
+    availability:
+      - BUILD
+      - RUNTIME
   - variable: APP_LINKS_IOS_APP_IDS
     value: "6ZU7MHT284.com.orbitworks.app.dev"
     availability:

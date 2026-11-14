@@ -16,6 +16,7 @@ const FIREBASE_PROJECTS = {
 const PROD_ASC_APP_ID = "6801155800";
 
 const DEV_APP_URL = "https://orbitsworks-backend--orbitworks-dev-ew.us-central1.hosted.app";
+const PROD_APP_URL = "https://orbitsworks.com";
 
 const VARIANTS = {
   prod: {
@@ -25,7 +26,10 @@ const VARIANTS = {
     firebaseEnv: "prod",
     updatesChannel: "production",
     easBuildProfile: "production",
-    joinLinks: null,
+    // Crew code (/j/) and email invite (/i/) links on the live website.
+    // Its own scheme, so a dev link (orbitsworks-dev) can never open the
+    // real app and a real link can never open the dev app.
+    joinLinks: { appUrl: PROD_APP_URL, scheme: "orbitsworks" },
   },
   dev: {
     key: "dev",
