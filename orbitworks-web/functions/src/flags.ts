@@ -14,9 +14,9 @@ export const PUSH_NOTIFICATIONS_ENABLED = defineBoolean("PUSH_NOTIFICATIONS_ENAB
 // shifts, so it gets its own rollout safety rail). Each company also has
 // its own autoClockOut.enabled toggle (Settings > Automations); the sweep
 // requires both to be true before touching anything, so flipping this on
-// is still safe with every company's own toggle left off. On prod this
-// param is actually controlled by functions/.env.orbitworks-7ef59 (gitignored,
-// not this `default`) - see that file for the live value.
+// is still safe with every company's own toggle left off. On each project
+// the live value is the line in functions/.env.<project> (tracked; the
+// predeploy check refuses a deploy without it), not this `default`.
 export const AUTO_CLOCK_OUT_ENABLED = defineBoolean("AUTO_CLOCK_OUT_ENABLED", { default: true });
 
 // TEST_COMPANY_IDS (a temporary per-company allowlist for alerts/pushes

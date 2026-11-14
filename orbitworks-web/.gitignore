@@ -36,6 +36,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+# Cloud Functions params - flags only, tracked on purpose (prod-readiness
+# item 11 C; checked by functions/scripts/check-functions-env.js).
+!functions/.env.orbitworks-7ef59
+!functions/.env.orbitworks-dev-ew
 
 # vercel
 .vercel
