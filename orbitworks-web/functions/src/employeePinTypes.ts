@@ -13,3 +13,10 @@ export type MyPinResult =
 // Per login: this many reveals in REVEAL_WINDOW_MS, then "try again later".
 export const PIN_REVEAL_MAX = 10;
 export const PIN_REVEAL_WINDOW_MS = 10 * 60 * 1000;
+
+// ---- Website: admins see employee PINs (prod-readiness item 7) ----
+//
+// getEmployeePins (admin/owner only) returns PINs from the server-only
+// companies/{c}/employeePins docs, keyed by employeeId. The website's copy
+// of this shape is lib/hooks/useEmployeePins.ts.
+export type EmployeePinsResult = { pins: Record<string, string> };

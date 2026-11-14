@@ -10,6 +10,7 @@ import { fenceForClockIn, fenceForNewClockIn } from "./employeeSiteExits";
 import { makePinVerifier, PinVerifierResult } from "./lib/pinVerifier";
 import { queuedPinCheck, readPinHistory } from "./lib/pinHistory";
 import { pinHistoryRef } from "./pins";
+import { readEmployeePin } from "./lib/employeePin";
 import {
   COULDNT_SYNC_MESSAGE,
   NOT_RECORDED_MESSAGE,
@@ -429,6 +430,9 @@ export const employeeClockPunch = onCall(async (request) => {
   const employee = employeeSnap.data() as EmployeeDoc | undefined;
   if (!employee || employee.linkedUserId !== uid) return reject(clockError("wrongAccount"));
   if (employee.active !== true) return reject(clockError("inactive"));
+  // prod-readiness item 7: the PIN lives in employeePins now (old field as
+  // the fallback until every employee is copied).
+  if (isInOut) employee.pin = (await readEmployeePin(companyId, employeeId, employee)) ?? undefined;
 
   const nowMs = Date.now();
 
@@ -647,7 +651,7 @@ export const getMyPinVerifier = onCall(async (request): Promise<PinVerifierResul
   const employee = employeeSnap.data() as EmployeeDoc | undefined;
   if (!employee || employee.linkedUserId !== request.auth.uid) throw clockError("wrongAccount");
   if (employee.active !== true) return { status: "inactive" };
-  return makePinVerifier(employee.pin);
+  return makePinVerifier((await readEmployeePin(companyId, employeeId, employee)) ?? undefined);
 });
 
 // ---- Employee App: the PIN on the Settings tab (getMyPin, Phase 10 A1) ----
@@ -660,8 +664,8 @@ export const getMyPinVerifier = onCall(async (request): Promise<PinVerifierResul
 // Never logged. At most PIN_REVEAL_MAX reads per login in
 // PIN_REVEAL_WINDOW_MS (kept in pinReveals/{uid}, server-only:
 // firestore.rules' catch-all denies every client).
-// When the PIN moves to a server-only doc (Phase 10 must-fix, D2 a), only
-// the read below changes.
+// The PIN is read from the server-only employeePins doc (prod-readiness
+// item 7, lib/employeePin.ts), with the old employee field as the fallback.
 export const getMyPin = onCall(async (request): Promise<MyPinResult> => {
   if (!request.auth) throw clockError("notSignedIn");
   const role = request.auth.token.role as string | undefined;
@@ -675,7 +679,8 @@ export const getMyPin = onCall(async (request): Promise<MyPinResult> => {
   const employee = employeeSnap.data() as EmployeeDoc | undefined;
   if (!employee || employee.linkedUserId !== request.auth.uid) throw clockError("wrongAccount");
   if (employee.active !== true) return { status: "inactive" };
-  if (typeof employee.pin !== "string" || !/^\d{4}$/.test(employee.pin)) return { status: "noPin" };
+  const myPin = await readEmployeePin(companyId, employeeId, employee);
+  if (!myPin) return { status: "noPin" };
 
   const uid = request.auth.uid;
   const allowed = await db.runTransaction(async (tx) => {
@@ -690,5 +695,5 @@ export const getMyPin = onCall(async (request): Promise<MyPinResult> => {
   if (!allowed) {
     throw new HttpsError("resource-exhausted", "You've checked your PIN a lot. Try again in a few minutes.", { reason: "tooMany" });
   }
-  return { status: "ok", pin: employee.pin };
+  return { status: "ok", pin: myPin };
 });

@@ -5,6 +5,7 @@ import { db } from "./shared";
 import { CONSENT_VERSIONS } from "./consentVersions";
 import { codeProblem, CompanyData, JoinCodeData } from "./joinCompany";
 import { getJoinInfoSchema, MIN_SIGNUP_AGE } from "./joinCompanyValidators";
+import { ipAllowed, TOO_MANY_MESSAGE } from "./lib/publicRateLimit";
 
 // ---- Employee App: what a crew code shows before sign-up (getJoinInfo) ----
 //
@@ -102,6 +103,10 @@ export async function runGetJoinInfo(raw: unknown, hooks: JoinInfoHooks = {}): P
 
 export const getJoinInfo = onCall(async (request) => {
   try {
+    // prod-readiness item 8: lookups per network.
+    if (!(await ipAllowed("ipInfo", request.rawRequest))) {
+      throw new HttpsError("resource-exhausted", TOO_MANY_MESSAGE, { reason: "tooMany" });
+    }
     return await runGetJoinInfo(request.data);
   } catch (err) {
     if (err instanceof HttpsError) throw err;

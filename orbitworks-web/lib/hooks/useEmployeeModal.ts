@@ -133,6 +133,16 @@ export function useEmployeeModal({
   const [editingPin, setEditingPin] = useState(false);
   const [pinValue, setPinValue] = useState(currentPin);
   const [pinError, setPinError] = useState<string | null>(null);
+  // The PIN can arrive after the modal opens (useEmployeePins loads it from
+  // the server) or change elsewhere: follow it unless the admin is editing.
+  const [seenPin, setSeenPin] = useState(employee.pin ?? "");
+  if ((employee.pin ?? "") !== seenPin) {
+    setSeenPin(employee.pin ?? "");
+    if (!editingPin) {
+      setCurrentPin(employee.pin ?? "");
+      setPinValue(employee.pin ?? "");
+    }
+  }
 
   // Include the employee's currently assigned job even if it has since
   // been deactivated, so it does not disappear from the dropdown.

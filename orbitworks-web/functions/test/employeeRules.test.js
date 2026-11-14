@@ -1134,8 +1134,23 @@ test("Phase 9 FAIL: no client sets, clears or dismisses a duplicate flag (contro
   for (const field of ["possibleDuplicateOf", "duplicateFlaggedAt", "dismissedDuplicateOf", "duplicateDismissedAt"]) {
     const value = field.endsWith("At") ? Timestamp.fromMillis(1) : ["empA"];
     await assertFails(
-      setDoc(doc(db, "companies", A, "employees", `dup-${field}`), { name: "New", active: true, assignedSiteIds: [], pin: "9999", [field]: value })
+      setDoc(doc(db, "companies", A, "employees", `dup-${field}`), { name: "New", active: true, assignedSiteIds: [], [field]: value })
     );
+  }
+});
+
+// ---- prod-readiness item 7: employeePins/{id} is server-only ----
+
+test("employeePins/{id} (the plain PIN) - no client reads or writes it, not admins, supervisors or the employee", async () => {
+  await testEnv.withSecurityRulesDisabled((c) =>
+    setDoc(doc(c.firestore(), "companies", A, "employeePins", "empA"), { pin: "1111" })
+  );
+  for (const ctx of [employeeA(), adminA(), supervisorA()]) {
+    const db = ctx.firestore();
+    await assertFails(getDoc(doc(db, "companies", A, "employeePins", "empA")));
+    await assertFails(getDocs(collection(db, "companies", A, "employeePins")));
+    await assertFails(setDoc(doc(db, "companies", A, "employeePins", "empA"), { pin: "2222" }));
+    await assertFails(deleteDoc(doc(db, "companies", A, "employeePins", "empA")));
   }
 });
 

@@ -8,6 +8,7 @@ import { useJobs } from "@/lib/hooks/useJobs";
 import { useSubcontractors } from "@/lib/hooks/useSubcontractors";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useEmployeeInvites } from "@/lib/hooks/useEmployeeInvites";
+import { useEmployeePins } from "@/lib/hooks/useEmployeePins";
 import { AddEmployeeForm } from "@/components/dashboard/employees/AddEmployeeForm";
 import { EmployeesTable } from "@/components/dashboard/employees/EmployeesTable";
 import { EmployeeModal } from "@/components/dashboard/employees/EmployeeModal";
@@ -22,7 +23,10 @@ import type { Employee } from "@/lib/types";
 // from ONE useEmployeeInvites listener.
 export function EmployeesPageView() {
   const { userData } = useAuth();
-  const { employees, loading, toggleEmployeeActive } = useEmployees();
+  const { employees: employeeDocs, loading, toggleEmployeeActive } = useEmployees();
+  // PINs come from the server-only employeePins (admin callable), not the
+  // employee doc - see useEmployeePins.
+  const employees = useEmployeePins(employeeDocs, !loading);
   const { sites } = useSites();
   const { jobs } = useJobs();
   const { subcontractors } = useSubcontractors();

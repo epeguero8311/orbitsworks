@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db, FREE_EMPLOYEE_CAP, isOverActiveCap, isOverTotalCap, EmployeeCapFields } from "./shared";
 import { reserveNewPin } from "./pins";
+import { employeeDocPinOnCreate, employeePinData, employeePinRef } from "./lib/employeePin";
 import { acceptInviteSchema, pickStaffInvite } from "./staffInviteValidators";
 
 export const createCompany = onCall(async (request) => {
@@ -327,9 +328,10 @@ export const acceptInvite = onCall(async (request) => {
     isAdmin: role === "admin",
     linkedUserId: uid,
     email: email,
-    pin: pin,
+    ...employeeDocPinOnCreate(pin),
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
+  batch.set(employeePinRef(invite.companyId, employeeRef.id), employeePinData(pin));
 
   // Finalize the PIN reservation claimed above with the real employeeId,
   // atomically with the employee/user docs it belongs to.

@@ -23,15 +23,19 @@ function fail(message) {
   process.exit(1);
 }
 
-function parseArgs(argv, scriptName) {
+// extraFlags: script-specific boolean flags, e.g. ["--strip"] -> args.strip.
+function parseArgs(argv, scriptName, extraFlags = []) {
   const args = { project: null, apply: false, confirmProd: false };
+  for (const f of extraFlags) args[f.slice(2)] = false;
+  const extraUsage = extraFlags.map((f) => ` [${f}]`).join("");
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--project") args.project = argv[++i];
     else if (a.startsWith("--project=")) args.project = a.slice("--project=".length);
     else if (a === "--apply") args.apply = true;
     else if (a === "--confirm-prod") args.confirmProd = true;
-    else fail(`Unknown argument "${a}". Usage: node scripts/${scriptName} --project <${ALLOWED.join("|")}> [--apply] [--confirm-prod]`);
+    else if (extraFlags.includes(a)) args[a.slice(2)] = true;
+    else fail(`Unknown argument "${a}". Usage: node scripts/${scriptName} --project <${ALLOWED.join("|")}> [--apply] [--confirm-prod]${extraUsage}`);
   }
   if (!args.project) fail(`--project is required (${ALLOWED.join(" or ")}).`);
   if (!ALLOWED.includes(args.project)) fail(`--project must be one of ${ALLOWED.join(", ")}.`);

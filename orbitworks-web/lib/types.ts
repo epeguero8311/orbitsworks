@@ -124,7 +124,11 @@ export interface Employee {
   // never invited (plain, or PIN-only supervisor with no login).
   email?: string;
   active: boolean;
-  pin: string;
+  // Being removed from the employee doc (prod-readiness item 7): the
+  // Employees page fills it from getEmployeePins (lib/hooks/useEmployeePins.ts).
+  pin?: string;
+  // Per-field edit times; every PIN write sets fieldEditedAt.pin.
+  fieldEditedAt?: { pin?: { toMillis(): number } };
   subcontractorId?: string | null;
   subcontractorName?: string | null;
   subcontractorHistory?: SubcontractorAssignmentRecord[];

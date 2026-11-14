@@ -13,6 +13,7 @@ import { pinHistoryRef, reserveNewPin } from "./pins";
 import { storagePathFromDownloadUrl } from "./rekognition";
 import { loginRoleFor } from "./employeeAccess";
 import { pendingInviteRefsForRow } from "./employeeInvites";
+import { employeeDocPinOnCreate, employeePinData, employeePinRef, readEmployeePin } from "./lib/employeePin";
 
 // Creates the employee doc and reserves its PIN entirely server-side
 // (Admin SDK transaction via reserveNewPin, same primitive acceptInvite
@@ -75,11 +76,12 @@ export const addEmployee = onCall(async (request) => {
     assignedSiteIds,
     hourlyRate,
     active: true,
-    pin,
+    ...employeeDocPinOnCreate(pin),
     subcontractorId,
     subcontractorName,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
+  batch.set(employeePinRef(callerCompanyId, employeeRef.id), employeePinData(pin));
   // Finalizes the placeholder reserveNewPin left behind - same
   // reserve-then-finalize pattern acceptInvite uses for supervisors.
   batch.set(
@@ -617,11 +619,13 @@ async function deleteEmployeeRecord(
   }
 
   const batch = db.batch();
-  if (employee.pin) {
+  const currentPin = await readEmployeePin(callerCompanyId, employeeId, employee);
+  if (currentPin) {
     batch.delete(
-      db.collection("companies").doc(callerCompanyId).collection("pins").doc(employee.pin)
+      db.collection("companies").doc(callerCompanyId).collection("pins").doc(currentPin)
     );
   }
+  batch.delete(employeePinRef(callerCompanyId, employeeId));
   // Phase 5: the earlier PINs go with the employee.
   batch.delete(pinHistoryRef(callerCompanyId, employeeId));
   if (email) {

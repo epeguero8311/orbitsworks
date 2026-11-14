@@ -14,6 +14,8 @@ import { EmployeeInviteDoc } from "./employeeInviteTypes";
 import { inviteProblem, InviteCompany, InviteEmployeeRow } from "./lib/employeeInviteChecks";
 import { copySelfieToPhoto, deleteStorageFile, isProPlan, releaseSignupPin, saveSelfieFile } from "./lib/signupShared";
 import { storagePathFromDownloadUrl } from "./rekognition";
+import { hitRateLimit, ipAllowed, tokenOf } from "./lib/publicRateLimit";
+import { employeeDocPinOnCreate, employeePinData, employeePinRef, pickPin } from "./lib/employeePin";
 
 // ---- Employee App: email invite sign-up (acceptEmployeeInvite) ----
 //
@@ -54,7 +56,7 @@ type Reason = keyof typeof JOIN_ERRORS | keyof typeof INVITE_ERRORS | "invalid";
 
 const MESSAGES: Record<Exclude<Reason, "invalid">, string> = { ...JOIN_ERRORS, ...INVITE_ERRORS };
 
-const CODES: Record<Reason, "failed-precondition" | "already-exists" | "invalid-argument" | "internal"> = {
+const CODES: Record<Reason, "failed-precondition" | "already-exists" | "invalid-argument" | "internal" | "resource-exhausted"> = {
   inactive: "failed-precondition",
   accountProblem: "failed-precondition",
   inviteInactive: "failed-precondition",
@@ -66,6 +68,7 @@ const CODES: Record<Reason, "failed-precondition" | "already-exists" | "invalid-
   photo: "invalid-argument",
   invalid: "invalid-argument",
   generic: "internal",
+  tooMany: "resource-exhausted",
 };
 
 function inviteError(reason: Reason, message?: string): HttpsError {
@@ -158,6 +161,7 @@ async function rollback(r: Rollback) {
       if (!r.committed) return;
       if (!r.existingRow) {
         await employeeRef.delete();
+        await employeePinRef(r.companyId, r.employeeId).delete();
         return;
       }
       const restore: Record<string, unknown> = {};
@@ -304,7 +308,7 @@ export async function runAcceptEmployeeInvite(raw: unknown, hooks: AcceptHooks =
     await db.runTransaction(async (tx) => {
       const subRef = input.subcontractorId ? companyRef.collection("subcontractors").doc(input.subcontractorId) : null;
       const siteRef = !existingRow && precheck.siteId ? companyRef.collection("jobSites").doc(precheck.siteId) : null;
-      const [inviteNow, company, row, active, total, sub, site, sameBirthday] = await Promise.all([
+      const [inviteNow, company, row, active, total, sub, site, sameBirthday, rowPinDoc] = await Promise.all([
         tx.get(inviteRef),
         tx.get(companyRef),
         existingRow ? tx.get(employeeRef) : Promise.resolve(null),
@@ -313,6 +317,7 @@ export async function runAcceptEmployeeInvite(raw: unknown, hooks: AcceptHooks =
         subRef ? tx.get(subRef) : Promise.resolve(null),
         siteRef ? tx.get(siteRef) : Promise.resolve(null),
         existingRow ? Promise.resolve(null) : tx.get(employeesRef.where("dob", "==", input.birthday)),
+        existingRow ? tx.get(employeePinRef(companyId, employeeId)) : Promise.resolve(null),
       ]);
       const invite = inviteNow.exists ? (inviteNow.data() as EmployeeInviteDoc) : undefined;
       const companyData = company.exists ? (company.data() as InviteCompany) : undefined;
@@ -334,7 +339,7 @@ export async function runAcceptEmployeeInvite(raw: unknown, hooks: AcceptHooks =
       tx.update(inviteRef, { status: "accepted", acceptedAt: now, acceptedByUid: uid, employeeId });
 
       if (existingRow && rowData) {
-        pin = typeof rowData.pin === "string" ? rowData.pin : "";
+        pin = pickPin(rowPinDoc?.data(), rowData) ?? "";
         r.before = Object.fromEntries(RESTORE_FIELDS.map((k) => [k, rowData[k]]));
         const update: Record<string, unknown> = { dob: input.birthday };
         // 5d: a name edited on the prefilled sign-up form goes to the row.
@@ -371,7 +376,7 @@ export async function runAcceptEmployeeInvite(raw: unknown, hooks: AcceptHooks =
           // The invite's site if it is still active, else none (an admin
           // assigns one later).
           assignedSiteIds: siteOk && precheck.siteId ? [precheck.siteId] : [],
-          pin,
+          ...employeeDocPinOnCreate(pin as string),
           subcontractorId: input.subcontractorId,
           subcontractorName: subName,
           joinedVia: "invite",
@@ -381,6 +386,7 @@ export async function runAcceptEmployeeInvite(raw: unknown, hooks: AcceptHooks =
           ...(duplicates.length > 0 ? { possibleDuplicateOf: duplicates, duplicateFlaggedAt: now } : {}),
         });
         tx.set(companyRef.collection("pins").doc(pin as string), { employeeId, updatedAt: admin.firestore.Timestamp.now() });
+        tx.set(employeePinRef(companyId, employeeId), employeePinData(pin as string));
       }
       tx.update(companyRef, { lastJoinAt: now });
       tx.set(consentRef, {
@@ -452,6 +458,10 @@ export async function runAcceptEmployeeInvite(raw: unknown, hooks: AcceptHooks =
 
 export const acceptEmployeeInvite = onCall({ memory: "512MiB" }, async (request) => {
   try {
+    // prod-readiness item 8: per network, then per invite link (attempts).
+    if (!(await ipAllowed("ipSignup", request.rawRequest))) throw inviteError("tooMany");
+    const token = tokenOf(request.data);
+    if (token && !(await hitRateLimit("inviteAttempt", token))) throw inviteError("tooMany");
     return await runAcceptEmployeeInvite(request.data);
   } catch (err) {
     if (err instanceof HttpsError) throw err;

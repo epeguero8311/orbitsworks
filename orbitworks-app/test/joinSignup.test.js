@@ -71,6 +71,12 @@ test("errors: every joinCompany reason maps somewhere sensible", () => {
   assert.equal(v.mapJoinError({ details: { reason: "photo" } }).kind, "photo");
   assert.equal(v.mapJoinError({ details: { reason: "generic" } }).kind, "retry");
   assert.deepEqual(v.mapJoinError({ details: { reason: "invalid" }, message: "Enter a real date of birth." }), { kind: "field", message: "Enter a real date of birth." });
+  // Server rate limit (prod-readiness item 8), crew code and invite alike.
+  for (const source of ["qr", "invite"]) {
+    const e = v.mapJoinError({ details: { reason: "tooMany" } }, source);
+    assert.equal(e.kind, "retry");
+    assert.match(e.message, /Wait a few minutes/);
+  }
 });
 
 test("errors: no reason (network, internal) means retry, never dead-end", () => {

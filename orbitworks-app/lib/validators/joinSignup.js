@@ -101,6 +101,8 @@ const REASONS = {
   subcontractor: { kind: "subcontractor", message: "That company option isn't available on this code anymore. Pick another." },
   photo: { kind: "photo", message: "That photo couldn't be used. Retake your selfie." },
   generic: { kind: "retry", message: "Something went wrong. Try again." },
+  // Server rate limit (functions lib/publicRateLimit.ts, prod-readiness item 8).
+  tooMany: { kind: "retry", message: "Too many tries right now. Wait a few minutes and try again." },
 };
 
 // Email invite (Phase 3B) wording. Same kinds, invite words instead of

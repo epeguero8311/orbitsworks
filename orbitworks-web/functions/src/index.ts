@@ -39,6 +39,7 @@ export {
   backfillEmployeePins,
   verifyPin,
   getPinSyncTable,
+  getEmployeePins,
 } from "./pins";
 
 export {

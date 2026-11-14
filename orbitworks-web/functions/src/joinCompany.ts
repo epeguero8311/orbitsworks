@@ -9,6 +9,8 @@ import { linkEmployeeLogin } from "./employeeAccess";
 import { BIOMETRIC_CONSENT_VERSION, PRIVACY_POLICY_VERSION } from "./consentVersions";
 import { decodeSelfie, joinCompanySchema, JoinCompanyInput, normalizeName } from "./joinCompanyValidators";
 import { copySelfieToPhoto, deleteStorageFile, isProPlan, overSeatCaps, releaseSignupPin, saveSelfieFile } from "./lib/signupShared";
+import { countRateLimit, ipAllowed, tokenOf, TOO_MANY_MESSAGE, underRateLimit } from "./lib/publicRateLimit";
+import { employeeDocPinOnCreate, employeePinData, employeePinRef } from "./lib/employeePin";
 
 // ---- Employee App: QR sign-up (joinCompany) ----
 //
@@ -38,11 +40,13 @@ export const JOIN_ERRORS = {
   consentVersion: "The privacy policy or consent was updated. Go back, review it and accept again.",
   photo: "That photo couldn't be used. Retake your selfie.",
   generic: "Something went wrong. Try again.",
+  // prod-readiness item 8 (lib/publicRateLimit.ts).
+  tooMany: TOO_MANY_MESSAGE,
 } as const;
 
 export type JoinErrorReason = keyof typeof JOIN_ERRORS | "invalid";
 
-const ERROR_CODES: Record<JoinErrorReason, "failed-precondition" | "already-exists" | "invalid-argument" | "internal"> = {
+const ERROR_CODES: Record<JoinErrorReason, "failed-precondition" | "already-exists" | "invalid-argument" | "internal" | "resource-exhausted"> = {
   inactive: "failed-precondition",
   accountProblem: "failed-precondition",
   emailInUse: "already-exists",
@@ -51,6 +55,7 @@ const ERROR_CODES: Record<JoinErrorReason, "failed-precondition" | "already-exis
   photo: "invalid-argument",
   invalid: "invalid-argument",
   generic: "internal",
+  tooMany: "resource-exhausted",
 };
 
 function joinError(reason: JoinErrorReason, message?: string): HttpsError {
@@ -178,6 +183,7 @@ async function rollback(r: Rollback) {
     ["rollback:employee", async () => {
       if (!r.committed) return;
       await companyRef.collection("employees").doc(r.employeeId).delete();
+      await employeePinRef(r.companyId, r.employeeId).delete();
     }],
     ["rollback:consent", async () => {
       if (!r.committed) return;
@@ -317,7 +323,7 @@ export async function runJoinCompany(raw: unknown, hooks: JoinHooks = {}): Promi
         // A code with no job site gives no assigned sites (an admin assigns
         // one later), same as an admin-created employee.
         assignedSiteIds: codeData.siteId ? [codeData.siteId] : [],
-        pin,
+        ...employeeDocPinOnCreate(pin),
         subcontractorId: input.subcontractorId,
         subcontractorName: sub && sub.exists ? String(sub.get("name") ?? "") : null,
         joinedVia: "qr",
@@ -327,6 +333,7 @@ export async function runJoinCompany(raw: unknown, hooks: JoinHooks = {}): Promi
         ...(duplicates.length > 0 ? { possibleDuplicateOf: duplicates, duplicateFlaggedAt: now } : {}),
       });
       tx.set(companyRef.collection("pins").doc(pin), { employeeId, updatedAt: admin.firestore.Timestamp.now() });
+      tx.set(employeePinRef(companyId, employeeId), employeePinData(pin));
       tx.update(codeRef, { joinedCount: admin.firestore.FieldValue.increment(1), lastJoinedAt: now });
       tx.update(companyRef, { lastJoinAt: now });
       tx.create(consentRef, {
@@ -379,7 +386,14 @@ export async function runJoinCompany(raw: unknown, hooks: JoinHooks = {}): Promi
 
 export const joinCompany = onCall({ memory: "512MiB" }, async (request) => {
   try {
-    return await runJoinCompany(request.data);
+    // prod-readiness item 8: per network, then per crew code (successful
+    // sign-ups only, so a crew's retries after a typo don't use it up).
+    if (!(await ipAllowed("ipSignup", request.rawRequest))) throw joinError("tooMany");
+    const token = tokenOf(request.data);
+    if (token && !(await underRateLimit("codeSignup", token))) throw joinError("tooMany");
+    const result = await runJoinCompany(request.data);
+    if (token) await countRateLimit("codeSignup", token);
+    return result;
   } catch (err) {
     if (err instanceof HttpsError) throw err;
     log("unexpected", err);

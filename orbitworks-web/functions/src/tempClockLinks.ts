@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import { randomBytes, randomUUID } from "crypto";
 import { db } from "./shared";
 import { listActiveTempClockLinksSchema, listTempClockLinkHistorySchema } from "./tempClockLinkValidators";
+import { findActiveEmployeeByPin } from "./lib/employeePin";
 import { TEMP_LINK_HISTORY_PAGE_SIZE, type ActiveTempLinkEntry, type TempLinkHistoryEntry, type TempLinkHistoryPage } from "./tempClockLinkTypes";
 
 const ALLOWED_DURATIONS_MINUTES = new Set([10, 30, 60]);
@@ -383,14 +384,9 @@ export const redeemTempClockLink = onCall(async (request) => {
   }
   await attemptRef.set({ count: count + 1, windowStart });
 
-  const employeesRef = db.collection("companies").doc(link.companyId).collection("employees");
-  const employeeSnap = await employeesRef
-    .where("pin", "==", pin)
-    .where("active", "==", true)
-    .limit(1)
-    .get();
+  const employeeDoc = await findActiveEmployeeByPin(link.companyId, pin);
 
-  if (employeeSnap.empty) {
+  if (!employeeDoc) {
     // A 4-digit PIN is only 10,000 combinations, and this token is
     // reachable by anyone with the link - the per-minute rate limit alone
     // isn't enough over a full 60-minute link lifetime, so this also caps
@@ -404,7 +400,6 @@ export const redeemTempClockLink = onCall(async (request) => {
 
   await attemptRef.delete();
 
-  const employeeDoc = employeeSnap.docs[0];
   const employee = employeeDoc.data() as {
     name?: string;
     lastEventType?: string;

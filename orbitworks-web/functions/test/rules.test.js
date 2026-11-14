@@ -327,6 +327,18 @@ test("client can still create an ordinary employee doc (no face fields)", async 
       name: "Ordinary",
       active: false,
       assignedSiteIds: [],
+    })
+  );
+});
+
+// prod-readiness item 7: a PIN is only ever set by a callable.
+test("client cannot create an employee doc with a pin", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "employees", "emp-with-pin"), {
+      name: "With PIN",
+      active: false,
+      assignedSiteIds: [],
       pin: "9999",
     })
   );
@@ -339,7 +351,6 @@ test("client cannot create an employee doc with faceReference set", async () => 
       name: "Forged",
       active: false,
       assignedSiteIds: [],
-      pin: "0000",
       faceReference: FAKE_FACE_REFERENCE,
     })
   );
@@ -352,7 +363,6 @@ test("client cannot create an employee doc with faceStatus set", async () => {
       name: "Forged",
       active: false,
       assignedSiteIds: [],
-      pin: "0000",
       faceStatus: "enrolled",
     })
   );

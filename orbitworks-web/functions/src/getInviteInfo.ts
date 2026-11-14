@@ -10,6 +10,7 @@ import { EmployeeInviteDoc, InviteInfoResult } from "./employeeInviteTypes";
 import { inviteProblem, InviteCompany, InviteEmployeeRow } from "./lib/employeeInviteChecks";
 import { buildInvitePrefill, PrefillRow } from "./lib/invitePrefill";
 import type { JoinInfoSubcontractor } from "./getJoinInfo";
+import { ipAllowed, TOO_MANY_MESSAGE } from "./lib/publicRateLimit";
 
 // ---- Employee App: what an email invite link shows before sign-up ----
 //
@@ -97,6 +98,10 @@ export async function runGetInviteInfo(raw: unknown, hooks: InviteInfoHooks = {}
 
 export const getInviteInfo = onCall(async (request) => {
   try {
+    // prod-readiness item 8: lookups per network.
+    if (!(await ipAllowed("ipInfo", request.rawRequest))) {
+      throw new HttpsError("resource-exhausted", TOO_MANY_MESSAGE, { reason: "tooMany" });
+    }
     return await runGetInviteInfo(request.data);
   } catch (err) {
     if (err instanceof HttpsError) throw err;
