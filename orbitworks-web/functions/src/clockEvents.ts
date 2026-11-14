@@ -207,15 +207,18 @@ export const onClockEventCreated = onDocumentCreated(
     // to compare for one, so labeling it "outside" would be misleading.
     const locationAttempted = data.source !== "adminManual" && data.location !== undefined;
     let companyIsPro = false;
-    // Phase 10 (D16 a): "Ask for job site each time" (website App Settings,
-    // default on) keeps the supervisor's pick - the server never
-    // re-detects over it.
+    // Phase 10 (D16 a): "Ask for job site each time" (website App Settings)
+    // on keeps the supervisor's pick - the server never re-detects over it.
+    // A company that never saved this setting (prod companyA at release)
+    // keeps the pre-release behaviour: re-detect (prod-readiness item 6 A).
+    // It moves to the saved value on its first Settings save (the website,
+    // live and new, writes the whole map with the toggle), and
+    // createCompany saves it for every new company.
     let askJobSiteEachTime = true;
     if (locationAttempted) {
       const companySnap = await db.collection("companies").doc(companyId).get();
       companyIsPro = isProPlan(companySnap.data()?.planTier as string | undefined);
-      const appSettings = companySnap.data()?.appSettings as { askJobSiteEachTime?: unknown } | undefined;
-      askJobSiteEachTime = appSettings?.askJobSiteEachTime !== false;
+      askJobSiteEachTime = resolveAskJobSiteEachTime(companySnap.data()?.appSettings);
     }
 
     // Auto site detection (Pro) - only the mobile app's own clock-in/out
@@ -1306,3 +1309,10 @@ export const addManualTimestamp = onCall(async (request) => {
 
   return { success: true };
 });
+
+// See the Phase 10 (D16 a) note in onClockEventCreated: only a saved true
+// keeps the pick; saved false or never saved (legacy) re-detects.
+export function resolveAskJobSiteEachTime(appSettings: unknown): boolean {
+  if (!appSettings || typeof appSettings !== "object") return false;
+  return (appSettings as { askJobSiteEachTime?: unknown }).askJobSiteEachTime === true;
+}

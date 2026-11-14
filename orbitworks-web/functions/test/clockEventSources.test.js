@@ -48,10 +48,17 @@ const CLOCK_PHOTO_URL =
 const PRO = "pro_tier1";
 const CORE = "core2_tier1";
 
-// appSettings: Phase 10 D16 a - "Ask for job site each time" (missing =
-// on, the website default) keeps the supervisor's pick.
-async function seedCompany(companyId, planTier, appSettings) {
-  await db.collection("companies").doc(companyId).set({ planTier, ...(appSettings ? { appSettings } : {}) });
+// appSettings: Phase 10 D16 a - "Ask for job site each time" on keeps the
+// supervisor's pick. Default here = what createCompany now saves for a new
+// company ({ askJobSiteEachTime: true }); LEGACY_NEVER_SAVED seeds a company
+// with no appSettings at all (prod companyA); never-saved keeps the
+// pre-release server re-detect (prod-readiness item 6 A).
+const LEGACY_NEVER_SAVED = Symbol("never saved");
+async function seedCompany(companyId, planTier, appSettings = { askJobSiteEachTime: true }) {
+  await db
+    .collection("companies")
+    .doc(companyId)
+    .set({ planTier, ...(appSettings === LEGACY_NEVER_SAVED ? {} : { appSettings }) });
 }
 const DETECT = { askJobSiteEachTime: false };
 
@@ -331,8 +338,8 @@ test("pin geofence via the shared helper: inside a fenced site / outside every f
 
 // ---- Phase 10 F1/F2 on the supervisor app (D15 b, D16 a, D18 b) ----
 
-test("pin, Ask for job site each time on (or never saved): the pick is kept, never re-detected", async () => {
-  for (const [c, settings] of [["src-ask-on", { askJobSiteEachTime: true }], ["src-ask-missing", undefined]]) {
+test("pin, Ask for job site each time saved on: the pick is kept, never re-detected", async () => {
+  for (const [c, settings] of [["src-ask-on", { askJobSiteEachTime: true }]]) {
     await seedCompany(c, PRO, settings);
     await seedEmployee(c, { withSelfie: false });
     await seedNearbySite(c);
@@ -340,6 +347,21 @@ test("pin, Ask for job site each time on (or never saved): the pick is kept, nev
     assert.equal(event.siteId, "assigned", c);
     assert.equal(event.siteAutoDetected, undefined, c);
     assert.equal(event.siteCorrected, undefined, c);
+  }
+});
+
+test("pin, setting never saved (legacy, prod companyA): the server still re-detects, as before the release", async () => {
+  for (const [c, settings] of [
+    ["src-ask-legacy-none", LEGACY_NEVER_SAVED],
+    ["src-ask-legacy-other-only", { allowAppEmployeeCreate: true }],
+    ["src-ask-off", { askJobSiteEachTime: false }],
+  ]) {
+    await seedCompany(c, PRO, settings);
+    await seedEmployee(c, { withSelfie: false });
+    await seedNearbySite(c);
+    const { event } = await createAndTrigger(c, "e1", { source: "pin", siteId: "assigned", siteName: "Assigned Site", ...AT_NEAR_SITE });
+    assert.equal(event.siteId, "near", c);
+    assert.equal(event.siteCorrected, true, c);
   }
 });
 

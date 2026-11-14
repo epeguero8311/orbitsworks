@@ -54,6 +54,10 @@ export const createCompany = onCall(async (request) => {
       overtimeWarning: true,
       missedClockOutAlert: true,
     },
+    // Saved up front so the server's "never saved = legacy re-detect" rule
+    // (clockEvents.ts resolveAskJobSiteEachTime) never applies to a new
+    // company - it gets the website's default, on.
+    appSettings: { askJobSiteEachTime: true },
     ownerUid: uid,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
 

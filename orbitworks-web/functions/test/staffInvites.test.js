@@ -124,3 +124,17 @@ test("callable: a link for someone else's invite, or a used one, is refused", as
   await assert.rejects(call({ name: "Val", inviteId: "nope" }, a3), (e) => e.code === "not-found");
   assert.equal((await db.doc("invites/invOther").get()).data().status, "pending");
 });
+
+// prod-readiness item 6 A: a new company saves "Ask for job site each time"
+// on, so the server's never-saved legacy rule (re-detect) can't apply to it.
+test("createCompany saves appSettings.askJobSiteEachTime: true", async () => {
+  const uid = "owner-" + Date.now();
+  await admin.auth().createUser({ uid, email: uid + "@x.co", password: "secret123" });
+  const { companyId } = await funcs.createCompany.run({
+    data: { companyName: "New Co", name: "Owner", agreedToTerms: true, termsVersion: "v1" },
+    auth: { uid, token: { email: uid + "@x.co" } },
+    rawRequest: {},
+  });
+  const company = (await db.collection("companies").doc(companyId).get()).data();
+  assert.deepEqual(company.appSettings, { askJobSiteEachTime: true });
+});
