@@ -148,6 +148,12 @@
         { "order": "ASCENDING", "queryScope": "COLLECTION" },
         { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
       ]
+    },
+    {
+      "collectionGroup": "publicRateLimits",
+      "fieldPath": "expiresAt",
+      "ttl": true,
+      "indexes": []
     }
   ]
 }
