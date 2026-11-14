@@ -11,6 +11,16 @@ import {
   toDatetimeLocalValue,
 } from "@/lib/clockEventDetailUtils";
 import { findSession } from "@/lib/clockPairing";
+import { reviewCorrection, type CorrectionNeighbours } from "@/lib/clockCorrection";
+
+// A correction waiting for the admin's confirm (same two-step as reassign).
+export interface PendingCorrection {
+  target: ClockEvent;
+  oldMs: number;
+  newMs: number;
+  reason: string;
+  neighbours: CorrectionNeighbours;
+}
 
 export function useClockEventDetail({
   event,
@@ -31,6 +41,7 @@ export function useClockEventDetail({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showHistoryId, setShowHistoryId] = useState<string | null>(null);
+  const [pendingCorrection, setPendingCorrection] = useState<PendingCorrection | null>(null);
 
   const [pendingNewEmployeeId, setPendingNewEmployeeId] = useState<string | null>(null);
   const [reassignSubmitting, setReassignSubmitting] = useState(false);
@@ -63,31 +74,50 @@ export function useClockEventDetail({
   }
 
   function handleCancelAdjust() {
+    setPendingCorrection(null);
     setAdjustingId(null);
     setNewTimeValue("");
     setReasonValue("");
     setErrorMsg(null);
   }
 
-  async function handleSubmitAdjust(target: ClockEvent) {
+  // Step 1 ("Save correction"): check the new time against the events this
+  // page has loaded and show the confirm. Nothing is saved yet.
+  function handleSubmitAdjust(target: ClockEvent) {
     if (!newTimeValue) return;
+    setErrorMsg(null);
+    const review = reviewCorrection(target, allEvents, new Date(newTimeValue).getTime(), reasonValue);
+    if (!review.ok) {
+      setErrorMsg(review.error);
+      return;
+    }
+    setPendingCorrection({ target, oldMs: review.oldMs, newMs: review.newMs, reason: reasonValue.trim(), neighbours: review.neighbours });
+  }
+
+  // Back to editing the time, keeping what was typed.
+  function handleCancelCorrection() {
+    setPendingCorrection(null);
+  }
+
+  // Step 2 ("Confirm"): the server checks the order again against the
+  // employee's full history and saves.
+  async function handleConfirmCorrection() {
+    if (!pendingCorrection) return;
     setSubmitting(true);
     setErrorMsg(null);
     try {
-      const newTimestampMs = new Date(newTimeValue).getTime();
-      if (!Number.isFinite(newTimestampMs)) {
-        throw new Error("Invalid date/time.");
-      }
       const correctClockEventFn = httpsCallable(functions, "correctClockEvent");
       await correctClockEventFn({
-        eventId: target.id,
-        newTimestamp: newTimestampMs,
-        ...(reasonValue.trim() ? { reason: reasonValue.trim() } : {}),
+        eventId: pendingCorrection.target.id,
+        newTimestamp: pendingCorrection.newMs,
+        ...(pendingCorrection.reason ? { reason: pendingCorrection.reason } : {}),
       });
+      setPendingCorrection(null);
       setAdjustingId(null);
       setNewTimeValue("");
       setReasonValue("");
     } catch (err) {
+      setPendingCorrection(null);
       setErrorMsg(
         err instanceof Error ? err.message : "Failed to save correction."
       );
@@ -148,6 +178,9 @@ export function useClockEventDetail({
     handleStartAdjust,
     handleCancelAdjust,
     handleSubmitAdjust,
+    pendingCorrection,
+    handleCancelCorrection,
+    handleConfirmCorrection,
     // reassign
     pendingNewEmployeeId,
     reassignSubmitting,

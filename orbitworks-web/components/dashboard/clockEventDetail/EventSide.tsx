@@ -245,6 +245,7 @@ export function EventSide({
                 value={reasonValue}
                 onChange={(e) => onReasonChange(e.target.value)}
                 placeholder="e.g. Forgot to clock out"
+                maxLength={500}
                 className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
               />
               {errorMsg && (

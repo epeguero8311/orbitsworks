@@ -15,6 +15,7 @@ import { classifyGeofence, geofenceForDetectedSite, geofenceForKeptSite, isSiteM
 import { checkLateClockIn, checkEarlyClockOut, checkOutsideGeofence, checkSiteMismatch, createAlertIfNew } from "./alerts";
 import { closeOpenSiteExits } from "./employeeSiteExits";
 import { checkFaceMatch, REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY } from "./rekognition";
+import { correctClockEventSchema, CORRECTION_FUTURE_SLACK_MS, findCorrectionConflict, correctionConflictMessage } from "./clockCorrectionValidators";
 
 // Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
 // why this can't just be imported.
@@ -856,31 +857,27 @@ export const correctClockEvent = onCall(async (request) => {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
-  const eventId = (request.data && request.data.eventId ? String(request.data.eventId) : "").trim();
-  const newTimestampMs = request.data && typeof request.data.newTimestamp === "number"
-    ? request.data.newTimestamp
-    : null;
-  const reason = request.data && typeof request.data.reason === "string"
-    ? request.data.reason.trim()
-    : undefined;
-
-  if (!eventId) {
-    throw new HttpsError("invalid-argument", "eventId is required.");
+  // Same input the live website has always sent ({ eventId, newTimestamp,
+  // reason? }) - see clockCorrectionValidators.ts.
+  const parsed = correctClockEventSchema.safeParse(request.data ?? {});
+  if (!parsed.success) {
+    throw new HttpsError("invalid-argument", parsed.error.issues[0]?.message ?? "Invalid correction.");
   }
-  if (newTimestampMs === null || !Number.isFinite(newTimestampMs)) {
-    throw new HttpsError("invalid-argument", "newTimestamp is required and must be a number (epoch ms).");
+  const { eventId, newTimestamp: newTimestampMs, reason } = parsed.data;
+
+  if (newTimestampMs > Date.now() + CORRECTION_FUTURE_SLACK_MS) {
+    throw new HttpsError("invalid-argument", "That time is in the future. Pick a time that has already happened.");
   }
 
-  const eventRef = db
-    .collection("companies")
-    .doc(callerCompanyId)
-    .collection("clockEvents")
-    .doc(eventId);
+  const eventsCol = db.collection("companies").doc(callerCompanyId).collection("clockEvents");
+  const eventRef = eventsCol.doc(eventId);
   const eventSnap = await eventRef.get();
   if (!eventSnap.exists) {
     throw new HttpsError("not-found", "Clock event not found.");
   }
   const event = eventSnap.data() as {
+    employeeId?: string;
+    type?: string;
     timestamp?: admin.firestore.Timestamp;
     adjustedTimestamp?: admin.firestore.Timestamp;
     adjustmentHistory?: Array<Record<string, unknown>>;
@@ -889,6 +886,34 @@ export const correctClockEvent = onCall(async (request) => {
   const previousValue = event.adjustedTimestamp ?? event.timestamp;
   if (!previousValue) {
     throw new HttpsError("failed-precondition", "Clock event has no existing timestamp to correct.");
+  }
+
+  // Order check: the corrected time must stay strictly between this
+  // employee's previous and next events (by effective time). Only events
+  // whose effective time lies between the old and the new time can be
+  // crossed, so only that span is read - padded by a week on the raw
+  // timestamp to catch an event an earlier correction moved into it
+  // (uses the existing employeeId + timestamp index).
+  if (typeof event.employeeId === "string" && event.employeeId) {
+    const currentMs = previousValue.toMillis();
+    const pad = 7 * 24 * 60 * 60 * 1000;
+    const lo = Math.min(currentMs, newTimestampMs) - pad;
+    const hi = Math.max(currentMs, newTimestampMs) + pad;
+    const span = await eventsCol
+      .where("employeeId", "==", event.employeeId)
+      .where("timestamp", ">=", admin.firestore.Timestamp.fromMillis(lo))
+      .where("timestamp", "<=", admin.firestore.Timestamp.fromMillis(hi))
+      .orderBy("timestamp", "asc")
+      .get();
+    const others = span.docs.map((d) => {
+      const data = d.data() as { type?: string; timestamp?: admin.firestore.Timestamp; adjustedTimestamp?: admin.firestore.Timestamp };
+      const eff = data.adjustedTimestamp ?? data.timestamp;
+      return { id: d.id, type: String(data.type ?? ""), ms: eff ? eff.toMillis() : NaN };
+    });
+    const conflict = findCorrectionConflict(others, eventId, currentMs, newTimestampMs);
+    if (conflict) {
+      throw new HttpsError("failed-precondition", correctionConflictMessage(String(event.type ?? ""), conflict));
+    }
   }
 
   const newTimestamp = admin.firestore.Timestamp.fromMillis(newTimestampMs);

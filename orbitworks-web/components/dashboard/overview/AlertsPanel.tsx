@@ -11,6 +11,7 @@ import { ReferencePhoto } from "@/components/time/ReferencePhoto";
 import { faceResultText } from "@/lib/clockPhoto";
 import { alertsCapNote } from "@/lib/alertsWindow";
 import { CollapseButton } from "@/components/dashboard/CollapseButton";
+import { reviewCorrection, clockEventTypeLabel, type CorrectionNeighbours } from "@/lib/clockCorrection";
 import {
   ALERT_SEVERITY,
   AlertItem,
@@ -54,6 +55,11 @@ export default function AlertsPanel({
 
   const [editingAlertKey, setEditingAlertKey] = useState<string | null>(null);
   const [editTimeValue, setEditTimeValue] = useState("");
+  // Moving a clock-in (correctClockEvent) waits for a Confirm, same as the
+  // event detail window's "Adjust time". Holds what the confirm shows.
+  const [pendingClockInEdit, setPendingClockInEdit] = useState<
+    { alertKey: string; oldMs: number; newMs: number; neighbours: CorrectionNeighbours } | null
+  >(null);
   const [alertActionSubmitting, setAlertActionSubmitting] = useState<string | null>(null);
   const [alertActionError, setAlertActionError] = useState<string | null>(null);
   const [ignoringAll, setIgnoringAll] = useState(false);
@@ -182,6 +188,7 @@ export default function AlertsPanel({
   }
 
   function handleCancelEditTime() {
+    setPendingClockInEdit(null);
     setEditingAlertKey(null);
     setEditTimeValue("");
     setAlertActionError(null);
@@ -194,6 +201,18 @@ export default function AlertsPanel({
     try {
       const chosenMs = new Date(editTimeValue).getTime();
       if (alert.alertType === "clockedInOutsideGeofence") {
+        // Step 1: check and show the confirm. Step 2 (Confirm) saves.
+        if (!pendingClockInEdit || pendingClockInEdit.alertKey !== alert.key || pendingClockInEdit.newMs !== chosenMs) {
+          if (!alert.event) return;
+          const review = reviewCorrection(alert.event, recentEvents, chosenMs);
+          if (!review.ok) {
+            setAlertActionError(review.error);
+            return;
+          }
+          setPendingClockInEdit({ alertKey: alert.key, oldMs: review.oldMs, newMs: review.newMs, neighbours: review.neighbours });
+          return;
+        }
+        setPendingClockInEdit(null);
         await editClockInTimeFromAlert(alert, chosenMs);
       } else {
         await submitEditTimeFromAlert(alert, chosenMs);
@@ -347,9 +366,32 @@ export default function AlertsPanel({
                         <input
                           type="datetime-local"
                           value={editTimeValue}
-                          onChange={(e) => setEditTimeValue(e.target.value)}
+                          onChange={(e) => {
+                            setPendingClockInEdit(null);
+                            setEditTimeValue(e.target.value);
+                          }}
                           className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
                         />
+                        {pendingClockInEdit?.alertKey === alert.key && (
+                          <div className="rounded-md border-2 border-amber-300 bg-amber-50 p-2 text-xs text-gray-800">
+                            <p className="font-medium text-gray-950">
+                              Change this clock-in from {new Date(pendingClockInEdit.oldMs).toLocaleString()} to{" "}
+                              {new Date(pendingClockInEdit.newMs).toLocaleString()}?
+                            </p>
+                            {pendingClockInEdit.neighbours.prev && (
+                              <p className="mt-1 text-gray-600">
+                                Before it: {clockEventTypeLabel(pendingClockInEdit.neighbours.prev.type)} at{" "}
+                                {new Date(pendingClockInEdit.neighbours.prev.ms).toLocaleString()}
+                              </p>
+                            )}
+                            {pendingClockInEdit.neighbours.next && (
+                              <p className="mt-1 text-gray-600">
+                                After it: {clockEventTypeLabel(pendingClockInEdit.neighbours.next.type)} at{" "}
+                                {new Date(pendingClockInEdit.neighbours.next.ms).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                        )}
                         <div className="flex gap-2 pt-1">
                           <button
                             type="button"
@@ -357,7 +399,11 @@ export default function AlertsPanel({
                             onClick={() => handleSubmitEditTime(alert)}
                             className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {isSubmitting ? "Saving..." : "Save"}
+                            {isSubmitting
+                              ? "Saving..."
+                              : pendingClockInEdit?.alertKey === alert.key
+                                ? "Confirm"
+                                : "Save"}
                           </button>
                           <button
                             type="button"
