@@ -150,9 +150,12 @@ env:
     availability:
       - BUILD
       - RUNTIME
-  # No public install link for the TestFlight-only dev app (empty = no link).
+  # No public install link for the TestFlight-only dev app. App Hosting
+  # rejects an empty value, and leaving it out would inherit the prod App
+  # Store link, so "none": safeInstallUrl() drops anything that isn't an
+  # https store page, which means plain text, no link.
   - variable: JOIN_APP_INSTALL_URL
-    value: ""
+    value: "none"
     availability:
       - BUILD
       - RUNTIME

@@ -40,6 +40,11 @@ function check(label, ok, detail) {
   if (!ok) failed += 1;
 }
 
+// App Hosting fails the whole build ("apphosting.yaml ... not formatted
+// properly") on an empty value: "".
+const empty = [...dev.vars.values()].filter((v) => v.value === "").map((v) => v.name);
+check("No empty values (App Hosting rejects value: \"\")", empty.length === 0, empty.join(", "));
+
 const missing = [...prod.vars.keys()].filter((k) => !dev.vars.has(k));
 check(`Every apphosting.yaml variable redefined for dev (${prod.vars.size})`, missing.length === 0, missing.join(", "));
 
