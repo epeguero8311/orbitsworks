@@ -14,21 +14,26 @@
 // BIOMETRIC_CONSENT_VERSION, so every stored consent record points at the
 // exact words the person agreed to.
 
+// r7 (2026-11-17, biometric audit b-e): Remove photo, Employee App account
+// deletion, sign-up selfies, private photo links, 90-day clock photos.
 // r6 (2026-11-04, Employee App Phase 8): the privacy policy and employee
 // notice now cover Always location while clocked in on a Pro company with
 // a geofenced job site. Bumping this also shows the website's Terms
 // re-accept prompt to owners (TERMS_VERSION).
-export const PRIVACY_POLICY_VERSION = "2026-11-04-r6";
+export const PRIVACY_POLICY_VERSION = "2026-11-17-r7";
 
-export const BIOMETRIC_CONSENT_VERSION = "employee-signup-2026-10-23-v1";
+// v2 (2026-11-17): says clock photos are usually deleted after 90 days and
+// that the employee can delete their account in Settings.
+export const BIOMETRIC_CONSENT_VERSION = "employee-signup-2026-11-17-v2";
 
 export const BIOMETRIC_CONSENT_TEXT =
   "I agree that my employer can use my photo for face checks when I clock in " +
   "and out, to confirm it is really me. My signup selfie becomes my reference " +
   "photo. Clock-in photos are compared to it using Amazon Rekognition. Photos " +
-  "are only used for these checks, are never sold, and are deleted on the " +
-  "schedule in the OrbitsWorks Biometric Data Policy. I can ask my employer " +
-  "to delete my face data at any time.";
+  "are only used for these checks and are never sold. Clock-in and clock-out " +
+  "photos are usually deleted after 90 days. I can delete my account in " +
+  "Settings at any time, which deletes my selfie and reference photo, or ask " +
+  "my employer to remove my photo.";
 
 export const CONSENT_VERSIONS = {
   privacyPolicyVersion: PRIVACY_POLICY_VERSION,

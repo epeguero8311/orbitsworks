@@ -18,7 +18,7 @@ export default function EmployeeNoticeContent() {
       </div>
 
       <p className="text-sm text-gray-500">
-        Template version: October 14, 2026. This is a sample notice for
+        Template version: November 17, 2026. This is a sample notice for
         Customer to review, adapt, and have reviewed by its own counsel
         before giving it to Employees. It is not legal advice, and using
         it does not by itself guarantee compliance with every law that
@@ -29,7 +29,7 @@ export default function EmployeeNoticeContent() {
 
       <h2>Employee Biometric and Location Notice and Consent</h2>
       <p>
-        <strong>[Company Name]</strong> uses OrbitWorks, a workforce
+        <strong>[Company Name]</strong> uses OrbitsWorks, a workforce
         time-tracking service, to record when you clock in and out of
         work. Depending on your plan, this may include face verification
         and location features described below.
@@ -57,10 +57,14 @@ export default function EmployeeNoticeContent() {
       <p>
         <strong>Retention:</strong> your reference photo is kept while it
         is your active profile photo. If it is ever replaced, the old
-        photo is kept for up to 30 days and then deleted. Clock-in/
-        clock-out photos are kept as part of your attendance history. You
-        may ask [Company Name] to delete your photos at any time, subject
-        to legal recordkeeping requirements.
+        photo is kept for up to 30 days and then deleted. Clock-in and
+        clock-out photos are deleted 90 days after they are taken (or 90
+        days after any face-check alert on that photo is resolved); your
+        clock-in and clock-out times stay in your attendance history.
+        [Company Name] can remove your profile photo at any time, which
+        deletes it and stops face checks. If you use the OrbitsWorks app,
+        you can delete your account in the app&apos;s Settings, which deletes
+        your profile photo and sign-up selfie.
       </p>
       <p>
         <strong>No other use:</strong> your facial data is never sold,
@@ -138,7 +142,7 @@ export default function EmployeeNoticeContent() {
 
         <h2>Aviso y Consentimiento de Datos Biometricos y Ubicacion del Empleado</h2>
         <p>
-          <strong>[Nombre de la Empresa]</strong> utiliza OrbitWorks, un
+          <strong>[Nombre de la Empresa]</strong> utiliza OrbitsWorks, un
           servicio de control de tiempo laboral, para registrar cuando
           usted entra y sale del trabajo. Segun su plan, esto puede
           incluir verificacion facial y funciones de ubicacion descritas
@@ -169,11 +173,15 @@ export default function EmployeeNoticeContent() {
           <strong>Retencion:</strong> su foto de referencia se conserva
           mientras sea su foto de perfil activa. Si alguna vez se
           reemplaza, la foto anterior se conserva hasta 30 dias y luego
-          se elimina. Las fotos de entrada/salida se conservan como parte
-          de su historial de asistencia. Usted puede solicitar a
-          [Nombre de la Empresa] que elimine sus fotos en cualquier
-          momento, sujeto a los requisitos legales de conservacion de
-          registros.
+          se elimina. Las fotos de entrada y salida se eliminan 90 dias
+          despues de tomarse (o 90 dias despues de que se resuelva
+          cualquier alerta de verificacion facial sobre esa foto); sus
+          horas de entrada y salida permanecen en su historial de
+          asistencia. [Nombre de la Empresa] puede eliminar su foto de
+          perfil en cualquier momento, lo que la borra y detiene las
+          verificaciones faciales. Si usa la aplicacion OrbitsWorks, puede
+          eliminar su cuenta en Configuracion dentro de la aplicacion, lo
+          que borra su foto de perfil y su selfie de registro.
         </p>
         <p>
           <strong>Ningun otro uso:</strong> sus datos faciales nunca se
