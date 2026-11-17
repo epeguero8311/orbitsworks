@@ -2,12 +2,13 @@
 
 The single ordered list of phone and website tests still owed before the
 prod release. It started as section 6 of the 2026-11-13 prod-readiness audit
-and is kept current here. Last updated **2026-11-14** (prod-readiness fixes:
-items 1-11).
+and is kept current here. Last updated **2026-11-17** (biometric blockers b, c
+and d: the BIO- tests below).
 
 **Build:** the next OrbitsWorks Dev build (after build 27) + the dev website
 (orbitworks-dev-ew). Build 27 can run everything except the new app-side
-items, which are marked **(new build)**.
+items, which are marked **(new build)**. The BIO-P tests (Delete account)
+need build 29 or later.
 
 Before Session 2 I run, on dev: `migrateEmployeePins.js --apply` (copy),
 `backfillEmployeeAppConfig.js --apply` and `recheckBadFaceReferences.js`.
@@ -47,6 +48,28 @@ No results are recorded yet. Log failures in `phase10-test-round.md` B.
 | PR-A1 | phone | A dev company that was NOT in the old TEST_COMPANY_IDS list: a break past its limit | Alert row plus push, like 7-B1. (item 2) |
 | PR-J1 | phone | **(new build)** Join with a crew code 3 times from the same Wi-Fi (reinstall between) | All 3 work. The rate limit never shows in normal use. The limit itself is unit-tested. (item 8) |
 
+## New tests for the biometric blockers (BIO-, 2026-11-17)
+
+From `docs/biometric-audit.md`: b = Employee App Delete account, c = Remove
+photo, d = photo cleanup on delete. Use a Pro company unless the test says
+Core. Storage checks are mine (I look in the dev bucket and tell you).
+
+| # | Where | Do | Expect |
+|---|---|---|---|
+| BIO-W1 | web | (c) Employees > open an employee who signed up in the app (has a photo) > **Remove photo** > Cancel. Then Remove photo > **Yes, remove photo** | Cancel changes nothing. Yes: the photo is gone, the row shows "No face check", and their old clock events still show their clock photos and face results. Storage: `employees/{id}/` (reference.jpg and selfie/) is empty. The Edit window still works and Change photo is offered. |
+| BIO-W2 | both | (c) After BIO-W1, that employee clocks in and out on the phone. Then the website adds a new photo with Change photo, and they clock in again | First shift: no face check result and no face alert. After the new photo: the next clock-in gets a face result again. |
+| BIO-W3 | web | (c) An employee with a bad photo ("Photo needs update" tag + the Bad Reference Photo alert) > Remove photo | The tag and the alert both go away. |
+| BIO-W4 | web | (d) Employees > delete an employee who signed up in the app (has a selfie) and has clock events | The row is gone. Time still shows their clock events with photos. Storage: their `employees/{id}/` folder is gone, and `clockEvents/{id}/` photos are still there. |
+| BIO-P1 | phone | (b) **(build 29)** Employee App, clocked in: Settings > **Delete account**. Then start a break and try again | Both times: "Clock out first, then delete your account." with only an OK button. Nothing else happens: still signed in, website unchanged. |
+| BIO-P2 | phone | (b) **(build 29)** Clocked out, airplane mode: Settings > Delete account > **Delete account** | "No connection. Connect to the internet and try again." The box stays open. Nothing is deleted. |
+| BIO-P3 | phone | (b) **(build 29)** Airplane mode: clock in and out (2 punches wait on the phone). Turn airplane mode off and right away: Settings > Delete account > **Delete account** | The punches sync first, then the account is deleted. On the website both punches are there. (If the sync can't finish, it says "2 punches haven't synced yet..." and deletes nothing.) |
+| BIO-P4 | both | (b) **(build 29)** Pro company, clocked out: Settings > Delete account. Read the box, tap **Keep my account**, then again > **Delete account** | Keep closes it. Delete: the app signs out to the start screen. Signing in with the same email fails. Website: the employee is inactive (seat freed), shows a gray **Deleted app account** tag, no photo, PIN "-". Their clock events are still on Time, and opening one shows the same tag. Overview has a blue "Deleted App Account" alert. The supervisor app's Alerts tab does NOT show it. Storage: their `employees/{id}/` folder is gone; `clockEvents/{id}/` photos remain. |
+| BIO-P5 | both | (b) **(build 29)** Repeat BIO-P4 on a **Core** company employee | Same result (no face checks on Core, but the selfie and PIN still go). |
+| BIO-W5 | web | (b) After BIO-P4: reactivate that employee and set a PIN | Reactivates normally. The Edit window offers Invite to app. The tag stays as the record. |
+
+Can't be tested in the round (unit-tested): d's deactivation sweep (1 year)
+and cancellation sweep (90 days) deleting the whole `employees/` folder.
+
 ## iOS: Dev build + dev website
 
 Do each phase's Step 0 first (test-run-phase7/8/9). Keep the geofence OFF
@@ -58,6 +81,7 @@ until Session 3.
 2. 9-E1, 9-E2, 9-E3, 9-E5, 9-R1, 9-C1, 9-C2
 3. 10-W1, 10-W2, 10-W3, 10-W4, 10-W5, 10-W6, 10-W8a, 10-W8b
 4. PR-W1, PR-W2, PR-W3, PR-W4, PR-W5, PR-W6, PR-W7
+5. BIO-W1, BIO-W3, BIO-W4 (after the 2026-11-17 dev deploy)
 
 **Session 2: phone at the desk**
 
@@ -98,6 +122,9 @@ until Session 3.
    - 10-FN5
    - CC-1, CC-2, CC-3
 7. Geofence consent (turn the Site A geofence ON): 8-P1, 8-P2, 8-P3, 8-P5, 8-P6, 9-E4
+8. Delete account and Remove photo (build 29): BIO-W2, BIO-P1, BIO-P2,
+   BIO-P3, BIO-P4, BIO-P5, BIO-W5. Do these last in the session; each
+   BIO-P deletes the test employee's login (sign up a new one for the next).
 
 **Session 3: walking outside**
 
@@ -133,7 +160,7 @@ walk-through). Add:
 
 ## P. Prod smoke test (after the prod deploy, ShipMate only, real app from the production profile)
 
-1. The owner signs in on orbitsworks.com and accepts Terms r6.
+1. The owner signs in on orbitsworks.com and accepts Terms r7.
 2. `https://orbitsworks.com/.well-known/apple-app-site-association` loads and lists `6ZU7MHT284.com.orbitworks.app` for `/j/` and `/i/` (item 1).
 3. Crew Access: create a crew code. Employees: send an Employee (app) invite to a + address.
 4. Real app: "Join with crew code" shows. Scan, sign up, see your PIN. The email invite link and a `/j/` link open the app (universal link). On a phone without the app, `/j/` shows an App Store link (item 1).
