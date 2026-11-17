@@ -16,7 +16,15 @@ import { useCommentQueue } from "../../lib/hooks/useCommentQueue";
 import { useSiteExitQueue } from "../../lib/hooks/useSiteExitQueue";
 import { useNow } from "../../lib/hooks/useNow";
 import { formatWhen } from "../../lib/punchQueueLogic";
-import { logoutCounts, logoutWarning, settingsRows } from "../../lib/employeeSettings";
+import {
+  DELETE_ACCOUNT_OPEN_SHIFT,
+  deleteAccountOpenShift,
+  logoutCounts,
+  logoutWarning,
+  settingsRows,
+} from "../../lib/employeeSettings";
+import { useEmployeeSelfView } from "../../lib/hooks/useEmployeeSelfView";
+import { deleteMyEmployeeAccount } from "../../lib/employeeAccountApi";
 import { savedPinText } from "../../lib/savedPin";
 import TabPage from "../../components/ui/TabPage";
 import ListRow from "../../components/ui/ListRow";
@@ -38,6 +46,10 @@ import { signOutEmployee } from "../../lib/employeeSignOut";
 // version, Update (OTA id or Built-in), dev punch timings (dev builds only)
 // and Log out - with a warning when punches or comments are still waiting
 // on the phone (they stay, and sync only when this employee signs back in).
+// Last, Delete account (biometric audit b, Apple account deletion): refused
+// while clocked in or on a break ("Clock out first..."), else a red confirm
+// box; Yes syncs everything first, then the server deletes the login, photo,
+// selfie and PIN (lib/employeeAccountApi.js) and the phone signs out.
 export default function EmployeeSettingsScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const styles = useStyles();
@@ -54,6 +66,11 @@ export default function EmployeeSettingsScreen() {
   const siteExits = useSiteExitQueue(companyId, employeeId);
   const now = useNow(60000);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const { view } = useEmployeeSelfView(companyId, employeeId);
+  // null | "openShift" | "confirm"
+  const [deleteStep, setDeleteStep] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const version = Constants.expoConfig?.version ?? "";
   const lastSynced = queue.lastSyncedMs ? formatWhen(queue.lastSyncedMs, now, timezone) : "Never";
 
@@ -76,6 +93,29 @@ export default function EmployeeSettingsScreen() {
   const waiting = logoutCounts(queue.all, comments.all, companyId, employeeId, siteExits);
   const notSynced = logoutWarning(waiting.punches, waiting.comments, waiting.siteExits);
   const onLogout = () => (notSynced ? setConfirmLogout(true) : logOut());
+
+  const onDeleteAccount = () => {
+    setDeleteError(null);
+    setDeleteStep(deleteAccountOpenShift(view, queue.all, companyId, employeeId, Date.now()) ? "openShift" : "confirm");
+  };
+  const closeDelete = () => {
+    if (deleting) return;
+    setDeleteStep(null);
+    setDeleteError(null);
+  };
+  const confirmDelete = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    const res = await deleteMyEmployeeAccount(companyId, employeeId);
+    if (res.ok) {
+      // The login is gone on the server: clear this phone and sign out.
+      await logOut();
+      return;
+    }
+    setDeleting(false);
+    if (res.error === DELETE_ACCOUNT_OPEN_SHIFT) setDeleteStep("openShift");
+    else setDeleteError(res.error);
+  };
 
   return (
     <TabPage title="Settings">
@@ -140,6 +180,17 @@ export default function EmployeeSettingsScreen() {
         </ListRow>
       </View>
 
+      <View style={styles.section}>
+        <ListRow
+          divider={false}
+          onPress={onDeleteAccount}
+          accessibilityLabel="Delete account"
+          right={<Feather name="trash-2" size={20} color={colors.redStrong} />}
+        >
+          <Text style={styles.logout}>Delete account</Text>
+        </ListRow>
+      </View>
+
       <ConfirmModal
         visible={confirmLogout}
         title={notSynced}
@@ -152,6 +203,31 @@ export default function EmployeeSettingsScreen() {
           logOut();
         }}
         onCancel={() => setConfirmLogout(false)}
+      />
+
+      <ConfirmModal
+        visible={deleteStep === "openShift"}
+        title={DELETE_ACCOUNT_OPEN_SHIFT}
+        confirmLabel="OK"
+        cancelLabel={null}
+        onConfirm={closeDelete}
+        onCancel={closeDelete}
+      />
+
+      <ConfirmModal
+        visible={deleteStep === "confirm"}
+        title="Delete your account?"
+        message={
+          "This deletes your login, your selfie and profile photo, and your PIN. It can't be undone.\n\n" +
+          "Your clock-in and clock-out times stay with your employer as their records."
+        }
+        confirmLabel="Delete account"
+        confirmTone="red"
+        cancelLabel="Keep my account"
+        error={deleteError}
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onCancel={closeDelete}
       />
     </TabPage>
   );

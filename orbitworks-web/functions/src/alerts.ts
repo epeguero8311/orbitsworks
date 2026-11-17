@@ -79,6 +79,12 @@ export const ALERT_TYPES = [
   // siteExitId; eventId is the shift's clock-in. Behind the company's
   // leftJobSiteAlert setting (default on). See employeeSiteExits.ts.
   "leftJobSite",
+  // Employee App "Delete account" - the employee deleted their own app
+  // login (functions/src/employeeAccount.ts). Admin/owner web Overview
+  // only, never pushed (createAlertIfNew directly), filtered out of the
+  // supervisor mobile Alerts tab (useAlertsFeed.js). One per employee per
+  // day (employeeId + dateKey, the default id).
+  "employeeAccountDeleted",
 ] as const;
 
 export type AlertType = (typeof ALERT_TYPES)[number];
@@ -113,6 +119,8 @@ export const ALERT_SEVERITY: Record<AlertType, "urgent" | "warning" | "info"> = 
   pinChanged: "warning",
   // Flag only - leaving never blocks or ends anything.
   leftJobSite: "warning",
+  // Info only - the employee's own choice, nothing to fix.
+  employeeAccountDeleted: "info",
 };
 
 // The untrusted-input boundary for alert generation: validates every id
@@ -263,6 +271,7 @@ const ALERT_ID_PREFIX: Record<AlertType, string> = {
   pinChanged: "pinchanged",
   // Keyed by the SiteExit id (siteExitId branch below).
   leftJobSite: "left",
+  employeeAccountDeleted: "appdeleted",
 };
 
 function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string): string {

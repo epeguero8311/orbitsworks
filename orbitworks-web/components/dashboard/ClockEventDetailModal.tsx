@@ -7,6 +7,7 @@ import { CorrectionConfirm } from "@/components/dashboard/clockEventDetail/Corre
 import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
 import { sessionSiteNote } from "@/lib/clockOutSite";
 import { SyncedLateTag } from "@/components/time/SyncedLateTag";
+import { DeletedAppAccountTag } from "@/components/time/DeletedAppAccountTag";
 import { ClockEvent } from "@/lib/types";
 
 type Props = {
@@ -37,6 +38,7 @@ export default function ClockEventDetailModal({
               <h2 className="text-base font-semibold text-gray-950">
                 {d.liveEvent.employeeName}
               </h2>
+              <DeletedAppAccountTag deleted={d.appAccountDeleted} />
               {d.isAdmin && (
                 <EmployeeReassignDropdown
                   currentEmployeeId={d.liveEvent.employeeId}

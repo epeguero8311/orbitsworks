@@ -6,7 +6,8 @@ import Button from "./Button";
 // Dimmed backdrop with a centered white box: a question, a colored confirm
 // button and an outlined blue Cancel. message: an optional plain line under
 // the question. An error shows under the question and the box stays open,
-// with the confirm button reading "Try again".
+// with the confirm button reading "Try again". cancelLabel={null} shows the
+// confirm button only (a notice with just OK).
 export default function ConfirmModal({
   visible,
   title,
@@ -29,7 +30,9 @@ export default function ConfirmModal({
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <View style={styles.buttons}>
             <Button label={error ? "Try again" : confirmLabel} tone={confirmTone} onPress={onConfirm} busy={busy} />
-            <Button label={cancelLabel} tone="blue" variant="outline" onPress={onCancel} disabled={busy} />
+            {cancelLabel ? (
+              <Button label={cancelLabel} tone="blue" variant="outline" onPress={onCancel} disabled={busy} />
+            ) : null}
           </View>
         </View>
       </View>

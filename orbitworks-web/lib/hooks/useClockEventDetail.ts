@@ -60,6 +60,8 @@ export function useClockEventDetail({
     : "Unknown date";
 
   const activeEmployees = employees.filter((e) => e.active);
+  // Employee App "Delete account" - tags this employee's clock events.
+  const appAccountDeleted = !!employees.find((e) => e.id === liveEvent.employeeId)?.appAccountDeletedAt;
   const pendingEmployeeName = pendingNewEmployeeId
     ? activeEmployees.find((e) => e.id === pendingNewEmployeeId)?.name ??
       "Unknown"
@@ -164,6 +166,7 @@ export function useClockEventDetail({
     clockOutEvent,
     dayLabel,
     activeEmployees,
+    appAccountDeleted,
     pendingEmployeeName,
     // adjust
     adjustingId,

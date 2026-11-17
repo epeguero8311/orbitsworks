@@ -1,5 +1,6 @@
 "use client";
 
+import { DeletedAppAccountTag } from "@/components/time/DeletedAppAccountTag";
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Employee, EmployeeInvite, JobSite, Job, Subcontractor } from "@/lib/types";
@@ -164,6 +165,7 @@ export function EmployeesTable({
                     <EmployeeAvatar photoUrl={employee.photoUrl} name={employee.name} />
                     {employee.name}
                     <EmployeeRoleTag employee={employee} />
+                    <DeletedAppAccountTag deleted={!!employee.appAccountDeletedAt} />
                     <DuplicateBadge employee={employee} />
                     {!employee.appAccess && <EmployeeInviteStatusPill invite={invitesByEmployee?.get(employee.id)} />}
                     {/* Face Verification (Pro) - "bad" takes priority

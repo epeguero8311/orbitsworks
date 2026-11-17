@@ -6,7 +6,8 @@ import { useLocalEmployee } from "./useLocalEmployee";
 import { getOrCreatePushDeviceId } from "../pushDeviceId";
 import { markLaunch, noteLaunchCount } from "../launchTiming";
 
-const WEB_ONLY_ALERT_TYPES = ["autoClockOut", "syncWrongPin", "syncedLateApproved", "pinChanged"];
+// employeeAccountDeleted: an employee deleted their app account (website only).
+const WEB_ONLY_ALERT_TYPES = ["autoClockOut", "syncWrongPin", "syncedLateApproved", "pinChanged", "employeeAccountDeleted"];
 
 // Live view of companies/{companyId}/alerts, newest first. Fails to an
 // empty list rather than an error (kill-switch-off or unreachable both

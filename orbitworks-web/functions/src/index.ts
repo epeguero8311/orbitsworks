@@ -106,3 +106,4 @@ export {
 
 // Phase 9: dismiss a possible-duplicate flag (Employees page).
 export { dismissDuplicateFlag } from "./employeeDuplicates";
+export { deleteMyEmployeeAccount } from "./employeeAccount";

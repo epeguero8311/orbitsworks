@@ -30,6 +30,8 @@ const ALERT_TITLE: Record<AlertDoc["alertType"], string> = {
   pinChanged: "PIN Changed",
   // Never sent either - written via createAlertIfNew (createLeftJobSiteAlert).
   leftJobSite: "Left Job Site",
+  // Never sent either - written via createAlertIfNew (employeeAccount.ts).
+  employeeAccountDeleted: "Deleted App Account",
 };
 
 // Sends one alert to every registered, notification-enabled device on the

@@ -396,6 +396,25 @@ test("client cannot create or update facePhotoRemovedAt / facePhotoRemovedByUid"
   );
 });
 
+// Biometric audit b: "Delete account" is server-only (deleteMyEmployeeAccount),
+// so an admin can't forge or erase the "Deleted app account" mark.
+test("client cannot create or update appAccountDeletedAt", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "employees", "emp-forged-deleted"), {
+      name: "Forged",
+      active: false,
+      assignedSiteIds: [],
+      appAccountDeletedAt: new Date(),
+    })
+  );
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A, "employees", "emp1"), {
+      appAccountDeletedAt: new Date(),
+    })
+  );
+});
+
 // Face Verification (Pro) company-settings toggle - checks themselves
 // always run for Pro with no opt-out; alertsEnabled is the only remaining
 // knob and it's Pro-only, in both directions (no "always allowed to turn

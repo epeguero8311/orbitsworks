@@ -175,6 +175,13 @@ export interface Employee {
   // legacy "supervisor" floor. linkedUserId/email are reused as-is for the
   // login link, same as supervisors.
   appAccess?: boolean;
+  // Employee App "Delete account" (functions/src/employeeAccount.ts
+  // deleteMyEmployeeAccount). Server-written only. Set when the employee
+  // deleted their own app login: the row stays (deactivated) as the
+  // employer's record, with its clock events and face results, and the
+  // website tags it "Deleted app account". Never cleared - an admin can
+  // reactivate the row, but the app login is gone for good.
+  appAccountDeletedAt?: Timestamp;
   // Absent means "admin" - every employee created before this feature.
   joinedVia?: EmployeeJoinedVia;
   // Set only when joinedVia is "qr" - the JoinCode's stable codeId (kept
@@ -614,7 +621,11 @@ export type MobileAlertType =
   // Offline employee create/PIN edit: the phone's PIN was taken by the
   // time it synced and the server assigned a new one. Admin/owner web
   // Overview only, never pushed, filtered out of the mobile Alerts tab.
-  | "pinChanged";
+  | "pinChanged"
+  // Employee App "Delete account": the employee deleted their own app
+  // login. Admin/owner web Overview only, never pushed, filtered out of
+  // the mobile Alerts tab. One per employee per day.
+  | "employeeAccountDeleted";
 
 export interface MobileAlert {
   id: string;
