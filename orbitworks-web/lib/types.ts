@@ -149,6 +149,12 @@ export interface Employee {
   // while the pfp currently on file has no usable face. Server-written
   // only (functions/src/rekognition.ts).
   faceReference?: FaceReferenceState;
+  // "Remove photo" (website, admin/owner - functions/src/facePhotos.ts
+  // removeEmployeePhoto). Server-written only. Face checks are skipped
+  // while there is no photoUrl and resume when a new photo is added; these
+  // two stay as the record of who removed the old one and when.
+  facePhotoRemovedAt?: Timestamp;
+  facePhotoRemovedByUid?: string;
   // Update Employee (mobile) - set by updateEmployeeProfile (functions/src/
   // updateEmployee.ts) whenever a supervisor/admin edits name/photo from the
   // app. lastUpdateId is the idempotency marker (mirrors createEmployee's
@@ -214,7 +220,9 @@ export interface EmployeeConsentRecord {
   biometricConsentAt: Timestamp;
   source: "qrSignup" | "emailInvite";
   faceDataDeletedAt: Timestamp | null;
-  faceDataDeletedReason?: "employeeDeleted" | "signupRolledBack" | "coreDowngrade";
+  // photoRemoved = an admin used "Remove photo" (removeEmployeePhoto);
+  // accountDeleted = the employee deleted their own Employee App account.
+  faceDataDeletedReason?: "employeeDeleted" | "signupRolledBack" | "coreDowngrade" | "photoRemoved" | "accountDeleted";
 }
 
 // "invite" = Phase 3B email invite.

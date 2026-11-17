@@ -377,6 +377,25 @@ test("client cannot add faceReference to an existing employee via update", async
   );
 });
 
+// Biometric audit c: "Remove photo" is server-only (removeEmployeePhoto),
+// so the record of who removed a photo and when can't be forged or erased.
+test("client cannot create or update facePhotoRemovedAt / facePhotoRemovedByUid", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "employees", "emp-forged-removed"), {
+      name: "Forged",
+      active: false,
+      assignedSiteIds: [],
+      facePhotoRemovedAt: new Date(),
+    })
+  );
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A, "employees", "emp1"), {
+      facePhotoRemovedByUid: "someone",
+    })
+  );
+});
+
 // Face Verification (Pro) company-settings toggle - checks themselves
 // always run for Pro with no opt-out; alertsEnabled is the only remaining
 // knob and it's Pro-only, in both directions (no "always allowed to turn

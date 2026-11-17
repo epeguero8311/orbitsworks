@@ -445,7 +445,7 @@ service cloud.firestore {
           // writes the flag, dismissDuplicateFlag clears it). 'pin' too
           // (prod-readiness item 7): every PIN is set by a callable, never
           // by a client write (no live app or website creates this doc).
-          !request.resource.data.keys().hasAny(['pin', 'faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf', 'duplicateFlaggedAt', 'dismissedDuplicateOf', 'duplicateDismissedAt', 'duplicateDismissedByUid', 'duplicateDismissedByName']) &&
+          !request.resource.data.keys().hasAny(['pin', 'faceStatus', 'faceReference', 'facePhotoRemovedAt', 'facePhotoRemovedByUid', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf', 'duplicateFlaggedAt', 'dismissedDuplicateOf', 'duplicateDismissedAt', 'duplicateDismissedByUid', 'duplicateDismissedByName']) &&
           underTotalCap(companyId) &&
           (request.resource.data.active != true || (underCap(companyId) && notPastDue(companyId)));
 
@@ -465,7 +465,7 @@ service cloud.firestore {
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf', 'duplicateFlaggedAt', 'dismissedDuplicateOf', 'duplicateDismissedAt', 'duplicateDismissedByUid', 'duplicateDismissedByName']) &&
+            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference', 'facePhotoRemovedAt', 'facePhotoRemovedByUid', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf', 'duplicateFlaggedAt', 'dismissedDuplicateOf', 'duplicateDismissedAt', 'duplicateDismissedByUid', 'duplicateDismissedByName']) &&
           (
             request.resource.data.active != true ||
             resource.data.active == true ||

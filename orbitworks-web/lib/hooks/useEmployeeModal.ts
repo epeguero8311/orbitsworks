@@ -84,6 +84,14 @@ export function useEmployeeModal({
   const [confirmingRateChange, setConfirmingRateChange] = useState(false);
   const [rateEffectiveFrom, setRateEffectiveFrom] = useState(dateKey(new Date()));
 
+  // "Remove photo" (biometric audit c) - removeEmployeePhoto deletes the
+  // reference photo (and every other face photo of theirs) server-side;
+  // the live employee listener then shows "No photo". Face checks stop
+  // until a new photo is added with Change photo.
+  const [confirmingRemovePhoto, setConfirmingRemovePhoto] = useState(false);
+  const [isRemovingPhoto, setIsRemovingPhoto] = useState(false);
+  const [removePhotoError, setRemovePhotoError] = useState("");
+
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -176,6 +184,23 @@ export function useEmployeeModal({
   function handlePhotoChange(file: File | null) {
     setPhotoFile(file);
     setPhotoPreview(file ? URL.createObjectURL(file) : null);
+  }
+
+  async function handleRemovePhoto() {
+    setRemovePhotoError("");
+    setIsRemovingPhoto(true);
+    try {
+      const removeEmployeePhotoFn = httpsCallable(functions, "removeEmployeePhoto");
+      await removeEmployeePhotoFn({ employeeId: employee.id });
+      setConfirmingRemovePhoto(false);
+      setPhotoFile(null);
+      setPhotoPreview(null);
+    } catch (err) {
+      console.error("Remove photo error:", err);
+      setRemovePhotoError("Couldn't remove the photo. Try again.");
+    } finally {
+      setIsRemovingPhoto(false);
+    }
   }
 
   function handleCompanySelect(value: string) {
@@ -443,6 +468,11 @@ export function useEmployeeModal({
     photoFile,
     photoPreview,
     handlePhotoChange,
+    confirmingRemovePhoto,
+    setConfirmingRemovePhoto,
+    isRemovingPhoto,
+    removePhotoError,
+    handleRemovePhoto,
     // pin
     currentPin,
     editingPin,

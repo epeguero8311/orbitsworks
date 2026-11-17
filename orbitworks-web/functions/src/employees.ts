@@ -10,7 +10,7 @@ import {
   EmployeeCapFields,
 } from "./shared";
 import { pinHistoryRef, reserveNewPin } from "./pins";
-import { storagePathFromDownloadUrl } from "./rekognition";
+import { deleteEmployeeFacePhotos, markConsentFaceDataDeleted } from "./facePhotos";
 import { loginRoleFor } from "./employeeAccess";
 import { pendingInviteRefsForRow } from "./employeeInvites";
 import { employeeDocPinOnCreate, employeePinData, employeePinRef, readEmployeePin } from "./lib/employeePin";
@@ -517,36 +517,6 @@ export const reassignEmployeeSubcontractor = onCall(async (request) => {
 // Shared by deleteEmployee and deleteEmployeesBulk below so the
 // close-session -> delete-auth -> release-pin/invites/doc sequence (and
 // its failure-window ordering, see the comment inline) only lives once.
-// Right-to-delete for Employee App sign-ups: the fixed reference.jpg path
-// and the whole selfie/ folder (the photoUrl delete above only covers the
-// file that URL points at). The employeeConsents record is NOT deleted -
-// it holds no biometric data and is the proof of consent and destruction,
-// so it only gets faceDataDeletedAt. Best-effort per file, like above.
-async function deleteEmployeeFaceData(companyId: string, employeeId: string): Promise<void> {
-  const bucket = admin.storage().bucket();
-  const base = `companies/${companyId}/employees/${employeeId}`;
-  try {
-    await bucket.file(`${base}/reference.jpg`).delete();
-  } catch (err) {
-    if ((err as { code?: number }).code !== 404) {
-      console.warn("Failed to delete reference.jpg on delete", { companyId, employeeId, error: String(err) });
-    }
-  }
-  try {
-    await bucket.deleteFiles({ prefix: `${base}/selfie/` });
-  } catch (err) {
-    console.warn("Failed to delete selfie folder on delete", { companyId, employeeId, error: String(err) });
-  }
-  const consentRef = db.collection("companies").doc(companyId).collection("employeeConsents").doc(employeeId);
-  const consent = await consentRef.get();
-  if (consent.exists) {
-    await consentRef.update({
-      faceDataDeletedAt: admin.firestore.FieldValue.serverTimestamp(),
-      faceDataDeletedReason: "employeeDeleted",
-    });
-  }
-}
-
 async function deleteEmployeeRecord(
   callerCompanyId: string,
   employeeId: string,
@@ -564,25 +534,18 @@ async function deleteEmployeeRecord(
   const employee = employeeSnap.data() as { linkedUserId?: string; pin?: string; photoUrl?: string };
   const linkedUserId = employee.linkedUserId;
 
-  // Fixes the orphaned-Storage-file bug: a reference photo used to
-  // outlive the employee doc that pointed to it indefinitely, since
-  // deleting the doc never touched Storage. The photo is biometric data
-  // (see components/legal/BiometricPolicyContent.tsx), so it's deleted
-  // here instead of waiting on any time-based sweep.
-  if (employee.photoUrl) {
-    const path = storagePathFromDownloadUrl(employee.photoUrl);
-    if (path) {
-      try {
-        await admin.storage().bucket().file(path).delete();
-      } catch (err) {
-        const code = (err as { code?: number } | undefined)?.code;
-        if (code !== 404) {
-          console.warn("Failed to delete employee reference photo on delete", { callerCompanyId, employeeId, path, error: String(err) });
-        }
-      }
-    }
+  // Every face photo of this employee goes now, not on a later sweep: the
+  // file photoUrl points at plus the whole employees/{id}/ folder
+  // (reference.jpg, Employee App selfie/ originals, supervisor app
+  // updates/ incl. retained old photos) - functions/src/facePhotos.ts.
+  // Clock events and their photos stay (90-day schedule). The
+  // employeeConsents record is kept as proof, stamped faceDataDeletedAt.
+  try {
+    await deleteEmployeeFacePhotos(callerCompanyId, employeeId, employee.photoUrl ?? null);
+  } catch (err) {
+    console.warn("Failed to delete employee face photos on delete", { callerCompanyId, employeeId, error: String(err) });
   }
-  await deleteEmployeeFaceData(callerCompanyId, employeeId);
+  await markConsentFaceDataDeleted(callerCompanyId, employeeId, "employeeDeleted");
 
   let email: string | null = null;
 

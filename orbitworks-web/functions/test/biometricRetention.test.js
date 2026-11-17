@@ -22,12 +22,16 @@ const { db } = require("../lib/shared.js");
 const funcs = require("../lib/index.js");
 
 const deletedPaths = [];
+const deletedPrefixes = [];
 admin.storage().bucket = () => ({
   file: (p) => ({
     delete: async () => {
       deletedPaths.push(p);
     },
   }),
+  deleteFiles: async ({ prefix }) => {
+    deletedPrefixes.push(prefix);
+  },
 });
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -40,6 +44,7 @@ async function clearAll() {
     method: "DELETE",
   });
   deletedPaths.length = 0;
+  deletedPrefixes.length = 0;
 }
 
 // A full clock event with everything the website shows.
@@ -180,4 +185,45 @@ test("cleanupCanceledCompanyPhotos: a company canceled under 90 days ago is unto
   await eventRef(c, "e-c").set(before);
   await funcs.cleanupCanceledCompanyPhotos.run({});
   assert.deepEqual((await eventRef(c, "e-c").get()).data(), before);
+});
+
+// Biometric audit d: the sweeps delete EVERY face photo of the employee -
+// the whole employees/{id}/ folder (reference.jpg, Employee App selfie/
+// originals, updates/) - not only the photoUrl file. Clock events stay.
+test("cleanupDeactivatedEmployeePhotos: deletes the whole employee photo folder (selfie too), events untouched", async () => {
+  const c = "br-deact";
+  await db.collection("companies").doc(c).set({ name: "Co", planTier: "pro_tier1" });
+  await db.collection("companies").doc(c).collection("employees").doc("emp1").set({
+    name: "Ana",
+    active: false,
+    deactivatedAt: ts(Date.now() - 400 * DAY),
+    photoUrl: urlFor(`companies/${c}/employees/emp1/reference.jpg`),
+  });
+  const before = clockEvent(c, "e-d", 5);
+  await eventRef(c, "e-d").set(before);
+
+  await funcs.cleanupDeactivatedEmployeePhotos.run({});
+
+  assert.ok(deletedPrefixes.includes(`companies/${c}/employees/emp1/`));
+  assert.ok(deletedPaths.includes(`companies/${c}/employees/emp1/reference.jpg`));
+  const emp = (await db.doc(`companies/${c}/employees/emp1`).get()).data();
+  assert.equal(emp.photoUrl, undefined);
+  assert.equal(emp.name, "Ana");
+  assert.deepEqual((await eventRef(c, "e-d").get()).data(), before);
+});
+
+test("cleanupCanceledCompanyPhotos: also wipes leftover employee photos (selfie/ with no photoUrl)", async () => {
+  const c = "br-canceled-left";
+  await db.collection("companies").doc(c).set({
+    name: "Co",
+    planTier: "pro_tier1",
+    planCanceledAt: ts(Date.now() - 95 * DAY),
+    biometricPhotosWipedAt: null,
+  });
+  // No photoUrl - only a selfie/ file could be left in Storage.
+  await db.collection("companies").doc(c).collection("employees").doc("emp2").set({ name: "Bo", active: true });
+  await funcs.cleanupCanceledCompanyPhotos.run({});
+  assert.ok(deletedPrefixes.includes(`companies/${c}/employees/`));
+  assert.ok(!deletedPrefixes.some((p) => p.includes("/clockEvents")));
+  assert.ok((await db.doc(`companies/${c}`).get()).data().biometricPhotosWipedAt);
 });

@@ -72,6 +72,12 @@ export function EmployeeModal({
             employee.faceReference.photoUrl === employee.photoUrl
           }
           onPhotoChange={m.handlePhotoChange}
+          confirmingRemovePhoto={m.confirmingRemovePhoto}
+          onStartRemovePhoto={() => m.setConfirmingRemovePhoto(true)}
+          onCancelRemovePhoto={() => m.setConfirmingRemovePhoto(false)}
+          isRemovingPhoto={m.isRemovingPhoto}
+          removePhotoError={m.removePhotoError}
+          onRemovePhoto={m.handleRemovePhoto}
           currentPin={m.currentPin}
           editingPin={m.editingPin}
           pinValue={m.pinValue}
