@@ -4,8 +4,8 @@ The short version of `ios-test-list.md`. Setup, steps and exact pass
 criteria are there; this file is for ticking off.
 
 - **Tests:** 200 by hand. 186 on dev (Sessions 0-10), 9 on prod (P) and 5 on Android (AN).
-  - **MUST PASS BEFORE PROD:** 172.
-  - **CAN WAIT:** 28 (the prod smoke test, Android, and optional or after-launch checks).
+  - **MUST PASS BEFORE PROD:** 178.
+  - **CAN WAIT:** 22 (the prod smoke test, Android, and optional or after-launch checks).
   - X10-X14 aren't on this list: they're covered by unit tests and can't be done by hand.
 - **Time:** about 17 h hands-on for Sessions 0-9, plus 15 min a day for a week (Session 10). Then 45 min for P after the prod deploy.
 - **App and site:** OrbitsWorks Dev, build 29, plus the hosted dev site (`orbitworks-dev-ew`).
@@ -262,7 +262,7 @@ criteria are there; this file is for ticking off.
 
 ## Ready for prod when
 
-1. **Every MUST test passes** (172), recorded in the `ios-test-list.md` Results log. A skip counts as not passed, unless the test is rerun later or you write down that you accept it.
+1. **Every MUST test passes** (178), recorded in the `ios-test-list.md` Results log. A skip counts as not passed, unless the test is rerun later or you write down that you accept it.
 2. **No open fails.** Every fail is fixed, then retested on the build or site that carries the fix, and the retest is recorded as a pass. The "Open fails" list says "None".
 3. **If a fix needs a new build or deploy,** the tests in the areas it touched are run again on that build.
 4. **AWS opt-out is done** (biometric audit gap a, in the AWS console).
