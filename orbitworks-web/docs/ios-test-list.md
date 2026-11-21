@@ -729,7 +729,20 @@ Sources:
 
 | Date | Build | ID | Result | Note |
 |---|---|---|---|---|
+| 2026-11-20 | 29 | RC1 (unlisted: role change mid-session) | **FAIL** | Drops (employee app, clocked in 23:43 UTC) made supervisor on the website at 00:23:15 UTC. The next app launches showed the supervisor app with an empty list, 0 active and the email instead of the name. Logging out and back in fixed it. See Open fails. |
 
 ## Open fails
 
-None yet.
+### RC1. Role change while signed in: wrong UI for the token (build 29, 2026-11-20)
+
+- **Cause (confirmed):** `AuthContext.js` starts from the ID token's claims, then replaces `userData` with `users/{uid}`, which `setEmployeeRole` had already set to `supervisor`. The token on the phone was still the employee one (issued less than 1 h before; nothing forces a refresh). So the app routed to the supervisor screens while every read and callable was checked against `role: employee`.
+  - This only happens at an app launch. A running app never notices a role change. Sentry shows 4 cold starts (00:23:26, 00:23:48, 00:24:14, 00:25:40 UTC).
+  - Each launch logged permission-denied on the employees, events and sites listeners (ORBITWORKS-APP-1, `role: supervisor`). Dev logs show 11 × 403 from `getPinSyncTable` (00:23:26 to 00:25:44).
+- **Punches in the broken state:** none reached Firestore and none were queued. The queue was empty (`startCount 0`) at each of the 4 launches. There is no `queueSync` error in Sentry (every failed send is reported there). Nothing synced after the re-login either. The PIN table never loaded (403), so the PINs were most likely refused as "PIN not recognized". Only 2 clock events exist after 23:30 UTC: Drops in at 23:43:37 and Emilio in at 00:22:30 (Employee App, before the role change).
+- **Own shift:** Drops' clock-in survived (event, employee doc and self view all say `in`). It was never visible in the broken state.
+- **Same problem by code reading (not tested):**
+  - **Supervisor to employee:** the reverse mismatch. Employee App punches fail `wrongAccount`, then show "Couldn't sync" with Remove, so a punch can be lost. The supervisor's unsent queue is no longer synced.
+  - **Promotion with unsent Employee App punches:** those punches get stranded, because the employee queue sync isn't mounted for a supervisor.
+  - **Admin to/from supervisor:** same UI tree, so nothing goes empty. The token keeps the old powers for up to 1 h.
+  - **Deactivation:** a different path (live listener plus token revoke). This is not the same bug.
+- **Fix:** options given 2026-11-20, waiting for a choice.
