@@ -118,6 +118,9 @@ export function AuthProvider({ children }) {
   const handledChangeRef = useRef(null);
   const reconcilingRef = useRef(false);
   const againRef = useRef(false);
+  // uid whose stored token claims have been read (until then "no claims"
+  // just means "not read yet", never "refresh the token").
+  const claimsReadUidRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [accountDisabled, setAccountDisabled] = useState(false);
   const [linkedEmployeeId, setLinkedEmployeeId] = useState(null);
@@ -158,6 +161,7 @@ export function AuthProvider({ children }) {
         do {
           againRef.current = false;
           if (auth.currentUser?.uid !== user.uid) return;
+          if (claimsReadUidRef.current !== user.uid) return;
           const docNow = usersDocRef.current;
           const cur = claimsRef.current;
           if (!docNow) return;
@@ -247,6 +251,7 @@ export function AuthProvider({ children }) {
       }
       handledChangeRef.current = null;
       usersDocRef.current = null;
+      claimsReadUidRef.current = null;
 
       if (user) {
         // RC1: watch users/{uid} for the whole session (it was read once),
@@ -289,6 +294,7 @@ export function AuthProvider({ children }) {
         // doc lands - only a token refresh changes the role.
         const tokenClaims = await cachedClaims(user);
         if (activeUid !== user.uid) return;
+        claimsReadUidRef.current = user.uid;
         if (tokenClaims) {
           tagSentryUser(user, tokenClaims);
           applyClaims(tokenClaims);
