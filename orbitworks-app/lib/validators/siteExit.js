@@ -18,7 +18,8 @@
 const EXIT_MAX_ACCURACY_M = 100;
 const EXIT_MIN_BUFFER_M = 25;
 const SITE_EXIT_DWELL_MS = 2 * 60 * 1000;
-const OFF_REASONS = ["permission", "signedOut", "appStopped", "noFix"];
+// roleChanged (RC1): tracking ends when the employee is made a supervisor/admin.
+const OFF_REASONS = ["permission", "signedOut", "appStopped", "noFix", "roleChanged"];
 
 function isNum(v) {
   return typeof v === "number" && Number.isFinite(v);

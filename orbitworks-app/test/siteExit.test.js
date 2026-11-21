@@ -50,6 +50,7 @@ test("toSiteExitPayload: left start with a fix, end without one", () => {
 test("toSiteExitPayload: trackingOff start always carries a known reason", () => {
   const row = { exitId: "e", clockInEventId: "c", kind: "trackingOff", phase: "start", atMs: 5, offReason: "signedOut" };
   assert.equal(v.toSiteExitPayload(row).offReason, "signedOut");
+  assert.equal(v.toSiteExitPayload({ ...row, offReason: "roleChanged" }).offReason, "roleChanged");
   assert.equal(v.toSiteExitPayload({ ...row, offReason: "weird" }).offReason, "appStopped");
   assert.equal(v.toSiteExitPayload({ ...row, phase: "end" }).offReason, undefined);
 });
