@@ -17,4 +17,10 @@ export interface UserDocRoleFields {
   // Set on every role change made while the account exists (never on
   // sign-up). Missing = the role never changed.
   roleChangedAt?: admin.firestore.Timestamp;
+  // Set when the login is deactivated (deactivateEmployeeAuth). The website
+  // watches it: newer than its ID token -> force a refresh, which fails for
+  // a disabled login -> signed out within seconds instead of when the
+  // token expires (up to 1 h). The app ignores it (its employee doc
+  // listener already shows the deactivated screen).
+  accessRevokedAt?: admin.firestore.Timestamp;
 }

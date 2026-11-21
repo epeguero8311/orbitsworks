@@ -18,7 +18,9 @@ export type SiteExitEndReason = (typeof SITE_EXIT_END_REASONS)[number];
 
 // noFix (E4): the OS said the worker left, but the phone could not get a
 // fix good enough to confirm it - a gap, so a real exit is never lost.
-export const SITE_EXIT_OFF_REASONS = ["permission", "signedOut", "appStopped", "noFix"] as const;
+// roleChanged (RC1): made a supervisor/admin mid-shift - the supervisor app
+// does not track leaving the site, so tracking ends at the role change.
+export const SITE_EXIT_OFF_REASONS = ["permission", "signedOut", "appStopped", "noFix", "roleChanged"] as const;
 export type SiteExitOffReason = (typeof SITE_EXIT_OFF_REASONS)[number];
 
 export interface SiteExitDoc {

@@ -37,6 +37,7 @@ const OFF_REASON_TEXT: Record<string, string> = {
   signedOut: "signed out of the app",
   appStopped: "phone stopped tracking",
   noFix: "no good location fix",
+  roleChanged: "made a supervisor/admin",
 };
 
 function endText(exit: Pick<SiteExit, "endMs" | "endReason" | "kind">, formatTime: (ms: number) => string): string {

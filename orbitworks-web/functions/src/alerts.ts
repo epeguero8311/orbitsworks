@@ -85,6 +85,14 @@ export const ALERT_TYPES = [
   // supervisor mobile Alerts tab (useAlertsFeed.js). One per employee per
   // day (employeeId + dateKey, the default id).
   "employeeAccountDeleted",
+  // RC1 follow-up - an employee removed a punch (or shift comment) that
+  // never reached the server, so it is lost for good. Reported by the
+  // phone (reportRemovedItem, employeeRemovedItems.ts), queued if offline.
+  // Admin/owner web Overview only, never pushed (createAlertIfNew
+  // directly), filtered out of the supervisor mobile Alerts tab like
+  // syncWrongPin. One per removed item: keyed by the item's requestId
+  // (eventId-keyed branch in createAlertIfNew).
+  "punchRemoved",
 ] as const;
 
 export type AlertType = (typeof ALERT_TYPES)[number];
@@ -121,6 +129,8 @@ export const ALERT_SEVERITY: Record<AlertType, "urgent" | "warning" | "info"> = 
   leftJobSite: "warning",
   // Info only - the employee's own choice, nothing to fix.
   employeeAccountDeleted: "info",
+  // A punch is gone for good - someone has to fix the time by hand.
+  punchRemoved: "warning",
 };
 
 // The untrusted-input boundary for alert generation: validates every id
@@ -272,6 +282,7 @@ const ALERT_ID_PREFIX: Record<AlertType, string> = {
   // Keyed by the SiteExit id (siteExitId branch below).
   leftJobSite: "left",
   employeeAccountDeleted: "appdeleted",
+  punchRemoved: "removed",
 };
 
 function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string): string {
@@ -314,7 +325,8 @@ export async function createAlertIfNew(input: AlertInput, occurredAt: Timestamp)
     data.alertType === "siteMismatch" ||
     data.alertType === "autoClockOut" ||
     data.alertType === "syncedLateApproved" ||
-    data.alertType === "pinChanged"
+    data.alertType === "pinChanged" ||
+    data.alertType === "punchRemoved"
       ? data.eventId ?? data.employeeId ?? "company"
       : data.employeeId ?? data.siteId ?? "company";
   const alertId = buildAlertId(data.alertType, subjectId, data.dateKey);

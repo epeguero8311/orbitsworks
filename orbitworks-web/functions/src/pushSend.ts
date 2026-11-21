@@ -32,6 +32,8 @@ const ALERT_TITLE: Record<AlertDoc["alertType"], string> = {
   leftJobSite: "Left Job Site",
   // Never sent either - written via createAlertIfNew (employeeAccount.ts).
   employeeAccountDeleted: "Deleted App Account",
+  // Never sent either - written via createAlertIfNew (employeeRemovedItems.ts).
+  punchRemoved: "Unsent Punch Removed",
 };
 
 // Sends one alert to every registered, notification-enabled device on the

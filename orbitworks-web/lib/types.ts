@@ -476,7 +476,7 @@ export type SiteExitEndReason = "returned" | "trackingOn" | "clockOut" | "autoCl
 // signed out of this phone mid-shift, the phone stopped tracking (restart,
 // app force-stopped), or (noFix, E4) the phone saw a region exit but could
 // not get a fix good enough to confirm it.
-export type SiteExitOffReason = "permission" | "signedOut" | "appStopped" | "noFix";
+export type SiteExitOffReason = "permission" | "signedOut" | "appStopped" | "noFix" | "roleChanged";
 
 export interface SiteExit {
   id: string;
@@ -625,7 +625,11 @@ export type MobileAlertType =
   // Employee App "Delete account": the employee deleted their own app
   // login. Admin/owner web Overview only, never pushed, filtered out of
   // the mobile Alerts tab. One per employee per day.
-  | "employeeAccountDeleted";
+  | "employeeAccountDeleted"
+  // RC1 follow-up: an employee removed a punch or shift comment that never
+  // reached the server (lost for good). Admin/owner web Overview only,
+  // never pushed, filtered out of the mobile Alerts tab. One per item.
+  | "punchRemoved";
 
 export interface MobileAlert {
   id: string;
