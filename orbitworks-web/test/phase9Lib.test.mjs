@@ -33,7 +33,11 @@ test("synced late: only flagged punches, lateness from createdAt", () => {
     { id: "b", type: "out", syncedLate: false, timestamp: ts(0), createdAt: ts(99 * MIN) },
     { id: "c", type: "breakStart", syncedLate: true, timestamp: ts(0) },
   ]);
-  assert.deepEqual(list, [{ id: "a", type: "in", lateMs: 12 * MIN }, { id: "c", type: "breakStart", lateMs: null }]);
+  const plain = { timeNotProven: false, offlineSinceMs: null };
+  assert.deepEqual(list, [
+    { id: "a", type: "in", lateMs: 12 * MIN, ...plain },
+    { id: "c", type: "breakStart", lateMs: null, ...plain },
+  ]);
   assert.equal(lateLabel(12 * MIN), "12 min late");
   assert.equal(lateLabel(185 * MIN), "3 h 5 min late");
   assert.equal(lateLabel(120 * MIN), "2 h late");

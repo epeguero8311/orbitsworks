@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { SiteExitsNote } from "@/components/time/SiteExitsNote";
 import { ShiftCommentsNote } from "@/components/time/ShiftCommentsNote";
 import { lateLabel } from "@/lib/syncedLate";
+import { replacedSourceText } from "@/lib/punchFlags";
 import { siteExitTone } from "@/lib/siteExits";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -238,6 +239,12 @@ function FaceWarningItem({
 }
 
 const PUNCH_LABEL: Record<string, string> = { in: "Clock in", out: "Clock out", breakStart: "Break start", breakEnd: "Break end" };
+const PUNCH_WORD: Record<string, string> = { in: "clock-in", out: "clock-out", breakStart: "break start", breakEnd: "break end" };
+
+function whenLabel(atMs: number | null): string {
+  if (atMs === null) return "";
+  return new Date(atMs).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
 
 function warningTitle(warning: SessionWarning): string {
   switch (warning.type) {
@@ -265,6 +272,10 @@ function warningTitle(warning: SessionWarning): string {
       return "Left the job site";
     case "syncedLate":
       return "Synced late";
+    case "punchProblem":
+      return "Punch needs a look";
+    case "punchReplaced":
+      return "Real punch replaced an entry";
     default:
       return "";
   }
@@ -494,10 +505,42 @@ export default function SessionWarningsModal({
                       {warning.punches.map((p) => (
                         <li key={p.id}>
                           {PUNCH_LABEL[p.type] ?? p.type}: {lateLabel(p.lateMs)}
+                          {p.timeNotProven
+                            ? ` - time not proven${p.offlineSinceMs !== null ? ` (phone offline since ${whenLabel(p.offlineSinceMs)})` : ""}`
+                            : ""}
                         </li>
                       ))}
                     </ul>
                     <p className="mt-1 text-xs text-gray-500">Saved on the phone with no signal. The time shown is when the employee punched.</p>
+                  </WarningCard>
+                );
+              case "punchProblem":
+                return (
+                  <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
+                    <ul className="space-y-0.5 text-gray-600">
+                      {warning.punches.map((p) => (
+                        <li key={p.id}>
+                          {PUNCH_LABEL[p.type] ?? p.type} {whenLabel(p.atMs)}: {p.items.join("; ")}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-xs text-gray-500">Recorded anyway - a phone punch is never refused. Check it before approving.</p>
+                  </WarningCard>
+                );
+              case "punchReplaced":
+                return (
+                  <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
+                    <ul className="space-y-0.5 text-gray-600">
+                      {warning.punches.map((p) => (
+                        <li key={p.id}>
+                          Real {PUNCH_WORD[p.type] ?? p.type} {whenLabel(p.atMs)} replaced{" "}
+                          {p.replaced
+                            .map((r) => `the ${replacedSourceText(r.source)} ${PUNCH_WORD[r.type] ?? r.type} ${whenLabel(r.atMs)}`)
+                            .join(", ")}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-xs text-gray-500">The employee&apos;s real punch wins. Edit the time in Time Tracking if the replaced one was right.</p>
                   </WarningCard>
                 );
               case "faceLowConfidence":

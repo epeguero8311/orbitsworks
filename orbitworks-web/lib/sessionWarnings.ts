@@ -2,6 +2,7 @@ import type { Timestamp } from "firebase/firestore";
 import type { ClockEvent, SiteExit } from "@/lib/types";
 import { redSiteExits } from "@/lib/siteExits";
 import { syncedLatePunches, type SyncedLatePunch } from "@/lib/syncedLate";
+import { punchProblems, replacedPunches, type FlaggedPunch, type ReplacedPunch } from "@/lib/punchFlags";
 import type { Alerts, FaceVerificationSettings } from "@/lib/hooks/useCompanySettings";
 import { faceWarningType, FACE_LOW_CONFIDENCE_FLOOR } from "@/lib/faceWarnings";
 
@@ -37,7 +38,12 @@ export type SessionWarningType =
   // only - on a break, short and tracking off are gray, no warning).
   | "leftSite"
   // Phase 9 (H6 a): punches of this session that reached the server late.
-  | "syncedLate";
+  | "syncedLate"
+  // B (2026-11-21, lib/punchFlags.ts): a punch whose phone clock was set
+  // back, whose photo is missing, or that doesn't fit the others (red); a
+  // real queued punch that replaced auto / hand-entered events (yellow).
+  | "punchProblem"
+  | "punchReplaced";
 
 // Single source of truth for severity - evaluateSessionWarnings below reads
 // this rather than hardcoding a severity per warning, so a type's color can
@@ -65,6 +71,8 @@ export const WARNING_SEVERITY: Record<SessionWarningType, WarningSeverity> = {
   leftSite: "red",
   // Yellow (H6 a) - the punch time is the phone's, it only arrived late.
   syncedLate: "yellow",
+  punchProblem: "red",
+  punchReplaced: "yellow",
 };
 
 type Direction = "in" | "out";
@@ -85,6 +93,8 @@ export type SessionWarning =
   | { type: "supervisorOverride"; severity: WarningSeverity; overrideEventId: string }
   | { type: "leftSite"; severity: WarningSeverity; exits: SiteExit[] }
   | { type: "syncedLate"; severity: WarningSeverity; punches: SyncedLatePunch[] }
+  | { type: "punchProblem"; severity: WarningSeverity; punches: FlaggedPunch[] }
+  | { type: "punchReplaced"; severity: WarningSeverity; punches: ReplacedPunch[] }
   | {
       type: "autoClockOut";
       severity: WarningSeverity;
@@ -271,6 +281,13 @@ export function evaluateSessionWarnings(input: EvaluateSessionWarningsInput): Se
   // Phase 9 (H6 a) - not gated by a toggle (it's about the record itself).
   const late = syncedLatePunches(input.sessionEvents ?? [clockInEvent, clockOutEvent]);
   if (late.length > 0) warnings.push(withSeverity("syncedLate", { punches: late }));
+
+  // B (2026-11-21) - not gated by a toggle either (about the record itself).
+  const sessionEvents = input.sessionEvents ?? [clockInEvent, clockOutEvent];
+  const problems = punchProblems(sessionEvents);
+  if (problems.length > 0) warnings.push(withSeverity("punchProblem", { punches: problems }));
+  const replaced = replacedPunches(sessionEvents);
+  if (replaced.length > 0) warnings.push(withSeverity("punchReplaced", { punches: replaced }));
 
   // Face Verification (Pro) - no isPro check needed here: faceCheck is only
   // ever written by functions/src/rekognition.ts for Pro companies, and

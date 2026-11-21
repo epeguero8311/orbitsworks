@@ -6,12 +6,19 @@ import type { ClockEvent } from "@/lib/types";
 // it reached the server (createdAt) minus the punch time (null if unknown).
 
 type Stamp = { toMillis: () => number } | null | undefined;
-type EventLike = Pick<ClockEvent, "id" | "type" | "syncedLate"> & { timestamp?: Stamp; createdAt?: Stamp };
+type EventLike = Pick<ClockEvent, "id" | "type" | "syncedLate" | "timeNotProven" | "offlineSinceMs"> & {
+  timestamp?: Stamp;
+  createdAt?: Stamp;
+};
 
+// B (2026-11-21): timeNotProven = it arrived 1 h+ late, so its time can't
+// be proven; offlineSinceMs = the phone's last server contact before it.
 export interface SyncedLatePunch {
   id: string;
   type: ClockEvent["type"];
   lateMs: number | null;
+  timeNotProven: boolean;
+  offlineSinceMs: number | null;
 }
 
 function ms(v: Stamp): number | null {
@@ -24,7 +31,13 @@ export function syncedLatePunches(events: EventLike[]): SyncedLatePunch[] {
     .map((e) => {
       const at = ms(e.timestamp);
       const arrived = ms(e.createdAt);
-      return { id: e.id, type: e.type, lateMs: at !== null && arrived !== null ? Math.max(0, arrived - at) : null };
+      return {
+        id: e.id,
+        type: e.type,
+        lateMs: at !== null && arrived !== null ? Math.max(0, arrived - at) : null,
+        timeNotProven: e.timeNotProven === true,
+        offlineSinceMs: typeof e.offlineSinceMs === "number" ? e.offlineSinceMs : null,
+      };
     });
 }
 
