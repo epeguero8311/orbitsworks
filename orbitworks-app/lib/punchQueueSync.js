@@ -4,8 +4,6 @@ import {
   failKind,
   failMessage,
   fastWaitMs,
-  isTooOld,
-  NOT_RECORDED_MESSAGE,
   nextToSend,
   withTimeout,
 } from "./punchQueueLogic";
@@ -47,6 +45,11 @@ import { onClockInSynced } from "./siteTracking";
 //                        was right when the punch was made)
 // A resend after a timeout is safe: the requestId is the event id, so the
 // server returns the first result instead of writing a second event.
+// B (2026-11-21): a punch is never failed for its age any more (the server
+// takes it at any age and flags it), and one whose photo the phone lost is
+// sent without it (photoMissing - "photo missing, face not checked").
+// lastServerMs (the phone's last server contact before the punch) goes with
+// every queued punch, for the admin's time-not-proven / clock-set-back flags.
 
 const UPLOAD_TIMEOUT_MS = 30000;
 const SEND_TIMEOUT_MS = 30000;
@@ -121,12 +124,6 @@ async function waitFor(item) {
 
 // true = synced, false = stop this run (waiting again, or failed).
 async function sendOne(item) {
-  // A fast sync gets server time, so the phone's own time (maybe wrong)
-  // can't make it "too old".
-  if ((await waitFor(item)) === null && isTooOld(item, Date.now())) {
-    await markFailed(item.requestId, "notRecorded", "tooOld", NOT_RECORDED_MESSAGE);
-    return false;
-  }
   await markSyncing(item.requestId);
   const isInOut = item.action === "in" || item.action === "out";
   const t0 = Date.now();
@@ -134,6 +131,7 @@ async function sendOne(item) {
   try {
     let pin;
     let photoPath;
+    let photoMissing = false;
     if (isInOut) {
       pin = await getSavedPin(item.requestId);
       if (!pin) {
@@ -142,11 +140,11 @@ async function sendOne(item) {
         return false;
       }
       photoPath = photoPathFor(item.companyId, item.employeeId, item.requestId);
-      if (!item.photoUploaded) {
-        if (!(await photoExists(item.photoLocalUri))) {
-          await fail(item, "notRecorded", "photo");
-          return false;
-        }
+      if (!item.photoUploaded && !(await photoExists(item.photoLocalUri))) {
+        // B: the photo is gone - sent without it, the admin is told.
+        photoMissing = true;
+        photoPath = undefined;
+      } else if (!item.photoUploaded) {
         await withTimeout(
           uploadClockPhoto({ companyId: item.companyId, employeeId: item.employeeId, requestId: item.requestId, localUri: item.photoLocalUri }),
           UPLOAD_TIMEOUT_MS
@@ -167,6 +165,8 @@ async function sendOne(item) {
         queuedAtMs: item.queuedAtMs,
         waitMs,
         expectedAtMs: item.expectedAtMs,
+        lastServerMs: item.lastServerMs,
+        photoMissing,
         location: item.location,
       }),
       SEND_TIMEOUT_MS

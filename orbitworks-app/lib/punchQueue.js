@@ -45,6 +45,7 @@ function toItem(row) {
     syncedAt: row.syncedAt || null,
     uptimeAtMs: Number.isFinite(row.uptimeAtMs) ? row.uptimeAtMs : null,
     expectedAtMs: Number.isFinite(row.expectedAtMs) ? row.expectedAtMs : null,
+    lastServerMs: Number.isFinite(row.lastServerMs) ? row.lastServerMs : null,
     sessionId: row.sessionId || null,
     location: locationFromRow(row),
   };
@@ -87,8 +88,8 @@ export async function enqueuePunch({ companyId, employeeId, action, requestId, q
     db.runAsync(
       `INSERT OR REPLACE INTO punch_queue
         (requestId, companyId, employeeId, action, queuedAtMs, siteName, photoLocalUri, photoUploaded, hasPin, status, attempts, createdAt,
-         uptimeAtMs, expectedAtMs, sessionId, lat, lng, locationAccuracyM, locationFixAtMs, locationAttempted)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         uptimeAtMs, expectedAtMs, sessionId, lat, lng, locationAccuracyM, locationFixAtMs, locationAttempted, lastServerMs)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         requestId,
         companyId,
@@ -104,6 +105,7 @@ export async function enqueuePunch({ companyId, employeeId, action, requestId, q
         Number.isFinite(c.expectedAtMs) ? c.expectedAtMs : null,
         c.sessionId || null,
         ...locationColumns(location),
+        Number.isFinite(c.lastServerMs) ? c.lastServerMs : null,
       ]
     )
   );

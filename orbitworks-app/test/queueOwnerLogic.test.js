@@ -44,9 +44,10 @@ test("unsentTitle: counts, plurals, null when nothing waits", () => {
   assert.equal(q.unsentTitle(null), null);
 });
 
-test("unsentMessage: says nothing is deleted; the Employee App names the 24 h window", () => {
+test("unsentMessage: says nothing is deleted; the Employee App says the admin sees how late", () => {
   assert.match(q.unsentMessage("employee"), /Nothing is deleted/);
-  assert.match(q.unsentMessage("employee"), /24 hours/);
+  assert.match(q.unsentMessage("employee"), /how late/);
+  assert.doesNotMatch(q.unsentMessage("employee"), /24 hours/);
   assert.match(q.unsentMessage("supervisor"), /Nothing is deleted/);
   assert.match(q.unsentMessage("supervisor"), /this login/);
 });

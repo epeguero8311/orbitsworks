@@ -156,6 +156,8 @@ async function openDb() {
   for (const [name, type] of [
     ["uptimeAtMs", "INTEGER"],
     ["expectedAtMs", "INTEGER"],
+    // B (2026-11-21): the phone's last server contact before the punch.
+    ["lastServerMs", "INTEGER"],
     ["sessionId", "TEXT"],
     ["lat", "REAL"],
     ["lng", "REAL"],

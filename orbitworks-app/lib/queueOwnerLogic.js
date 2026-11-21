@@ -56,11 +56,11 @@ function unsentTitle(counts) {
   return `${list} ${total === 1 ? "hasn't" : "haven't"} sent yet`;
 }
 
-// The line under the title. Employee App punches older than 24 h can't
-// be recorded (the server's queued-punch window, QUEUED_MAX_AGE_MS).
+// The line under the title. B (2026-11-21): a punch is recorded at any
+// age, flagged late for the admin.
 function unsentMessage(app) {
   if (app === "employee") {
-    return "Nothing is deleted: they stay on this phone and send when you sign back in on it. A punch can only be recorded within 24 hours, so sign back in before then.";
+    return "Nothing is deleted: they stay on this phone and send when you sign back in on it. Your admin will see how late they arrived.";
   }
   return "Nothing is deleted: they stay on this phone and send only when you sign back in on it with this login.";
 }

@@ -28,6 +28,7 @@ const BADGE_DELAY_MS = 10 * SECOND_MS;
 // Same window as the server (QUEUED_MAX_AGE_MS): older than this can't be
 // recorded, and a saved PIN is deleted.
 const QUEUED_MAX_AGE_MS = DAY_MS;
+// B (2026-11-21): no longer used - a punch PIN is kept until sent.
 const PIN_KEEP_MS = DAY_MS;
 // Sync tab (Phase 10 A2, D5 a): Synced rows show for THIS WEEK - Monday to
 // today by punch time in the company's time zone (same week as History).
@@ -231,7 +232,9 @@ function visibleItems(items, companyId, employeeId, nowMs, timeZone) {
 // the PIN is 24 h old.
 function pinsToDelete(items, nowMs) {
   return items
-    .filter((i) => i.hasPin && (i.status === "synced" || i.status === "failed" || nowMs - i.createdAt >= PIN_KEEP_MS))
+    // B (2026-11-21): kept until the punch is sent (or failed for good) -
+    // the server takes a queued punch at any age, so its PIN must wait too.
+    .filter((i) => i.hasPin && (i.status === "synced" || i.status === "failed"))
     .map((i) => i.requestId);
 }
 

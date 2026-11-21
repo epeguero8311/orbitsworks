@@ -50,7 +50,9 @@ export async function uploadClockPhoto({ companyId, employeeId, requestId, local
 // queuedAtMs: when the employee made the punch (phone time). waitMs: how
 // long it waited, by uptime, when known (fast sync). expectedAtMs: when the
 // phone expected it to be (phoneClockOff). See employeeClockQueued.ts.
-export async function sendPunch({ action, requestId, pin, photoPath, queuedAtMs, waitMs, expectedAtMs, location }) {
+// B (2026-11-21): lastServerMs = the phone's last server contact before the
+// punch; photoMissing = a queued clock in/out sent without its lost photo.
+export async function sendPunch({ action, requestId, pin, photoPath, queuedAtMs, waitMs, expectedAtMs, lastServerMs, photoMissing, location }) {
   const data = { action, requestId };
   if (pin) data.pin = pin;
   if (photoPath) data.photoPath = photoPath;
@@ -58,6 +60,8 @@ export async function sendPunch({ action, requestId, pin, photoPath, queuedAtMs,
     data.queuedAtMs = Math.round(queuedAtMs);
     if (Number.isFinite(waitMs)) data.waitMs = Math.round(waitMs);
     if (Number.isFinite(expectedAtMs)) data.expectedAtMs = Math.round(expectedAtMs);
+    if (Number.isFinite(lastServerMs) && lastServerMs > 0) data.lastServerMs = Math.round(lastServerMs);
+    if (photoMissing === true && !photoPath) data.photoMissing = true;
   }
   // Phase 6: null = no fix; undefined (a row saved before Phase 6) = no field.
   if (location !== undefined) data.location = location;

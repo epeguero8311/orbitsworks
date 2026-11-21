@@ -189,12 +189,10 @@ test("saved PIN: deleted once synced or failed", () => {
   assert.deepEqual(q.pinsToDelete([synced, failed, waiting], NOW), [synced.requestId, failed.requestId]);
 });
 
-test("saved PIN: deleted after 24 h even if never sent, for any employee", () => {
-  const day = item({ hasPin: true, createdAt: NOW - 24 * HOUR });
-  const almost = item({ hasPin: true, createdAt: NOW - 24 * HOUR + MIN });
-  const otherEmp = item({ hasPin: true, employeeId: "emp2", createdAt: NOW - 25 * HOUR });
-  const noPin = item({ hasPin: false, createdAt: NOW - 30 * HOUR });
-  assert.deepEqual(q.pinsToDelete([day, almost, otherEmp, noPin], NOW), [day.requestId, otherEmp.requestId]);
+test("saved PIN: B - kept at any age until the punch is sent (the server takes it at any age)", () => {
+  const week = item({ hasPin: true, status: "waiting", createdAt: NOW - 7 * 24 * HOUR });
+  const otherEmp = item({ hasPin: true, employeeId: "emp2", status: "waiting", createdAt: NOW - 40 * 24 * HOUR });
+  assert.deepEqual(q.pinsToDelete([week, otherEmp], NOW), []);
 });
 
 test("older than 24 h can't be recorded", () => {

@@ -74,5 +74,8 @@ export async function punchClockFields() {
     uptimeAtMs: uptimeAtMs === null ? null : Math.round(uptimeAtMs),
     expectedAtMs: expectedTimeFrom(anchor, uptimeAtMs),
     sessionId: APP_RUN_ID,
+    // B (2026-11-21): the last server time this phone saw (kept across
+    // restarts - only uptime starts over), for the admin's flags.
+    lastServerMs: anchor ? Math.round(anchor.serverMs) : null,
   };
 }
