@@ -85,6 +85,7 @@ You'll also need:
 | 1 | Account and billing (second company), settings, job sites, employees | web | 1 h 45 |
 | 2 | Invites, crew codes, QR and links, every sign-up path, seat limits | web + phone | 2 h 15 |
 | 3 | Supervisor app | phone + web | 1 h 30 |
+| 3b | Role change while signed in (RC1 retests, build 30+) | phone + web | 45 min |
 | 4 | Employee App at the desk: punches, PIN, offline and queue, desk site detection, notifications, Hours | phone + web | 3 h (two sittings OK: 4a H1-H12, 4b the rest) |
 | 5 | Alerts, push and face checks | phone + web | 2 h (mostly waiting) |
 | 6 | Website review: Time Tracking, corrections, reassign, Approve Hours, alerts, reports, Excel, analytics, auto break | web | 1 h 15 |
@@ -95,7 +96,7 @@ You'll also need:
 | P | Prod smoke test (after the prod deploy) | prod | 45 min |
 | AN | Android (once an Android build exists) | phone | later |
 
-Total hands-on time is about 17 h, plus Session 10's week.
+Total hands-on time is about 17 h 45, plus Session 10's week.
 
 ---
 
@@ -208,6 +209,30 @@ waiting. Sign in as **you+sup**.
 | N9 | both | Cara has the bad photo | Clock Cara in. | No face result (checks paused). Still exactly one Bad Reference Photo alert. |
 | D5 | web | Cara | Employees > Cara > **Remove photo** > Cancel. Then Remove photo > **Yes, remove photo** (BIO-W3, plus BIO-W1's Cancel path). | **Cancel:** changes nothing.<br>**Yes:** the photo is gone; the "Photo needs update" tag and the Bad Reference alert both go away; the row shows "No face check". |
 | F18 | phone | — | Open the supervisor **Alerts** tab. | Shows today's alerts (No Face Detected, Bad Reference Photo, …). It never shows web-only types (Late Punch on Approved Timesheet, Deleted App Account). |
+
+## Session 3b. Role change while signed in (phone + web, 45 min)
+
+RC1 retests. **Needs build 30 or later** (the RC1 fix; build 29 fails
+these). Use **you+emp1** on the phone (an Employee App login) and the
+website as you+owner on the computer. The website change is always made
+on the computer, never on the phone.
+
+- **Done right:** after a change the phone shows "You're now a supervisor" or "Your access changed" for a few seconds, then the new app. The app is never left with an empty list, 0 active, or your email instead of your name.
+- **I check (every test):**
+  - users/{uid} has the new role and a new roleChangedAt.
+  - The phone's token has the new role (no permission-denied in Sentry for this login after the switch).
+  - Every punch made in the test is on the server with the time it was made.
+
+| ID | Where | Setup | Steps | Pass |
+|---|---|---|---|---|
+| RC1-1 | both | emp1 signed in, **clocked in**, app open, online | Website: Employees > emp1 > turn **Supervisor access** on. Watch the phone, don't touch it. | **Phone:** within about 10 s, "You're now a supervisor", then supervisor Home **without a restart**: your name, the employee list, emp1 counted as active.<br>**Website:** emp1's clock-in is unchanged. |
+| RC1-2 | both | Continue from RC1-1 (emp1 is a supervisor) | PIN clock-in **Ben**, online. Then airplane mode on, PIN clock-out **Ben**, airplane mode off. | **Both:** green screen, then on the website within seconds at the right times. Sync Queue ends empty. |
+| RC1-3 | both | Website: turn emp1's Supervisor access **off** first; the phone goes back to the Employee App. emp1 still clocked in. | 1. Airplane mode on. Start Break, End Break (both queued).<br>2. Website: turn Supervisor access **on**.<br>3. Wait 1 minute, then airplane mode off. | **While offline:** the phone stays on the Employee App and works normally.<br>**Back online:** "You're now a supervisor - sending what's saved first", then supervisor Home.<br>**Website:** both breaks at the times you tapped them; nothing left in Sync Queue (no "Your own punches" card). |
+| RC1-4 | both | emp1 is a supervisor, clocked in | 1. Airplane mode on. PIN clock-in **Dan** (queued).<br>2. Website: turn emp1's Supervisor access **off** (demote while clocked in).<br>3. Airplane mode off. | **Back online:** "Your access changed - sending what's saved first", then the Employee App.<br>**Website:** Dan's clock-in landed at the right time.<br>**Employee App:** Home shows emp1 **still clocked in**; Clock out works and appears on the website. |
+| RC1-5 | both | emp1 back to Supervisor access on (from RC1-4) | Website: turn **Admin** on, wait, then Admin off again (supervisor only). | **Both changes:** the supervisor app keeps working with no empty screens; at most a brief "Updating your access".<br>**Admin on:** Edit employee shows the PIN field.<br>**Admin off:** the PIN field is gone. |
+| RC1-6 | both | emp1 is a supervisor | 1. Kill the app.<br>2. Website: turn Supervisor access **off**.<br>3. Open the app. | Never shows the supervisor screens with an empty list (the build 29 bug). Goes to "Your access changed", then the Employee App. |
+| RC1-7 | both | emp1 is an employee, clocked out | The original FAIL, exactly: clock in, wait 2 minutes, then on the website make emp1 a supervisor. Then PIN-clock **Ben** in and out. | Supervisor app with name, list and counts. Both of Ben's punches are on the website. |
+| RC1-8 | both | emp1 is a supervisor, signed in | Website: **deactivate** emp1. Then reactivate and set Supervisor access off. | **Deactivate:** "Account deactivated" at once (same as before).<br>**Reactivate:** sign in works again, and it opens the Employee App. |
 
 ## Session 4. Employee App at the desk (phone + web, 3 h)
 
@@ -745,4 +770,11 @@ Sources:
   - **Promotion with unsent Employee App punches:** those punches get stranded, because the employee queue sync isn't mounted for a supervisor.
   - **Admin to/from supervisor:** same UI tree, so nothing goes empty. The token keeps the old powers for up to 1 h.
   - **Deactivation:** a different path (live listener plus token revoke). This is not the same bug.
-- **Fix:** options given 2026-11-20, waiting for a choice.
+- **Fix:** B + C chosen 2026-11-20.
+  - **B:** the app routes by the token's role and watches users/{uid}. On a change it sends the old role's queue first, refreshes the token, then switches.
+  - **C:** the server accepts a promoted login's own queued punches.
+  - **Code:** employee-app 3981380..0755aa5. Functions `setEmployeeRole` and `employeeClockPunch` deployed to dev.
+  - **Retest:** Session 3b, RC1-1 to RC1-8, on build 30.
+- **Still open:**
+  - **Green screens:** you saw green success screens in the broken state, but nothing reached the server and no send failed. Needs the phone's Sync Queue checked before a cause is named.
+  - **Remove warning + admin alert:** inventory given, waiting for an OK before changing it.

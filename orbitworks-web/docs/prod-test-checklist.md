@@ -3,12 +3,12 @@
 The short version of `ios-test-list.md`. Setup, steps and exact pass
 criteria are there; this file is for ticking off.
 
-- **Tests:** 200 by hand. 186 on dev (Sessions 0-10), 9 on prod (P) and 5 on Android (AN).
-  - **MUST PASS BEFORE PROD:** 178.
+- **Tests:** 208 by hand. 194 on dev (Sessions 0-10, plus 3b), 9 on prod (P) and 5 on Android (AN).
+  - **MUST PASS BEFORE PROD:** 186.
   - **CAN WAIT:** 22 (the prod smoke test, Android, and optional or after-launch checks).
   - X10-X14 aren't on this list: they're covered by unit tests and can't be done by hand.
-- **Time:** about 17 h hands-on for Sessions 0-9, plus 15 min a day for a week (Session 10). Then 45 min for P after the prod deploy.
-- **App and site:** OrbitsWorks Dev, build 29, plus the hosted dev site (`orbitworks-dev-ew`).
+- **Time:** about 17 h 45 hands-on for Sessions 0-9, plus 15 min a day for a week (Session 10). Then 45 min for P after the prod deploy.
+- **App and site:** OrbitsWorks Dev, build 29 (Session 3b needs build 30+), plus the hosted dev site (`orbitworks-dev-ew`).
 - **What you need ready:**
   - **Emails:** these Gmail aliases of your address (`you+…@gmail.com`), all landing in your normal inbox: owner (already exists), owner2, admin, sup, sup2, emp1, emp2, emp3, emp4, emp8, emp9, wrong, dup, del1, del2, del3, core1.
   - **A second face:** a friend, or a printed photo, for the mismatch tests (D1, N3, N5, R4). Also a photo with 2 faces, or none, for D4.
@@ -96,6 +96,17 @@ criteria are there; this file is for ticking off.
 - [ ] N9 - Bad reference photo pauses checks; one alert only - both - **MUST**
 - [ ] D5 - Remove photo: Cancel does nothing; Yes clears the tag and alert - web - **MUST**
 - [ ] F18 - Supervisor Alerts tab shows only app alert types - phone - **MUST**
+
+## Session 3b. Role change while signed in (45 min, build 30+)
+
+- [ ] RC1-1 - Employee -> supervisor while clocked in: switches live, name + list + count - both - **MUST**
+- [ ] RC1-2 - Just promoted: PIN punches online and offline land - both - **MUST**
+- [ ] RC1-3 - Promoted while offline with queued breaks: sent first, then switch - both - **MUST**
+- [ ] RC1-4 - Demoted while clocked in with a queued PIN punch: sent first; Employee App shows clocked in; clock out works - both - **MUST**
+- [ ] RC1-5 - Supervisor <-> admin: no empty screens; PIN field follows admin - both - **MUST**
+- [ ] RC1-6 - Role changed while the app was closed: opens straight to the right app - both - **MUST**
+- [ ] RC1-7 - The original build 29 FAIL, step by step - both - **MUST**
+- [ ] RC1-8 - Deactivate while signed in still shows Account deactivated - both - **MUST**
 
 ## Session 4. Employee App at the desk (3 h)
 
@@ -262,7 +273,7 @@ criteria are there; this file is for ticking off.
 
 ## Ready for prod when
 
-1. **Every MUST test passes** (178), recorded in the `ios-test-list.md` Results log. A skip counts as not passed, unless the test is rerun later or you write down that you accept it.
+1. **Every MUST test passes** (186), recorded in the `ios-test-list.md` Results log. A skip counts as not passed, unless the test is rerun later or you write down that you accept it.
 2. **No open fails.** Every fail is fixed, then retested on the build or site that carries the fix, and the retest is recorded as a pass. The "Open fails" list says "None".
 3. **If a fix needs a new build or deploy,** the tests in the areas it touched are run again on that build.
 4. **AWS opt-out is done** (biometric audit gap a, in the AWS console).
