@@ -3,11 +3,11 @@
 The short version of `ios-test-list.md`. Setup, steps and exact pass
 criteria are there; this file is for ticking off.
 
-- **Tests:** 208 by hand. 194 on dev (Sessions 0-10, plus 3b), 9 on prod (P) and 5 on Android (AN).
-  - **MUST PASS BEFORE PROD:** 186.
+- **Tests:** 216 by hand. 202 on dev (Sessions 0-10, plus 3b), 9 on prod (P) and 5 on Android (AN).
+  - **MUST PASS BEFORE PROD:** 194.
   - **CAN WAIT:** 22 (the prod smoke test, Android, and optional or after-launch checks).
   - X10-X14 aren't on this list: they're covered by unit tests and can't be done by hand.
-- **Time:** about 17 h 45 hands-on for Sessions 0-9, plus 15 min a day for a week (Session 10). Then 45 min for P after the prod deploy.
+- **Time:** about 18 h 30 hands-on for Sessions 0-9, plus 15 min a day for a week (Session 10). Then 45 min for P after the prod deploy.
 - **App and site:** OrbitsWorks Dev, build 29 (Session 3b needs build 30+), plus the hosted dev site (`orbitworks-dev-ew`).
 - **What you need ready:**
   - **Emails:** these Gmail aliases of your address (`you+…@gmail.com`), all landing in your normal inbox: owner (already exists), owner2, admin, sup, sup2, emp1, emp2, emp3, emp4, emp8, emp9, wrong, dup, del1, del2, del3, core1.
@@ -97,7 +97,7 @@ criteria are there; this file is for ticking off.
 - [ ] D5 - Remove photo: Cancel does nothing; Yes clears the tag and alert - web - **MUST**
 - [ ] F18 - Supervisor Alerts tab shows only app alert types - phone - **MUST**
 
-## Session 3b. Role change while signed in (45 min, build 30+)
+## Session 3b. Role change while signed in, removing unsent punches (1 h 30, build 30+)
 
 - [ ] RC1-1 - Employee -> supervisor while clocked in: switches live, name + list + count - both - **MUST**
 - [ ] RC1-2 - Just promoted: PIN punches online and offline land - both - **MUST**
@@ -107,6 +107,14 @@ criteria are there; this file is for ticking off.
 - [ ] RC1-6 - Role changed while the app was closed: opens straight to the right app - both - **MUST**
 - [ ] RC1-7 - The original build 29 FAIL, step by step - both - **MUST**
 - [ ] RC1-8 - Deactivate while signed in still shows Account deactivated - both - **MUST**
+- [ ] RC1-9 - Remove a Failed punch: lost-for-good warning, Keep it works, admin gets one Unsent Punch Removed alert - both - **MUST**
+- [ ] RC1-10 - Remove while offline: alert arrives once when back online - both - **MUST**
+- [ ] RC1-11 - Remove a Not synced comment: warning, alert carries the text - both - **MUST**
+- [ ] RC1-12 - Supervisor Alerts tab never shows Unsent Punch Removed - phone - **MUST**
+- [ ] RC1-13 - Promoted with a queued comment and leave tracking on: both sent, tracking off "made a supervisor/admin" - both - **MUST**
+- [ ] RC1-14 - Promoted with an unsent removal report: exactly one alert - both - **MUST**
+- [ ] RC1-15 - Website: admin -> supervisor -> employee while signed in takes effect within seconds, no reload - web - **MUST**
+- [ ] RC1-16 - Website: deactivated while signed in is signed out within seconds - web - **MUST**
 
 ## Session 4. Employee App at the desk (3 h)
 

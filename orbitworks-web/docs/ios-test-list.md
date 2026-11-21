@@ -85,7 +85,7 @@ You'll also need:
 | 1 | Account and billing (second company), settings, job sites, employees | web | 1 h 45 |
 | 2 | Invites, crew codes, QR and links, every sign-up path, seat limits | web + phone | 2 h 15 |
 | 3 | Supervisor app | phone + web | 1 h 30 |
-| 3b | Role change while signed in (RC1 retests, build 30+) | phone + web | 45 min |
+| 3b | Role change while signed in, and removing unsent punches (RC1 retests, build 30+) | phone + web | 1 h 30 |
 | 4 | Employee App at the desk: punches, PIN, offline and queue, desk site detection, notifications, Hours | phone + web | 3 h (two sittings OK: 4a H1-H12, 4b the rest) |
 | 5 | Alerts, push and face checks | phone + web | 2 h (mostly waiting) |
 | 6 | Website review: Time Tracking, corrections, reassign, Approve Hours, alerts, reports, Excel, analytics, auto break | web | 1 h 15 |
@@ -96,7 +96,7 @@ You'll also need:
 | P | Prod smoke test (after the prod deploy) | prod | 45 min |
 | AN | Android (once an Android build exists) | phone | later |
 
-Total hands-on time is about 17 h 45, plus Session 10's week.
+Total hands-on time is about 18 h 30, plus Session 10's week.
 
 ---
 
@@ -210,7 +210,7 @@ waiting. Sign in as **you+sup**.
 | D5 | web | Cara | Employees > Cara > **Remove photo** > Cancel. Then Remove photo > **Yes, remove photo** (BIO-W3, plus BIO-W1's Cancel path). | **Cancel:** changes nothing.<br>**Yes:** the photo is gone; the "Photo needs update" tag and the Bad Reference alert both go away; the row shows "No face check". |
 | F18 | phone | — | Open the supervisor **Alerts** tab. | Shows today's alerts (No Face Detected, Bad Reference Photo, …). It never shows web-only types (Late Punch on Approved Timesheet, Deleted App Account). |
 
-## Session 3b. Role change while signed in (phone + web, 45 min)
+## Session 3b. Role change while signed in (phone + web, 1 h 30)
 
 RC1 retests. **Needs build 30 or later** (the RC1 fix; build 29 fails
 these). Use **you+emp1** on the phone (an Employee App login) and the
@@ -233,6 +233,22 @@ on the computer, never on the phone.
 | RC1-6 | both | emp1 is a supervisor | 1. Kill the app.<br>2. Website: turn Supervisor access **off**.<br>3. Open the app. | Never shows the supervisor screens with an empty list (the build 29 bug). Goes to "Your access changed", then the Employee App. |
 | RC1-7 | both | emp1 is an employee, clocked out | The original FAIL, exactly: clock in, wait 2 minutes, then on the website make emp1 a supervisor. Then PIN-clock **Ben** in and out. | Supervisor app with name, list and counts. Both of Ben's punches are on the website. |
 | RC1-8 | both | emp1 is a supervisor, signed in | Website: **deactivate** emp1. Then reactivate and set Supervisor access off. | **Deactivate:** "Account deactivated" at once (same as before).<br>**Reactivate:** sign in works again, and it opens the Employee App. |
+
+RC1 follow-up retests (build 30+, functions deployed 2026-11-20):
+removing an unsent punch warns and alerts the admin, a promotion also
+sends comments and leave tracking, and the website follows a role change
+or deactivation within seconds.
+
+| ID | Where | Setup | Steps | Pass |
+|---|---|---|---|---|
+| RC1-9 | both | emp1 is an employee, **clocked in**, on the Employee App. Make a punch fail: airplane mode on, tap **Clock out** (queued). On the website, clock emp1 out by hand (Time Tracking). Airplane mode off: the phone's clock-out shows **Failed**. | Sync tab > Remove on the Failed clock-out. Read the box. Tap **Keep it**. Then Remove > **Remove for good**. | **The box:** red "Lose this clock-out?", says it was never recorded, is lost for good, can't be sent or brought back, and that your admin will be told. "Keep it" is the first button.<br>**Keep it:** the row is still there.<br>**Remove for good:** the row is gone.<br>**Website Overview, within a minute:** one "emp1 - Unsent Punch Removed" alert with the clock-out's time and "never recorded".<br>**I check:** one punchRemoved alert keyed by the punch's id. |
+| RC1-10 | both | Make another Failed punch (as in RC1-9, with a break start this time) | Airplane mode **on**. Remove it (Remove for good). Wait 2 minutes. Airplane mode **off**. | **While offline:** removing works; nothing on the website.<br>**Back online, within a minute:** exactly one Unsent Punch Removed alert for the break start (sent once, never twice). |
+| RC1-11 | both | emp1 clocked out | 1. Airplane mode on. Clock in (queued), then add a shift comment "RC1 lost comment".<br>2. On the website, clock emp1 in by hand.<br>3. Airplane mode off: the clock-in fails and the comment shows **Not synced**.<br>4. Remove the Failed clock-in, then Remove the comment. | **Comment box:** "Delete this comment for good?", never saved, gone for good, admin will be told.<br>**Website:** two alerts: the clock-in, and the comment with its text "RC1 lost comment". |
+| RC1-12 | phone | After RC1-9 to RC1-11; sign in as you+sup | Open the supervisor **Alerts** tab. | No "Unsent Punch Removed" alerts there (website only, like Deleted App Account). |
+| RC1-13 | both | **Pro**, Site A geofenced. emp1 an employee, clocked in **from the phone** at Site A (leave tracking on). | 1. Airplane mode on. Add a shift comment "before promotion".<br>2. Website: turn emp1's Supervisor access **on**.<br>3. Wait 1 minute, airplane mode off. | **Phone:** "You're now a supervisor - sending what's saved first", then supervisor Home, with **no** "still on this phone" notice.<br>**Website:** the comment is on emp1's shift; Time Tracking shows a "Tracking off (made a supervisor/admin)" stretch starting at the switch.<br>**I check:** no siteExits row after the switch, nothing left in employee_punches.db for emp1. |
+| RC1-14 | both | emp1 an employee with a Failed punch on the phone (as in RC1-9) | Airplane mode on. Remove it. Website: turn Supervisor access **on**. Airplane mode off. | The removal report is sent before the switch (or from the supervisor app right after): **exactly one** Unsent Punch Removed alert. The supervisor app works normally. |
+| RC1-15 | web | Make emp1 an **admin** (Supervisor + Admin on). On the computer, sign in to the website as **you+emp1** in one browser, and as you+owner in a private window. | Owner window: turn emp1's **Admin** off. Watch the you+emp1 window, don't reload. Then turn **Supervisor** off too. | **Admin off, within about 10 s:** the you+emp1 window loses admin-only pages (e.g. Settings, the PIN field) with no reload; any admin page left open stops working.<br>**Supervisor off:** within about 10 s it goes to the "use the app" page.<br>**I check:** no permission-denied errors in the console after the switch. |
+| RC1-16 | web | emp1 a supervisor, signed in to the website as **you+emp1**; you+owner in a private window | Owner window: **deactivate** emp1. Watch the you+emp1 window. Then reactivate emp1. | **Deactivate:** the you+emp1 window is signed out within about 10 s (not up to an hour).<br>**Reactivate:** you+emp1 can sign in again. |
 
 ## Session 4. Employee App at the desk (phone + web, 3 h)
 
@@ -775,6 +791,10 @@ Sources:
   - **C:** the server accepts a promoted login's own queued punches.
   - **Code:** employee-app 3981380..0755aa5. Functions `setEmployeeRole` and `employeeClockPunch` deployed to dev.
   - **Retest:** Session 3b, RC1-1 to RC1-8, on build 30.
+- **Follow-up (2026-11-20):**
+  - **Remove:** the Sync tab's Remove now says the punch/comment is lost for good and that the admin will be told; each removal sends a punchRemoved alert (website Overview), queued if offline. Retest RC1-9 to RC1-12, RC1-14.
+  - **After a promotion:** leave tracking ends ("made a supervisor/admin"); comments, leave tracking and removal reports are sent before the switch, and any leftovers keep sending from the supervisor app. Retest RC1-13.
+  - **Website:** follows a role change or deactivation within seconds (users/{uid} roleChangedAt / accessRevokedAt). Retest RC1-15, RC1-16.
 - **Still open:**
-  - **Green screens:** you saw green success screens in the broken state, but nothing reached the server and no send failed. Needs the phone's Sync Queue checked before a cause is named.
-  - **Remove warning + admin alert:** inventory given, waiting for an OK before changing it.
+  - **Green screens:** you saw green success screens in the broken state, but nothing reached the server and no send failed. By code, green means the punch was written to the phone's queue. Needs the phone's Sync Queue (Drops) checked before a cause is named.
+  - **Logout:** no logout or sign-in path deletes unsent punches, but neither logout warns about them, and the supervisor queue isn't tied to a login or company. Cause shown; fix waits for an OK.
