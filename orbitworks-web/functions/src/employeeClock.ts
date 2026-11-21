@@ -14,17 +14,19 @@ import { pinHistoryRef } from "./pins";
 import { readEmployeePin } from "./lib/employeePin";
 import {
   COULDNT_SYNC_MESSAGE,
-  NOT_RECORDED_MESSAGE,
+  PHONE_CLOCK_OFF_MS,
   QUEUED_WRONG_PIN_MESSAGE,
   isFastSync,
   isPhoneClockOff,
-  isSuperseded,
   isSyncedLate,
   isSyncBlocked,
   queuedEventMs,
   queuedTimeProblem,
   recordSyncWrongPin,
 } from "./employeeClockQueued";
+import { TIME_NOT_PROVEN_AFTER_MS, type ReplacedEvent } from "./latePunchTypes";
+import { newestAfterPlacement, placeLatePunch, type PlacedEvent, type Placement } from "./latePunchPlacement";
+import { createLatePunchAlerts } from "./latePunchAlerts";
 
 // ---- Employee App: clock in / out / breaks (employeeClockPunch) ----
 //
@@ -96,6 +98,15 @@ import {
 // already recorded rejects it, and the event keeps the phone's time with
 // queued: true (plus syncedLate: true if it arrived 5+ minutes late).
 // Online punches (no queuedAtMs) are unchanged: current PIN only.
+//
+// B (2026-11-21, latePunchTypes.ts): a queued punch is never refused for
+// its age, for a later punch already recorded, or for not fitting the
+// current status - it goes in at its own time (latePunchPlacement.ts),
+// replacing the auto clock-out / hand-entered events of its shift it
+// contradicts (copies kept in replacedEvents), and is flagged for the admin
+// (latePunchAlerts.ts). A queued clock in/out whose photo the phone lost is
+// recorded without one (photoMissing). Still refused: wrong PIN, the
+// wrong-PIN block, an inactive or unlinked login, a time in the future.
 //
 // Never log the PIN, photo URL or names - log() prints a step and a code.
 
@@ -350,6 +361,21 @@ function lockedMessage(secondsLeft: number): string {
   return `Too many wrong PINs. Try again in ${secondsLeft} second${secondsLeft === 1 ? "" : "s"}.`;
 }
 
+// B: events read around a queued punch (each way) - enough for a shift.
+const PLACEMENT_READ = 25;
+
+// An event as placeLatePunch sees it: its EFFECTIVE time (an admin's
+// adjustedTimestamp wins, same rule as onClockEventCreated / autoClockOut).
+function placedFrom(doc: FirebaseFirestore.QueryDocumentSnapshot): PlacedEvent {
+  const ts = (doc.get("adjustedTimestamp") ?? doc.get("timestamp")) as admin.firestore.Timestamp | undefined;
+  return {
+    id: doc.id,
+    type: String(doc.get("type") ?? ""),
+    source: String(doc.get("source") ?? ""),
+    ms: ts && typeof ts.toMillis === "function" ? ts.toMillis() : 0,
+  };
+}
+
 type EventData = {
   employeeId?: string;
   source?: string;
@@ -456,8 +482,8 @@ export const employeeClockPunch = onCall(async (request) => {
   // 4b. queued punch: its time must be within the window (a fast sync
   // gets server time, so the phone's time is never used for it)
   if (queued && !fast) {
+    // B: never "too old" any more - only a time in the future is refused.
     const problem = queuedTimeProblem(input.queuedAtMs as number, nowMs);
-    if (problem === "tooOld") return reject(clockError("tooOld", NOT_RECORDED_MESSAGE));
     if (problem === "badTime") return reject(clockError("badTime", COULDNT_SYNC_MESSAGE));
   }
 
@@ -499,7 +525,9 @@ export const employeeClockPunch = onCall(async (request) => {
     }
     if (input.checkPinOnly) return { pinOk: true, serverNowMs: Date.now() };
   }
-  if (isInOut) {
+  // B: a queued clock in/out whose photo the phone lost is recorded
+  // without one and flagged (the schema allows photoMissing only then).
+  if (isInOut && input.photoMissing !== true) {
     // 6. photo
     if (!photoIsOwn) return reject(clockError("photo"));
     photoUrl = await photoUrlFor(ownPhotoPath, nowMs);
@@ -518,11 +546,24 @@ export const employeeClockPunch = onCall(async (request) => {
   const clockInFence = clockInSite ? await fenceForNewClockIn(companyId, clockInSite.siteId).catch(() => null) : null;
 
   // 8. state + write, atomically
-  const latestQuery = companyRef
-    .collection("clockEvents")
+  const eventsRef = companyRef.collection("clockEvents");
+  // B: a queued punch's time is fixed here (a fast sync: server time minus
+  // its wait), so the events around it can be read in the transaction.
+  const plannedMs = fast ? nowMs - (input.waitMs as number) : queued ? queuedEventMs(input.queuedAtMs as number, nowMs) : nowMs;
+  const latestQuery = eventsRef
     .where("employeeId", "==", employeeId)
     .orderBy("timestamp", "desc")
-    .limit(1);
+    .limit(queued ? PLACEMENT_READ : 1);
+  const beforeQuery = eventsRef
+    .where("employeeId", "==", employeeId)
+    .where("timestamp", "<=", admin.firestore.Timestamp.fromMillis(plannedMs))
+    .orderBy("timestamp", "desc")
+    .limit(PLACEMENT_READ);
+  const afterQuery = eventsRef
+    .where("employeeId", "==", employeeId)
+    .where("timestamp", ">", admin.firestore.Timestamp.fromMillis(plannedMs))
+    .orderBy("timestamp", "asc")
+    .limit(PLACEMENT_READ);
   // The open shift's clock-in, for out/breaks to copy its site.
   const shiftInQuery = companyRef
     .collection("clockEvents")
@@ -535,7 +576,13 @@ export const employeeClockPunch = onCall(async (request) => {
   let outcome: TxResult;
   try {
     outcome = await db.runTransaction<TxResult>(async (tx) => {
-      const [again, empSnap, latestSnap] = await Promise.all([tx.get(eventRef), tx.get(employeeRef), tx.get(latestQuery)]);
+      const [again, empSnap, latestSnap, beforeSnap, afterSnap] = await Promise.all([
+        tx.get(eventRef),
+        tx.get(employeeRef),
+        tx.get(latestQuery),
+        queued ? tx.get(beforeQuery) : Promise.resolve(null),
+        queued ? tx.get(afterQuery) : Promise.resolve(null),
+      ]);
       if (again.exists) return { kind: "replay", data: again.data() as EventData };
       const emp = empSnap.data() as EmployeeDoc | undefined;
       if (!emp || emp.linkedUserId !== uid) return { kind: "rejected", err: clockError("wrongAccount") };
@@ -544,23 +591,36 @@ export const employeeClockPunch = onCall(async (request) => {
       const latest = latestSnap.empty ? undefined : (latestSnap.docs[0].data() as EventData);
       const latestType = latest?.type;
       const txNowMs = Date.now();
-      const eventMs = fast
-        ? txNowMs - (input.waitMs as number)
-        : queued
-          ? queuedEventMs(input.queuedAtMs as number, txNowMs)
-          : txNowMs;
-      if (queued && isSuperseded(eventMs, latest?.timestamp ? latest.timestamp.toMillis() : null)) {
-        return { kind: "rejected", err: clockError("superseded", NOT_RECORDED_MESSAGE) };
+      const eventMs = queued ? plannedMs : txNowMs;
+      // B: a queued punch is placed at its own time, never refused here.
+      let placement: Placement | null = null;
+      if (queued && beforeSnap && afterSnap) {
+        placement = placeLatePunch({
+          action: input.action,
+          eventMs,
+          before: beforeSnap.docs.map(placedFrom),
+          after: afterSnap.docs.map(placedFrom),
+        });
+      } else {
+        const message = wrongStateMessage(input.action, statusAfter(latestType));
+        if (message) return { kind: "rejected", err: clockError("wrongState", message, { status: statusAfter(latestType) }) };
       }
-      const message = wrongStateMessage(input.action, statusAfter(latestType));
-      if (message) return { kind: "rejected", err: clockError("wrongState", message, { status: statusAfter(latestType) }) };
+      const removedIds = new Set((placement?.remove ?? []).map((e) => e.id));
 
       let site: Site = clockInSite ?? { siteId: null, siteName: NO_SITE_NAME };
       let clockOutDetected = false;
       if (!clockInSite) {
-        const inSnap = await tx.get(shiftInQuery);
-        const shiftIn = inSnap.empty ? undefined : (inSnap.docs[0].data() as EventData);
-        if (shiftIn?.siteId) site = { siteId: shiftIn.siteId, siteName: shiftIn.siteName || NO_SITE_NAME };
+        // B: a queued punch copies the site of ITS shift's clock-in (the
+        // nearest clock-in before it), not the newest one.
+        let pickedIn: EventData | undefined;
+        if (beforeSnap) {
+          const ownIn = beforeSnap.docs.find((d) => d.get("type") === "in" && !removedIds.has(d.id));
+          pickedIn = ownIn?.data() as EventData | undefined;
+        } else {
+          const inSnap = await tx.get(shiftInQuery);
+          pickedIn = inSnap.empty ? undefined : (inSnap.docs[0].data() as EventData);
+        }
+        if (pickedIn?.siteId) site = { siteId: pickedIn.siteId, siteName: pickedIn.siteName || NO_SITE_NAME };
         if (input.action === "out") {
           const out = pickEmployeeClockOutSite(clockOutPick, site);
           site = { siteId: out.siteId, siteName: out.siteName || NO_SITE_NAME };
@@ -605,8 +665,44 @@ export const employeeClockPunch = onCall(async (request) => {
         data.phoneClockOff = true;
       }
       if (oldPinAccepted) data.oldPinAccepted = true;
+      // B flags (latePunchTypes.ts). A faked time can only be earlier than
+      // the real one, and the real one is before now - so a punch that
+      // arrived 1 h+ late can't have its time proven.
+      if (queued && !fast) {
+        if (input.lastServerMs !== undefined) {
+          data.offlineSinceMs = input.lastServerMs;
+          // Made before the phone's last server contact: clock set back.
+          if (eventMs < input.lastServerMs - PHONE_CLOCK_OFF_MS) data.phoneClockOff = true;
+        }
+        if (txNowMs - eventMs > TIME_NOT_PROVEN_AFTER_MS) data.timeNotProven = true;
+      }
+      if (input.photoMissing === true) data.photoMissing = true;
+      if (placement?.conflict) data.punchConflict = true;
+      const replaced: ReplacedEvent[] = (placement?.remove ?? []).map((e) => ({ id: e.id, type: e.type, source: e.source, timestampMs: e.ms }));
+      if (replaced.length > 0) data.replacedEvents = replaced;
       tx.create(eventRef, data);
-      tx.update(employeeRef, { lastPunchRequestId: input.requestId, lastPunchAt: timestamp });
+      const employeeUpdate: Record<string, unknown> = { lastPunchRequestId: input.requestId, lastPunchAt: timestamp };
+      if (placement && placement.remove.length > 0) {
+        // Removed events (copies kept on this punch) and their approvals -
+        // an approval is keyed by its shift's clock-in id.
+        for (const e of placement.remove) {
+          tx.delete(eventsRef.doc(e.id));
+          if (e.type === "in") tx.delete(companyRef.collection("timesheetApprovals").doc(e.id));
+        }
+        // The status comes from what is left (onClockEventCreated only
+        // moves it forward, so it can't step back past a removed event).
+        const punchPlaced: PlacedEvent = { id: eventRef.id, type: input.action, source: "employeeApp", ms: eventMs };
+        const newest = newestAfterPlacement(latestSnap.docs.map(placedFrom), punchPlaced, placement.remove);
+        const newestDoc = latestSnap.docs.find((d) => d.id === newest.id);
+        const newestSite = newest.id === eventRef.id ? site : { siteId: newestDoc?.get("siteId") ?? null, siteName: newestDoc?.get("siteName") ?? "" };
+        employeeUpdate.lastEventType = newest.type;
+        employeeUpdate.lastEventTimestamp = admin.firestore.Timestamp.fromMillis(newest.ms);
+        if (newest.type === "in" || newest.type === "out") {
+          employeeUpdate.lastEventSiteId = newestSite.siteId;
+          employeeUpdate.lastEventSiteName = newestSite.siteName;
+        }
+      }
+      tx.update(employeeRef, employeeUpdate);
       return { kind: "written", data: data as EventData };
     });
   } catch (err) {
@@ -618,6 +714,26 @@ export const employeeClockPunch = onCall(async (request) => {
   if (outcome.kind === "replay") {
     const again = replayOf(eventRef.id, outcome.data, employeeId, input.action);
     if (again) return withReplayFence(companyId, again, outcome.data);
+  }
+  if (queued) {
+    // B: the admin's late / needs-a-look alerts (never undo the punch).
+    const d = outcome.data as EventData & Record<string, unknown>;
+    await createLatePunchAlerts({
+      companyId,
+      employeeId,
+      eventId: eventRef.id,
+      name: (d.employeeName as string) || employee.name || "An employee",
+      action: input.action,
+      eventMs: d.timestamp ? d.timestamp.toMillis() : plannedMs,
+      nowMs: Date.now(),
+      offlineSinceMs: d.offlineSinceMs as number | undefined,
+      phoneClockOff: d.phoneClockOff === true,
+      photoMissing: d.photoMissing === true,
+      punchConflict: d.punchConflict === true,
+      replaced: d.replacedEvents as ReplacedEvent[] | undefined,
+      siteId: d.siteId ?? null,
+      siteName: d.siteId ? d.siteName ?? null : null,
+    });
   }
   return resultFrom(eventRef.id, outcome.data, false, clockInFence);
 });

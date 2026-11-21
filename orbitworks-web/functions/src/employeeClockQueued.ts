@@ -7,8 +7,9 @@ import { createAlertIfNew } from "./alerts";
 // A punch the phone could not send right away (offline or slow signal) is
 // saved on the phone and sent later with queuedAtMs = when the employee
 // made it. employeeClockPunch (employeeClock.ts) then:
-//   - rejects it for good if that time is over 24 h ago (tooOld) or more
-//     than 2 minutes in the future (badTime)
+//   - rejects it for good if its time is more than 2 minutes in the future
+//     (badTime). B (2026-11-21): never for its age any more (tooOld is
+//     no longer used) - see latePunchTypes.ts
 //   - in/out: checks the PIN WITHOUT the 3-strike lock. The current PIN
 //     passes; so does the PIN that was right at the punch's own time if an
 //     admin changed it since (Phase 5, lib/pinHistory.ts - the event gets
@@ -19,8 +20,8 @@ import { createAlertIfNew } from "./alerts";
 //     queued punch for that employee fails for good (syncBlocked) until the
 //     wrong PINs are 24 h old. That cap stops the queue being used to guess
 //     PINs.
-//   - rejects it for good if a later punch is already recorded
-//     (superseded - e.g. an auto clock-out ran first)
+//   - B: a later punch already recorded no longer refuses it - it goes in
+//     at its own time (latePunchPlacement.ts; superseded is no longer used)
 //   - writes it with the phone's time (never later than now) and
 //     queued: true; syncedLate: true only if it reached the server 5+
 //     minutes after that time (a quick resend after a slow-signal

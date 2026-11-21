@@ -277,44 +277,184 @@ test("queued: up to 2 min in the future is accepted (kept at server now); more i
   assert.ok(deleted.includes(`companies/${c}/clockEvents/emp1/${rid}.jpg`));
 });
 
-test("queued: older than 24 h is tooOld (Not recorded), just under is fine", async () => {
-  const c = "q-old";
-  await seed(c);
-  await assert.rejects(queuedPunch(c, "in", Date.now() - 24 * HOUR - MIN), (err) => {
-    reasonIs("tooOld")(err);
-    assert.equal(err.message, NOT_RECORDED);
-    return true;
-  });
-  assert.equal((await events(c)).length, 0);
-  assert.equal((await failDoc(c).get()).exists, false);
-  const ok = await queuedPunch(c, "in", Date.now() - 24 * HOUR + MIN);
-  assert.equal(ok.status, "in");
-});
+// ===================== B (2026-11-21): late punches never refused =====================
 
-test("queued: a later punch already recorded (auto clock-out ran first) is superseded", async () => {
-  const c = "q-superseded";
+const DAY = 24 * HOUR;
+const empDoc = (c) => db.doc(`companies/${c}/employees/emp1`);
+const evDoc = (c, id) => db.doc(`companies/${c}/clockEvents/${id}`);
+
+test("B case 1: 49 h late -> recorded at its time, synced late, time not proven, punchSyncedLate alert", async () => {
+  const c = "b-late";
   await seed(c);
   const now = Date.now();
-  await queuedPunch(c, "in", now - 13 * HOUR);
-  await addEvent(c, "auto-out-1", "out", now - HOUR);
-  const rid = randomUUID();
-  await assert.rejects(queuedPunch(c, "out", now - 2 * HOUR, { requestId: rid }), (err) => {
-    reasonIs("superseded")(err);
-    assert.equal(err.message, NOT_RECORDED);
-    return true;
-  });
-  await assert.rejects(queuedPunch(c, "breakEnd", now - 3 * HOUR), reasonIs("superseded"));
-  assert.equal((await events(c)).length, 2);
-  assert.ok(deleted.includes(`companies/${c}/clockEvents/emp1/${rid}.jpg`));
+  const r = await queuedPunch(c, "in", now - 49 * HOUR, { extra: { lastServerMs: now - 64 * HOUR } });
+  assert.equal(r.status, "in");
+  const out = await queuedPunch(c, "out", now - 41 * HOUR, { extra: { lastServerMs: now - 64 * HOUR } });
+  const e = (await evDoc(c, out.eventId).get()).data();
+  assert.equal(e.timestamp.toMillis(), now - 41 * HOUR);
+  assert.equal(e.syncedLate, true);
+  assert.equal(e.timeNotProven, true);
+  assert.equal(e.offlineSinceMs, now - 64 * HOUR);
+  assert.equal(e.phoneClockOff, undefined);
+  const late = await alertsOf(c, "punchSyncedLate");
+  assert.equal(late.length, 2);
+  assert.match(late.find((a) => a.eventId === out.eventId).message, /Ana's clock-out from .* reached the server 41 h late \(phone offline since .*\)/);
+  assert.equal((await alertsOf(c, "punchSyncedVeryLate")).length, 0);
+  assert.equal((await alertsOf(c, "punchFlagged")).length, 0);
 });
 
-test("queued: wrong state still rejected (clock out while on break)", async () => {
-  const c = "q-state";
+test("B: a punch under 24 h late gets the tag but no alert; under 1 h late its time counts as proven", async () => {
+  const c = "b-short";
+  await seed(c);
+  const now = Date.now();
+  const a = await queuedPunch(c, "in", now - 3 * HOUR);
+  assert.equal((await evDoc(c, a.eventId).get()).data().timeNotProven, true);
+  const b = await queuedPunch(c, "breakStart", now - 20 * MIN);
+  const bd = (await evDoc(c, b.eventId).get()).data();
+  assert.equal(bd.syncedLate, true);
+  assert.equal(bd.timeNotProven, undefined);
+  assert.equal((await alertsOf(c, "punchSyncedLate")).length, 0);
+});
+
+test("B case 2: 31 days late -> recorded, urgent punchSyncedVeryLate (pay may be done)", async () => {
+  const c = "b-verylate";
+  await seed(c);
+  const now = Date.now();
+  const r = await queuedPunch(c, "in", now - 31 * DAY);
+  const very = await alertsOf(c, "punchSyncedVeryLate");
+  assert.equal(very.length, 1);
+  assert.equal(very[0].severity, "urgent");
+  assert.equal(very[0].eventId, r.eventId);
+  assert.match(very[0].message, /31 days late.*Pay for that period may already be done/);
+  assert.equal((await alertsOf(c, "punchSyncedLate")).length, 0);
+});
+
+test("B case 4: weekend punches go in between later real punches - nothing removed, no conflict", async () => {
+  const c = "b-between";
+  await seed(c);
+  const now = Date.now();
+  await addEvent(c, "fri-in", "in", now - 72 * HOUR, "pin");
+  await addEvent(c, "fri-out", "out", now - 64 * HOUR, "pin");
+  await addEvent(c, "mon-in", "in", now - HOUR, "pin");
+  await empDoc(c).update({ lastEventType: "in", lastEventTimestamp: admin.firestore.Timestamp.fromMillis(now - HOUR) });
+  const i = await queuedPunch(c, "in", now - 49 * HOUR);
+  const o = await queuedPunch(c, "out", now - 41 * HOUR);
+  for (const id of [i.eventId, o.eventId]) {
+    const d = (await evDoc(c, id).get()).data();
+    assert.equal(d.punchConflict, undefined);
+    assert.equal(d.replacedEvents, undefined);
+  }
+  assert.equal((await events(c)).length, 5);
+  assert.equal((await empDoc(c).get()).data().lastEventType, "in", "Monday's clock-in is still the status");
+});
+
+test("B case 5: real clock-out EARLIER than the auto clock-out replaces it (copy kept, alert with both times)", async () => {
+  const c = "b-auto-early";
+  await seed(c);
+  const now = Date.now();
+  const i = await queuedPunch(c, "in", now - 13 * HOUR);
+  await addEvent(c, `auto-${i.eventId}`, "out", now - HOUR);
+  await empDoc(c).update({ lastEventType: "out", lastEventTimestamp: admin.firestore.Timestamp.fromMillis(now - HOUR) });
+  const o = await queuedPunch(c, "out", now - 2 * HOUR);
+  assert.equal((await evDoc(c, `auto-${i.eventId}`).get()).exists, false, "auto clock-out removed");
+  const d = (await evDoc(c, o.eventId).get()).data();
+  assert.deepEqual(d.replacedEvents, [{ id: `auto-${i.eventId}`, type: "out", source: "autoClockOut", timestampMs: now - HOUR }]);
+  const emp = (await empDoc(c).get()).data();
+  assert.equal(emp.lastEventType, "out");
+  assert.equal(emp.lastEventTimestamp.toMillis(), now - 2 * HOUR);
+  const flagged = await alertsOf(c, "punchFlagged");
+  assert.equal(flagged.length, 1);
+  assert.match(flagged[0].message, /Ana's real clock-out at .* needs a look: replaced the auto clock-out at /);
+});
+
+test("B case 5: real clock-out LATER than the auto clock-out replaces it; a queued break reopens the shift", async () => {
+  const c = "b-auto-late";
+  await seed(c);
+  const now = Date.now();
+  const i = await queuedPunch(c, "in", now - 14 * HOUR);
+  await addEvent(c, `auto-${i.eventId}`, "out", now - 2 * HOUR);
+  const b = await queuedPunch(c, "breakStart", now - 5 * HOUR);
+  assert.equal((await evDoc(c, `auto-${i.eventId}`).get()).exists, false, "the break removed the auto clock-out");
+  assert.equal((await evDoc(c, b.eventId).get()).data().replacedEvents.length, 1);
+  await queuedPunch(c, "breakEnd", now - 4 * HOUR);
+  await addEvent(c, `auto-${i.eventId}`, "out", now - 2 * HOUR); // the sweep closes it again
+  const o = await queuedPunch(c, "out", now - HOUR);
+  assert.equal((await evDoc(c, `auto-${i.eventId}`).get()).exists, false);
+  assert.equal((await evDoc(c, o.eventId).get()).data().punchConflict, undefined);
+  assert.equal((await empDoc(c).get()).data().lastEventType, "out");
+});
+
+test("B case 6: a hand-entered shift is replaced by the real punches, approval removed, alert lists both times", async () => {
+  const c = "b-hand";
+  await seed(c);
+  const now = Date.now();
+  await addEvent(c, "hand-in", "in", now - 10 * HOUR, "adminManual");
+  await addEvent(c, "hand-out", "out", now - 2 * HOUR, "adminManual");
+  await db.doc(`companies/${c}/timesheetApprovals/hand-in`).set({ status: "approved" });
+  const i = await queuedPunch(c, "in", now - 10 * HOUR + 2 * MIN);
+  assert.equal((await evDoc(c, "hand-in").get()).exists, false);
+  assert.equal((await db.doc(`companies/${c}/timesheetApprovals/hand-in`).get()).exists, false);
+  assert.equal((await evDoc(c, "hand-out").get()).exists, true, "its clock-out waits for the real one");
+  const o = await queuedPunch(c, "out", now - 2 * HOUR + MIN);
+  assert.equal((await evDoc(c, "hand-out").get()).exists, false);
+  const left = (await events(c)).map((e) => e.id).sort();
+  assert.deepEqual(left, [i.eventId, o.eventId].sort());
+  const flagged = await alertsOf(c, "punchFlagged");
+  assert.equal(flagged.length, 2);
+  assert.ok(flagged.every((a) => /replaced the hand-entered clock-(in|out) at /.test(a.message)));
+});
+
+test("B case 7: two real clock-ins - both kept, the late one flagged as a conflict", async () => {
+  const c = "b-conflict";
+  await seed(c);
+  const now = Date.now();
+  await addEvent(c, "kiosk-in", "in", now - 3 * HOUR, "pin");
+  const r = await queuedPunch(c, "in", now - 3 * HOUR + 2 * MIN);
+  assert.equal((await evDoc(c, "kiosk-in").get()).exists, true);
+  assert.equal((await evDoc(c, r.eventId).get()).data().punchConflict, true);
+  assert.match((await alertsOf(c, "punchFlagged"))[0].message, /doesn't fit their other punches/);
+});
+
+test("B: clock out while on a break (queued) is recorded and flagged, not refused", async () => {
+  const c = "b-state";
   await seed(c);
   const now = Date.now();
   await queuedPunch(c, "in", now - 2 * HOUR);
   await queuedPunch(c, "breakStart", now - HOUR);
-  await assert.rejects(queuedPunch(c, "out", now - 30 * MIN), reasonIs("wrongState"));
+  const o = await queuedPunch(c, "out", now - 30 * MIN);
+  assert.equal((await evDoc(c, o.eventId).get()).data().punchConflict, true);
+});
+
+test("B case 8: made before the phone's last server contact -> phone clock set back, flagged", async () => {
+  const c = "b-clock";
+  await seed(c);
+  const now = Date.now();
+  const r = await queuedPunch(c, "in", now - 3 * HOUR, { extra: { lastServerMs: now - HOUR } });
+  const d = (await evDoc(c, r.eventId).get()).data();
+  assert.equal(d.phoneClockOff, true);
+  assert.match((await alertsOf(c, "punchFlagged"))[0].message, /the phone's clock was set back/);
+});
+
+test("B: photo lost on the phone -> recorded without a photo, flagged, face not checked", async () => {
+  const c = "b-photo";
+  await seed(c);
+  const now = Date.now();
+  const r = await callPunch(c, { action: "in", requestId: randomUUID(), pin: PIN, queuedAtMs: now - 2 * HOUR, photoMissing: true });
+  const d = (await evDoc(c, r.eventId).get()).data();
+  assert.equal(d.photoMissing, true);
+  assert.equal(d.photoUrl, undefined);
+  assert.match((await alertsOf(c, "punchFlagged"))[0].message, /photo missing, face not checked/);
+  // still needs the right PIN
+  await assert.rejects(
+    callPunch(c, { action: "out", requestId: randomUUID(), pin: "9999", queuedAtMs: now - HOUR, photoMissing: true }),
+    reasonIs("wrongPin")
+  );
+});
+
+test("B: an online punch still gets the normal wrong-state answer", async () => {
+  const c = "b-online";
+  await seed(c);
+  await assert.rejects(punch(c, "out"), reasonIs("wrongState"));
 });
 
 test("queued: resending a punch that already landed online returns the first result", async () => {
@@ -609,7 +749,7 @@ test("fast: a queued punch sent within 2 min gets server time minus the wait and
   }
 });
 
-test("fast: phone clock set back 1 h (or 25 h) -> server time, phoneClockOff, never tooOld", async () => {
+test("fast: phone clock set back 1 h (or 25 h) -> server time, phoneClockOff", async () => {
   const c = "q-fast-clock";
   await seed(c);
   const r = await queuedPunch(c, "in", Date.now() - HOUR, { extra: { waitMs: 2000 } });

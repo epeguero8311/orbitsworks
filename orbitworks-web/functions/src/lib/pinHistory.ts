@@ -11,17 +11,18 @@ import { pinVerifierHash } from "./pinVerifier";
 // verifier) with the time it was active: fromMs <= t < untilMs.
 //
 // untilMs is the server's time when the change landed (decided 2026-11-03,
-// Q6 A). Kept for 24 h, the oldest queued punch the server takes
-// (QUEUED_MAX_AGE_MS), at most PIN_HISTORY_MAX_ENTRIES. Pure: no Firestore,
+// Q6 A). Kept for 90 days (B, 2026-11-21 - was 24 h), at most PIN_HISTORY_MAX_ENTRIES. Pure: no Firestore,
 // so test/pinHistory.test.js runs it without the emulator.
 //
 // A queued punch passes with an old PIN only when (Q2 A):
 //   - the PIN matches the entry active at the punch's own time (the
 //     server's time for a fast sync, see employeeClockQueued.ts)
-//   - that change was less than 24 h ago and the punch is within 24 h
+//   - that change was less than 90 days ago and the punch is within 90 days
 //   - the phone clock was not set back (phoneClockOff)
 
-export const PIN_HISTORY_KEEP_MS = 24 * 60 * 60 * 1000;
+// B (2026-11-21): 90 days - a queued punch is taken at any age now, and
+// one made with a PIN an admin has since changed still passes for 90 days.
+export const PIN_HISTORY_KEEP_MS = 90 * 24 * 60 * 60 * 1000;
 export const PIN_HISTORY_MAX_ENTRIES = 20;
 const SALT_BYTES = 16;
 

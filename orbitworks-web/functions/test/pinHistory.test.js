@@ -10,13 +10,15 @@ const { pinVerifierHash } = require("../lib/lib/pinVerifier");
 const HOUR = 60 * 60 * 1000;
 const MIN = 60 * 1000;
 const DAY = 24 * HOUR;
+// B (2026-11-21): old PINs are kept 90 days (was 24 h).
+const KEEP = 90 * DAY;
 const NOW = Date.parse("2026-11-03T18:00:00Z");
 const empty = { entries: [], lastChangeMs: null };
 
 // PIN "1111" until C1, "2222" from C1 until C2, "3333" (current) from C2.
 const C1 = NOW - 5 * HOUR;
 const C2 = NOW - 2 * HOUR;
-const START = NOW - 30 * DAY;
+const START = NOW - 200 * DAY;
 function twoChanges() {
   const a = h.addPinChange(empty, "1111", C1, START);
   return h.addPinChange(a, "2222", C2, START);
@@ -24,10 +26,8 @@ function twoChanges() {
 const check = (pin, eventMs, extra = {}) =>
   h.queuedPinCheck({ pin, currentMatches: pin === "3333", history: twoChanges(), eventMs, nowMs: NOW, phoneClockOff: false, ...extra });
 
-test("keeps 24 h of history, the same as the oldest queued punch the server takes", () => {
-  assert.equal(h.PIN_HISTORY_KEEP_MS, DAY);
-  const { QUEUED_MAX_AGE_MS } = require("../lib/employeeClockQueued");
-  assert.equal(h.PIN_HISTORY_KEEP_MS, QUEUED_MAX_AGE_MS);
+test("keeps 90 days of history (B: queued punches are taken at any age)", () => {
+  assert.equal(h.PIN_HISTORY_KEEP_MS, KEEP);
 });
 
 test("first change: the old PIN is stored as a salted hash with its active time, never in plain text", () => {
@@ -70,8 +70,8 @@ test("start time is never after the change time", () => {
   assert.equal(out.entries[0].fromMs, C1);
 });
 
-test("trim: entries changed 24 h+ ago are dropped, at most 20 kept (newest)", () => {
-  let hist = h.addPinChange(empty, "1111", NOW - DAY - MIN, START);
+test("trim: entries changed 90 days+ ago are dropped, at most 20 kept (newest)", () => {
+  let hist = h.addPinChange(empty, "1111", NOW - KEEP - MIN, START);
   hist = h.addPinChange(hist, "2222", NOW, START);
   assert.deepEqual(hist.entries.map((e) => e.untilMs), [NOW]);
   let many = empty;
@@ -95,7 +95,7 @@ test("pinActiveEntry: the entry whose time window holds the punch", () => {
   assert.equal(h.pinActiveEntry(entries, C1, NOW).untilMs, C2, "at the change moment the new PIN is active");
   assert.equal(h.pinActiveEntry(entries, C2 - 1, NOW).untilMs, C2);
   assert.equal(h.pinActiveEntry(entries, C2, NOW), null, "from the last change on: the current PIN");
-  assert.equal(h.pinActiveEntry(entries, NOW - DAY - 1, NOW), null, "older than 24 h");
+  assert.equal(h.pinActiveEntry(entries, NOW - KEEP - 1, NOW), null, "older than 90 days");
 });
 
 test("queued check: current PIN always passes (as today), even with the phone clock off", () => {
@@ -129,7 +129,9 @@ test("queued check: no history, or a changed hash, is wrong", () => {
   assert.equal(h.queuedPinCheck({ pin: "1111", currentMatches: false, history: hist, eventMs: C1 - MIN, nowMs: NOW, phoneClockOff: false }), "wrong");
 });
 
-test("queued check: a change 24 h+ ago no longer helps", () => {
-  const hist = h.addPinChange(empty, "1111", NOW - DAY - MIN, START);
-  assert.equal(h.queuedPinCheck({ pin: "1111", currentMatches: false, history: hist, eventMs: NOW - DAY - 2 * MIN, nowMs: NOW, phoneClockOff: false }), "wrong");
+test("queued check: a change 90 days+ ago no longer helps; 30 days ago still does", () => {
+  const recent = h.addPinChange(empty, "1111", NOW - 30 * DAY, START);
+  assert.equal(h.queuedPinCheck({ pin: "1111", currentMatches: false, history: recent, eventMs: NOW - 31 * DAY, nowMs: NOW, phoneClockOff: false }), "old");
+  const hist = h.addPinChange(empty, "1111", NOW - KEEP - MIN, START);
+  assert.equal(h.queuedPinCheck({ pin: "1111", currentMatches: false, history: hist, eventMs: NOW - KEEP - 2 * MIN, nowMs: NOW, phoneClockOff: false }), "wrong");
 });
