@@ -11,14 +11,14 @@ import { useCommentQueue } from "../../lib/hooks/useCommentQueue";
 import { useConnectionBanner } from "../../lib/hooks/useConnectionBanner";
 import { useNow } from "../../lib/hooks/useNow";
 import { siteLabel } from "../../lib/employeeHome";
-import { ACTION_LABELS, formatWhen } from "../../lib/punchQueueLogic";
+import { formatWhen } from "../../lib/punchQueueLogic";
 import { removePunch } from "../../lib/punchQueue";
 import { removeComment } from "../../lib/commentQueue";
 import { syncTabRows } from "../../lib/commentQueueLogic";
 import { syncPunchQueue } from "../../lib/punchQueueSync";
 import TabPage from "../../components/ui/TabPage";
-import ConfirmModal from "../../components/ui/ConfirmModal";
 import SyncRow from "../../components/employee/SyncRow";
+import RemoveUnsentModal from "../../components/employee/RemoveUnsentModal";
 
 const CONNECTION = {
   online: { label: "Online", color: "green" },
@@ -31,8 +31,10 @@ const CONNECTION = {
 // synced and Sync now. Synced rows show for this week - Monday to today,
 // company time zone (Phase 10 A2); Waiting, Syncing and Failed always show,
 // however old. A Failed
-// row offers Remove (it can't be recorded - the confirm says so and to tell
-// the supervisor). Phase 5: no Redo - a punch made with the PIN that was
+// row offers Remove. RC1 follow-up: the confirm (RemoveUnsentModal) says it
+// is lost for good and that the admin will be told; the removal and the
+// admin's report are saved together (lib/removedReports.js) and the report
+// is sent right away, or when there's signal. Phase 5: no Redo - a punch made with the PIN that was
 // right at the time syncs even if an admin changed the PIN since. Shift
 // comments show here too ("Comment" rows, same statuses), mixed with the
 // punches newest first; a Not synced one offers Remove.
@@ -51,6 +53,7 @@ export default function EmployeeSyncScreen() {
   const [syncing, setSyncing] = useState(false);
   const [removing, setRemoving] = useState(null);
   const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState(null);
 
   const syncNow = useCallback(() => {
     setSyncing(true);
@@ -59,22 +62,33 @@ export default function EmployeeSyncScreen() {
       .finally(() => setSyncing(false));
   }, [companyId, employeeId]);
 
+  const closeRemove = useCallback(() => {
+    setRemoving(null);
+    setRemoveError(null);
+  }, []);
+
   const confirmRemove = useCallback(async () => {
     if (!removing) return;
     setRemoveBusy(true);
+    setRemoveError(null);
     try {
       if (removing.action === "comment") await removeComment(removing.requestId);
       else await removePunch(removing.requestId);
-    } finally {
+    } catch {
+      // Nothing was removed (the report and the removal are one write).
       setRemoveBusy(false);
-      setRemoving(null);
+      setRemoveError("Couldn't remove it. Nothing was changed.");
+      return;
     }
-    // The queue was paused on this punch - carry on with the rest.
+    setRemoveBusy(false);
+    closeRemove();
+    // The queue was paused on this punch - carry on with the rest (and send
+    // the admin's report).
     syncNow();
-  }, [removing, syncNow]);
+  }, [removing, syncNow, closeRemove]);
 
   const empty = rows.length === 0;
-  const removingComment = removing?.action === "comment";
+  const removingWhen = removing ? formatWhen(removing.action === "comment" ? removing.madeAtMs : removing.queuedAtMs, now, timezone) : "";
   const lastSynced = queue.lastSyncedMs ? formatWhen(queue.lastSyncedMs, now, timezone) : "Never";
 
   return (
@@ -117,20 +131,13 @@ export default function EmployeeSyncScreen() {
         </View>
       )}
 
-      <ConfirmModal
-        visible={!!removing}
-        title={removingComment ? "Remove this comment?" : `Remove this ${ACTION_LABELS[removing?.action] ?? "punch"}?`}
-        message={
-          removingComment
-            ? "This comment will NOT be saved. Tell your supervisor if it matters."
-            : "This punch will NOT be recorded. Tell your supervisor so they can fix your time."
-        }
-        confirmLabel="Remove"
-        confirmTone="red"
-        cancelLabel="Keep it"
+      <RemoveUnsentModal
+        item={removing}
+        whenLabel={removingWhen}
         busy={removeBusy}
+        error={removeError}
         onConfirm={confirmRemove}
-        onCancel={() => setRemoving(null)}
+        onCancel={closeRemove}
       />
     </TabPage>
   );
