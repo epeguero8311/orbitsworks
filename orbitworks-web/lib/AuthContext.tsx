@@ -22,6 +22,9 @@ type UserData = {
   name?: string;
   email?: string;
   assignedSiteIds?: string[];
+  // RC1: set by setEmployeeRole on every role change (server only); the
+  // app compares it with its ID token. See functions/src/userRoleTypes.ts.
+  roleChangedAt?: { toMillis(): number };
 };
 
 // Owner is a superset of admin - the single original-signup account per
