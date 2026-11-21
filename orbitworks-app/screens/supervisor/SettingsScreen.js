@@ -15,6 +15,10 @@ import { useTabBarSpace } from "../../lib/hooks/useTabBarSpace";
 import ScreenHeader from "../../components/ScreenHeader";
 import DeviceNameRow from "../../components/supervisor/DeviceNameRow";
 import LaunchTimingRow from "../../components/LaunchTimingRow";
+import LogoutUnsentModal from "../../components/LogoutUnsentModal";
+import { useLogoutUnsent } from "../../lib/hooks/useLogoutUnsent";
+import { countStaffUnsent, drainForRole } from "../../lib/roleQueues";
+import { unsentMessage } from "../../lib/queueOwnerLogic";
 
 const APP_VERSION = Constants.expoConfig?.version ?? "-";
 
@@ -32,6 +36,15 @@ export default function SettingsScreen() {
   const { granted: locationGranted, requestPermission: requestLocationPermission } = useLocationPermission();
   const tabBarSpace = useTabBarSpace();
   const companyId = userData?.companyId;
+  // Logout fix (2026-11-21): this login's own unsent clock events and
+  // employee changes - "N punches haven't sent yet", Send now / Log out
+  // anyway. They are never deleted, and only this login ever sends them.
+  const countNow = useCallback(() => countStaffUnsent(companyId), [companyId]);
+  const sendNow = useCallback(() => drainForRole("staffQueues", { companyId }, 30000), [companyId]);
+  const logOut = useCallback(() => {
+    signOut(auth).catch(() => {});
+  }, []);
+  const unsent = useLogoutUnsent({ countNow, sendNow, logOut });
 
   useEffect(() => {
     if (!companyId) return;
@@ -125,11 +138,22 @@ export default function SettingsScreen() {
 
         <LaunchTimingRow />
 
-        <TouchableOpacity style={styles.logoutButton} onPress={() => signOut(auth)}>
+        <TouchableOpacity style={styles.logoutButton} onPress={unsent.start}>
           <Feather name="log-out" size={16} color="#ef4444" />
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <LogoutUnsentModal
+        visible={unsent.open}
+        title={unsent.title}
+        message={unsentMessage("supervisor")}
+        note={unsent.note}
+        sending={unsent.sending}
+        onSendNow={unsent.send}
+        onLogOut={unsent.logOutAnyway}
+        onCancel={unsent.cancel}
+      />
     </View>
   );
 }

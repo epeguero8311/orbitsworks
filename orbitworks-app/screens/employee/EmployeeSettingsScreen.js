@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { View, Text, Switch, StyleSheet, Linking } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
@@ -12,15 +12,11 @@ import { useNotificationPermission } from "../../lib/hooks/useNotificationPermis
 import { useLocationPermission } from "../../lib/hooks/useLocationPermission";
 import { useSavedPin } from "../../lib/hooks/useSavedPin";
 import { usePunchQueue } from "../../lib/hooks/usePunchQueue";
-import { useCommentQueue } from "../../lib/hooks/useCommentQueue";
-import { useSiteExitQueue } from "../../lib/hooks/useSiteExitQueue";
 import { useNow } from "../../lib/hooks/useNow";
 import { formatWhen } from "../../lib/punchQueueLogic";
 import {
   DELETE_ACCOUNT_OPEN_SHIFT,
   deleteAccountOpenShift,
-  logoutCounts,
-  logoutWarning,
   settingsRows,
 } from "../../lib/employeeSettings";
 import { useEmployeeSelfView } from "../../lib/hooks/useEmployeeSelfView";
@@ -32,6 +28,11 @@ import ConfirmModal from "../../components/ui/ConfirmModal";
 import Avatar from "../../components/Avatar";
 import DevPunchTimings from "../../components/employee/DevPunchTimings";
 import { signOutEmployee } from "../../lib/employeeSignOut";
+import LogoutUnsentModal from "../../components/LogoutUnsentModal";
+import { useLogoutUnsent } from "../../lib/hooks/useLogoutUnsent";
+import { countEmployeeUnsent } from "../../lib/roleQueues";
+import { syncPunchQueue } from "../../lib/punchQueueSync";
+import { unsentMessage } from "../../lib/queueOwnerLogic";
 
 // Employee App Settings tab (Phase 5, decisions 14-20; Phase 10 A1). View
 // only: photo, name, the email they signed in with, PIN (shown plainly
@@ -46,6 +47,9 @@ import { signOutEmployee } from "../../lib/employeeSignOut";
 // version, Update (OTA id or Built-in), dev punch timings (dev builds only)
 // and Log out - with a warning when punches or comments are still waiting
 // on the phone (they stay, and sync only when this employee signs back in).
+// Logout fix (2026-11-21): the warning is LogoutUnsentModal - "N punches
+// haven't sent yet", Send now (then logs out if all went) or Log out
+// anyway; never deletes anything.
 // Last, Delete account (biometric audit b, Apple account deletion): refused
 // while clocked in or on a break ("Clock out first..."), else a red confirm
 // box; Yes syncs everything first, then the server deletes the login, photo,
@@ -62,10 +66,7 @@ export default function EmployeeSettingsScreen() {
   const location = useLocationPermission();
   const savedPin = useSavedPin(companyId, employeeId);
   const queue = usePunchQueue(companyId, employeeId);
-  const comments = useCommentQueue(companyId, employeeId, timezone);
-  const siteExits = useSiteExitQueue(companyId, employeeId);
   const now = useNow(60000);
-  const [confirmLogout, setConfirmLogout] = useState(false);
   const { view } = useEmployeeSelfView(companyId, employeeId);
   // null | "openShift" | "confirm"
   const [deleteStep, setDeleteStep] = useState(null);
@@ -88,11 +89,16 @@ export default function EmployeeSettingsScreen() {
   ];
   // Log out: PIN check value, push token (Phase 7) and break reminders
   // first, each capped at 3 s - then always signs out (lib/employeeSignOut.js).
-  const logOut = () => signOutEmployee({ companyId, employeeId, signOutUser });
-  // Everything still on the phone, even saved a second ago (no badge delay).
-  const waiting = logoutCounts(queue.all, comments.all, companyId, employeeId, siteExits);
-  const notSynced = logoutWarning(waiting.punches, waiting.comments, waiting.siteExits);
-  const onLogout = () => (notSynced ? setConfirmLogout(true) : logOut());
+  const logOut = useCallback(
+    () => signOutEmployee({ companyId, employeeId, signOutUser }),
+    [companyId, employeeId, signOutUser]
+  );
+  // Everything still on the phone, even saved a second ago (no badge
+  // delay), read fresh when Log out is tapped.
+  const countNow = useCallback(() => countEmployeeUnsent(companyId, employeeId), [companyId, employeeId]);
+  const sendNow = useCallback(() => syncPunchQueue(companyId, employeeId), [companyId, employeeId]);
+  const unsent = useLogoutUnsent({ countNow, sendNow, logOut });
+  const onLogout = () => unsent.start();
 
   const onDeleteAccount = () => {
     setDeleteError(null);
@@ -191,18 +197,15 @@ export default function EmployeeSettingsScreen() {
         </ListRow>
       </View>
 
-      <ConfirmModal
-        visible={confirmLogout}
-        title={notSynced}
-        message="They stay on this phone and sync only when you sign back in on it."
-        confirmLabel="Log out"
-        confirmTone="red"
-        cancelLabel="Stay signed in"
-        onConfirm={() => {
-          setConfirmLogout(false);
-          logOut();
-        }}
-        onCancel={() => setConfirmLogout(false)}
+      <LogoutUnsentModal
+        visible={unsent.open}
+        title={unsent.title}
+        message={unsentMessage("employee")}
+        note={unsent.note}
+        sending={unsent.sending}
+        onSendNow={unsent.send}
+        onLogOut={unsent.logOutAnyway}
+        onCancel={unsent.cancel}
       />
 
       <ConfirmModal

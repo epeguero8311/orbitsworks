@@ -117,7 +117,9 @@ export default function SyncQueueScreen() {
               <View style={styles.statusWrap}>
                 <View style={[styles.statusDot, { backgroundColor: statusColor(item.syncStatus, colors) }]} />
                 <Text style={[styles.statusLabel, { color: colors.subtext }]}>
-                  {item.waitingForEmployee
+                  {item.otherLogin
+                    ? "Another login's"
+                    : item.waitingForEmployee
                     ? "Waiting for employee"
                     : STATUS_LABEL[item.syncStatus] ?? item.syncStatus}
                 </Text>
@@ -126,7 +128,12 @@ export default function SyncQueueScreen() {
             <Text style={[styles.meta, { color: colors.subtext }]}>
               {item.employeeName} - {formatTime(item.clientTimestamp)}
             </Text>
-            {item.syncStatus === "failed" && (
+            {item.otherLogin && (
+              <Text style={[styles.failedReason, { color: colors.subtext, marginTop: 6 }]} numberOfLines={3}>
+                Saved by another login on this phone. Kept here and sent only when that login signs in again.
+              </Text>
+            )}
+            {!item.otherLogin && item.syncStatus === "failed" && (
               <View style={styles.failedRow}>
                 <Text style={[styles.failedReason, { color: colors.red }]} numberOfLines={2}>
                   {describeError(item.lastError)}
@@ -136,7 +143,7 @@ export default function SyncQueueScreen() {
                 </TouchableOpacity>
               </View>
             )}
-            {item.syncStatus === "photoPending" && !!item.lastError && (
+            {!item.otherLogin && item.syncStatus === "photoPending" && !!item.lastError && (
               <View style={styles.failedRow}>
                 <Text style={[styles.failedReason, { color: colors.subtext }]} numberOfLines={2}>
                   Clock event saved. {describeError(item.lastError)}
@@ -146,12 +153,12 @@ export default function SyncQueueScreen() {
                 </TouchableOpacity>
               </View>
             )}
-            {item.syncStatus === "rejected" && (
+            {!item.otherLogin && item.syncStatus === "rejected" && (
               <Text style={[styles.failedReason, { color: colors.red, marginTop: 6 }]} numberOfLines={3}>
                 {describeError(item.lastError)}
               </Text>
             )}
-            {item.syncStatus === "dead" && (
+            {!item.otherLogin && item.syncStatus === "dead" && (
               <View style={styles.failedRow}>
                 <Text style={[styles.failedReason, { color: colors.red }]} numberOfLines={2}>
                   Gave up after {item.attempts} attempts: {describeError(item.lastError)}
