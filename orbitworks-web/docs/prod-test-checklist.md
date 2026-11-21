@@ -3,12 +3,12 @@
 The short version of `ios-test-list.md`. Setup, steps and exact pass
 criteria are there; this file is for ticking off.
 
-- **Tests:** 222 by hand. 208 on dev (Sessions 0-10, plus 3b), 9 on prod (P) and 5 on Android (AN).
-  - **MUST PASS BEFORE PROD:** 200.
+- **Tests:** 230 by hand. 216 on dev (Sessions 0-10, plus 3b and 3c), 9 on prod (P) and 5 on Android (AN).
+  - **MUST PASS BEFORE PROD:** 208.
   - **CAN WAIT:** 22 (the prod smoke test, Android, and optional or after-launch checks).
   - X10-X14 aren't on this list: they're covered by unit tests and can't be done by hand.
-- **Time:** about 19 h hands-on for Sessions 0-9, plus 15 min a day for a week (Session 10). Then 45 min for P after the prod deploy.
-- **App and site:** OrbitsWorks Dev, build 29 (Session 3b needs build 30+), plus the hosted dev site (`orbitworks-dev-ew`).
+- **Time:** about 20 h 30 hands-on for Sessions 0-9, plus 15 min a day for a week (Session 10). Then 45 min for P after the prod deploy.
+- **App and site:** OrbitsWorks Dev, build 31 (Sessions 3b and 3c need build 31+), plus the hosted dev site (`orbitworks-dev-ew`).
 - **What you need ready:**
   - **Emails:** these Gmail aliases of your address (`you+…@gmail.com`), all landing in your normal inbox: owner (already exists), owner2, admin, sup, sup2, emp1, emp2, emp3, emp4, emp8, emp9, wrong, dup, del1, del2, del3, core1.
   - **A second face:** a friend, or a printed photo, for the mismatch tests (D1, N3, N5, R4). Also a photo with 2 faces, or none, for D4.
@@ -122,6 +122,17 @@ criteria are there; this file is for ticking off.
 - [ ] LO-5 - Another company's login never sends them either - both - **MUST**
 - [ ] LO-6 - Nothing unsent: both apps log out at once, no box - phone - **MUST**
 
+## Session 3c. Late punches are never refused (1 h 30, build 31+; B-1 and B-3 over 2 days)
+
+- [ ] B-1 - Offline 24 h+: recorded at real times, Synced late + time not proven, Punch Synced Late alerts - both - **MUST**
+- [ ] B-2 - 31 days late: recorded, urgent Very Late alert + push, clock set back flagged - both - **MUST**
+- [ ] B-3 - PIN changed while a punch waits over a day: still recorded - both - **MUST**
+- [ ] B-4 - Late punches between later real ones: in place, no conflict - both - **MUST**
+- [ ] B-5 - Real clock-out (earlier and later) replaces the auto clock-out, alert with both times - both - **MUST**
+- [ ] B-6 - Real punches replace a hand-entered (approved) shift, alerts, shift pending again - both - **MUST**
+- [ ] B-7 - Two real clock-ins: both kept, conflict flagged - both - **MUST**
+- [ ] B-8 - Phone clock set back: recorded, flagged - both - **MUST**
+
 ## Session 4. Employee App at the desk (3 h)
 
 - [ ] H1 - Full shift online: instant camera, green screen, map - both - **MUST**
@@ -137,7 +148,7 @@ criteria are there; this file is for ticking off.
 - [ ] H11 - Old-PIN punch fails clearly; Remove clears it - both - **MUST**
 - [ ] H12 - Two PIN changes while offline: punch still syncs - both - **MUST**
 - [ ] H13 - Weak signal: punches queue, no false "Synced late" - both - **MUST**
-- [ ] H14 - Out-of-order punch fails; Remove lets the next sync - both - **MUST**
+- [ ] H14 - Real offline clock-out replaces an admin's hand-entered one (build 31+); both punches sync - both - **MUST**
 - [ ] H15 - Punch after deactivation fails; Remove clears it - both - **MUST**
 - [ ] H16 - Late punch on an approved week gives an alert - both - **MUST**
 - [ ] H17 - Sync Now syncs queued punches - both - **MUST**
@@ -285,9 +296,20 @@ criteria are there; this file is for ticking off.
 
 ---
 
+## After launch
+
+Found while building the launch fixes. Not data loss, a blocked punch, a
+security hole or an Apple-rejection risk, so they wait until after launch
+(scope rule, 2026-11-21).
+
+- **Conflict picker:** two real clock-ins (B-7) are sorted out by deleting one in Time Tracking. A "keep this one" button on the alert would be faster.
+- **Replaced approved shift:** when real punches replace an approved hand-entered shift (B-6), the shift needs approving again. Consider keeping the approval.
+- **Leftover code:** the website copy of the punch input check (lib/validators/employeeClock.ts) is unused and out of date; the app's isTooOld / PIN_KEEP_MS and the server's tooOld / isSuperseded are no longer used; useSiteExitQueue is unused since the logout fix.
+- **Old lint errors:** useSyncQueue.js (2), SyncQueueScreen.js (1), useAlertsFeed.js (1) - there before these changes.
+
 ## Ready for prod when
 
-1. **Every MUST test passes** (186), recorded in the `ios-test-list.md` Results log. A skip counts as not passed, unless the test is rerun later or you write down that you accept it.
+1. **Every MUST test passes** (208), recorded in the `ios-test-list.md` Results log. A skip counts as not passed, unless the test is rerun later or you write down that you accept it.
 2. **No open fails.** Every fail is fixed, then retested on the build or site that carries the fix, and the retest is recorded as a pass. The "Open fails" list says "None".
 3. **If a fix needs a new build or deploy,** the tests in the areas it touched are run again on that build.
 4. **AWS opt-out is done** (biometric audit gap a, in the AWS console).

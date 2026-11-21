@@ -86,6 +86,7 @@ You'll also need:
 | 2 | Invites, crew codes, QR and links, every sign-up path, seat limits | web + phone | 2 h 15 |
 | 3 | Supervisor app | phone + web | 1 h 30 |
 | 3b | Role change while signed in, removing unsent punches, and logging out with unsent items (RC1 retests, build 30+) | phone + web | 2 h |
+| 3c | Late punches are never refused: 24 h+ late, 30+ days late, auto clock-out and hand-entered shifts replaced, conflicts, clock set back (B, build 31+) | phone + web | 1 h 30 (B-1, B-3 over 2 days) |
 | 4 | Employee App at the desk: punches, PIN, offline and queue, desk site detection, notifications, Hours | phone + web | 3 h (two sittings OK: 4a H1-H12, 4b the rest) |
 | 5 | Alerts, push and face checks | phone + web | 2 h (mostly waiting) |
 | 6 | Website review: Time Tracking, corrections, reassign, Approve Hours, alerts, reports, Excel, analytics, auto break | web | 1 h 15 |
@@ -96,7 +97,7 @@ You'll also need:
 | P | Prod smoke test (after the prod deploy) | prod | 45 min |
 | AN | Android (once an Android build exists) | phone | later |
 
-Total hands-on time is about 19 h, plus Session 10's week.
+Total hands-on time is about 20 h 30, plus Session 10's week.
 
 ---
 
@@ -264,6 +265,32 @@ that saved them.
 | LO-5 | both | Sign in as **you+sup** | 1. Airplane mode on. PIN clock-in for Ana. Log Out > Log out anyway.<br>2. Airplane mode off. Sign in as **you+owner2** (the Core company). Open Sync Queue.<br>3. Log out, sign in as you+sup. | **As you+owner2:** the row shows as another login's; nothing is sent to the Core company.<br>**Back as you+sup:** it lands in Shipmate (Pro-dev) at its original time. |
 | LO-6 | phone | Nothing waiting (Sync Queue / Sync tab empty) | Log out on the Employee App (you+emp1), then on the supervisor app (you+sup). | Both log out at once, with no box. |
 
+## Session 3c. Late punches are never refused (phone + web, 1 h 30, build 31+)
+
+Build 31 (B, 2026-11-21): an Employee App punch saved offline is recorded
+whenever it reaches the server, at its own time, and flagged for the admin
+instead of refused. Use **you+emp1** on the phone, the website as
+you+owner, and **you+sup** on a second phone (or the same phone, signed
+in between steps) for the supervisor app. B-1 and B-3 need the phone
+offline for more than a day: run them alongside Session 10.
+
+- **Where the flags show:**
+  - Approve Hours: "Synced late" (with "time not proven" when it arrived 1 h+ late), red "Punch needs a look", yellow "Real punch replaced an entry".
+  - Website Overview alerts: "Punch Synced Late" (24 h+), "Punch Synced Very Late" (30+ days, urgent, also pushed and shown in the supervisor app), "Punch Needs a Look".
+- **Still refused (unchanged):** wrong PIN, 5 wrong PINs in a day, an inactive or unlinked login.
+- **Can't be done by hand:** a lost photo ("photo missing, face not checked") - covered by the unit tests.
+
+| ID | Where | Setup | Steps | Pass |
+|---|---|---|---|---|
+| B-1 | both | emp1 clocked out. Day 1. | Airplane mode **on**. Clock in, then clock out a few minutes later. Leave the phone offline **more than 24 h** (it can stay on). Day 2: airplane mode off, open the app. | **Phone:** both punches send; the Sync tab is empty. Never "Not recorded".<br>**Time Tracking:** both at their real day-1 times.<br>**Approve Hours:** "Synced late: 25 h late - time not proven (phone offline since …)".<br>**Overview:** two "Punch Synced Late" alerts (no push). |
+| B-2 | both | emp1 clocked out. you+sup signed in on the supervisor phone with notifications on. | On emp1's phone: Settings > General > Date & Time: Set Automatically **off**, date **31 days back**. Airplane mode on. Clock in, then clock out. Set Automatically **on** again. Airplane mode off. | **Recorded** at the 31-days-ago times.<br>**Overview:** urgent "Punch Synced Very Late" for each, "… 31 days late … Pay for that period may already be done", plus "Punch Needs a Look: the phone's clock was set back".<br>**Supervisor phone:** a push "Punch Synced Very Late", and it's in the Alerts tab.<br>**Cleanup:** delete the two events in Time Tracking. |
+| B-3 | both | During B-1's offline day (or a repeat of it) | While emp1's phone is offline with a saved clock-in, change emp1's PIN on the website. Next day, airplane mode off. | The punch sends with the PIN it was made with: recorded, no "Couldn't sync", no wrong-PIN alert. Put the PIN back. |
+| B-4 | both | emp1 clocked out | 1. emp1's phone: airplane mode on. Clock in, clock out.<br>2. Supervisor app (you+sup): PIN clock-in for emp1.<br>3. emp1's phone: airplane mode off. | emp1's two punches land **before** the supervisor's clock-in, no "Needs a Look", no conflict. emp1 shows **clocked in** (the supervisor's punch). Clock emp1 out after. |
+| B-5 | both | Settings > Automations: auto clock-out **on**, lowest limit. emp1 clocks in **online**. | **Earlier:** airplane mode on, clock out before the limit, stay offline until 10 min past the limit (the website shows the auto clock-out), airplane mode off.<br>**Later (repeat):** clock in online, airplane mode on, wait until 10 min past the limit, clock out (offline), airplane mode off. | **Both runs:** the auto clock-out is **gone**; the real clock-out stays at its real time.<br>**Overview:** "Punch Needs a Look: … replaced the auto clock-out at …" with both times.<br>**Approve Hours:** yellow "Real punch replaced an entry". Turn auto clock-out off after. |
+| B-6 | both | emp1 clocked out | 1. emp1's phone: airplane mode on. Clock in; 10 min later clock out.<br>2. Website Time Tracking: add emp1's shift **by hand**, 2 min before each real punch. Approve it.<br>3. Airplane mode off. | The hand-entered clock-in and clock-out are **gone**; the phone's real ones stay.<br>**Overview:** two "Punch Needs a Look: replaced the hand-entered clock-in / clock-out at …".<br>**Approve Hours:** the shift is **pending** again (the approval went with the hand-entered clock-in), with the yellow tag. |
+| B-7 | both | emp1 clocked out | 1. emp1's phone: airplane mode on.<br>2. Supervisor app: PIN clock-in for emp1.<br>3. emp1's phone (still offline): clock in. Airplane mode off. | **Both** clock-ins kept.<br>**Overview:** "Punch Needs a Look: doesn't fit their other punches - check Time Tracking".<br>**Approve Hours:** red "Punch needs a look". Delete one clock-in in Time Tracking, then clock out. |
+| B-8 | both | emp1 clocked out | 1. Online: clock in and out once (the phone talks to the server).<br>2. Airplane mode on. Date & Time: set the time **2 h back**. Clock in.<br>3. Set Automatically on. Airplane mode off. | Recorded at the 2-h-earlier time.<br>**Overview:** "Punch Needs a Look: the phone's clock was set back".<br>**Approve Hours:** red "The phone's clock was set back". Clean up in Time Tracking. |
+
 ## Session 4. Employee App at the desk (phone + web, 3 h)
 
 Sign out of you+sup and sign in as **you+emp1** (assigned Site A). You're at
@@ -286,7 +313,7 @@ Site A, geofence off.
 | H11 | both | Clocked out | 1. Airplane mode on. Website: change the PIN.<br>2. Phone: Clock In with the **old** PIN, then add a comment.<br>3. Airplane mode off.<br>4. Remove the comment row, then the clock-in row (P2, K2).<br>5. Clock In with the new PIN. | **Failed rows:** Clock in "Couldn't sync, please speak to your supervisor." (Remove only); Comment "Not synced, tell your admin."; the badge counts both; Hours shows a red "Not synced".<br>**After the Removes:** Home is Clocked out.<br>**New PIN:** works. |
 | H12 | both | Clocked out | Airplane mode on. Clock In with PIN A. Website: change to B, then to C. Airplane mode off. Clock Out with C (P3). | The clock-in syncs with no Redo; C works. |
 | H13 | both | Network Link Conditioner (Developer settings) | 1. 100% Loss: Clock In. Turn it off within 1 minute.<br>2. 100% Loss again: Clock Out. Turn it off after 3 minutes (T4). | **Both punches:** green + "Will sync"; a "Weak signal" banner.<br>**Website:** no "Synced late" on either.<br>**I check:** the clock-in has server time; the clock-out is queued with no syncedLate. |
-| H14 | both | Clocked in | 1. Airplane mode on. Clock Out (10:00). Wait 3 minutes. Clock In (10:03).<br>2. Website: add a clock-out at 10:01.<br>3. Airplane mode off. Remove the failed row (T7). | **Failed row:** "Not recorded, tell your admin.", with Remove only.<br>**Confirm box:** "Remove this Clock out?".<br>**After Remove:** the clock-in syncs at 10:03.<br>**I check:** the 10:00 photo is deleted. |
+| H14 | both | Clocked in | 1. Airplane mode on. Clock Out (10:00). Wait 3 minutes. Clock In (10:03).<br>2. Website: add a clock-out at 10:01 by hand.<br>3. Airplane mode off. | **Build 31+ (B):** no failed row - both punches sync.<br>**Time Tracking:** the real 10:00 clock-out and 10:03 clock-in; the hand-entered 10:01 clock-out is gone.<br>**Overview:** "Punch Needs a Look: … replaced the hand-entered clock-out at 10:01". |
 | H15 | both | Clocked in | 1. Airplane mode on. Start Break.<br>2. Website: set emp1 Inactive.<br>3. Airplane mode off. Remove the failed row. Reactivate emp1 (T8). | **Failed row:** "Couldn't sync, please speak to your supervisor."<br>**After Remove:** no break event on the website. |
 | H16 | both | On break | 1. Website: approve emp1's week.<br>2. Airplane mode on. End Break. Wait 6 minutes. Airplane mode off (T10). | **Website:** the End break with "Synced late", and an Overview "Late Punch on Approved Timesheet" alert. Not in the supervisor Alerts tab. |
 | H17 | both | Clocked in | Network Link Conditioner 100% Loss. Start and End Break. Turn the conditioner off within 1 minute and tap Sync Now (T11). | **Badge:** 1, then 2.<br>**Sync Now:** "Syncing...", then both Synced; Last synced = now; no "Synced late". |
@@ -815,4 +842,4 @@ Sources:
   - **Retest:** LO-1 to LO-6 (Session 3b), and H8 with the new text.
 - **Still open (RC1 stays open):**
   - **Green screens:** you saw green success screens in the broken state, but nothing reached the server and no send failed. By code, green means the punch was written to the phone's queue. Needs the phone's Sync Queue (Drops) checked before a cause is named.
-  - **24 h window (decision needed):** an Employee App punch can only be recorded within 24 hours of being made (server rule). The phone's saved PIN for it is kept just as long, so the PIN expiry is not what loses it: a punch not sent within 24 h is refused as too old. The logout box now says so.
+- **Late punches (B, built 2026-11-21, build 31):** an offline punch is never refused for its age, a later punch, or the status: it goes in at its own time, replaces the auto clock-out / hand-entered events of its shift (copies kept, admin told with both times), and is flagged. A lost photo is recorded as "photo missing, face not checked". Old PINs are kept 90 days. Retest Session 3c (B-1 to B-8).
