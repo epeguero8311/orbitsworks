@@ -18,13 +18,15 @@ const RETRY_EVERY_MS = 30000;
 // Only this employee's punches are sent (lib/punchQueueSync.js). Phase 5:
 // the same runs also send the employee's shift comments, right after the
 // punches (lib/commentQueueSync.js).
-export function usePunchQueueSync(companyId, employeeId) {
+// RC1: { punchesOnly: true } from the supervisor app after a promotion -
+// sends the person's own leftover punches only (see syncPunchQueue).
+export function usePunchQueueSync(companyId, employeeId, { punchesOnly = false } = {}) {
   useEffect(() => {
     if (!companyId || !employeeId) return undefined;
     const sync = () => {
       // Only with the app in front (the PIN keychain is locked otherwise).
       if (AppState.currentState !== "active") return;
-      syncPunchQueue(companyId, employeeId).catch(() => {});
+      syncPunchQueue(companyId, employeeId, { punchesOnly }).catch(() => {});
     };
 
     if (!isPunchSyncRunning()) {
@@ -54,5 +56,5 @@ export function usePunchQueueSync(companyId, employeeId) {
       unsubscribeKick();
       clearInterval(timer);
     };
-  }, [companyId, employeeId]);
+  }, [companyId, employeeId, punchesOnly]);
 }

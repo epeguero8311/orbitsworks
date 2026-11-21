@@ -61,7 +61,10 @@ export function isPunchSyncRunning() {
 
 // Runs one sync for this employee. A call while one is running asks it to
 // go round once more and returns the same promise.
-export function syncPunchQueue(companyId, employeeId) {
+// RC1: punchesOnly (the supervisor app, after a promotion) sends just the
+// person's own saved punches - the server takes those from a supervisor/
+// admin token (RC1 C); comments and leave tracking stay employee-only.
+export function syncPunchQueue(companyId, employeeId, { punchesOnly = false } = {}) {
   if (!companyId || !employeeId) return Promise.resolve();
   if (running) {
     again = true;
@@ -78,8 +81,10 @@ export function syncPunchQueue(companyId, employeeId) {
         try {
           await drain(companyId, employeeId);
         } finally {
-          await drainComments(companyId, employeeId).catch(() => {});
-          await drainSiteExits(companyId, employeeId).catch(() => {});
+          if (!punchesOnly) {
+            await drainComments(companyId, employeeId).catch(() => {});
+            await drainSiteExits(companyId, employeeId).catch(() => {});
+          }
         }
       } while (again);
     } finally {
