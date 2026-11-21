@@ -1,5 +1,6 @@
 import * as Crypto from "expo-crypto";
 import { getPunchDb, runPunchWrite } from "./punchQueueDb";
+import { removeWithReport } from "./removedReports";
 import { kickPunchSync, notifyPunchQueue } from "./punchQueueEvents";
 import { COMMENT_NOT_SYNCED_MESSAGE, commentsToDrop, newCommentFields } from "./commentQueueLogic";
 
@@ -79,11 +80,17 @@ export function markCommentFailed(requestId, reason) {
   return update(requestId, "status = 'failed', failReason = ?, failMessage = ?", [reason || null, COMMENT_NOT_SYNCED_MESSAGE]);
 }
 
-// Remove (a Not synced row only, after the employee confirms).
+// Remove (a Not synced row only, after the employee confirms). RC1
+// follow-up: the admin's report is saved in the same transaction.
 export async function removeComment(requestId) {
   const db = await getPunchDb();
-  await runPunchWrite(() => db.runAsync("DELETE FROM comment_queue WHERE requestId = ? AND status = 'failed'", [requestId]));
+  const row = await db.getFirstAsync("SELECT * FROM comment_queue WHERE requestId = ?", [requestId]);
+  const item = row ? toItem(row) : null;
+  if (!item || item.status !== "failed") return false;
+  await removeWithReport("comment", item, "DELETE FROM comment_queue WHERE requestId = ? AND status = 'failed'");
   notifyPunchQueue();
+  kickPunchSync();
+  return true;
 }
 
 // Housekeeping for every employee on this phone: drops synced comments

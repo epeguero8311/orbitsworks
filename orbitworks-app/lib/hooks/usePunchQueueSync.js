@@ -3,6 +3,7 @@ import { AppState } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
 import { cleanupPunchQueue } from "../punchQueue";
 import { cleanupCommentQueue } from "../commentQueue";
+import { resetSyncingReports } from "../removedReports";
 import { subscribeSyncKick } from "../punchQueueEvents";
 import { isPunchSyncRunning, syncPunchQueue } from "../punchQueueSync";
 
@@ -18,21 +19,23 @@ const RETRY_EVERY_MS = 30000;
 // Only this employee's punches are sent (lib/punchQueueSync.js). Phase 5:
 // the same runs also send the employee's shift comments, right after the
 // punches (lib/commentQueueSync.js).
-// RC1: { punchesOnly: true } from the supervisor app after a promotion -
-// sends the person's own leftover punches only (see syncPunchQueue).
-export function usePunchQueueSync(companyId, employeeId, { punchesOnly = false } = {}) {
+// RC1: also mounted by the supervisor app, for a promoted login's own
+// leftovers (see syncPunchQueue). RC1 follow-up: the same runs send the
+// "removed an unsent punch" reports first (lib/removedReportSync.js).
+export function usePunchQueueSync(companyId, employeeId) {
   useEffect(() => {
     if (!companyId || !employeeId) return undefined;
     const sync = () => {
       // Only with the app in front (the PIN keychain is locked otherwise).
       if (AppState.currentState !== "active") return;
-      syncPunchQueue(companyId, employeeId, { punchesOnly }).catch(() => {});
+      syncPunchQueue(companyId, employeeId).catch(() => {});
     };
 
     if (!isPunchSyncRunning()) {
       Promise.all([
         cleanupPunchQueue({ resetSyncing: true }).catch(() => {}),
         cleanupCommentQueue({ resetSyncing: true }).catch(() => {}),
+        resetSyncingReports().catch(() => {}),
       ]).finally(sync);
     } else {
       sync();
@@ -56,5 +59,5 @@ export function usePunchQueueSync(companyId, employeeId, { punchesOnly = false }
       unsubscribeKick();
       clearInterval(timer);
     };
-  }, [companyId, employeeId, punchesOnly]);
+  }, [companyId, employeeId]);
 }

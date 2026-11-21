@@ -387,11 +387,23 @@ export function stopShiftTracking(clockInEventId) {
 // Log out mid-shift: a "tracking off" (signedOut) for every shift this
 // employee is tracked on, then nothing more on this phone (D13).
 export function signOutSiteTracking(companyId, employeeId) {
+  return endSiteTracking(companyId, employeeId, "signedOut");
+}
+
+// RC1 follow-up: made a supervisor/admin mid-shift - the supervisor app
+// doesn't track leaving the site, so tracking ends here ("tracking off",
+// roleChanged). Runs before the old role's queue is sent, so this row goes
+// with it.
+export function roleChangeSiteTracking(companyId, employeeId) {
+  return endSiteTracking(companyId, employeeId, "roleChanged");
+}
+
+function endSiteTracking(companyId, employeeId, reason) {
   return serial(async () => {
     try {
       for (const s of await listFenceStates()) {
         if (s.employeeId !== employeeId || s.companyId !== companyId) continue;
-        if (s.status === "tracking") await commit(trackingOff(s, { reason: "signedOut", atMs: Date.now(), newId }));
+        if (s.status === "tracking") await commit(trackingOff(s, { reason, atMs: Date.now(), newId }));
         const latest = await readFenceState(s.clockInEventId);
         if (latest) await stopState(latest, { forget: true });
       }

@@ -27,6 +27,7 @@ import { noteSignalOk, noteWeakSignal } from "./punchQueueEvents";
 import { refreshPinVerifier } from "./pinCheck";
 import { drainComments } from "./commentQueueSync";
 import { drainSiteExits } from "./siteExitQueueSync";
+import { drainRemovedReports } from "./removedReportSync";
 import { onClockInSynced } from "./siteTracking";
 
 // Employee App Phase 4 - sends the signed-in employee's saved punches,
@@ -61,10 +62,11 @@ export function isPunchSyncRunning() {
 
 // Runs one sync for this employee. A call while one is running asks it to
 // go round once more and returns the same promise.
-// RC1: punchesOnly (the supervisor app, after a promotion) sends just the
-// person's own saved punches - the server takes those from a supervisor/
-// admin token (RC1 C); comments and leave tracking stay employee-only.
-export function syncPunchQueue(companyId, employeeId, { punchesOnly = false } = {}) {
+// RC1: the supervisor app runs this too after a promotion, for the
+// person's own leftovers - the server takes punches, comments, leave
+// tracking and removal reports from their supervisor/admin token (RC1 C
+// and its follow-up), so nothing is skipped there.
+export function syncPunchQueue(companyId, employeeId) {
   if (!companyId || !employeeId) return Promise.resolve();
   if (running) {
     again = true;
@@ -78,13 +80,14 @@ export function syncPunchQueue(companyId, employeeId, { punchesOnly = false } = 
         // Each side's problems stay its own: a paused or failing punch
         // queue never holds back comments, and comments never touch punches.
         // Phase 8: leave tracking rows go last, same rule.
+        // RC1 follow-up: "removed an unsent punch" reports go first - the
+        // admin learns about a lost punch even while the queue is paused.
+        await drainRemovedReports(companyId, employeeId).catch(() => {});
         try {
           await drain(companyId, employeeId);
         } finally {
-          if (!punchesOnly) {
-            await drainComments(companyId, employeeId).catch(() => {});
-            await drainSiteExits(companyId, employeeId).catch(() => {});
-          }
+          await drainComments(companyId, employeeId).catch(() => {});
+          await drainSiteExits(companyId, employeeId).catch(() => {});
         }
       } while (again);
     } finally {

@@ -221,7 +221,7 @@ function SupervisorBackgroundSync() {
   usePushRegistration();
   // RC1 C: own Employee App punches saved before a promotion keep sending
   // (punches only; a no-op when there are none).
-  usePunchQueueSync(userData?.companyId, linkedEmployeeId || userData?.employeeId, { punchesOnly: true });
+  usePunchQueueSync(userData?.companyId, linkedEmployeeId || userData?.employeeId);
   return null;
 }
 

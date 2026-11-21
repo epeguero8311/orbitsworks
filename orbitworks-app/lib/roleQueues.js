@@ -8,6 +8,27 @@ import { syncPunchQueue } from "./punchQueueSync";
 import { listAllPunches } from "./punchQueue";
 import { getDb } from "./db";
 import { openOwnPunches } from "./roleSync";
+import { getPunchDb } from "./punchQueueDb";
+import { roleChangeSiteTracking } from "./siteTracking";
+
+// RC1 follow-up: the person's own other Employee App items still on the
+// phone - comments (incl. Not synced ones), leave tracking rows and
+// removal reports not yet on the server.
+async function countOwnOtherItems(companyId, employeeId) {
+  try {
+    const db = await getPunchDb();
+    const one = async (sql) => {
+      const row = await db.getFirstAsync(sql, [companyId, employeeId]);
+      return row ? row.c : 0;
+    };
+    const comments = await one("SELECT COUNT(*) as c FROM comment_queue WHERE companyId = ? AND employeeId = ? AND status IN ('waiting','syncing','failed')");
+    const exits = await one("SELECT COUNT(*) as c FROM site_exit_queue WHERE companyId = ? AND employeeId = ? AND status IN ('waiting','syncing')");
+    const reports = await one("SELECT COUNT(*) as c FROM removed_report_queue WHERE companyId = ? AND employeeId = ? AND status IN ('waiting','syncing')");
+    return comments + exits + reports;
+  } catch {
+    return 0;
+  }
+}
 
 function capped(promise, ms) {
   let timer;
@@ -33,7 +54,16 @@ export async function drainForRole(drain, { companyId, employeeId }, maxMs) {
   if (!drain || !companyId) return;
   if (drain === "employeePunches") {
     if (!employeeId) return;
-    await capped(syncPunchQueue(companyId, employeeId), maxMs);
+    // RC1 follow-up: end leave tracking first (roleChanged), so that row is
+    // sent with the rest; then removal reports, punches, comments, leave
+    // tracking - all with the old token.
+    await capped(
+      (async () => {
+        await roleChangeSiteTracking(companyId, employeeId);
+        await syncPunchQueue(companyId, employeeId);
+      })(),
+      maxMs
+    );
     return;
   }
   if (drain === "staffQueues") {
@@ -52,11 +82,13 @@ export async function drainForRole(drain, { companyId, employeeId }, maxMs) {
 // How many of that role's items are still not on the server.
 export async function countLeftover(drain, { companyId, employeeId }) {
   if (drain === "employeePunches") {
+    let punches = 0;
     try {
-      return openOwnPunches(await listAllPunches(), companyId, employeeId).length;
+      punches = openOwnPunches(await listAllPunches(), companyId, employeeId).length;
     } catch {
-      return 0;
+      punches = 0;
     }
+    return punches + (await countOwnOtherItems(companyId, employeeId));
   }
   if (drain === "staffQueues") {
     const events = await getPendingCount().catch(() => 0);

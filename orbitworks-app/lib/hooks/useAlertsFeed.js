@@ -7,7 +7,8 @@ import { getOrCreatePushDeviceId } from "../pushDeviceId";
 import { markLaunch, noteLaunchCount } from "../launchTiming";
 
 // employeeAccountDeleted: an employee deleted their app account (website only).
-const WEB_ONLY_ALERT_TYPES = ["autoClockOut", "syncWrongPin", "syncedLateApproved", "pinChanged", "employeeAccountDeleted"];
+// punchRemoved (RC1 follow-up): an unsent punch/comment was removed on a phone (website only).
+const WEB_ONLY_ALERT_TYPES = ["autoClockOut", "syncWrongPin", "syncedLateApproved", "pinChanged", "employeeAccountDeleted", "punchRemoved"];
 
 // Live view of companies/{companyId}/alerts, newest first. Fails to an
 // empty list rather than an error (kill-switch-off or unreachable both

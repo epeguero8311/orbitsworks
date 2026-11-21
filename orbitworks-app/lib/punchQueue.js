@@ -1,6 +1,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
 import { getPunchDb, runPunchWrite } from "./punchQueueDb";
+import { removeWithReport } from "./removedReports";
 import { kickPunchSync, notifyPunchQueue } from "./punchQueueEvents";
 import { locationColumns, locationFromRow, pinsToDelete, syncedToDrop } from "./punchQueueLogic";
 
@@ -170,14 +171,18 @@ export async function markFailed(requestId, kind, reason, message) {
 }
 
 // Remove (a Failed row only, after the employee confirms): the punch is
-// never recorded. Deletes the row, the PIN and the photo.
+// never recorded. RC1 follow-up: the admin's report is saved in the SAME
+// transaction that deletes the row - no report, no removal. Then the PIN
+// and the photo go, and the report is sent (lib/removedReportSync.js).
 export async function removePunch(requestId) {
   const item = await getPunch(requestId);
+  if (!item || item.status !== "failed") return false;
+  await removeWithReport("punch", item, "DELETE FROM punch_queue WHERE requestId = ? AND status = 'failed'");
   await deletePin(requestId);
-  const db = await getPunchDb();
-  await runPunchWrite(() => db.runAsync("DELETE FROM punch_queue WHERE requestId = ? AND status = 'failed'", [requestId]));
-  if (item && item.status === "failed") await deleteFile(item.photoLocalUri);
+  await deleteFile(item.photoLocalUri);
   notifyPunchQueue();
+  kickPunchSync();
+  return true;
 }
 
 // Housekeeping for every employee on this phone (signed in or not):

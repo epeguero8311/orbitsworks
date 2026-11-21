@@ -24,6 +24,11 @@ import * as SQLite from "expo-sqlite";
 // after comments. requestId = exitId:phase. notBeforeMs holds a "left"
 // start back until its 2 minutes have passed.
 //   status: waiting | syncing | synced | failed (failed = dropped for good)
+// removed_report_queue (RC1 follow-up): one row per Failed punch / Not
+// synced comment the employee removed (lib/removedReports.js), written in
+// the same transaction that deletes it. Sent to reportRemovedItem (the
+// admin's punchRemoved alert), then deleted. requestId = the removed item's.
+//   status: waiting | syncing | failed (failed = refused input, kept)
 
 let dbPromise = null;
 
@@ -124,6 +129,22 @@ async function openDb() {
       attempts INTEGER NOT NULL DEFAULT 0,
       createdAt INTEGER NOT NULL,
       syncedAt INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS removed_report_queue (
+      requestId TEXT PRIMARY KEY,
+      companyId TEXT NOT NULL,
+      employeeId TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      action TEXT,
+      madeAtMs INTEGER NOT NULL,
+      removedAtMs INTEGER NOT NULL,
+      failMessage TEXT,
+      clockEventId TEXT,
+      note TEXT,
+      status TEXT NOT NULL DEFAULT 'waiting',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      createdAt INTEGER NOT NULL
     );
   `);
   // Added after Phase 4 (lib/clockAnchor.js): the punch's uptime, expected
