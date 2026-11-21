@@ -30,7 +30,9 @@ import {
 // The ONLY way an employeeApp clock event gets written (firestore.rules
 // denies every direct employee write to clockEvents). Order:
 //   1. who: role "employee" + companyId/employeeId claims; anything the
-//      phone sends for those must match the claims
+//      phone sends for those must match the claims. RC1 C: a supervisor/
+//      admin login may also send its OWN queued punches (made before a
+//      promotion) if the employee doc has appAccess - see punchCallerKind
 //   2. zod-validate the input
 //   3. a requestId that was already used returns the first result (double
 //      tap) - nothing new is written
@@ -190,11 +192,25 @@ type EmployeeDoc = {
   active?: boolean;
   pin?: string;
   linkedUserId?: string;
+  appAccess?: boolean;
   assignedSiteIds?: unknown;
   joinCodeId?: string | null;
   subcontractorId?: string | null;
   subcontractorName?: string | null;
 };
+
+// RC1 (option C): roles that may still send their OWN punches that were
+// saved on the phone while they were an Employee App login, after being
+// promoted. Only queued punches (queuedAtMs), never a PIN check, and only
+// for an employee doc with appAccess (it came from the Employee App).
+// Everything else on this callable stays role "employee" only.
+const PROMOTED_OWN_PUNCH_ROLES = new Set(["supervisor", "admin"]);
+
+export function punchCallerKind(role: string | undefined): "employee" | "promoted" | null {
+  if (role === "employee") return "employee";
+  if (role && PROMOTED_OWN_PUNCH_ROLES.has(role)) return "promoted";
+  return null;
+}
 
 type Site = { siteId: string | null; siteName: string };
 
@@ -393,13 +409,19 @@ export const employeeClockPunch = onCall(async (request) => {
   const role = request.auth.token.role as string | undefined;
   const companyId = request.auth.token.companyId as string | undefined;
   const employeeId = request.auth.token.employeeId as string | undefined;
-  if (role !== "employee" || !companyId || !employeeId) throw clockError("wrongAccount");
+  const callerKind = punchCallerKind(role);
+  if (!callerKind || !companyId || !employeeId) throw clockError("wrongAccount");
 
   // 2. input
   const parsed = employeeClockPunchSchema.safeParse(request.data ?? {});
   if (!parsed.success) throw clockError("invalid", parsed.error.issues[0]?.message);
   const input = parsed.data;
   if ((input.companyId && input.companyId !== companyId) || (input.employeeId && input.employeeId !== employeeId)) {
+    throw clockError("wrongAccount");
+  }
+  // RC1 C: a promoted login only finishes sending punches it saved as an
+  // employee - never a new punch or a PIN check.
+  if (callerKind === "promoted" && (input.checkPinOnly === true || input.queuedAtMs === undefined)) {
     throw clockError("wrongAccount");
   }
 
@@ -429,6 +451,7 @@ export const employeeClockPunch = onCall(async (request) => {
   const employeeSnap = await employeeRef.get();
   const employee = employeeSnap.data() as EmployeeDoc | undefined;
   if (!employee || employee.linkedUserId !== uid) return reject(clockError("wrongAccount"));
+  if (callerKind === "promoted" && employee.appAccess !== true) return reject(clockError("wrongAccount"));
   if (employee.active !== true) return reject(clockError("inactive"));
   // prod-readiness item 7: the PIN lives in employeePins now (old field as
   // the fallback until every employee is copied).

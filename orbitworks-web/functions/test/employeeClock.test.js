@@ -359,6 +359,99 @@ test("unlinked login, non-employee role, and signed-out calls are rejected", asy
   assert.equal((await events("ec-role")).length, 0);
 });
 
+// ===================== RC1: role changed while signed in =====================
+// Option C: punches saved on the phone as an Employee App login still send
+// after a promotion (supervisor/admin token, same employeeId claim), but
+// only queued punches, never a new punch or a PIN check, and only for an
+// employee doc with appAccess.
+
+const promotedAuth = (c, role = "supervisor", token = {}) => employeeAuth(c, { role, ...token });
+const queuedExtra = (agoMs = 60 * 1000) => ({ queuedAtMs: Date.now() - agoMs });
+
+test("RC1 C: promoted to supervisor - a queued clock-in made as employee still lands", async () => {
+  const c = "rc1-promo-sup";
+  await seed(c, { employee: { appAccess: true, isSupervisor: true } });
+  const res = await punch(c, "in", { auth: promotedAuth(c), extra: queuedExtra() });
+  assert.equal(res.ok ?? true, true);
+  const evs = await events(c);
+  assert.equal(evs.length, 1);
+  assert.equal(evs[0].type, "in");
+  assert.equal(evs[0].source, "employeeApp");
+  assert.equal(evs[0].createdByUid, "uid1");
+});
+
+test("RC1 C: promoted to admin - queued in, break and out (made offline as employee) all land in order", async () => {
+  const c = "rc1-promo-admin";
+  await seed(c, { employee: { appAccess: true, isAdmin: true } });
+  const auth = promotedAuth(c, "admin");
+  await punch(c, "in", { auth, extra: queuedExtra(40 * 60 * 1000) });
+  await punch(c, "breakStart", { auth, extra: queuedExtra(30 * 60 * 1000) });
+  await punch(c, "breakEnd", { auth, extra: queuedExtra(20 * 60 * 1000) });
+  await punch(c, "out", { auth, extra: queuedExtra(10 * 60 * 1000) });
+  const types = (await events(c)).map((e) => e.type).sort();
+  assert.deepEqual(types, ["breakEnd", "breakStart", "in", "out"]);
+});
+
+test("RC1 C: promoted login can't make a NEW (unqueued) punch or a PIN check", async () => {
+  const c = "rc1-promo-new";
+  await seed(c, { employee: { appAccess: true, isSupervisor: true } });
+  await assert.rejects(punch(c, "in", { auth: promotedAuth(c) }), reasonIs("wrongAccount"));
+  await assert.rejects(checkPin(c, "in", { auth: promotedAuth(c) }), reasonIs("wrongAccount"));
+  assert.equal((await events(c)).length, 0);
+});
+
+test("RC1 C: supervisor/admin with no appAccess (never an Employee App login) is refused, photo deleted", async () => {
+  const c = "rc1-no-appaccess";
+  await seed(c, { employee: { isSupervisor: true } });
+  const requestId = randomUUID();
+  const photoPath = `companies/${c}/clockEvents/emp1/${requestId}.jpg`;
+  await assert.rejects(punch(c, "in", { requestId, auth: promotedAuth(c), extra: queuedExtra() }), reasonIs("wrongAccount"));
+  assert.ok(deleted.includes(photoPath), "own photo removed");
+  assert.equal((await events(c)).length, 0);
+});
+
+test("RC1 C: owner, someone else's employeeId, or an unlinked login are still refused", async () => {
+  const c = "rc1-promo-refused";
+  await seed(c, { employee: { appAccess: true, isSupervisor: true } });
+  await assert.rejects(punch(c, "in", { auth: promotedAuth(c, "owner"), extra: queuedExtra() }), reasonIs("wrongAccount"));
+  await assert.rejects(
+    punch(c, "in", { auth: promotedAuth(c, "supervisor", { employeeId: "empB" }), extra: queuedExtra() }),
+    reasonIs("wrongAccount")
+  );
+  await assert.rejects(
+    punch(c, "in", { auth: { uid: "uidOther", token: { role: "supervisor", companyId: c, employeeId: "emp1" } }, extra: queuedExtra() }),
+    reasonIs("wrongAccount")
+  );
+  assert.equal((await events(c)).length, 0);
+});
+
+test("RC1: demoted while clocked in - the shift opened by the supervisor app closes from the Employee App", async () => {
+  const c = "rc1-demoted";
+  await seed(c, { employee: { appAccess: true } });
+  // Clocked in as a supervisor (supervisor app PIN punch for themself).
+  await db.collection("companies").doc(c).collection("clockEvents").doc("sup-in").set({
+    employeeId: "emp1",
+    employeeName: "Ana",
+    type: "in",
+    source: "pin",
+    siteId: "site1",
+    siteName: "Site One",
+    timestamp: admin.firestore.Timestamp.fromMillis(Date.now() - 2 * 60 * 60 * 1000),
+    createdByUid: "uid1",
+  });
+  // Now an employee token: clocking in again is refused (already in),
+  // break and clock out work and keep the shift's site.
+  await assert.rejects(punch(c, "in"), reasonIs("wrongState"));
+  await punch(c, "breakStart");
+  await punch(c, "breakEnd");
+  await punch(c, "out");
+  const evs = await events(c);
+  const out = evs.find((e) => e.type === "out");
+  assert.ok(out, "clock-out written");
+  assert.equal(out.source, "employeeApp");
+  assert.equal(evs.filter((e) => e.type === "in").length, 1, "no second clock-in");
+});
+
 // ===================== state + double taps =====================
 
 test("wrong-state punches are rejected with a plain message", async () => {

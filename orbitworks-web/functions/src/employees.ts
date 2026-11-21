@@ -285,12 +285,19 @@ export const setEmployeeRole = onCall(async (request) => {
   // without appAccess resolves exactly as before (admin, else supervisor).
   const dashboardRole = loginRoleFor({ isAdmin, isSupervisor, appAccess: employee.appAccess });
 
+  // RC1: claims FIRST, then the users doc. The signed-in app watches
+  // users/{uid}; the moment role/roleChangedAt change it forces a token
+  // refresh, which must already get the new claims (otherwise it would
+  // route by a role the rules don't grant yet).
   await employeeRef.update({ isSupervisor, isAdmin });
-  await userRef.update({ role: dashboardRole });
   await admin.auth().setCustomUserClaims(linkedUserId, {
     role: dashboardRole,
     companyId: callerCompanyId,
     employeeId,
+  });
+  await userRef.update({
+    role: dashboardRole,
+    roleChangedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
   return { success: true };
