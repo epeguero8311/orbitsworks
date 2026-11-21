@@ -29,6 +29,8 @@ import LoginScreen from "./screens/LoginScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import AccountDisabledScreen from "./screens/AccountDisabledScreen";
 import LoadingScreen from "./screens/LoadingScreen";
+import RoleUpdating from "./components/RoleUpdating";
+import ConfirmModal from "./components/ui/ConfirmModal";
 import DashboardScreen from "./screens/supervisor/DashboardScreen";
 import AlertsScreen from "./screens/supervisor/AlertsScreen";
 import SyncQueueScreen from "./screens/supervisor/SyncQueueScreen";
@@ -211,16 +213,20 @@ function EmployeeTabs() {
 // hook already no-ops until userData.companyId is known, same as when it
 // lived directly in RootNavigator.
 function SupervisorBackgroundSync() {
+  const { userData, linkedEmployeeId } = useAuth();
   usePinTableSync();
   useQueueSync();
   useEmployeeQueueSync();
   useEmployeeUpdateQueueSync();
   usePushRegistration();
+  // RC1 C: own Employee App punches saved before a promotion keep sending
+  // (punches only; a no-op when there are none).
+  usePunchQueueSync(userData?.companyId, linkedEmployeeId || userData?.employeeId, { punchesOnly: true });
   return null;
 }
 
 function RootNavigator() {
-  const { currentUser, userData, loading, accountDisabled, accountChecked } = useAuth();
+  const { currentUser, userData, loading, accountDisabled, accountChecked, roleUpdate, dismissRoleNotice } = useAuth();
   const { isDark } = useTheme();
   const [splashAnimationDone, setSplashAnimationDone] = useState(false);
   const [navReady, setNavReady] = useState(false);
@@ -263,11 +269,35 @@ function RootNavigator() {
     );
   }
 
+  // RC1: a role change from the website is being applied - nothing else
+  // shows (no punch can start) until the token has the new role.
+  if (currentUser && roleUpdate && roleUpdate.step !== "notice") {
+    return (
+      <>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <RoleUpdating kind={roleUpdate.kind} step={roleUpdate.step} />
+      </>
+    );
+  }
+
+  // RC1: a new role = a fresh screen tree, so every listener and sync
+  // starts again with the new token (none is left dead on a denied read).
+  const roleTreeKey = currentUser ? `${currentUser.uid}:${userData?.role ?? "none"}` : "signedOut";
+
   return (
     <NavigationContainer ref={navigationRef} onReady={() => setNavReady(true)}>
       {backgroundSync}
       <StatusBar style={isDark ? "light" : "dark"} />
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <ConfirmModal
+        visible={!!(currentUser && roleUpdate && roleUpdate.step === "notice")}
+        title="Your role changed"
+        message={roleUpdate?.notice}
+        confirmLabel="OK"
+        cancelLabel={null}
+        onConfirm={dismissRoleNotice}
+        onCancel={dismissRoleNotice}
+      />
+      <Stack.Navigator key={roleTreeKey} screenOptions={{ headerShown: false }}>
         {currentUser && accountDisabled ? (
           <Stack.Screen name="AccountDisabled" component={AccountDisabledScreen} />
         ) : currentUser && isEmployeeLogin ? (

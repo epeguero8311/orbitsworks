@@ -6,6 +6,9 @@ import { useTabBarSpace } from "../../lib/hooks/useTabBarSpace";
 import ScreenHeader from "../../components/ScreenHeader";
 import DevSyncFaultPanel from "../../components/supervisor/DevSyncFaultPanel";
 import Spinner from "../../components/Spinner";
+import OwnPunchesCard from "../../components/supervisor/OwnPunchesCard";
+import { useAuth } from "../../lib/AuthContext";
+import { useOwnPunches } from "../../lib/hooks/useOwnPunches";
 
 const ACTION_LABEL = {
   in: "Clock In",
@@ -66,6 +69,9 @@ export default function SyncQueueScreen() {
   const { colors } = useTheme();
   const { items, online, syncing, syncNow, retry } = useSyncQueue();
   const tabBarSpace = useTabBarSpace();
+  // RC1: own Employee App punches left from before a promotion.
+  const { userData, linkedEmployeeId } = useAuth();
+  const ownPunches = useOwnPunches(userData?.companyId, linkedEmployeeId ?? userData?.employeeId);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -101,6 +107,7 @@ export default function SyncQueueScreen() {
         data={items}
         keyExtractor={(item) => item.localId}
         contentContainerStyle={[styles.list, { paddingBottom: tabBarSpace }]}
+        ListHeaderComponent={ownPunches.length > 0 ? <OwnPunchesCard items={ownPunches} /> : null}
         renderItem={({ item }) => (
           <View style={[styles.row, { borderBottomColor: colors.border }]}>
             <View style={styles.rowTop}>
@@ -157,10 +164,12 @@ export default function SyncQueueScreen() {
           </View>
         )}
         ListEmptyComponent={
+          ownPunches.length > 0 ? null : (
           <View style={styles.empty}>
             <Feather name="check-circle" size={40} color={colors.subtext} />
             <Text style={[styles.emptyText, { color: colors.subtext }]}>Everything's synced.</Text>
           </View>
+          )
         }
       />
     </View>
