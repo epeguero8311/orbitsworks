@@ -236,6 +236,27 @@ test("FAIL: employee writes their own role on users/{uid}", async () => {
   await assertFails(updateDoc(doc(db, "users", "uidA"), { role: "admin" }));
 });
 
+// RC1: the app watches its own users doc for roleChangedAt; only the
+// server may ever write it.
+test("RC1: a login reads its own users doc, including roleChangedAt", async () => {
+  await testEnv.withSecurityRulesDisabled((c) =>
+    updateDoc(doc(c.firestore(), "users", "uidA"), { roleChangedAt: Timestamp.fromMillis(1795222995000) })
+  );
+  const snap = await assertSucceeds(getDoc(doc(employeeA().firestore(), "users", "uidA")));
+  if (snap.data().roleChangedAt.toMillis() !== 1795222995000) throw new Error("roleChangedAt not readable");
+});
+
+test("RC1 FAIL: no client role (employee, supervisor, admin) can write roleChangedAt", async () => {
+  await assertFails(updateDoc(doc(employeeA().firestore(), "users", "uidA"), { roleChangedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(supervisorA().firestore(), "users", "uidA"), { roleChangedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(adminA().firestore(), "users", "uidA"), { roleChangedAt: serverTimestamp() }));
+});
+
+test("RC1 FAIL: a login can't read another login's users doc unless admin of that company", async () => {
+  await assertFails(getDoc(doc(employeeA().firestore(), "users", "uidB")));
+  await assertFails(getDoc(doc(supervisorA().firestore(), "users", "uidB")));
+});
+
 test("FAIL: employee creates a clock event for someone else", async () => {
   const db = employeeA().firestore();
   await assertFails(setDoc(eventDoc(db, A, "L-2"), employeeAppEvent({ localId: "L-2", employeeId: "empB" })));
