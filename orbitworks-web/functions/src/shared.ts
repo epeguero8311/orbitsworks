@@ -82,6 +82,17 @@ export function localMinutesOfDay(d: Date): number {
 export async function deactivateEmployeeAuth(linkedUserId: string) {
   await admin.auth().updateUser(linkedUserId, { disabled: true });
   await admin.auth().revokeRefreshTokens(linkedUserId);
+  // RC1 follow-up: a signed-in website sees this, forces a token refresh
+  // (which a disabled login can't get) and signs out within seconds,
+  // instead of keeping its ID token until it expires (up to 1 h). Only an
+  // existing users doc - never create one here.
+  await db
+    .collection("users")
+    .doc(linkedUserId)
+    .update({ accessRevokedAt: admin.firestore.FieldValue.serverTimestamp() })
+    .catch((err: { code?: number | string }) => {
+      if (err?.code !== 5 && err?.code !== "not-found") throw err;
+    });
 }
 
 // Deactivating or deleting an employee (setEmployeeActive,

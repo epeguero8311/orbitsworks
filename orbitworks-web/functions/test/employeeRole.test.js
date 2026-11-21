@@ -112,3 +112,32 @@ test("RC1: refused callers change nothing (no stamp)", async () => {
   assert.equal(user.roleChangedAt, undefined);
   assert.equal(claims.role, "employee");
 });
+
+// RC1 follow-up: deactivated while signed in. The login is disabled and its
+// refresh tokens revoked (as before); now the users doc also gets
+// accessRevokedAt, so a signed-in website forces a token refresh (which a
+// disabled login can't get) and signs out within seconds. The role and
+// roleChangedAt are left alone (the app's own deactivated screen comes from
+// its employee doc listener).
+test("RC1: deactivated while signed in - login disabled, users doc stamped accessRevokedAt", async () => {
+  for (const role of ["employee", "supervisor", "admin"]) {
+    const c = `rc1-deact-${role}`;
+    const uid = await seed(c, { role, isSupervisor: role !== "employee", isAdmin: role === "admin" });
+    const before = Date.now();
+    await funcs.setEmployeeActive.run({ data: { employeeId: "emp1", active: false }, auth: ownerAuth(c), rawRequest: {} });
+    const { user } = await state(c, uid);
+    assert.ok(user.accessRevokedAt, `${role}: accessRevokedAt stamped`);
+    assert.ok(user.accessRevokedAt.toMillis() >= before - 5000);
+    assert.equal(user.role, role, "role unchanged");
+    assert.equal(user.roleChangedAt, undefined, "not a role change");
+    assert.equal((await admin.auth().getUser(uid)).disabled, true);
+  }
+});
+
+test("RC1: deactivating an employee whose login has no users doc never creates one", async () => {
+  const c = "rc1-deact-nodoc";
+  const uid = await seed(c, { role: "employee" });
+  await db.doc(`users/${uid}`).delete();
+  await funcs.setEmployeeActive.run({ data: { employeeId: "emp1", active: false }, auth: ownerAuth(c), rawRequest: {} });
+  assert.equal((await db.doc(`users/${uid}`).get()).exists, false);
+});

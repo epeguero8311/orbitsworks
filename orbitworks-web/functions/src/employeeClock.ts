@@ -7,6 +7,7 @@ import { locationForPunch } from "./lib/punchLocation";
 import { isAccurateEnoughToDetect, isSiteMismatch, loadDetectableSites, pickDetectedClockInSite, pickEmployeeClockInSite, pickEmployeeClockOutSite, type ClockInSitePick, type ShiftFence } from "./geofencing";
 import { PIN_REVEAL_MAX, PIN_REVEAL_WINDOW_MS, type MyPinResult } from "./employeePinTypes";
 import { fenceForClockIn, fenceForNewClockIn } from "./employeeSiteExits";
+import { punchCallerKind } from "./promotedCaller";
 import { makePinVerifier, PinVerifierResult } from "./lib/pinVerifier";
 import { queuedPinCheck, readPinHistory } from "./lib/pinHistory";
 import { pinHistoryRef } from "./pins";
@@ -199,18 +200,11 @@ type EmployeeDoc = {
   subcontractorName?: string | null;
 };
 
-// RC1 (option C): roles that may still send their OWN punches that were
-// saved on the phone while they were an Employee App login, after being
-// promoted. Only queued punches (queuedAtMs), never a PIN check, and only
-// for an employee doc with appAccess (it came from the Employee App).
-// Everything else on this callable stays role "employee" only.
-const PROMOTED_OWN_PUNCH_ROLES = new Set(["supervisor", "admin"]);
-
-export function punchCallerKind(role: string | undefined): "employee" | "promoted" | null {
-  if (role === "employee") return "employee";
-  if (role && PROMOTED_OWN_PUNCH_ROLES.has(role)) return "promoted";
-  return null;
-}
+// RC1 (option C): a promoted login may still send its OWN punches saved
+// on the phone while it was an Employee App login - only queued punches
+// (queuedAtMs), never a PIN check, only with appAccess. The rule lives in
+// promotedCaller.ts (shared with recordSiteExit and reportRemovedItem).
+export { punchCallerKind };
 
 type Site = { siteId: string | null; siteName: string };
 

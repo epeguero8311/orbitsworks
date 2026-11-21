@@ -107,3 +107,5 @@ export {
 // Phase 9: dismiss a possible-duplicate flag (Employees page).
 export { dismissDuplicateFlag } from "./employeeDuplicates";
 export { deleteMyEmployeeAccount } from "./employeeAccount";
+// RC1 follow-up: the phone reports an unsent punch/comment the employee removed.
+export { reportRemovedItem } from "./employeeRemovedItems";

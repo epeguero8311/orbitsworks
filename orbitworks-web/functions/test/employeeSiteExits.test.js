@@ -416,6 +416,46 @@ test("wrong account: another employee's clock-in is not this shift; unlinked log
   await assert.rejects(funcs.recordSiteExit.run({ data: left(shift, Date.now()), auth: admin1, rawRequest: {} }), /Only an employee app login/);
 });
 
+// RC1 follow-up: made a supervisor/admin mid-shift. The phone ends tracking
+// with a roleChanged "tracking off" and sends the leave-tracking rows still
+// queued - the leftovers go from the supervisor app with the NEW token.
+test("RC1: promoted mid-shift - the supervisor/admin login still sends its own queued rows (roleChanged)", async () => {
+  const c = "se-promoted";
+  await seed(c);
+  await db.doc(`companies/${c}/employees/emp1`).update({ appAccess: true });
+  const shift = (await punch(c, "in", { punchMs: Date.now() - 60 * MIN })).eventId;
+  const queuedLeft = left(shift, Date.now() - 40 * MIN);
+  for (const role of ["supervisor", "admin"]) {
+    const promoted = { uid: "uid1", token: { role, companyId: c, employeeId: "emp1" } };
+    const run = (data) => funcs.recordSiteExit.run({ data, auth: promoted, rawRequest: {} });
+    if (role === "supervisor") {
+      assert.equal((await run(queuedLeft)).recorded, true);
+      assert.equal((await run({ ...queuedLeft, phase: "end", atMs: Date.now() - 35 * MIN })).recorded, true);
+    } else {
+      const off = { exitId: randomUUID(), clockInEventId: shift, kind: "trackingOff", phase: "start", atMs: Date.now() - 5 * MIN, offReason: "roleChanged" };
+      assert.equal((await run(off)).recorded, true);
+      assert.equal((await exitDoc(c, off.exitId)).offReason, "roleChanged");
+    }
+  }
+  assert.equal((await exitDoc(c, queuedLeft.exitId)).endReason, "returned");
+});
+
+test("RC1 FAIL: a promoted login without Employee App access, or not linked, sends nothing", async () => {
+  const c = "se-promoted-no";
+  await seed(c);
+  const shift = (await punch(c, "in", { punchMs: Date.now() - 60 * MIN })).eventId;
+  const sup = { uid: "uid1", token: { role: "supervisor", companyId: c, employeeId: "emp1" } };
+  const data = left(shift, Date.now() - 5 * MIN);
+  // seed() has no appAccess: a website-made supervisor, not an app sign-up.
+  await assert.rejects(funcs.recordSiteExit.run({ data, auth: sup, rawRequest: {} }), /no longer linked/);
+  await db.doc(`companies/${c}/employees/emp1`).update({ appAccess: true });
+  const other = { uid: "uid-other", token: { role: "supervisor", companyId: c, employeeId: "emp1" } };
+  await assert.rejects(funcs.recordSiteExit.run({ data, auth: other, rawRequest: {} }), /no longer linked/);
+  const owner = { uid: "uid1", token: { role: "owner", companyId: c, employeeId: "emp1" } };
+  await assert.rejects(funcs.recordSiteExit.run({ data, auth: owner, rawRequest: {} }), /Only an employee app login/);
+  assert.equal(await exitDoc(c, data.exitId), undefined);
+});
+
 // ---- 90-day location cleanup ----
 
 test("cleanup clears places older than 90 days, keeps the times", async () => {

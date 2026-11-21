@@ -5,6 +5,7 @@ import { db } from "./shared";
 import { haversineMeters } from "./geocoding";
 import { fenceForSite, fenceSide, type ShiftFence } from "./geofencing";
 import { employeeClaims, sendEmployeeAlert } from "./employeeAlerts";
+import { ownQueueCaller } from "./promotedCaller";
 import { clearLeftJobSiteAlert, createLeftJobSiteAlert } from "./alerts";
 import { leftSiteText } from "./employeeShiftAlerts";
 import { acceptLocationConsentSchema, getShiftFenceSchema, recordSiteExitSchema, type RecordSiteExitInput } from "./siteExitValidators";
@@ -77,6 +78,14 @@ function effectiveMs(data: FirebaseFirestore.DocumentData): number | null {
 
 // Claims + the employee doc still linked to this login (same check as
 // registerEmployeePushToken).
+// RC1 follow-up: recordSiteExit also takes a promoted login's own queued
+// rows (ownQueueCaller) - the stretch that ended when they were made a
+// supervisor/admin is sent from the supervisor app.
+async function ownQueueEmployee(request: CallableRequest) {
+  const { companyId, employeeId, employee } = await ownQueueCaller(request);
+  return { companyId, employeeId, employeeName: typeof employee.name === "string" ? employee.name : "" };
+}
+
 async function linkedEmployee(request: CallableRequest) {
   const { companyId, employeeId } = employeeClaims(request);
   const employee = (await companyRef(companyId).collection("employees").doc(employeeId).get()).data();
@@ -325,7 +334,7 @@ async function recordEnd(
 }
 
 export const recordSiteExit = onCall(async (request): Promise<RecordResult> => {
-  const ids = await linkedEmployee(request);
+  const ids = await ownQueueEmployee(request);
   const parsed = recordSiteExitSchema.safeParse(request.data ?? {});
   if (!parsed.success) throw new HttpsError("invalid-argument", "Invalid site exit.");
   const input = parsed.data;
