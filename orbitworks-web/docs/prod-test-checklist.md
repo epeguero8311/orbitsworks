@@ -3,11 +3,11 @@
 The short version of `ios-test-list.md`. Setup, steps and exact pass
 criteria are there; this file is for ticking off.
 
-- **Tests:** 216 by hand. 202 on dev (Sessions 0-10, plus 3b), 9 on prod (P) and 5 on Android (AN).
-  - **MUST PASS BEFORE PROD:** 194.
+- **Tests:** 222 by hand. 208 on dev (Sessions 0-10, plus 3b), 9 on prod (P) and 5 on Android (AN).
+  - **MUST PASS BEFORE PROD:** 200.
   - **CAN WAIT:** 22 (the prod smoke test, Android, and optional or after-launch checks).
   - X10-X14 aren't on this list: they're covered by unit tests and can't be done by hand.
-- **Time:** about 18 h 30 hands-on for Sessions 0-9, plus 15 min a day for a week (Session 10). Then 45 min for P after the prod deploy.
+- **Time:** about 19 h hands-on for Sessions 0-9, plus 15 min a day for a week (Session 10). Then 45 min for P after the prod deploy.
 - **App and site:** OrbitsWorks Dev, build 29 (Session 3b needs build 30+), plus the hosted dev site (`orbitworks-dev-ew`).
 - **What you need ready:**
   - **Emails:** these Gmail aliases of your address (`you+…@gmail.com`), all landing in your normal inbox: owner (already exists), owner2, admin, sup, sup2, emp1, emp2, emp3, emp4, emp8, emp9, wrong, dup, del1, del2, del3, core1.
@@ -97,7 +97,7 @@ criteria are there; this file is for ticking off.
 - [ ] D5 - Remove photo: Cancel does nothing; Yes clears the tag and alert - web - **MUST**
 - [ ] F18 - Supervisor Alerts tab shows only app alert types - phone - **MUST**
 
-## Session 3b. Role change while signed in, removing unsent punches (1 h 30, build 30+)
+## Session 3b. Role change while signed in, removing unsent punches, logging out with unsent items (2 h, build 30+)
 
 - [ ] RC1-1 - Employee -> supervisor while clocked in: switches live, name + list + count - both - **MUST**
 - [ ] RC1-2 - Just promoted: PIN punches online and offline land - both - **MUST**
@@ -115,6 +115,12 @@ criteria are there; this file is for ticking off.
 - [ ] RC1-14 - Promoted with an unsent removal report: exactly one alert - both - **MUST**
 - [ ] RC1-15 - Website: admin -> supervisor -> employee while signed in takes effect within seconds, no reload - web - **MUST**
 - [ ] RC1-16 - Website: deactivated while signed in is signed out within seconds - web - **MUST**
+- [ ] LO-1 - Employee App Log out with unsent items: count, Send now offline keeps you in, online sends then logs out - both - **MUST**
+- [ ] LO-2 - Employee App Log out anyway: punch kept, sends at its original time after sign-in - both - **MUST**
+- [ ] LO-3 - Supervisor app Log Out with an unsent punch and employee edit: same box, Send now works - both - **MUST**
+- [ ] LO-4 - Another supervisor login on the phone never sends the first login's rows; they send when it's back - both - **MUST**
+- [ ] LO-5 - Another company's login never sends them either - both - **MUST**
+- [ ] LO-6 - Nothing unsent: both apps log out at once, no box - phone - **MUST**
 
 ## Session 4. Employee App at the desk (3 h)
 

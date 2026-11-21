@@ -85,7 +85,7 @@ You'll also need:
 | 1 | Account and billing (second company), settings, job sites, employees | web | 1 h 45 |
 | 2 | Invites, crew codes, QR and links, every sign-up path, seat limits | web + phone | 2 h 15 |
 | 3 | Supervisor app | phone + web | 1 h 30 |
-| 3b | Role change while signed in, and removing unsent punches (RC1 retests, build 30+) | phone + web | 1 h 30 |
+| 3b | Role change while signed in, removing unsent punches, and logging out with unsent items (RC1 retests, build 30+) | phone + web | 2 h |
 | 4 | Employee App at the desk: punches, PIN, offline and queue, desk site detection, notifications, Hours | phone + web | 3 h (two sittings OK: 4a H1-H12, 4b the rest) |
 | 5 | Alerts, push and face checks | phone + web | 2 h (mostly waiting) |
 | 6 | Website review: Time Tracking, corrections, reassign, Approve Hours, alerts, reports, Excel, analytics, auto break | web | 1 h 15 |
@@ -96,7 +96,7 @@ You'll also need:
 | P | Prod smoke test (after the prod deploy) | prod | 45 min |
 | AN | Android (once an Android build exists) | phone | later |
 
-Total hands-on time is about 18 h 30, plus Session 10's week.
+Total hands-on time is about 19 h, plus Session 10's week.
 
 ---
 
@@ -210,7 +210,7 @@ waiting. Sign in as **you+sup**.
 | D5 | web | Cara | Employees > Cara > **Remove photo** > Cancel. Then Remove photo > **Yes, remove photo** (BIO-W3, plus BIO-W1's Cancel path). | **Cancel:** changes nothing.<br>**Yes:** the photo is gone; the "Photo needs update" tag and the Bad Reference alert both go away; the row shows "No face check". |
 | F18 | phone | — | Open the supervisor **Alerts** tab. | Shows today's alerts (No Face Detected, Bad Reference Photo, …). It never shows web-only types (Late Punch on Approved Timesheet, Deleted App Account). |
 
-## Session 3b. Role change while signed in (phone + web, 1 h 30)
+## Session 3b. Role change while signed in (phone + web, 2 h)
 
 RC1 retests. **Needs build 30 or later** (the RC1 fix; build 29 fails
 these). Use **you+emp1** on the phone (an Employee App login) and the
@@ -250,6 +250,20 @@ or deactivation within seconds.
 | RC1-15 | web | Make emp1 an **admin** (Supervisor + Admin on). On the computer, sign in to the website as **you+emp1** in one browser, and as you+owner in a private window. | Owner window: turn emp1's **Admin** off. Watch the you+emp1 window, don't reload. Then turn **Supervisor** off too. | **Admin off, within about 10 s:** the you+emp1 window loses admin-only pages (e.g. Settings, the PIN field) with no reload; any admin page left open stops working.<br>**Supervisor off:** within about 10 s it goes to the "use the app" page.<br>**I check:** no permission-denied errors in the console after the switch. |
 | RC1-16 | web | emp1 a supervisor, signed in to the website as **you+emp1**; you+owner in a private window | Owner window: **deactivate** emp1. Watch the you+emp1 window. Then reactivate emp1. | **Deactivate:** the you+emp1 window is signed out within about 10 s (not up to an hour).<br>**Reactivate:** you+emp1 can sign in again. |
 
+Logout retests (build 30+, app only - no server change, 2026-11-21):
+both apps' Log out warn about what hasn't sent, offer Send now, and never
+delete it; supervisor-app rows are sent only by the login (and company)
+that saved them.
+
+| ID | Where | Setup | Steps | Pass |
+|---|---|---|---|---|
+| LO-1 | both | emp1 clocked out, on the Employee App | 1. Airplane mode on. Clock in, then add a shift comment.<br>2. Settings > **Log out**. Read the box.<br>3. Tap **Send now** (still offline).<br>4. **Stay signed in**. Airplane mode off. Log out again > **Send now**. | **Box:** "1 punch and 1 comment haven't sent yet"; says nothing is deleted, they send when you sign back in, and a punch can only be recorded within 24 hours. Buttons: **Send now** (first), **Log out anyway**, Stay signed in.<br>**Send now offline:** the box stays: "2 still haven't sent. Check your signal…". Not logged out.<br>**Send now online:** sends, then logs out by itself.<br>**Website:** the clock-in (original time) and the comment. |
+| LO-2 | both | emp1 clocked in | Airplane mode on. Clock out. Log out > **Log out anyway**. Airplane mode off. Wait 5 min. Sign back in as you+emp1. | **While signed out:** nothing on the website.<br>**After sign-in:** the clock-out sends within a minute at its **original** time. Nothing was deleted. |
+| LO-3 | both | Sign in on the phone as **you+admin** (supervisor app) | 1. Airplane mode on. PIN clock-in for Ana. Edit emp2's name (add " T").<br>2. Settings > **Log Out**. **Send now** (offline).<br>3. Airplane mode off. **Send now**. | **Box:** "1 punch and 1 employee change haven't sent yet", nothing is deleted, sent only by this login.<br>**Offline:** stays open, "2 still haven't sent…".<br>**Online:** sends, then logs out.<br>**Website:** Ana's clock-in and emp2's new name. Put the name back. |
+| LO-4 | both | Sign in as **you+sup** (supervisor app) | 1. Airplane mode on. PIN clock-in for Ana. Log Out > **Log out anyway**.<br>2. Airplane mode off. Sign in as **you+admin**. Open Sync Queue, tap Sync Now, wait 5 min.<br>3. Log out (you+admin), sign in as **you+sup**. | **As you+admin:** Ana's row shows **"Another login's"** with "Saved by another login on this phone…", no Retry, never Stuck. The tab badge doesn't count it. Log Out shows **no** box (nothing of you+admin's).<br>**Website while you+admin is in:** no clock-in for Ana.<br>**Back as you+sup:** it sends within a minute, at its original time.<br>**I check:** no permission-denied for it in Sentry. |
+| LO-5 | both | Sign in as **you+sup** | 1. Airplane mode on. PIN clock-in for Ana. Log Out > Log out anyway.<br>2. Airplane mode off. Sign in as **you+owner2** (the Core company). Open Sync Queue.<br>3. Log out, sign in as you+sup. | **As you+owner2:** the row shows as another login's; nothing is sent to the Core company.<br>**Back as you+sup:** it lands in Shipmate (Pro-dev) at its original time. |
+| LO-6 | phone | Nothing waiting (Sync Queue / Sync tab empty) | Log out on the Employee App (you+emp1), then on the supervisor app (you+sup). | Both log out at once, with no box. |
+
 ## Session 4. Employee App at the desk (phone + web, 3 h)
 
 Sign out of you+sup and sign in as **you+emp1** (assigned Site A). You're at
@@ -266,7 +280,7 @@ Site A, geofence off.
 | H5 | both | Clocked out | 1. Airplane mode on. Clock In, Start Break, End Break, Clock Out; write down the 4 times.<br>2. Open Hours > Today.<br>3. Wait 6 minutes. Kill and reopen the app. Wi-Fi on, and stay on Home (T3, H3). | **While offline:** green + "Will sync" on each punch; 4 Waiting rows, badge 4; after the reopen, "Done for the day" with hours; Hours shows blue "Will sync" tags.<br>**Online:** the rows go Synced and the tags turn gray "Synced late".<br>**Website:** all 4 at your times, with "Synced late". |
 | H6 | both | Clocked in online | Online: Start and End Break. Airplane mode on: Start and End Break. Airplane mode off (T16). | **Online:** instant, no "Will sync" line.<br>**Offline:** instant + "Will sync"; the rows sync once you're online. |
 | H7 | both | Clocked in | 1. Comments: add "test online". Airplane mode on: add "test offline". Airplane mode off (K1).<br>2. Clock out.<br>3. Airplane mode on. Clock In, add a comment, Clock Out. Airplane mode off (C1). | **K1:** both comments show at once, newest first; "test offline" has a "Will sync" pill until it syncs; the 0/1000 counter shows; "Shift started" is at the top; Home shows hours after the clock-out.<br>**C1:** Clock in, Comment and Clock out rows go Waiting, then Synced. |
-| H8 | both | Clocked out | 1. Airplane mode on. Clock In, add a comment, then go straight to Settings > Log out (LO1, T9).<br>2. Airplane mode off. Sign back in as you+emp1. Clock Out. | **Log out box:** "1 punch and 1 comment are not synced yet" / "They stay on this phone…".<br>**After signing back in:** both rows sync at their original times. |
+| H8 | both | Clocked out | 1. Airplane mode on. Clock In, add a comment, then go straight to Settings > Log out (LO1, T9).<br>2. Airplane mode off. Sign back in as you+emp1. Clock Out. | **Log out box:** "1 punch and 1 comment haven't sent yet" / "Nothing is deleted…" (build 30+; tap **Log out anyway**).<br>**After signing back in:** both rows sync at their original times. |
 | H9 | both | — | 1. Open Settings. Then airplane mode on, kill and reopen the app, Settings again (10-A1a, PR-P1, 10-PIN1, TNB PIN row).<br>2. Notifications switch: off, then back on through iPhone Settings (SE2).<br>3. Location switch: the same (SE3). | **Rows:** Email, PIN (the digits), Birthday, Company; no Subcontractor, Job site or Location access rows.<br>**PIN:** the same as the website, and still showing offline.<br>**Switches:** each one follows the phone's own setting. |
 | H10 | both | Website open on emp1's Edit window | 1. Airplane mode on. Clock In with the current PIN; write down the time.<br>2. Website: change the PIN.<br>3. Wait 5 minutes. Airplane mode off; open Settings.<br>4. Clock Out with the old PIN, then the new one (P1, PR-P2, 10-PIN2, TNB 2, TNB PIN row). | **Sync:** the clock-in syncs (Synced late), with no red text.<br>**Settings:** the new PIN within a few seconds.<br>**Old PIN:** "Wrong PIN". **New PIN:** works.<br>**TNB 2:** a new PIN typed before the app refreshes still works, and the keypad never freezes more than about 3 s. |
 | H11 | both | Clocked out | 1. Airplane mode on. Website: change the PIN.<br>2. Phone: Clock In with the **old** PIN, then add a comment.<br>3. Airplane mode off.<br>4. Remove the comment row, then the clock-in row (P2, K2).<br>5. Clock In with the new PIN. | **Failed rows:** Clock in "Couldn't sync, please speak to your supervisor." (Remove only); Comment "Not synced, tell your admin."; the badge counts both; Hours shows a red "Not synced".<br>**After the Removes:** Home is Clocked out.<br>**New PIN:** works. |
@@ -795,6 +809,10 @@ Sources:
   - **Remove:** the Sync tab's Remove now says the punch/comment is lost for good and that the admin will be told; each removal sends a punchRemoved alert (website Overview), queued if offline. Retest RC1-9 to RC1-12, RC1-14.
   - **After a promotion:** leave tracking ends ("made a supervisor/admin"); comments, leave tracking and removal reports are sent before the switch, and any leftovers keep sending from the supervisor app. Retest RC1-13.
   - **Website:** follows a role change or deactivation within seconds (users/{uid} roleChangedAt / accessRevokedAt). Retest RC1-15, RC1-16.
-- **Still open:**
+- **Logout fix (2026-11-21, app only):**
+  - **Both apps:** Log out with anything unsent shows "N punches haven't sent yet" with Send now / Log out anyway / Stay signed in. Nothing is deleted.
+  - **Supervisor app:** each saved row keeps the login and company that saved it. Only that login sends it; another login (or company) on the phone sees it as "Another login's" and never sends it.
+  - **Retest:** LO-1 to LO-6 (Session 3b), and H8 with the new text.
+- **Still open (RC1 stays open):**
   - **Green screens:** you saw green success screens in the broken state, but nothing reached the server and no send failed. By code, green means the punch was written to the phone's queue. Needs the phone's Sync Queue (Drops) checked before a cause is named.
-  - **Logout:** no logout or sign-in path deletes unsent punches, but neither logout warns about them, and the supervisor queue isn't tied to a login or company. Cause shown; fix waits for an OK.
+  - **24 h window (decision needed):** an Employee App punch can only be recorded within 24 hours of being made (server rule). The phone's saved PIN for it is kept just as long, so the PIN expiry is not what loses it: a punch not sent within 24 h is refused as too old. The logout box now says so.
