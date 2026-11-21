@@ -718,6 +718,49 @@ test("comment queue check: a not-yet-written id reads as 'not found'; others' no
   await assertFails(getDocs(collection(db, "companies", A, "shiftNotes")));
 });
 
+// RC1 follow-up: a comment typed as an employee and still on the phone when
+// the login was made a supervisor/admin is sent by the supervisor app with
+// the NEW token. The comment queue's three steps must all pass for it:
+// "already there?" (get), the clock-in check (get) and the create.
+test("RC1: a promoted login (supervisor or admin token) still sends its own queued comment", async () => {
+  const inMs = Date.now() - HOUR;
+  await seedEvent(A, "in-1", clockInA(inMs));
+  for (const role of ["supervisor", "admin"]) {
+    const promoted = testEnv.authenticatedContext("uidA", { role, companyId: A, employeeId: "empA" });
+    const db = promoted.firestore();
+    const id = `c-${role}`;
+    const before = await assertSucceeds(getDoc(doc(db, "companies", A, "shiftNotes", id)));
+    if (before.exists()) throw new Error("expected no doc yet");
+    await assertSucceeds(getDoc(eventDoc(db, A, "in-1")));
+    await assertSucceeds(addComment(promoted, A, id, commentA("in-1", { madeAtMs: inMs + MIN })));
+  }
+});
+
+test("RC1 FAIL: no Employee App login can write or read the admin's alerts (punchRemoved is server-only)", async () => {
+  const db = employeeA().firestore();
+  await assertFails(
+    setDoc(doc(db, "companies", A, "alerts", "removed-x-2026-11-20"), {
+      companyId: A,
+      alertType: "punchRemoved",
+      employeeId: "empB",
+      message: "fake",
+      readByDeviceIds: [],
+    })
+  );
+  await assertFails(getDoc(doc(db, "companies", A, "alerts", "al1")));
+  await assertFails(getDocs(collection(db, "companies", A, "alerts")));
+  // Supervisors read the feed but can't make alerts either.
+  await assertFails(
+    setDoc(doc(supervisorA().firestore(), "companies", A, "alerts", "removed-y"), { companyId: A, alertType: "punchRemoved", readByDeviceIds: [] })
+  );
+});
+
+test("RC1 FAIL: no client role can write accessRevokedAt (website sign-out stamp)", async () => {
+  await assertFails(updateDoc(doc(employeeA().firestore(), "users", "uidA"), { accessRevokedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(supervisorA().firestore(), "users", "uidA"), { accessRevokedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(adminA().firestore(), "users", "uidA"), { accessRevokedAt: serverTimestamp() }));
+});
+
 test("PASS: employee reads their assigned site and the employee app config", async () => {
   const db = employeeA().firestore();
   await assertSucceeds(getDoc(doc(db, "companies", A, "jobSites", "site1")));
