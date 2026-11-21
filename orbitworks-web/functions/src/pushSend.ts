@@ -34,6 +34,11 @@ const ALERT_TITLE: Record<AlertDoc["alertType"], string> = {
   employeeAccountDeleted: "Deleted App Account",
   // Never sent either - written via createAlertIfNew (employeeRemovedItems.ts).
   punchRemoved: "Unsent Punch Removed",
+  // Web only, never sent (latePunchAlerts.ts uses createAlertIfNew).
+  punchSyncedLate: "Punch Synced Late",
+  punchFlagged: "Punch Needs a Look",
+  // Sent - latePunchAlerts.ts pushes this one.
+  punchSyncedVeryLate: "Punch Synced Very Late",
 };
 
 // Sends one alert to every registered, notification-enabled device on the

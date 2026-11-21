@@ -8,7 +8,18 @@ import { markLaunch, noteLaunchCount } from "../launchTiming";
 
 // employeeAccountDeleted: an employee deleted their app account (website only).
 // punchRemoved (RC1 follow-up): an unsent punch/comment was removed on a phone (website only).
-const WEB_ONLY_ALERT_TYPES = ["autoClockOut", "syncWrongPin", "syncedLateApproved", "pinChanged", "employeeAccountDeleted", "punchRemoved"];
+// punchSyncedLate / punchFlagged (B, 2026-11-21): website only. punchSyncedVeryLate
+// (30+ days late) is pushed and shown here.
+const WEB_ONLY_ALERT_TYPES = [
+  "autoClockOut",
+  "syncWrongPin",
+  "syncedLateApproved",
+  "pinChanged",
+  "employeeAccountDeleted",
+  "punchRemoved",
+  "punchSyncedLate",
+  "punchFlagged",
+];
 
 // Live view of companies/{companyId}/alerts, newest first. Fails to an
 // empty list rather than an error (kill-switch-off or unreachable both

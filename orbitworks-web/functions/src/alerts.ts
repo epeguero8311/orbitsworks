@@ -93,6 +93,13 @@ export const ALERT_TYPES = [
   // syncWrongPin. One per removed item: keyed by the item's requestId
   // (eventId-keyed branch in createAlertIfNew).
   "punchRemoved",
+  // B (2026-11-21, latePunchTypes.ts): a queued punch more than 24 h late
+  // (web only), more than 30 days late (urgent, pushed), or one that needs
+  // a look - phone clock set back, photo missing, time not proven, or it
+  // replaced / conflicts with other events (web only). One per punch.
+  "punchSyncedLate",
+  "punchSyncedVeryLate",
+  "punchFlagged",
 ] as const;
 
 export type AlertType = (typeof ALERT_TYPES)[number];
@@ -131,6 +138,10 @@ export const ALERT_SEVERITY: Record<AlertType, "urgent" | "warning" | "info"> = 
   employeeAccountDeleted: "info",
   // A punch is gone for good - someone has to fix the time by hand.
   punchRemoved: "warning",
+  punchSyncedLate: "warning",
+  // Over 30 days late: pay may already be done.
+  punchSyncedVeryLate: "urgent",
+  punchFlagged: "warning",
 };
 
 // The untrusted-input boundary for alert generation: validates every id
@@ -283,6 +294,10 @@ const ALERT_ID_PREFIX: Record<AlertType, string> = {
   leftJobSite: "left",
   employeeAccountDeleted: "appdeleted",
   punchRemoved: "removed",
+  // B: keyed by the punch event id (eventId-keyed branch below).
+  punchSyncedLate: "synclate",
+  punchSyncedVeryLate: "syncverylate",
+  punchFlagged: "punchflag",
 };
 
 function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string): string {
@@ -326,7 +341,10 @@ export async function createAlertIfNew(input: AlertInput, occurredAt: Timestamp)
     data.alertType === "autoClockOut" ||
     data.alertType === "syncedLateApproved" ||
     data.alertType === "pinChanged" ||
-    data.alertType === "punchRemoved"
+    data.alertType === "punchRemoved" ||
+    data.alertType === "punchSyncedLate" ||
+    data.alertType === "punchSyncedVeryLate" ||
+    data.alertType === "punchFlagged"
       ? data.eventId ?? data.employeeId ?? "company"
       : data.employeeId ?? data.siteId ?? "company";
   const alertId = buildAlertId(data.alertType, subjectId, data.dateKey);

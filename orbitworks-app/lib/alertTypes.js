@@ -20,6 +20,9 @@ export const ALERT_TYPES = [
   // Employee App Phase 8 - an employee left the clock-in site's radius
   // (functions/src/employeeSiteExits.ts). Feed only, never pushed.
   "leftJobSite",
+  // B (2026-11-21): an Employee App punch that reached the server 30+ days
+  // late (urgent, pushed). The 24 h+ and "needs a look" ones are web only.
+  "punchSyncedVeryLate",
 ];
 
 export const ALERT_TYPE_LABEL = {
@@ -36,6 +39,7 @@ export const ALERT_TYPE_LABEL = {
   faceBadReference: "Bad Reference Photo",
   employeeUpdated: "Employee Updated",
   leftJobSite: "Left Job Site",
+  punchSyncedVeryLate: "Punch Synced Very Late",
 };
 
 // Static fallback only - employeeUpdated's real severity is per-instance
@@ -55,4 +59,5 @@ export const ALERT_SEVERITY = {
   faceBadReference: "warning",
   employeeUpdated: "warning",
   leftJobSite: "warning",
+  punchSyncedVeryLate: "urgent",
 };

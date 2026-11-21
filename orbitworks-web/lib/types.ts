@@ -397,6 +397,16 @@ export interface ClockEvent {
   // at its time, which an admin changed before it synced (EmployeePinHistory).
   // Field only, no website tag yet.
   oldPinAccepted?: boolean;
+  // B (2026-11-21, functions/src/latePunchTypes.ts) - server only:
+  // offlineSinceMs = the phone's last server contact before the punch;
+  // timeNotProven = made 1 h+ after it (or no contact known); (photoMissing
+  // above = the phone lost the face photo, face not checked); punchConflict =
+  // doesn't fit the real punches around it; replacedEvents = auto clock-out
+  // / hand-entered events this real punch replaced (copies).
+  offlineSinceMs?: number;
+  timeNotProven?: boolean;
+  punchConflict?: boolean;
+  replacedEvents?: { id: string; type: string; source: string; timestampMs: number }[];
   authorizedById?: string;
   authorizedByName?: string;
   createdByUid?: string;
@@ -629,7 +639,13 @@ export type MobileAlertType =
   // RC1 follow-up: an employee removed a punch or shift comment that never
   // reached the server (lost for good). Admin/owner web Overview only,
   // never pushed, filtered out of the mobile Alerts tab. One per item.
-  | "punchRemoved";
+  | "punchRemoved"
+  // B (2026-11-21): late / flagged queued punches. punchSyncedLate and
+  // punchFlagged are web only; punchSyncedVeryLate (30+ days) is urgent,
+  // pushed and shown in the mobile Alerts tab. One per punch.
+  | "punchSyncedLate"
+  | "punchSyncedVeryLate"
+  | "punchFlagged";
 
 export interface MobileAlert {
   id: string;
