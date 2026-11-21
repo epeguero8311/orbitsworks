@@ -62,14 +62,28 @@ export const employeeClockPunchSchema = z
     // When the phone expected the punch to be: last server time it saw +
     // uptime since. Only used to set phoneClockOff.
     expectedAtMs: z.number().int().positive().optional(),
+    // B (2026-11-21): the phone's last server contact before the punch
+    // (server time it saw, kept across restarts) - time-not-proven and
+    // clock-set-back flags. Never rejects anything.
+    lastServerMs: z.number().int().positive().optional(),
+    // B: a queued clock in/out whose face photo the phone lost. Recorded
+    // anyway, without a photo, and flagged "photo missing, face not checked".
+    photoMissing: z.literal(true).optional(),
     // Phase 6. Missing = an older app (no location step). null = the phone
     // tried and had no fix. A bad value also becomes null - a location
     // problem never rejects a punch.
     location: punchLocationSchema.nullable().optional().catch(null),
   })
-  .refine((v) => v.queuedAtMs !== undefined || (v.waitMs === undefined && v.expectedAtMs === undefined), {
-    message: "waitMs and expectedAtMs only come with a queued time.",
-    path: ["waitMs"],
+  .refine(
+    (v) => v.queuedAtMs !== undefined || (v.waitMs === undefined && v.expectedAtMs === undefined && v.lastServerMs === undefined),
+    {
+      message: "waitMs, expectedAtMs and lastServerMs only come with a queued time.",
+      path: ["waitMs"],
+    }
+  )
+  .refine((v) => v.photoMissing !== true || (v.queuedAtMs !== undefined && (v.action === "in" || v.action === "out")), {
+    message: "Only a queued clock in or out can be sent without its photo.",
+    path: ["photoMissing"],
   })
   .refine((v) => (v.action === "in" || v.action === "out") === (v.pin !== undefined), {
     message: "A PIN is needed to clock in or out, and never for a break.",
@@ -83,10 +97,13 @@ export const employeeClockPunchSchema = z
     message: "Only clock in and out check a PIN.",
     path: ["checkPinOnly"],
   })
-  .refine((v) => ((v.action === "in" || v.action === "out") && v.checkPinOnly !== true) === (v.photoPath !== undefined), {
-    message: "A photo is needed to clock in or out, and never for a break or a PIN check.",
-    path: ["photoPath"],
-  });
+  .refine(
+    (v) => ((v.action === "in" || v.action === "out") && v.checkPinOnly !== true && v.photoMissing !== true) === (v.photoPath !== undefined),
+    {
+      message: "A photo is needed to clock in or out (unless the phone lost it), and never for a break or a PIN check.",
+      path: ["photoPath"],
+    }
+  );
 
 export type EmployeeClockPunchInput = z.infer<typeof employeeClockPunchSchema>;
 
