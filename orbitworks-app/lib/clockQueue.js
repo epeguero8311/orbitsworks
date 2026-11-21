@@ -31,8 +31,8 @@ async function insertQueueItem(item) {
   const deviceNameSnapshot = deviceId && item.companyId ? await getCachedDeviceName(item.companyId) : null;
   await db.runAsync(
     `INSERT INTO event_queue
-      (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, subcontractorId, subcontractorName, reason, overrideEventId, lat, lng, locationAccuracyM, locationAttempted, deviceId, deviceNameSnapshot, syncStatus, attempts, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
+      (localId, employeeId, employeeName, siteId, siteName, type, photoLocalUri, note, source, authorizedById, authorizedByName, createdByUid, clientTimestamp, subcontractorId, subcontractorName, reason, overrideEventId, lat, lng, locationAccuracyM, locationAttempted, deviceId, deviceNameSnapshot, syncStatus, attempts, createdAt, companyId)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
     [
       item.localId,
       item.employeeId,
@@ -58,6 +58,8 @@ async function insertQueueItem(item) {
       deviceId,
       deviceNameSnapshot,
       item.createdAt,
+      // Logout fix: sent only by this login, for this company.
+      item.companyId ?? null,
     ]
   );
   Sentry.addBreadcrumb({

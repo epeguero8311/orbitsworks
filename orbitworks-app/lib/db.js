@@ -254,6 +254,13 @@ async function openDb() {
     // The edited employee's name, for the Sync Queue list and notices (name
     // is null on a PIN- or photo-only edit).
     "ALTER TABLE employee_update_queue ADD COLUMN employeeName TEXT",
+    // Logout fix (2026-11-21): the company (and, for edits, the login)
+    // that saved each row - a drain sends only the signed-in login's own
+    // rows for its own company (lib/queueOwnerLogic.js).
+    "ALTER TABLE event_queue ADD COLUMN companyId TEXT",
+    "ALTER TABLE employee_queue ADD COLUMN companyId TEXT",
+    "ALTER TABLE employee_update_queue ADD COLUMN createdByUid TEXT",
+    "ALTER TABLE employee_update_queue ADD COLUMN companyId TEXT",
   ];
   for (const migration of migrations) {
     try {

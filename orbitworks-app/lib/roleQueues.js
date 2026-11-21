@@ -10,6 +10,12 @@ import { getDb } from "./db";
 import { openOwnPunches } from "./roleSync";
 import { getPunchDb } from "./punchQueueDb";
 import { roleChangeSiteTracking } from "./siteTracking";
+import { auth } from "./firebase";
+import { OWN_ROW_SQL } from "./queueOwnerLogic";
+import { badgeCount } from "./punchQueueLogic";
+import { pendingSiteExitCount } from "./siteExitLogic";
+import { listAllComments } from "./commentQueue";
+import { listSiteExits } from "./siteExitStore";
 
 // RC1 follow-up: the person's own other Employee App items still on the
 // phone - comments (incl. Not synced ones), leave tracking rows and
@@ -38,10 +44,10 @@ function capped(promise, ms) {
   return Promise.race([Promise.resolve(promise).catch(() => {}), timeout]).finally(() => clearTimeout(timer));
 }
 
-async function countRows(sql) {
+async function countRows(sql, params = []) {
   try {
     const db = await getDb();
-    const row = await db.getFirstAsync(sql);
+    const row = await db.getFirstAsync(sql, params);
     return row ? row.c : 0;
   } catch {
     return 0;
@@ -91,14 +97,47 @@ export async function countLeftover(drain, { companyId, employeeId }) {
     return punches + (await countOwnOtherItems(companyId, employeeId));
   }
   if (drain === "staffQueues") {
-    const events = await getPendingCount().catch(() => 0);
-    const creates = await countRows(
-      "SELECT COUNT(*) as c FROM employee_queue WHERE syncStatus IN ('pending','syncing','failed')"
-    );
-    const updates = await countRows(
-      "SELECT COUNT(*) as c FROM employee_update_queue WHERE syncStatus IN ('pending','syncing','failed')"
-    );
-    return events + creates + updates;
+    const c = await countStaffUnsent(companyId);
+    return c.punches + c.employees;
   }
   return 0;
+}
+
+// Logout fix: the signed-in login's own unsent supervisor-app items for
+// this company - { punches, employees } (clock events; employee creates
+// and edits).
+export async function countStaffUnsent(companyId) {
+  const uid = auth.currentUser?.uid;
+  if (!uid || !companyId) return { punches: 0, employees: 0 };
+  const params = [uid, companyId];
+  const punches = await getPendingCount(companyId).catch(() => 0);
+  const creates = await countRows(
+    `SELECT COUNT(*) as c FROM employee_queue WHERE syncStatus IN ('pending','syncing','failed') AND ${OWN_ROW_SQL}`,
+    params
+  );
+  const updates = await countRows(
+    `SELECT COUNT(*) as c FROM employee_update_queue WHERE syncStatus IN ('pending','syncing','failed') AND (createdByUid IS NULL OR ${OWN_ROW_SQL})`,
+    params
+  );
+  return { punches, employees: creates + updates };
+}
+
+// Logout fix: the Employee App's unsent items, read fresh from the phone
+// (same counts as the Settings warning, lib/employeeSettings.js
+// logoutCounts) - { punches, comments, siteExits }.
+export async function countEmployeeUnsent(companyId, employeeId) {
+  if (!companyId || !employeeId) return { punches: 0, comments: 0, siteExits: 0 };
+  const read = async (fn) => {
+    try {
+      return (await fn()) || [];
+    } catch {
+      return [];
+    }
+  };
+  const [punches, comments, exits] = await Promise.all([read(listAllPunches), read(listAllComments), read(listSiteExits)]);
+  return {
+    punches: badgeCount(punches, companyId, employeeId),
+    comments: badgeCount(comments, companyId, employeeId),
+    siteExits: pendingSiteExitCount(exits, companyId, employeeId),
+  };
 }

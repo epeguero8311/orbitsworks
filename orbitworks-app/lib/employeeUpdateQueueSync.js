@@ -2,12 +2,25 @@ import NetInfo from "@react-native-community/netinfo";
 import * as FileSystem from "expo-file-system/legacy";
 import { httpsCallable } from "firebase/functions";
 import { ref, getDownloadURL } from "firebase/storage";
-import { functions, storage } from "./firebase";
+import { functions, storage, auth } from "./firebase";
+import { ownerOf, isOwnRow, OWN_ROW_SQL, ownParams } from "./queueOwnerLogic";
 import { getDb, runExclusive } from "./db";
 import { recordEmployeeSyncAlert } from "./employeeSyncAlerts";
 import { notifyEmployeeQueueChange } from "./employeeQueueEvents";
 import { uploadLocalFileToStorage } from "./storageUpload";
 import { syncPinTable, setLocalEmployeePin } from "./pinSync";
+
+// Logout fix: an edit saved by an older build has no login on it - before
+// this fix any login sent it. The first login to drain after the update
+// claims it (it was almost surely the one signed in when it was saved).
+async function claimLegacyUpdateRows(sqlite, owner) {
+  await runExclusive(() =>
+    sqlite.runAsync(
+      "UPDATE employee_update_queue SET createdByUid = ?, companyId = ? WHERE createdByUid IS NULL AND syncStatus IN ('pending','syncing','failed')",
+      ownParams(owner)
+    )
+  );
+}
 
 let syncing = false;
 
@@ -172,7 +185,8 @@ export async function syncEmployeeUpdateQueueItemNow(localId, companyId) {
     "SELECT * FROM employee_update_queue WHERE localId = ? AND syncStatus IN ('pending','failed')",
     [localId]
   );
-  if (!item) return null;
+  // Logout fix: only the login that saved it, for its company.
+  if (!item || !isOwnRow(item, ownerOf(auth.currentUser?.uid, companyId))) return null;
 
   syncing = true;
   try {
@@ -213,12 +227,18 @@ export async function drainEmployeeUpdateQueue(companyId) {
   try {
     await cleanupEmployeeUpdateQueue().catch(() => {});
 
+    // Logout fix: only this login's own rows for this company.
+    const owner = ownerOf(auth.currentUser?.uid, companyId);
+    if (!owner) return;
     const sqlite = await getDb();
+    await claimLegacyUpdateRows(sqlite, owner).catch(() => {});
     const pending = await sqlite.getAllAsync(
-      "SELECT * FROM employee_update_queue WHERE syncStatus IN ('pending','failed') ORDER BY createdAt ASC"
+      `SELECT * FROM employee_update_queue WHERE syncStatus IN ('pending','failed') AND ${OWN_ROW_SQL} ORDER BY createdAt ASC`,
+      ownParams(owner)
     );
 
     for (const item of pending) {
+      if (!isOwnRow(item, ownerOf(auth.currentUser?.uid, companyId))) break;
       await runExclusive(() =>
         sqlite.runAsync("UPDATE employee_update_queue SET syncStatus = 'syncing' WHERE localId = ?", [item.localId])
       );
