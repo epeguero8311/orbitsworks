@@ -79,8 +79,15 @@ This is on the must-fix-before-launch list. Until it runs, every admin and super
 
 Before step 3, run the copy dry run again (`node scripts/migrateEmployeePins.js --project orbitworks-7ef59`); it must show `wouldCopy: 0`. After step 3, the strip dry run must find nothing left to strip.
 
-**Rollback:** set `EMPLOYEE_DOC_PIN_REMOVED=false` and redeploy the functions. The PINs are still in `employeePins`, and the server writes the field back on the next PIN change. To restore all of them at once, a copy-back script would be needed (not written).
+**Rollback:** set `EMPLOYEE_DOC_PIN_REMOVED=false` and redeploy the functions FIRST (otherwise the server deletes the field again on the next PIN change). Then copy every PIN back with `functions/scripts/restoreEmployeePins.js` (employeePins -> employees.pin; it leaves a different PIN alone unless `--include-different`):
+```
+cd C:\Users\Epegu\orbitworks\orbitworks-web\functions
+node scripts/restoreEmployeePins.js --project orbitworks-7ef59
+node scripts/restoreEmployeePins.js --project orbitworks-7ef59 --apply --confirm-prod
+```
+The script was tested in the emulator on 2026-11-23: restore missing, skip same, leave different (and overwrite with `--include-different`), skip no-PIN, re-run clean, and the prod guard refuses `--apply` without `--confirm-prod`. The prod dry run before the strip, 2026-11-23: `{"companies":7,"employees":76,"noPinDoc":1,"alreadyThere":75,"wouldRestore":0,"different":0}`.
 
 ## Post-launch TODO (not on go-live night)
 
 - **Custom email domain:** verify `orbitsworks.com` as the Firebase Auth email domain (Console > Authentication > Templates > customize domain: add the DNS records it gives, wait for verification), so reset and verification emails come from our domain. Then set `notification.sendEmail.dnsInfo.useCustomDomain` back to `true` on `orbitworks-7ef59` and send a real reset to check. It was set to `false` in step 7a because the domain was never verified (`customDomainState: NOT_STARTED`).
+- **Android Employee App plan:** Android employees have no Employee App yet. The newest Android build is 1.1.3 vc12, with no employee sign-in. The join and invite pages say "install from the App Store", and there is no `assetlinks.json`, so Android App Links are off. A plan is needed for: an Android 1.1.5+ production build, Play internal test, then release; the Play signing certificate in `assetlinks.json` (`APP_LINKS_*`); and Android wording/links on the /i and /j pages. Until then, customers must not invite Android employees.
