@@ -5,11 +5,14 @@ import Link from "next/link";
 import { useSites, AddressNotVerifiedError, type PickedLocation } from "@/lib/hooks/useSites";
 import { Toggle } from "@/components/dashboard/settings/Toggle";
 import { EditSiteModal } from "@/components/dashboard/sites/EditSiteModal";
-import { ProBadgeLink, RadiusFields } from "@/components/dashboard/sites/GeofenceFields";
+import { GEOFENCE_TOGGLE_DESCRIPTION, GEOFENCE_TOGGLE_LABEL, ProBadgeLink, RadiusFields } from "@/components/dashboard/sites/GeofenceFields";
 import { AddressAutocomplete, type PickedAddress } from "@/components/dashboard/sites/AddressAutocomplete";
 import { jobSiteSchema } from "@/lib/validators/site";
 import { formatGeofenceRadius, DEFAULT_GEOFENCE_RADIUS_FT } from "@/lib/geo";
 import type { JobSite } from "@/lib/types";
+import { ShowMoreButton } from "@/components/dashboard/ShowMoreButton";
+import { useShowMore } from "@/lib/hooks/useShowMore";
+import { SITES_PAGE_SIZE } from "@/lib/listPaging";
 
 export default function SitesSection() {
   const {
@@ -25,6 +28,8 @@ export default function SitesSection() {
   const sortedSites = [...sites].sort(
     (a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0)
   );
+  // Phase 10 (W4): 10 at a time, then "Show 10 more".
+  const sitesPage = useShowMore(sortedSites, SITES_PAGE_SIZE);
 
   // Auto-detection (clockEvents.ts's detectSite) compares a clock-in's
   // location against every active site that has saved coordinates,
@@ -167,8 +172,8 @@ export default function SitesSection() {
 
         <div className="border-t border-gray-200 pt-1">
           <Toggle
-            label="Require geofence"
-            description="Employees must be within the radius below to clock in at this site."
+            label={GEOFENCE_TOGGLE_LABEL}
+            description={GEOFENCE_TOGGLE_DESCRIPTION}
             checked={requireGeofence}
             onChange={isPro ? setRequireGeofence : () => {}}
             disabled={!isPro}
@@ -242,7 +247,7 @@ export default function SitesSection() {
               </tr>
             </thead>
             <tbody>
-              {sortedSites.map((site) => (
+              {sitesPage.visible.map((site) => (
                 <tr key={site.id} className="border-b border-gray-200 last:border-0">
                   <td className="px-4 py-2.5 text-gray-950">{site.name}</td>
                   <td
@@ -294,6 +299,7 @@ export default function SitesSection() {
             </tbody>
           </table>
         )}
+        <ShowMoreButton shown={sitesPage.shown} total={sitesPage.total} nextStep={sitesPage.nextStep} onShowMore={sitesPage.showMore} />
       </div>
 
       {siteForModal && (

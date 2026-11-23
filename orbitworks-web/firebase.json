@@ -16,9 +16,12 @@
         ".git",
         "firebase-debug.log",
         "firebase-debug.*.log",
+        "*-debug.log",
+        "*-debug.*.log",
         "*.local"
       ],
       "predeploy": [
+        "node \"$RESOURCE_DIR/scripts/check-functions-env.js\"",
         "npm --prefix \"$RESOURCE_DIR\" run build"
       ]
     }
@@ -26,6 +29,8 @@
   "emulators": {
     "firestore": { "port": 8090 },
     "functions": { "port": 5091 },
+    "storage": { "port": 9199 },
+    "auth": { "port": 9099 },
     "ui": { "enabled": false }
   },
   "apphosting": {

@@ -1,40 +1,14 @@
 import { Platform, Alert } from "react-native";
-import Constants, { ExecutionEnvironment } from "expo-constants";
+import Constants from "expo-constants";
 import * as Device from "expo-device";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { getOrCreatePushDeviceId } from "./pushDeviceId";
+import { ensureNotificationHandler, isExpoGo, loadNotifications } from "./notificationsModule";
 
-// expo-notifications must never be imported at module scope. Importing the
-// package at all (not just calling a push API) runs an internal
-// auto-registration side effect that calls addPushTokenListener as soon as
-// the module is evaluated, and that throws on Android under Expo Go (push
-// was removed there in SDK 53). require() it lazily, and only after
-// confirming we are not in Expo Go - same reason lib/location.js and
-// lib/locationPermission.js require() expo-location lazily instead of
-// importing it.
-const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
-
-function loadNotifications() {
-  return require("expo-notifications");
-}
-
-let handlerConfigured = false;
-function ensureNotificationHandlerConfigured(Notifications) {
-  if (handlerConfigured) return;
-  handlerConfigured = true;
-
-  // Foreground display behavior - show + sound while the app is open, no
-  // badge (nothing on this app's icon reads a badge count today).
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    }),
-  });
-}
+// Supervisor/admin push registration (company pushTokens). How
+// expo-notifications is loaded (never at module scope, never in Expo Go)
+// and the foreground handler live in notificationsModule.js.
 
 // Shows the "why we're asking" explanation only when the system
 // permission is still undetermined (i.e. genuinely first launch after
@@ -84,7 +58,8 @@ export async function registerForPushNotificationsAsync(companyId) {
     if (!companyId) return;
 
     const Notifications = loadNotifications();
-    ensureNotificationHandlerConfigured(Notifications);
+    if (!Notifications) return;
+    ensureNotificationHandler(Notifications);
 
     const granted = await ensureNotificationPermission(Notifications);
     if (!granted) return;

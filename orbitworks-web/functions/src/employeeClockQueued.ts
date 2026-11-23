@@ -1,0 +1,153 @@
+import * as admin from "firebase-admin";
+import { db, localDateKey } from "./shared";
+import { createAlertIfNew } from "./alerts";
+
+// ---- Employee App Phase 4: queued (offline) punches ----
+//
+// A punch the phone could not send right away (offline or slow signal) is
+// saved on the phone and sent later with queuedAtMs = when the employee
+// made it. employeeClockPunch (employeeClock.ts) then:
+//   - rejects it for good if its time is more than 2 minutes in the future
+//     (badTime). B (2026-11-21): never for its age any more (tooOld is
+//     no longer used) - see latePunchTypes.ts
+//   - in/out: checks the PIN WITHOUT the 3-strike lock. The current PIN
+//     passes; so does the PIN that was right at the punch's own time if an
+//     admin changed it since (Phase 5, lib/pinHistory.ts - the event gets
+//     oldPinAccepted: true; no Redo). Any other PIN is refused for good
+//     ("Couldn't sync") and counted per employee over 24 h: the 1st alerts
+//     the admin (syncWrongPin, once per day - Phase 7: with no Redo every
+//     one is a lost punch), and from the 5th every further
+//     queued punch for that employee fails for good (syncBlocked) until the
+//     wrong PINs are 24 h old. That cap stops the queue being used to guess
+//     PINs.
+//   - B: a later punch already recorded no longer refuses it - it goes in
+//     at its own time (latePunchPlacement.ts; superseded is no longer used)
+//   - writes it with the phone's time (never later than now) and
+//     queued: true; syncedLate: true only if it reached the server 5+
+//     minutes after that time (a quick resend after a slow-signal
+//     timeout gets no "Synced late" tag)
+//
+// Fast sync (every punch from the new app goes through the phone's queue):
+// the phone sends waitMs = how long the punch waited, measured by its
+// uptime clock in the same app run (it can't be changed in Settings, and
+// the phone only sends it when its wall clock agrees). Within
+// FAST_SYNC_MAX_MS the event gets the SERVER's time minus that wait and
+// looks exactly like an online punch: no queued, no syncedLate, no 24 h /
+// future checks on the phone's time. Longer, or no waitMs = the rules above.
+//
+// phoneClockOff: true when the phone's own clock was wrong at the punch -
+//   - fast sync: the phone's time is 2+ min away from server time - wait
+//   - otherwise: the phone's time is 2+ min EARLIER than expectedAtMs (last
+//     server time the phone saw + uptime since). Uptime pauses while the
+//     phone sleeps, so expectedAtMs can only lag the real time: "earlier
+//     than expected" is proof of a clock set back, "later" proves nothing.
+// Online punches (older app builds) never reach this file and are unchanged.
+
+export const QUEUED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const QUEUED_MAX_FUTURE_MS = 2 * 60 * 1000;
+export const SYNC_PIN_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const SYNC_PIN_ALERT_AT = 1;
+export const SYNC_PIN_BLOCK_AT = 5;
+export const SYNCED_LATE_AFTER_MS = 5 * 60 * 1000;
+export const FAST_SYNC_MAX_MS = 2 * 60 * 1000;
+export const PHONE_CLOCK_OFF_MS = 2 * 60 * 1000;
+
+// true = this queued punch synced fast enough to get server time.
+export function isFastSync(waitMs: number | undefined): waitMs is number {
+  return typeof waitMs === "number" && waitMs >= 0 && waitMs <= FAST_SYNC_MAX_MS;
+}
+
+// See the header: two-sided for a fast sync, one-sided against expectedAtMs.
+export function isPhoneClockOff(input: { queuedAtMs: number; eventMs: number; fast: boolean; expectedAtMs?: number }): boolean {
+  if (input.fast) return Math.abs(input.queuedAtMs - input.eventMs) > PHONE_CLOCK_OFF_MS;
+  if (typeof input.expectedAtMs !== "number") return false;
+  return input.expectedAtMs - input.queuedAtMs > PHONE_CLOCK_OFF_MS;
+}
+
+export const NOT_RECORDED_MESSAGE = "Not recorded, tell your admin.";
+export const COULDNT_SYNC_MESSAGE = "Couldn't sync, please speak to your supervisor.";
+// A queued punch whose PIN was never right at its time (Phase 5, Q4 A:
+// no Redo - the punch can only be removed, like any other refusal).
+export const QUEUED_WRONG_PIN_MESSAGE = COULDNT_SYNC_MESSAGE;
+
+// null = the time is fine, else the reason the punch is rejected for good.
+export function queuedTimeProblem(queuedAtMs: number, nowMs: number): "tooOld" | "badTime" | null {
+  if (queuedAtMs - nowMs > QUEUED_MAX_FUTURE_MS) return "badTime";
+  if (nowMs - queuedAtMs > QUEUED_MAX_AGE_MS) return "tooOld";
+  return null;
+}
+
+// The event time for a queued punch: the phone's time, but never after
+// the server's now (a phone clock a little ahead must not put a punch in
+// the future, before the next online punch).
+export function queuedEventMs(queuedAtMs: number, nowMs: number): number {
+  return Math.min(queuedAtMs, nowMs);
+}
+
+// "Synced late" tag: the punch reached the server 5+ minutes after its
+// own time.
+export function isSyncedLate(eventMs: number, nowMs: number): boolean {
+  return nowMs - eventMs >= SYNCED_LATE_AFTER_MS;
+}
+
+// A later (or same-time) punch already recorded means this one can't go in.
+export function isSuperseded(queuedEventTimeMs: number, latestEventMs: number | null): boolean {
+  return latestEventMs !== null && latestEventMs >= queuedEventTimeMs;
+}
+
+// Wrong-PIN-at-sync times still inside the 24 h window.
+export function recentFailures(failures: unknown, nowMs: number): number[] {
+  if (!Array.isArray(failures)) return [];
+  return failures.filter((t): t is number => typeof t === "number" && nowMs - t < SYNC_PIN_WINDOW_MS && t <= nowMs);
+}
+
+function failuresRef(companyId: string, employeeId: string) {
+  return db.collection("companies").doc(companyId).collection("syncPinFailures").doc(employeeId);
+}
+
+// true = this employee already has SYNC_PIN_BLOCK_AT wrong PINs at sync in
+// the last 24 h, so queued punches are refused until they age out.
+export async function isSyncBlocked(companyId: string, employeeId: string, nowMs: number): Promise<boolean> {
+  const snap = await failuresRef(companyId, employeeId).get();
+  return recentFailures(snap.data()?.failures, nowMs).length >= SYNC_PIN_BLOCK_AT;
+}
+
+// Counts one wrong PIN at sync (a transaction, so two at once both count)
+// and alerts the admin from the 1st in 24 h. Returns the new count. Never
+// touches employeePinLocks - a wrong PIN at sync is not part of the
+// 3-strike lock.
+export async function recordSyncWrongPin(
+  companyId: string,
+  employeeId: string,
+  employeeName: string,
+  nowMs: number
+): Promise<number> {
+  const ref = failuresRef(companyId, employeeId);
+  const count = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const kept = [...recentFailures(snap.data()?.failures, nowMs), nowMs];
+    tx.set(ref, { failures: kept, updatedAt: admin.firestore.Timestamp.fromMillis(nowMs) });
+    return kept.length;
+  });
+  if (count >= SYNC_PIN_ALERT_AT) {
+    // Deterministic id per employee per day (createAlertIfNew uses
+    // create()), so a 2nd, 3rd ... wrong PIN the same day adds no second
+    // alert. The message can't carry a count for the same reason.
+    await createAlertIfNew(
+      {
+        companyId,
+        alertType: "syncWrongPin",
+        employeeId,
+        employeeName,
+        siteId: null,
+        siteName: null,
+        message: "A punch saved offline had a wrong PIN when it synced and was not recorded.",
+        eventId: null,
+        employeeUpdateId: null,
+        dateKey: localDateKey(new Date(nowMs)),
+      },
+      admin.firestore.Timestamp.fromMillis(nowMs)
+    ).catch(() => null);
+  }
+  return count;
+}

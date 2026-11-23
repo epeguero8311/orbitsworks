@@ -8,7 +8,7 @@ export function UpgradeToast({
   visible,
   onClose,
   message = "You've reached your employee limit.",
-  actionLabel = "Upgrade to add more →",
+  actionLabel = "Upgrade to add more \u2192",
 }: {
   visible: boolean;
   onClose: () => void;

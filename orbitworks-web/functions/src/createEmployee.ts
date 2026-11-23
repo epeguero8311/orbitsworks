@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db, isOverActiveCap, isOverTotalCap, EmployeeCapFields } from "./shared";
 import { createPinChangedAlert } from "./alerts";
+import { employeeDocPinOnCreate, employeePinData, employeePinRef, readEmployeePin } from "./lib/employeePin";
 
 // Mirrors orbitworks-app/lib/validators/createEmployee.js's JUNK_PINS - keep
 // both in sync by hand (no shared package across the app/web boundary, same
@@ -54,7 +55,7 @@ export function requireCreatorAuth(request: { auth?: { uid: string; token: Recor
 // but tries the caller's own on-device guess first (so the PIN already shown
 // to the person offline usually survives sync unchanged), and skips the
 // junk list entirely for both that guess and every fallback candidate.
-async function reserveNonJunkPin(companyId: string, clientPin: string | null): Promise<string> {
+export async function reserveNonJunkPin(companyId: string, clientPin: string | null): Promise<string> {
   const pinsRef = db.collection("companies").doc(companyId).collection("pins");
   const maxAttempts = 20;
 
@@ -151,10 +152,11 @@ export const createEmployee = onCall(async (request) => {
     // 'already-exists' instead.
     const existing = existingSnap.data() as { createdByUid?: string; name?: string; pin?: string };
     if (existing.createdByUid === uid && existing.name === name) {
+      const existingPin = (await readEmployeePin(companyId, employeeId, existing)) ?? undefined;
       return {
         employeeId,
-        pin: existing.pin,
-        pinChanged: clientPin != null && existing.pin !== clientPin,
+        pin: existingPin,
+        pinChanged: clientPin != null && existingPin !== clientPin,
       };
     }
     throw new HttpsError("already-exists", "Employee already exists.");
@@ -193,7 +195,7 @@ export const createEmployee = onCall(async (request) => {
     active: true,
     faceStatus: "not_enrolled",
     assignedSiteIds: [],
-    pin,
+    ...employeeDocPinOnCreate(pin),
     createdByUid: uid,
     createdAt,
     syncedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -208,6 +210,7 @@ export const createEmployee = onCall(async (request) => {
     { employeeId, updatedAt: admin.firestore.Timestamp.now() },
     { merge: true }
   );
+  batch.set(employeePinRef(companyId, employeeId), employeePinData(pin));
   await batch.commit();
 
   const pinChanged = clientPin != null && pin !== clientPin;

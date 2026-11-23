@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEditSiteModal } from "@/lib/hooks/useEditSiteModal";
 import { Toggle } from "@/components/dashboard/settings/Toggle";
-import { ProBadgeLink, RadiusFields } from "@/components/dashboard/sites/GeofenceFields";
+import { GEOFENCE_TOGGLE_DESCRIPTION, GEOFENCE_TOGGLE_LABEL, geofenceRadiusHint, ProBadgeLink, RadiusFields } from "@/components/dashboard/sites/GeofenceFields";
 import { AddressAutocomplete } from "@/components/dashboard/sites/AddressAutocomplete";
 import ConfirmModal from "@/components/dashboard/billing/ConfirmModal";
 import { buildGoogleMapsUrl, buildGoogleMapsSearchUrl } from "@/lib/geo";
@@ -117,8 +117,8 @@ export function EditSiteModal({
 
             <div className="border-t border-gray-200 pt-1">
               <Toggle
-                label="Require geofence"
-                description="Employees must be within the radius below to clock in at this site."
+                label={GEOFENCE_TOGGLE_LABEL}
+                description={GEOFENCE_TOGGLE_DESCRIPTION}
                 checked={m.requireGeofence}
                 onChange={m.setRequireGeofence}
                 disabled={!isPro}
@@ -135,10 +135,7 @@ export function EditSiteModal({
                   {m.fieldErrors.radiusValue?.[0] && (
                     <p className="mt-1 text-xs text-red-600">{m.fieldErrors.radiusValue[0]}</p>
                   )}
-                  <p className="mt-2 text-xs text-gray-500">
-                    Workers must be within {m.radiusValue || 0} {m.radiusUnit} of this address to
-                    clock in.
-                  </p>
+                  <p className="mt-2 text-xs text-gray-500">{geofenceRadiusHint(m.radiusValue, m.radiusUnit)}</p>
                   <p className="mt-2 text-xs text-gray-500">
                     Give employees notice and get any consent required by
                     law before enabling location tracking. Use our{" "}

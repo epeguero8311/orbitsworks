@@ -1,4 +1,6 @@
-﻿import Stripe from "stripe";
+﻿import "server-only";
+
+import Stripe from "stripe";
 
 // Only StripeCardError messages are meant for an end user's eyes
 // ("Your card was declined.", "Your card has insufficient funds.", etc).

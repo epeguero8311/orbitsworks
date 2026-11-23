@@ -2,6 +2,22 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db } from "./shared";
 import { JUNK_PINS } from "./createEmployee";
+import { addPinChange, readPinHistory } from "./lib/pinHistory";
+import {
+  employeeDocPinOnUpdate,
+  employeePinData,
+  employeePinRef,
+  findActiveEmployeeByPin,
+  readCompanyPins,
+  readEmployeePin,
+} from "./lib/employeePin";
+import { getEmployeePinsSchema } from "./employeePinValidators";
+import type { EmployeePinsResult } from "./employeePinTypes";
+
+// Earlier PINs (Phase 5, lib/pinHistory.ts). Server-only.
+export function pinHistoryRef(companyId: string, employeeId: string) {
+  return db.collection("companies").doc(companyId).collection("employeePinHistory").doc(employeeId);
+}
 
 // --- PIN uniqueness (server-side, transactional) ---
 //
@@ -20,6 +36,9 @@ import { JUNK_PINS } from "./createEmployee";
 // fieldEditedAt.pin so a later-syncing older offline edit can tell it lost
 // (see updateEmployeeProfile's last-edit-wins check). avoidJunk skips the
 // guessable PINs for auto-generated candidates.
+// Every real change also keeps the old PIN in employeePinHistory, in the
+// same transaction, ended at the server's time (not editedAt), so a punch
+// saved offline before the change still syncs (lib/pinHistory.ts).
 export async function reservePinForEmployee(
   companyId: string,
   employeeId: string,
@@ -43,8 +62,8 @@ export async function reservePinForEmployee(
       if (!employeeSnap.exists) {
         throw new HttpsError("not-found", "Employee not found.");
       }
-      const employee = employeeSnap.data() as { pin?: string };
-      const oldPin = employee.pin ?? null;
+      const employee = employeeSnap.data() as { pin?: string; fieldEditedAt?: { pin?: admin.firestore.Timestamp } };
+      const oldPin = await readEmployeePin(companyId, employeeId, employee, tx);
 
       if (oldPin === candidate) {
         return false;
@@ -57,15 +76,24 @@ export async function reservePinForEmployee(
           return true;
         }
       }
+      const historyRef = pinHistoryRef(companyId, employeeId);
+      const historySnap = oldPin ? await tx.get(historyRef) : null;
 
       if (oldPin) {
         tx.delete(pinsRef.doc(oldPin));
+        // Phase 5: the old PIN stays valid for punches made before now
+        // (server time - see lib/pinHistory.ts).
+        const nowMs = Date.now();
+        const setMs = employee.fieldEditedAt?.pin?.toMillis?.() ?? 0;
+        const history = addPinChange(readPinHistory(historySnap?.data()), oldPin, nowMs, setMs);
+        tx.set(historyRef, { ...history, updatedAt: admin.firestore.Timestamp.fromMillis(nowMs) });
       }
       tx.set(candidateRef, {
         employeeId,
         updatedAt: admin.firestore.Timestamp.now(),
       });
-      tx.update(employeeRef, { ...opts.extraFields, pin: candidate, "fieldEditedAt.pin": editedAt });
+      tx.update(employeeRef, { ...opts.extraFields, ...employeeDocPinOnUpdate(candidate), "fieldEditedAt.pin": editedAt });
+      tx.set(employeePinRef(companyId, employeeId), employeePinData(candidate));
       return false;
     });
 
@@ -183,15 +211,15 @@ export const backfillEmployeePins = onCall(async (request) => {
   // Stable order so that if a duplicate PIN already exists in the data,
   // the same employee consistently "wins" it on every run.
   const sortedDocs = [...employeesSnap.docs].sort((a, b) => a.id.localeCompare(b.id));
+  const pinsById = await readCompanyPins(callerCompanyId, sortedDocs);
 
   let reservedExisting = 0;
   let conflictsFixed = 0;
   let backfilled = 0;
 
   for (const employeeDoc of sortedDocs) {
-    const employee = employeeDoc.data() as { pin?: string };
-    const pin = employee.pin;
-    if (!pin || !/^\d{4}$/.test(pin)) continue;
+    const pin = pinsById.get(employeeDoc.id);
+    if (!pin) continue;
 
     const pinRef = pinsRef.doc(pin);
     const claimed = await db.runTransaction(async (tx) => {
@@ -219,9 +247,7 @@ export const backfillEmployeePins = onCall(async (request) => {
   }
 
   for (const employeeDoc of sortedDocs) {
-    const employee = employeeDoc.data() as { pin?: string };
-    const pin = employee.pin;
-    if (pin && /^\d{4}$/.test(pin)) continue;
+    if (pinsById.has(employeeDoc.id)) continue;
     await reservePinForEmployee(callerCompanyId, employeeDoc.id, null);
     backfilled++;
   }
@@ -272,21 +298,14 @@ export const verifyPin = onCall(async (request) => {
 
   await attemptRef.set({ count: count + 1, windowStart: windowStart });
 
-  const employeesRef = db.collection("companies").doc(companyId).collection("employees");
-  const querySnap = await employeesRef
-    .where("pin", "==", pin)
-    .where("active", "==", true)
-    .limit(1)
-    .get();
-
-  if (querySnap.empty) {
+  const employeeDoc = await findActiveEmployeeByPin(companyId, pin);
+  if (!employeeDoc) {
     return { matched: false };
   }
 
   await attemptRef.delete();
 
-  const employeeDoc = querySnap.docs[0];
-  const employee = employeeDoc.data();
+  const employee = employeeDoc.data() as Record<string, unknown>;
 
   return {
     matched: true,
@@ -339,13 +358,14 @@ export const getPinSyncTable = onCall(async (request) => {
     companyRef.collection("jobSites").get(),
     companyRef.get(),
   ]);
+  const pinsById = await readCompanyPins(companyId, employeesSnap.docs);
 
   const employees = employeesSnap.docs
     .map((doc) => {
       const data = doc.data();
       return {
         id: doc.id,
-        pin: data.pin ?? null,
+        pin: pinsById.get(doc.id) ?? null,
         name: data.name ?? "",
         jobTitle: data.jobTitle ?? null,
         photoUrl: data.photoUrl ?? null,
@@ -396,4 +416,35 @@ export const getPinSyncTable = onCall(async (request) => {
   const hasLocatedSites = isPro && sites.some((s) => s.active && s.lat != null && s.lng != null);
 
   return { employees, sites, isPro, hasLocatedSites };
+});
+
+// Website (prod-readiness item 7): PINs for the Employees table and the
+// Edit Employee modal, now that the PIN is moving off the employee doc that
+// every admin AND supervisor can read. Admin/owner only (the website's
+// dashboard is admin/owner only too). Reads employeePins, falling back to
+// the old field for anyone not copied yet. Never logs a PIN.
+export const getEmployeePins = onCall(async (request): Promise<EmployeePinsResult> => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+  const parsed = getEmployeePinsSchema.safeParse(request.data ?? {});
+  if (!parsed.success) {
+    throw new HttpsError("invalid-argument", "Invalid request.");
+  }
+  const employeesRef = db.collection("companies").doc(callerCompanyId).collection("employees");
+  const { employeeId } = parsed.data;
+  if (employeeId) {
+    const snap = await employeesRef.doc(employeeId).get();
+    if (!snap.exists) return { pins: {} };
+    const pin = await readEmployeePin(callerCompanyId, employeeId, snap.data());
+    return { pins: pin ? { [employeeId]: pin } : {} };
+  }
+  const employeesSnap = await employeesRef.get();
+  const pinsById = await readCompanyPins(callerCompanyId, employeesSnap.docs);
+  return { pins: Object.fromEntries(pinsById) };
 });

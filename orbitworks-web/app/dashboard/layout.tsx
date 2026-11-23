@@ -19,7 +19,7 @@ import {
   Orbit,
   Menu,
   X,
-  Link2,
+  KeyRound,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -39,7 +39,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/timesheet-approvals", label: "Approvals", icon: ClipboardCheck },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
   { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, pro: true },
-  { href: "/dashboard/temp-link", label: "Temp Link", icon: Link2, pro: true },
+  { href: "/dashboard/crew-access", label: "Crew Access", icon: KeyRound, pro: true },
   // Billing is filtered out below for non-owners - only the owner has
   // Stripe access.
   { href: "/dashboard/billing", label: "Billing", icon: CreditCard, ownerOnly: true },
@@ -74,13 +74,19 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       router.push("/mobile-only");
       return;
     }
+    if (!loading && userData?.role === "employee") {
+      router.push("/use-app");
+      return;
+    }
     if (!loading && userData && userData.role !== "owner" && pathname.startsWith("/dashboard/billing")) {
       router.push("/403");
     }
   }, [loading, currentUser, userData, pathname, router]);
 
   useEffect(() => {
-    if (!userData?.companyId) return;
+    // Employee App logins can't read the company doc (firestore.rules) and
+    // are being redirected to /use-app anyway.
+    if (!userData?.companyId || userData.role === "employee") return;
     const companyRef = doc(db, "companies", userData.companyId);
     const unsubscribe = onSnapshot(companyRef, (snapshot) => {
       const data = snapshot.exists() ? snapshot.data() : null;
@@ -91,9 +97,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       setCompanyTermsVersion(data?.termsVersion ?? null);
     });
     return unsubscribe;
-  }, [userData?.companyId]);
+  }, [userData?.companyId, userData?.role]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: close the mobile sidebar after any route change.
     setSidebarOpen(false);
   }, [pathname]);
 
@@ -105,7 +112,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!currentUser || userData?.role === "supervisor") {
+  if (!currentUser || userData?.role === "supervisor" || userData?.role === "employee") {
     return null;
   }
 

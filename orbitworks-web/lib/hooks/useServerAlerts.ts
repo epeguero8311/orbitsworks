@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { collection, limit, onSnapshot, orderBy, query, Timestamp, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import type { AlertItem } from "@/lib/dashboardOverviewUtils";
 import type { MobileAlert } from "@/lib/types";
+import { ALERTS_MAX, alertsSince } from "@/lib/alertsWindow";
 
 // Live view of companies/{companyId}/alerts (functions/src/alerts.ts) -
 // the same server-generated alerts the mobile Alerts tab reads, in place
@@ -19,6 +20,10 @@ import type { MobileAlert } from "@/lib/types";
 // This dashboard is admin/owner-only (supervisors are redirected to
 // /mobile-only in app/dashboard/layout.tsx), so unlike the mobile Alerts
 // tab there's no per-supervisor site filtering to apply here.
+//
+// Phase 10 (W8 a): only alerts from the last 30 days, newest first, at most
+// 200 (lib/alertsWindow.ts) - it used to read every alert ever. The window
+// is fixed when the page opens. count = how many came back (the cap note).
 export function useServerAlerts() {
   const { userData } = useAuth();
   const companyId = userData?.companyId;
@@ -32,7 +37,12 @@ export function useServerAlerts() {
     // synchronously in the effect body.
     if (!companyId) return;
 
-    const q = query(collection(db, "companies", companyId, "alerts"), orderBy("occurredAt", "desc"));
+    const q = query(
+      collection(db, "companies", companyId, "alerts"),
+      where("occurredAt", ">=", Timestamp.fromDate(alertsSince(Date.now()))),
+      orderBy("occurredAt", "desc"),
+      limit(ALERTS_MAX)
+    );
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {

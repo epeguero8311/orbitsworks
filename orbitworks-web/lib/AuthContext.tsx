@@ -7,11 +7,15 @@ import {
   useState,
   ReactNode,
 } from "react";
-import { onAuthStateChanged, User } from "firebase/auth";
+import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "./firebase";
+import { isFatalRefreshError, tokenRefreshReason } from "./roleRefresh";
 
-export type UserRole = "owner" | "admin" | "supervisor";
+// "employee" = Employee App login (self-service clock in/out on mobile).
+// Never allowed into the web dashboard - see app/use-app and the
+// dashboard layout guard.
+export type UserRole = "owner" | "admin" | "supervisor" | "employee";
 
 type UserData = {
   role: UserRole;
@@ -19,6 +23,11 @@ type UserData = {
   name?: string;
   email?: string;
   assignedSiteIds?: string[];
+  // RC1: set by setEmployeeRole on every role change (server only); the
+  // app compares it with its ID token. See functions/src/userRoleTypes.ts.
+  roleChangedAt?: { toMillis(): number };
+  // Set when this login is deactivated (server only). See lib/roleRefresh.ts.
+  accessRevokedAt?: { toMillis(): number };
 };
 
 // Owner is a superset of admin - the single original-signup account per
@@ -86,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let unsubscribeUserDoc: (() => void) | null = null;
     let cancelled = false;
+    let snapshotSeq = 0;
 
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (unsubscribeUserDoc) {
@@ -107,23 +117,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
 
             const data = snapshot.data() as UserData;
+            const seq = ++snapshotSeq;
 
-            // Don't trust the Firestore doc alone - confirm the ID token's
-            // custom claims actually match before letting any page query
-            // Firestore, since rules check the token, not this doc.
-            const claimsReady = await waitForClaims(user, {
-              role: data.role,
-              companyId: data.companyId,
-            });
-
-            if (cancelled) return;
-
-            if (!claimsReady) {
-              console.error(
-                "Auth claims did not propagate in time for uid:",
-                user.uid
-              );
+            // Don't trust the Firestore doc alone - rules check the token,
+            // not this doc. RC1 follow-up: refresh the token only when it
+            // is behind the doc (lib/roleRefresh.ts) - a role change or a
+            // deactivation now takes effect within seconds, not when the
+            // token expires (up to 1 h).
+            try {
+              const current = await user.getIdTokenResult();
+              const reason = tokenRefreshReason(current.claims, data);
+              if (reason === "accessRevoked") {
+                // Throws for a disabled login -> signed out below.
+                await user.getIdTokenResult(true);
+              } else if (reason !== "none") {
+                const claimsReady = await waitForClaims(user, {
+                  role: data.role,
+                  companyId: data.companyId,
+                });
+                if (!claimsReady) {
+                  console.error(
+                    "Auth claims did not propagate in time for uid:",
+                    user.uid
+                  );
+                }
+              }
+            } catch (err) {
+              if (isFatalRefreshError(err)) {
+                // Deactivated (or deleted) while signed in.
+                await signOut(auth).catch(() => {});
+                return;
+              }
+              console.error("Token refresh failed for uid:", user.uid, err);
             }
+
+            // A newer snapshot is already being handled - it decides.
+            if (cancelled || seq !== snapshotSeq) return;
 
             setUserData(data);
             setLoading(false);

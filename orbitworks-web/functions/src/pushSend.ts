@@ -22,8 +22,23 @@ const ALERT_TITLE: Record<AlertDoc["alertType"], string> = {
   // via createAlertIfNew directly, never through sendPushForAlert. Present
   // only so this Record stays exhaustive over AlertDoc["alertType"].
   autoClockOut: "Auto Clocked Out",
+  // Never sent either - written via createAlertIfNew directly (see
+  // functions/src/employeeClockQueued.ts and clockEvents.ts).
+  syncWrongPin: "Wrong PIN at Sync",
+  syncedLateApproved: "Late Punch on Approved Timesheet",
   // Never sent either - written via createAlertIfNew (createPinChangedAlert).
   pinChanged: "PIN Changed",
+  // Never sent either - written via createAlertIfNew (createLeftJobSiteAlert).
+  leftJobSite: "Left Job Site",
+  // Never sent either - written via createAlertIfNew (employeeAccount.ts).
+  employeeAccountDeleted: "Deleted App Account",
+  // Never sent either - written via createAlertIfNew (employeeRemovedItems.ts).
+  punchRemoved: "Unsent Punch Removed",
+  // Web only, never sent (latePunchAlerts.ts uses createAlertIfNew).
+  punchSyncedLate: "Punch Synced Late",
+  punchFlagged: "Punch Needs a Look",
+  // Sent - latePunchAlerts.ts pushes this one.
+  punchSyncedVeryLate: "Punch Synced Very Late",
 };
 
 // Sends one alert to every registered, notification-enabled device on the
@@ -67,23 +82,11 @@ export async function sendPushForAlert(alert: AlertDoc): Promise<void> {
 
   if (messages.length === 0) return;
 
-  const chunks = expo.chunkPushNotifications(messages);
+  const staleTokens = await sendExpoMessages(messages, { companyId: alert.companyId });
   const staleDeviceIds: string[] = [];
-
-  for (const chunk of chunks) {
-    try {
-      const tickets = await expo.sendPushNotificationsAsync(chunk);
-      tickets.forEach((ticket, i) => {
-        if (ticket.status !== "error") return;
-        console.warn("Push ticket error", { companyId: alert.companyId, error: ticket.message });
-        if (ticket.details?.error === "DeviceNotRegistered") {
-          const deviceId = tokenToDocId.get(chunk[i].to as string);
-          if (deviceId) staleDeviceIds.push(deviceId);
-        }
-      });
-    } catch (err) {
-      console.warn("Push chunk send failed", { companyId: alert.companyId, error: String(err) });
-    }
+  for (const token of staleTokens) {
+    const deviceId = tokenToDocId.get(token);
+    if (deviceId) staleDeviceIds.push(deviceId);
   }
 
   for (const deviceId of staleDeviceIds) {
@@ -97,4 +100,26 @@ export async function sendPushForAlert(alert: AlertDoc): Promise<void> {
         console.warn("Failed to remove stale push token", { companyId: alert.companyId, deviceId, error: String(err) });
       });
   }
+}
+
+// The Expo send loop shared by supervisor alert pushes (above) and Employee
+// App Phase 7 employee pushes (employeeAlerts.ts). Chunks the messages,
+// sends each chunk on its own (a failed chunk is logged, never thrown), logs
+// every error ticket, and returns the tokens Expo says are no longer
+// registered, so each caller deletes them from its own collection.
+export async function sendExpoMessages(messages: ExpoPushMessage[], logContext: Record<string, unknown>): Promise<string[]> {
+  const staleTokens: string[] = [];
+  for (const chunk of expo.chunkPushNotifications(messages)) {
+    try {
+      const tickets = await expo.sendPushNotificationsAsync(chunk);
+      tickets.forEach((ticket, i) => {
+        if (ticket.status !== "error") return;
+        console.warn("Push ticket error", { ...logContext, error: ticket.message });
+        if (ticket.details?.error === "DeviceNotRegistered") staleTokens.push(chunk[i].to as string);
+      });
+    } catch (err) {
+      console.warn("Push chunk send failed", { ...logContext, error: String(err) });
+    }
+  }
+  return staleTokens;
 }

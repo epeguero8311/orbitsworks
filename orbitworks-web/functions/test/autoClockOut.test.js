@@ -1,7 +1,7 @@
 // Auto Clock-Out sweep tests (functions/src/autoClockOut.ts). Same setup as
 // alerts.test.js: the REAL compiled functions (lib/) against the Firestore
-// emulator. TEST_COMPANY_IDS is set to ShipMate's id here, same as prod, to
-// prove it no longer limits auto clock-out to ShipMate.
+// emulator. A leftover TEST_COMPANY_IDS (ShipMate's id, as prod's .env had it)
+// is set here to prove it never limited auto clock-out to ShipMate.
 process.env.GCLOUD_PROJECT = "orbitworks-func-test";
 // Port must match firebase.json's emulators.firestore.port.
 process.env.FIRESTORE_EMULATOR_HOST = "localhost:8090";
@@ -175,4 +175,17 @@ test("a phone/offline punch wins: real out removes the auto clock-out and its al
   // And the next sweep does not re-add it (shift is closed by the real out).
   await funcs.runAutoClockOut.run({});
   assert.equal((await getAutoOut(companyId, "in1")).exists, false);
+});
+
+// Fix round 2 (G a): an auto clock-out has no location - it keeps the
+// clock-in's site (clock-outs from the phones are detected on their own).
+test("auto clock-out keeps the clock-in's site", async () => {
+  const companyId = "real-co-site";
+  await seedCompany(companyId, { enabled: true, maxWorkedHours: 12 });
+  await seedOpenShift(companyId, "in1", 13);
+  await db.collection("companies").doc(companyId).collection("clockEvents").doc("in1").update({ siteId: "siteA", siteName: "Site A" });
+  await funcs.runAutoClockOut.run({});
+  const out = await getAutoOut(companyId, "in1");
+  assert.equal(out.data().siteId, "siteA");
+  assert.equal(out.data().siteName, "Site A");
 });

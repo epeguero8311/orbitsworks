@@ -10,6 +10,7 @@ import type {
   ShiftNote,
   Job,
   RoundingIncrement,
+  SiteExit,
 } from "@/lib/types";
 import {
   toPayrollCsv,
@@ -117,6 +118,7 @@ export default function ExportMenu({
   startDate,
   endDate,
   companyName,
+  siteExits = [],
 }: {
   summaries: EmployeeSummary[];
   sessions: SessionRecord[];
@@ -134,6 +136,8 @@ export default function ExportMenu({
   startDate: string;
   endDate: string;
   companyName: string;
+  // Phase 9 (H7 a): the Timesheets Excel gets the job site columns + sheet.
+  siteExits?: SiteExit[];
 }) {
   const dailyRows = buildDailyBreakdownRows(
     summaries,
@@ -155,7 +159,8 @@ export default function ExportMenu({
           shiftNotes,
           companyName,
           startDate,
-          endDate
+          endDate,
+          siteExits
         ),
       onCsv: () =>
         downloadCsv(

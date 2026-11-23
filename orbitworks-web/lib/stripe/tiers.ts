@@ -116,7 +116,7 @@ function optionalTierV2(params: {
   return {
     key: params.key,
     product: params.product,
-    label: `${params.employeeCap} active / ${params.totalCap} total employees`,
+    label: `Up to ${params.employeeCap} active / ${params.totalCap} total employees`,
     employeeCap: params.employeeCap,
     totalCap: params.totalCap,
     priceId: params.priceId,
@@ -255,4 +255,12 @@ export function getTiersByProduct(product: PlanProduct, currentPlanTier?: string
 export function isProPlan(planTier: string | undefined | null): boolean {
   if (!planTier) return false;
   return getTierByKey(planTier)?.product === "pro";
+}
+
+// Core or Pro (Employee App email invites, Phase 3B). Same rule as
+// isCoreOrProPlan in functions/src/lib/signupShared.ts.
+export function isCoreOrProPlan(planTier: string | undefined | null): boolean {
+  if (!planTier) return false;
+  const product = getTierByKey(planTier)?.product;
+  return product === "pro" || product === "core";
 }

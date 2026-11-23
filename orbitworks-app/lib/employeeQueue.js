@@ -67,9 +67,9 @@ export async function queueCreateEmployee({ name, photoUri, createdByUid, compan
   const sqlite = await getDb();
   await sqlite.runAsync(
     `INSERT INTO employee_queue
-      (localId, employeeId, name, photoLocalUri, clientPin, createdByUid, syncStatus, attempts, createdAt, photoNoticeShownAt)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
-    [localId, employeeId, name, photoLocalUri, clientPin, createdByUid, now, photoNoticeShownAt ?? null]
+      (localId, employeeId, name, photoLocalUri, clientPin, createdByUid, syncStatus, attempts, createdAt, photoNoticeShownAt, companyId)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)`,
+    [localId, employeeId, name, photoLocalUri, clientPin, createdByUid, now, photoNoticeShownAt ?? null, companyId]
   );
   // Their PIN works on this phone right away, before the create syncs.
   // Clock events made for them wait in the queue until it has (see

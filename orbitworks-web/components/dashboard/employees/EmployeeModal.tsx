@@ -6,7 +6,9 @@ import { EmployeeDetailsFields } from "@/components/dashboard/employees/Employee
 import { EmployeeSitesField } from "@/components/dashboard/employees/EmployeeSitesField";
 import { EmployeeCompanyField } from "@/components/dashboard/employees/EmployeeCompanyField";
 import { EmployeeDeleteSection } from "@/components/dashboard/employees/EmployeeDeleteSection";
-import type { Employee, JobSite, Job, Subcontractor } from "@/lib/types";
+import { EmployeeAppInviteSection, type EmployeeAppInviteApi } from "@/components/dashboard/employees/EmployeeAppInviteSection";
+import { DuplicateSection } from "@/components/dashboard/employees/DuplicateFlag";
+import type { Employee, EmployeeInvite, JobSite, Job, Subcontractor } from "@/lib/types";
 
 export function EmployeeModal({
   employee,
@@ -16,6 +18,11 @@ export function EmployeeModal({
   companyName,
   companyId,
   onClose,
+  appInvite,
+  appInviteApi,
+  appInvitePlanOk,
+  allEmployees,
+  onOpenEmployee,
 }: {
   employee: Employee;
   sites: JobSite[];
@@ -24,6 +31,13 @@ export function EmployeeModal({
   companyName: string;
   companyId: string;
   onClose: () => void;
+  // Phase 3B: this row's latest Employee App invite + the invite actions.
+  appInvite: EmployeeInvite | undefined;
+  appInviteApi: EmployeeAppInviteApi;
+  appInvitePlanOk: boolean | null;
+  // Phase 9 (H4 a): for the possible-duplicate section (names + open).
+  allEmployees: Employee[];
+  onOpenEmployee: (id: string) => void;
 }) {
   const m = useEmployeeModal({ employee, jobs, subcontractors, companyName, companyId, onClose });
 
@@ -58,6 +72,12 @@ export function EmployeeModal({
             employee.faceReference.photoUrl === employee.photoUrl
           }
           onPhotoChange={m.handlePhotoChange}
+          confirmingRemovePhoto={m.confirmingRemovePhoto}
+          onStartRemovePhoto={() => m.setConfirmingRemovePhoto(true)}
+          onCancelRemovePhoto={() => m.setConfirmingRemovePhoto(false)}
+          isRemovingPhoto={m.isRemovingPhoto}
+          removePhotoError={m.removePhotoError}
+          onRemovePhoto={m.handleRemovePhoto}
           currentPin={m.currentPin}
           editingPin={m.editingPin}
           pinValue={m.pinValue}
@@ -95,6 +115,10 @@ export function EmployeeModal({
           dob={m.dob}
           onDobChange={m.setDob}
         />
+
+        <DuplicateSection employee={employee} employees={allEmployees} onOpenEmployee={onOpenEmployee} />
+
+        <EmployeeAppInviteSection employee={employee} invite={appInvite} api={appInviteApi} planOk={appInvitePlanOk} />
 
         <EmployeeSitesField
           sites={sites}

@@ -239,9 +239,8 @@ async function maybeAutoClockOutEmployee(
 
 async function sweepCompanyAutoClockOut(companyDoc: FirebaseFirestore.QueryDocumentSnapshot): Promise<void> {
   const companyId = companyDoc.id;
-  // Not limited by TEST_COMPANY_IDS (that only scopes alerts/pushes in
-  // alerts.ts) - any company that turns this on in Settings > Automations
-  // gets it. The per-company autoClockOut.enabled toggle is the gate.
+  // Any company that turns this on in Settings > Automations gets it. The
+  // per-company autoClockOut.enabled toggle is the gate.
   const data = companyDoc.data();
   // Belt-and-suspenders - the query below already filters on
   // autoClockOut.enabled == true, but a malformed/missing maxWorkedHours

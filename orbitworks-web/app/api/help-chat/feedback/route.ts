@@ -16,11 +16,17 @@ export async function POST(req: NextRequest) {
   }
 
   let uid: string;
+  let role: string | undefined;
   try {
     const decoded = await adminAuth.verifyIdToken(token);
     uid = decoded.uid;
+    role = decoded.role as string | undefined;
   } catch {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  }
+  // Employee App logins are mobile-only and have no use for this route.
+  if (role === "employee") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const userSnap = await adminDb.collection("users").doc(uid).get();

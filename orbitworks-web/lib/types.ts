@@ -28,8 +28,10 @@ export interface JobSite {
   // for redisplay in the edit form, never used for distance math.
   radiusUnit?: "ft" | "mi";
   // Pro only. When true, address/lat/lng/radiusMeters must be set (see
-  // lib/validators/site.ts) - this is Part 1 (site setup) only, no
-  // clock-in enforcement reads this field yet.
+  // lib/validators/site.ts). It never blocks anything: it flags a clock-in
+  // outside the radius (geofenceStatus) and, for Employee App shifts
+  // (Phase 8), flags leaving the radius during the shift (SiteExit). The
+  // Sites page and the crew code modal both edit it on the site itself.
   requireGeofence?: boolean;
 }
 
@@ -122,7 +124,11 @@ export interface Employee {
   // never invited (plain, or PIN-only supervisor with no login).
   email?: string;
   active: boolean;
-  pin: string;
+  // Being removed from the employee doc (prod-readiness item 7): the
+  // Employees page fills it from getEmployeePins (lib/hooks/useEmployeePins.ts).
+  pin?: string;
+  // Per-field edit times; every PIN write sets fieldEditedAt.pin.
+  fieldEditedAt?: { pin?: { toMillis(): number } };
   subcontractorId?: string | null;
   subcontractorName?: string | null;
   subcontractorHistory?: SubcontractorAssignmentRecord[];
@@ -143,6 +149,12 @@ export interface Employee {
   // while the pfp currently on file has no usable face. Server-written
   // only (functions/src/rekognition.ts).
   faceReference?: FaceReferenceState;
+  // "Remove photo" (website, admin/owner - functions/src/facePhotos.ts
+  // removeEmployeePhoto). Server-written only. Face checks are skipped
+  // while there is no photoUrl and resume when a new photo is added; these
+  // two stay as the record of who removed the old one and when.
+  facePhotoRemovedAt?: Timestamp;
+  facePhotoRemovedByUid?: string;
   // Update Employee (mobile) - set by updateEmployeeProfile (functions/src/
   // updateEmployee.ts) whenever a supervisor/admin edits name/photo from the
   // app. lastUpdateId is the idempotency marker (mirrors createEmployee's
@@ -152,6 +164,113 @@ export interface Employee {
   updatedAt?: Timestamp;
   updatedByDeviceId?: string | null;
   lastUpdateId?: string;
+  // ---- Employee App (self-service) ----
+  // All three are server-written only (functions/src/employeeAccess.ts,
+  // Admin SDK) - firestore.rules denies them to every client write,
+  // including admins. appAccess is the single source of truth for "this
+  // employee has an employee-app login" - the gray Employee tag is derived
+  // as appAccess && !isSupervisor && !isAdmin. It stays true after a
+  // promotion (same login, role changes), which is also what lets
+  // setEmployeeRole demote back to the "employee" role instead of the
+  // legacy "supervisor" floor. linkedUserId/email are reused as-is for the
+  // login link, same as supervisors.
+  appAccess?: boolean;
+  // Employee App "Delete account" (functions/src/employeeAccount.ts
+  // deleteMyEmployeeAccount). Server-written only. Set when the employee
+  // deleted their own app login: the row stays (deactivated) as the
+  // employer's record, with its clock events and face results, and the
+  // website tags it "Deleted app account". Never cleared - an admin can
+  // reactivate the row, but the app login is gone for good.
+  appAccountDeletedAt?: Timestamp;
+  // Absent means "admin" - every employee created before this feature.
+  joinedVia?: EmployeeJoinedVia;
+  // Set only when joinedVia is "qr" - the JoinCode's stable codeId (kept
+  // across regenerate), never its token: the employee can read this doc.
+  joinCodeId?: string | null;
+  // Set only when joinedVia is "invite" - the EmployeeInvite's stable
+  // inviteId, never its token (same reason as joinCodeId).
+  employeeInviteId?: string | null;
+  // QR sign-up only (functions/src/joinCompany.ts, server-written): ids of
+  // existing employees in this company with the same name + dob. A flag
+  // for the Employees page - sign-up is never blocked by it.
+  possibleDuplicateOf?: string[];
+  duplicateFlaggedAt?: Timestamp;
+  // Phase 9 (H4 a): an admin looked and said "not a duplicate"
+  // (dismissDuplicateFlag, server-written only). possibleDuplicateOf /
+  // duplicateFlaggedAt are removed then; the old ids and who dismissed it
+  // stay here for the record.
+  dismissedDuplicateOf?: string[];
+  duplicateDismissedAt?: Timestamp;
+  duplicateDismissedByUid?: string;
+  duplicateDismissedByName?: string;
+  // Server-written by employeeClockPunch (functions/src/employeeClock.ts)
+  // in the same transaction as each Employee App punch, so two punches for
+  // one employee can never both pass the state check. Not read by any UI.
+  lastPunchRequestId?: string;
+  lastPunchAt?: Timestamp;
+}
+
+// companies/{companyId}/employeeConsents/{employeeId} - server-only (no
+// client access in firestore.rules). Proof of consent; never holds face
+// data, and is kept after face data is deleted (faceDataDeletedAt).
+export interface EmployeeConsentRecord {
+  uid: string;
+  employeeId: string;
+  companyId: string;
+  // QR sign-up: the code's codeId. Email invite: null.
+  joinCodeId: string | null;
+  // Email invite: the invite's inviteId (never the token). QR: unset.
+  employeeInviteId?: string | null;
+  privacyPolicyVersion: string;
+  privacyAcceptedAt: Timestamp;
+  biometricConsentVersion: string;
+  biometricConsentAt: Timestamp;
+  source: "qrSignup" | "emailInvite";
+  faceDataDeletedAt: Timestamp | null;
+  // photoRemoved = an admin used "Remove photo" (removeEmployeePhoto);
+  // accountDeleted = the employee deleted their own Employee App account.
+  faceDataDeletedReason?: "employeeDeleted" | "signupRolledBack" | "coreDowngrade" | "photoRemoved" | "accountDeleted";
+}
+
+// "invite" = Phase 3B email invite.
+export type EmployeeJoinedVia = "admin" | "qr" | "invite";
+
+// ---- Employee App email invites (Phase 3B) ----
+// employeeInvites/{token} - server-written only (functions/src/
+// employeeInviteTypes.ts has the server copy; keep both in sync by hand).
+// The doc id is the secret link token ({site}/i/{token}); admins/owners of
+// the company can read it for Copy link.
+export type EmployeeInviteStatus = "pending" | "accepted" | "revoked";
+// "expired" is never stored: pending + expiresAt in the past.
+export type EmployeeInviteDisplayStatus = EmployeeInviteStatus | "expired";
+export type EmployeeInviteKind = "existingEmployee" | "newPerson";
+
+export interface EmployeeInvite {
+  id: string; // the token (doc id)
+  inviteId: string;
+  companyId: string;
+  kind: EmployeeInviteKind;
+  email: string;
+  // existingEmployee: the row being linked. newPerson: null until
+  // accepted, then the row it created.
+  employeeId: string | null;
+  // existingEmployee only: the row's name when the invite was sent.
+  employeeName: string | null;
+  // newPerson only; null = no site until an admin assigns one.
+  siteId: string | null;
+  status: EmployeeInviteStatus;
+  invitedByUid: string;
+  createdAt: Timestamp | null;
+  expiresAt: Timestamp;
+  acceptedAt: Timestamp | null;
+  acceptedByUid: string | null;
+  revokedAt: Timestamp | null;
+  revokedByUid: string | null;
+  emailStatus: "pending" | "sent" | "failed";
+  emailSentAt: Timestamp | null;
+  emailError: string | null;
+  lastEmailAttemptAt: Timestamp | null;
+  resendCount: number;
 }
 
 export interface Invite {
@@ -206,7 +325,11 @@ export interface ClockEvent {
     | "supervisorPin"
     | "autoBreakEnd"
     | "employeeDeactivated"
-    | "tempLink";
+    | "tempLink"
+    // Employee App - an employee clocking themselves in/out/break from
+    // their own phone. firestore.rules only lets the "employee" role write
+    // this source, and only for its own employeeId.
+    | "employeeApp";
   // Admin/system text (manual entries, "Clocked out from alert", auto
   // clock-out). Never the employee's own words - see employeeComment.
   note?: string;
@@ -234,6 +357,10 @@ export interface ClockEvent {
   // once, server-side, by onClockEventCreated - never re-computed after.
   location?: { lat: number; lng: number } | string | null;
   locationAccuracyM?: number | null;
+  // Employee App Phase 6: when the phone got this fix (phone clock, ms).
+  // Only on employeeApp punches. Every plan saves an employeeApp punch's
+  // location (null = no fix, or a fix too far from the punch time).
+  locationFixAtMs?: number | null;
   locationAddress?: string;
   distanceFromSiteM?: number | null;
   // Geofencing (Pro) Part 3 - set once, server-side, by onClockEventCreated
@@ -255,6 +382,31 @@ export interface ClockEvent {
   // "Auto-detected" tag in Time Tracking. Flips to false once an admin
   // manually assigns a site via assignSessionSite.
   siteAutoDetected?: boolean;
+  // Employee App Phase 4: queued is true when the punch was saved on the
+  // phone (offline or slow signal) and sent later. `timestamp` is then the
+  // time the employee made the punch on the phone, not when it reached the
+  // server (that is createdAt). syncedLate is true only when it reached the
+  // server 5+ minutes after that time - it drives the "Synced late" tag.
+  queued?: boolean;
+  syncedLate?: boolean;
+  // Employee App: the phone's own clock was 2+ min wrong when the punch was
+  // made (see functions/src/employeeClockQueued.ts). The event time never
+  // trusts it for a fast sync. Field only for now - website tag in Phase 10.
+  phoneClockOff?: boolean;
+  // Employee App Phase 5: a queued punch made with the PIN that was right
+  // at its time, which an admin changed before it synced (EmployeePinHistory).
+  // Field only, no website tag yet.
+  oldPinAccepted?: boolean;
+  // B (2026-11-21, functions/src/latePunchTypes.ts) - server only:
+  // offlineSinceMs = the phone's last server contact before the punch;
+  // timeNotProven = made 1 h+ after it (or no contact known); (photoMissing
+  // above = the phone lost the face photo, face not checked); punchConflict =
+  // doesn't fit the real punches around it; replacedEvents = auto clock-out
+  // / hand-entered events this real punch replaced (copies).
+  offlineSinceMs?: number;
+  timeNotProven?: boolean;
+  punchConflict?: boolean;
+  replacedEvents?: { id: string; type: string; source: string; timestampMs: number }[];
   authorizedById?: string;
   authorizedByName?: string;
   createdByUid?: string;
@@ -280,6 +432,12 @@ export interface ClockEvent {
   // fourth status to render alongside match/mismatch/noFace. Server-
   // written only (functions/src/rekognition.ts).
   faceCheck?: FaceCheck;
+  // Set when a retention sweep deleted this event's clock photo
+  // (functions/src/biometricRetention.ts - cleanupClockEventPhotos and
+  // cleanupCanceledCompanyPhotos), at the same moment photoUrl is cleared.
+  // Nothing else on the event changes - faceCheck (match %, result) stays.
+  // Server-written only; firestore.rules denies it to every client.
+  photoRemovedAt?: Timestamp;
   // Auto Clock-Out. Set only on the "out" (and synthetic "breakEnd", if
   // one was needed) event the scheduled sweep writes (functions/src/
   // autoClockOut.ts) - a snapshot of the Settings > Automations cap in
@@ -290,6 +448,71 @@ export interface ClockEvent {
   // nightly stale-session sweep (see lib/sessionWarnings.ts) - those
   // never had this field and must keep displaying exactly as before.
   autoClockOutCapHours?: number;
+  // Employee App - the phone's one-per-tap id sent to employeeClockPunch
+  // (functions/src/employeeClock.ts). Also the event's doc id, so a repeated
+  // tap returns the first result instead of writing a second event.
+  requestId?: string;
+  // Employee App Phase 8: the site's geofence radius when this clock-in was
+  // written (Pro, site geofenced). Locks the radius for the shift's leave
+  // tracking - a later radius change never moves it. Server-written only,
+  // clock-ins only; absent = this shift is not tracked.
+  geofenceRadiusM?: number;
+}
+
+// ---- Phase 9: one invite form ----
+// The role picked in the Employees page invite form (H1 a). "employee" =
+// an Employee App invite (employeeInvites, createEmployeeInvite);
+// "supervisor" / "admin" = a website/supervisor app invite (invites).
+export type InviteRole = "employee" | "supervisor" | "admin";
+
+// ---- Employee App Phase 8: leaving the job site ----
+//
+// companies/{companyId}/siteExits/{exitId} - one per stretch of a tracked
+// Employee App shift: either the worker was outside the clock-in site's
+// radius ("left"), or the phone could not track them ("trackingOff").
+// exitId is made on the phone, so a resend never writes a second one.
+// Server-written only (recordSiteExit, closeOpenSiteExits - see
+// functions/src/employeeSiteExits.ts). Never blocks or changes a punch.
+// Times are kept forever; the two locations are cleared after
+// SITE_EXIT_LOCATION_RETENTION_DAYS (locationRemovedAt set). Nothing is
+// stored between start and end - no trail.
+export type SiteExitKind = "left" | "trackingOff";
+
+// How a stretch ended. returned / trackingOn come from the phone; the rest
+// are set by the server when the shift's clock-out lands first.
+export type SiteExitEndReason = "returned" | "trackingOn" | "clockOut" | "autoClockOut";
+
+// Why tracking was off: Always location lowered or off, the employee
+// signed out of this phone mid-shift, the phone stopped tracking (restart,
+// app force-stopped), or (noFix, E4) the phone saw a region exit but could
+// not get a fix good enough to confirm it.
+export type SiteExitOffReason = "permission" | "signedOut" | "appStopped" | "noFix" | "roleChanged";
+
+export interface SiteExit {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  clockInEventId: string; // the shift's clock-in event id
+  siteId: string | null;
+  siteName: string;
+  kind: SiteExitKind;
+  startMs: number; // phone clock
+  endMs: number | null; // null = still open
+  endReason: SiteExitEndReason | null;
+  // Worked out by the server from the shift's own break events: a "left"
+  // that started on a break shows gray, not red, and sends no alerts.
+  onBreak: boolean;
+  offReason: SiteExitOffReason | null;
+  distanceM: number | null; // from the site at the start fix (left only)
+  startLocation: { lat: number; lng: number } | null;
+  startAccuracyM: number | null;
+  endLocation: { lat: number; lng: number } | null;
+  endAccuracyM: number | null;
+  hasLocation: boolean;
+  locationRemovedAt?: Timestamp;
+  queued: boolean; // reached the server 5+ min after it started
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 // Device Recognition Pro. Doc only exists once a supervisor/admin names the
@@ -326,6 +549,8 @@ export interface AlertActionRecord {
     | "overtime"
     | "breakTooLong"
     | "clockedInOutsideGeofence"
+    // Employee App Phase 8 - left the job site during a shift.
+    | "leftJobSite"
     // Face Verification (Pro). faceBadReference has no entry here - it's
     // never ignored/resolved through this mechanism (no Ignore action at
     // all per spec), only auto-resolved server-side by deleting the alert
@@ -369,6 +594,10 @@ export type MobileAlertType =
   | "missedClockOut"
   | "clockedInOutsideGeofence"
   | "siteMismatch"
+  // Employee App Phase 8: an employee left the clock-in site's radius for
+  // 2+ minutes (not on a break). One per SiteExit (eventId = the shift's
+  // clock-in, id keyed by the exit). Feed only, never pushed.
+  | "leftJobSite"
   // Face Verification (Pro). faceMismatch/faceNoFace are per-clock-event,
   // same as clockedInOutsideGeofence. faceBadReference is the one
   // exception to "one doc per underlying condition, kept forever": it's
@@ -390,10 +619,33 @@ export type MobileAlertType =
   // (eventId = the clock-in event's id), same convention as
   // clockedInOutsideGeofence/siteMismatch above.
   | "autoClockOut"
+  // Employee App Phase 4 (offline punches). Admin/owner web only, never
+  // pushed, filtered out of the supervisor mobile Alerts tab like
+  // autoClockOut. syncWrongPin: a queued punch for one employee had a
+  // wrong PIN when it synced and was not recorded - from the 1st, once per
+  // employee per day (Phase 7).
+  // syncedLateApproved: a queued punch synced into a timesheet that was
+  // already approved (per event).
+  | "syncWrongPin"
+  | "syncedLateApproved"
   // Offline employee create/PIN edit: the phone's PIN was taken by the
   // time it synced and the server assigned a new one. Admin/owner web
   // Overview only, never pushed, filtered out of the mobile Alerts tab.
-  | "pinChanged";
+  | "pinChanged"
+  // Employee App "Delete account": the employee deleted their own app
+  // login. Admin/owner web Overview only, never pushed, filtered out of
+  // the mobile Alerts tab. One per employee per day.
+  | "employeeAccountDeleted"
+  // RC1 follow-up: an employee removed a punch or shift comment that never
+  // reached the server (lost for good). Admin/owner web Overview only,
+  // never pushed, filtered out of the mobile Alerts tab. One per item.
+  | "punchRemoved"
+  // B (2026-11-21): late / flagged queued punches. punchSyncedLate and
+  // punchFlagged are web only; punchSyncedVeryLate (30+ days) is urgent,
+  // pushed and shown in the mobile Alerts tab. One per punch.
+  | "punchSyncedLate"
+  | "punchSyncedVeryLate"
+  | "punchFlagged";
 
 export interface MobileAlert {
   id: string;
@@ -582,6 +834,8 @@ export interface JobSiteReport {
 }
 
 export interface SessionRecord {
+  // Phase 9: the session's clock-in event id (links its job site exits).
+  clockInEventId?: string;
   employeeId: string;
   employeeName: string;
   siteName: string;
@@ -591,6 +845,12 @@ export interface SessionRecord {
   breakHours: number | null;
   clockInPhotoUrl?: string;
   clockOutPhotoUrl?: string;
+  // Phase 9: the photo was deleted by a retention sweep (photoRemovedAt) -
+  // Excel says "Photo removed" instead of "No photo".
+  clockInPhotoRemoved?: boolean;
+  clockOutPhotoRemoved?: boolean;
+  // Phase 9: the clock-in or clock-out reached the server 5+ min late.
+  syncedLate?: boolean;
   subcontractorId?: string | null;
   subcontractorName?: string | null;
   // Geofencing (Pro) Part 4 - carried over from the session's clock-in
@@ -631,7 +891,265 @@ export interface ShiftNote {
   createdByUid: string;
   createdByName: string;
   timestamp?: Timestamp;
+  // Employee App - set only on comments an employee leaves on one of their
+  // own shifts. Supervisor/admin notes never have these (site-level notes,
+  // not tied to a shift). clockEventId is the shift's clock-in event id;
+  // firestore.rules checks that event belongs to the same employeeId.
+  employeeId?: string;
+  clockEventId?: string;
+  source?: "employeeApp";
+  // Employee App Phase 5: when the employee typed the comment, by the
+  // phone's clock (millis). A comment typed offline syncs later, so
+  // timestamp (server time) is when it arrived; this is when it was made.
+  // firestore.rules: at or after the clock-in's effective time, at most
+  // 2 min after server time.
+  madeAtMs?: number;
 }
+
+// ---- Employee App (self-service) ----
+
+// Top-level joinCodes/{token} - the token in the company QR code IS the doc
+// id (same pattern as tempClockLinks/{token}: the join page only ever has
+// the token, never a companyId). Server-only: created, listed, edited,
+// regenerated and revoked through app/api/join-codes/* (Admin SDK, see
+// lib/joinCodes/server.ts) - firestore.rules denies every client read and
+// write, so there is no client converter for this type. Pro only.
+export interface JoinCode {
+  id: string; // the token itself
+  // Stable across regenerate - every token doc for the same QR shares it.
+  codeId: string;
+  name: string;
+  companyId: string;
+  // null = no job site: people who join get no assigned sites.
+  siteId: string | null;
+  // [] = in-house only; [ids] = in-house or one of these subcontractors.
+  subcontractorIds: string[];
+  // Phase 8: the old locationRequired field is no longer read or written
+  // (older docs may still have it - left as is). The code's site geofence
+  // is edited on the site itself.
+  userLimit: number | null; // null = no code limit (still capped by seats)
+  expiresAt: Timestamp | null; // null = never expires
+  joinedCount: number;
+  // Only what's stored. Expired / Full / No seats left are computed when
+  // read (computeJoinCodeStatus in lib/joinCodes/server.ts).
+  status: "active" | "revoked";
+  createdByUid: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  revokedAt: Timestamp | null;
+  // Set on the old doc when regenerate replaces it.
+  replacedByToken: string | null;
+}
+
+// Status shown in the list. "noSeats" (shown as "Plan full") is the code
+// itself being fine but the company's plan having no room for one more
+// employee - it works again once a seat frees up. The rest besides
+// "active" are dead.
+export type JoinCodeStatus = "active" | "expired" | "revoked" | "full" | "noSeats";
+
+// Which plan cap is used up: "active" = active employee cap (employeeCap),
+// "total" = employee records cap (totalEmployeeCap, counts inactive too).
+export type PlanFullReason = "active" | "total";
+
+// One row of GET /api/join-codes - dates as epoch millis (JSON-safe).
+export interface JoinCodeListItem {
+  token: string;
+  codeId: string;
+  name: string;
+  siteId: string | null;
+  siteName: string; // "No job site" when siteId is null
+  subcontractorIds: string[];
+  subcontractorNames: string[];
+  userLimit: number | null;
+  expiresAt: number | null;
+  joinedCount: number;
+  status: JoinCodeStatus;
+  createdAt: number | null;
+}
+
+export interface JoinCodeListResponse {
+  // Company's active employee cap (null = no cap) and seats left under it.
+  activeCap: number | null;
+  activeCount: number;
+  seatsLeft: number | null;
+  // Employee records cap (null = none) and live count of all employee docs.
+  totalCap: number | null;
+  totalCount: number;
+  planFull: PlanFullReason | null;
+  codes: JoinCodeListItem[];
+}
+
+// companies/{companyId}/employeeAlerts/{alertId} - an employee's own saved
+// push notifications. Server-written only (Cloud Functions); the employee
+// can read only docs whose employeeId matches their own claim, never write.
+// Separate from the company-wide alerts collection (MobileAlert), which is
+// supervisor/admin-only. Phase 7: written by the periodic alert sweep
+// (functions/src/employeeAlerts.ts, types in employeeAlertTypes.ts - keep
+// both in sync), kept 90 days.
+// Phase 8 adds leftSite: written when a SiteExit syncs (no push - the phone
+// already showed its own notification when it happened).
+export type EmployeeAlertType = "shiftEnding" | "stillClockedIn" | "maxHours" | "overtime" | "leftSite" | "faceNoFace";
+
+export interface EmployeeAlert {
+  id: string;
+  employeeId: string;
+  alertType: EmployeeAlertType;
+  title: string;
+  message: string;
+  reason: string; // why it fired, in plain words
+  shiftId: string | null; // clock-in event id of the related shift
+  createdAt: Timestamp;
+}
+
+// companies/{companyId}/employeeAppConfig/current - a server-maintained,
+// employee-readable copy of only the company settings the employee app
+// needs. Employees can't read the company doc itself (it holds billing/
+// Stripe/plan fields). Rewritten by syncEmployeeAppConfig (functions/src/
+// employeeAppConfig.ts) whenever any of these source fields change.
+export interface EmployeeAppConfig {
+  name: string | null;
+  logoUrl: string | null;
+  isPro: boolean;
+  timezone: string;
+  businessHours: { open: string; close: string };
+  gracePeriodMinutes: number;
+  weeklyOvertimeThreshold: number;
+  breaks: {
+    maxBreakWarning: boolean;
+    maxBreakMinutes: number;
+    automaticBreakMinutes: number;
+    minimumShiftHours: number;
+  };
+  alerts: Record<string, boolean | number>;
+  autoClockOut: { enabled: boolean; maxWorkedHours: number };
+  updatedAt: Timestamp;
+}
+
+// companies/{companyId}/employeeSelfViews/{employeeId} - a server-maintained,
+// safe copy of one employee doc for that employee's own app login. The
+// employee doc itself holds the plain-text PIN, so employee logins can't
+// read it (firestore.rules); they read this instead. Written only by
+// syncEmployeeSelfView (functions/src/employeeSelfView.ts). Only that
+// employee's own login can read it. NEVER add the PIN, hourly rate, rate
+// history or face fields here. email and dob were added in Phase 5 for the
+// employee's own Settings tab.
+export interface EmployeeSelfView {
+  id: string; // the employeeId
+  name: string;
+  email: string | null;
+  dob: string | null; // "YYYY-MM-DD", same as the employee doc
+  photoUrl: string | null;
+  active: boolean;
+  assignedSiteIds: string[];
+  joinCodeId: string | null;
+  subcontractorId: string | null;
+  subcontractorName: string | null;
+  linkedUserId: string | null;
+  lastEventType: "in" | "out" | "breakStart" | "breakEnd" | null;
+  lastEventTimestamp: Timestamp | null;
+  lastEventSiteId: string | null;
+  lastEventSiteName: string | null;
+  updatedAt: Timestamp;
+}
+
+// companies/{companyId}/employeePinLocks/{employeeId} - server-only (no
+// client access). Wrong-PIN count for employeeClockPunch: 3 wrong in a row
+// locks punches for 1 minute. Kept on the server so reopening or
+// reinstalling the app can't reset it.
+export interface EmployeePinLock {
+  id: string; // the employeeId
+  failedCount: number;
+  lockedUntil: Timestamp | null;
+  updatedAt: Timestamp;
+}
+
+// companies/{companyId}/employeePinHistory/{employeeId} - server-only (no
+// client access). The employee's earlier PINs from the last 24 h, as salted
+// hashes, each with the time it was active (functions/src/lib/pinHistory.ts).
+// A punch saved offline with the PIN that was right at that moment still
+// syncs after an admin changed the PIN. Written by reservePinForEmployee.
+export interface EmployeePinHistoryEntry {
+  salt: string;
+  hash: string; // sha256_hex(salt + ":" + pin), same as the PIN verifier
+  fromMs: number; // when this PIN became active (0 = not known)
+  untilMs: number; // when it was changed (server time)
+}
+
+export interface EmployeePinHistory {
+  id: string; // the employeeId
+  entries: EmployeePinHistoryEntry[];
+  lastChangeMs: number; // when the current PIN became active
+  updatedAt: Timestamp;
+}
+
+// ---- Employee App: clock in / out / breaks (employeeClockPunch) ----
+
+export type EmployeeClockAction = "in" | "out" | "breakStart" | "breakEnd";
+
+// What the phone sends. companyId/employeeId are optional and only checked
+// against the login's claims - the server never trusts them. pin and
+// photoPath are required for in/out, never sent for breaks.
+// checkPinOnly: true (in/out, PIN, no photo) only checks the PIN before the
+// camera opens and returns EmployeeClockPinCheckResult - nothing is written,
+// and the real punch still checks the PIN itself.
+export interface EmployeeClockPunchRequest {
+  action: EmployeeClockAction;
+  requestId: string;
+  pin?: string;
+  photoPath?: string;
+  companyId?: string;
+  employeeId?: string;
+  checkPinOnly?: true;
+}
+
+export interface EmployeeClockPinCheckResult {
+  pinOk: true;
+}
+
+export interface EmployeeClockPunchResult {
+  eventId: string;
+  type: EmployeeClockAction;
+  timestampMs: number;
+  siteId: string | null;
+  siteName: string | null;
+  photoUrl: string | null;
+  status: "in" | "break" | "out";
+  // true when this requestId was already used - the first result is
+  // returned and nothing new was written.
+  replayed: boolean;
+  // Server time when it answered (the phone keeps it with its uptime).
+  serverNowMs?: number;
+}
+
+// getEmployeeHomeSite (functions/src/employeeClock.ts) - where the next
+// clock-in would land, for the Home screen's top right. siteName is null
+// when there is no site (Home shows blank).
+export interface EmployeeHomeSiteResult {
+  siteId: string | null;
+  siteName: string | null;
+}
+
+// HttpsError details.reason values the app maps to its own messages.
+export type EmployeeClockErrorReason =
+  | "invalid"
+  | "notSignedIn"
+  | "wrongAccount"
+  | "inactive"
+  | "wrongPin"
+  | "locked"
+  | "photo"
+  | "wrongState"
+  | "generic"
+  // Phase 4 queued punches only - permanent, the phone never retries:
+  // tooOld (punch time over 24 h ago) and superseded (a later punch, e.g.
+  // an auto clock-out, is already recorded) = "Not recorded, tell your
+  // admin"; badTime (phone clock too far ahead) and syncBlocked (5 wrong
+  // PINs at sync in 24 h) = "Couldn't sync, please speak to your
+  // supervisor".
+  | "tooOld"
+  | "superseded"
+  | "badTime"
+  | "syncBlocked";
 
 // ---- Temp Clock-In Links (Pro) ----
 //
@@ -656,6 +1174,35 @@ export interface TempClockLink {
   durationMinutes: 10 | 30 | 60;
   revoked: boolean;
   wrongAttemptCount?: number;
+}
+
+// Phase 10 (W1): listTempClockLinkHistory returns 10 links at a time.
+// Same shapes as functions/src/tempClockLinkTypes.ts - keep both in sync.
+export type TempLinkDuration = 10 | 30 | 60;
+
+export interface ActiveTempLink {
+  token: string;
+  siteId: string | null;
+  siteName: string;
+  createdByName: string;
+  expiresAt: number;
+  durationMinutes: TempLinkDuration;
+}
+
+export interface TempLinkHistoryEntry {
+  token: string;
+  siteName: string;
+  createdByName: string;
+  createdAt: number;
+  expiresAt: number;
+  durationMinutes: TempLinkDuration;
+  revoked: boolean;
+}
+
+export interface TempLinkHistoryPage {
+  links: TempLinkHistoryEntry[];
+  // Send as afterToken for the next (older) page; null = no more.
+  nextAfterToken: string | null;
 }
 
 // ---- Analytics (Pro) ----

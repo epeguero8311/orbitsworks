@@ -1,6 +1,12 @@
 import type { Timestamp } from "firebase/firestore";
-import type { ClockEvent } from "@/lib/types";
+import type { ClockEvent, SiteExit } from "@/lib/types";
+import { redSiteExits } from "@/lib/siteExits";
+import { syncedLatePunches, type SyncedLatePunch } from "@/lib/syncedLate";
+import { punchProblems, replacedPunches, type FlaggedPunch, type ReplacedPunch } from "@/lib/punchFlags";
 import type { Alerts, FaceVerificationSettings } from "@/lib/hooks/useCompanySettings";
+import { faceWarningType, FACE_LOW_CONFIDENCE_FLOOR } from "@/lib/faceWarnings";
+
+export { FACE_LOW_CONFIDENCE_FLOOR };
 
 // Timesheet Approvals' per-session warning icon/modal (SessionWarningsModal,
 // ApprovalsTable) - distinct from the company-wide Overview alerts feed
@@ -27,7 +33,17 @@ export type SessionWarningType =
   | "faceMismatch"
   | "faceNoFace"
   | "supervisorOverride"
-  | "autoClockOut";
+  | "autoClockOut"
+  // Employee App Phase 8: left the job site during the shift (red ones
+  // only - on a break, short and tracking off are gray, no warning).
+  | "leftSite"
+  // Phase 9 (H6 a): punches of this session that reached the server late.
+  | "syncedLate"
+  // B (2026-11-21, lib/punchFlags.ts): a punch whose phone clock was set
+  // back, whose photo is missing, or that doesn't fit the others (red); a
+  // real queued punch that replaced auto / hand-entered events (yellow).
+  | "punchProblem"
+  | "punchReplaced";
 
 // Single source of truth for severity - evaluateSessionWarnings below reads
 // this rather than hardcoding a severity per warning, so a type's color can
@@ -51,12 +67,13 @@ export const WARNING_SEVERITY: Record<SessionWarningType, WarningSeverity> = {
   supervisorOverride: "red",
   // Yellow per spec - informational, never blocks anything.
   autoClockOut: "yellow",
+  // Red per D15 - a flag only, never changes the hours.
+  leftSite: "red",
+  // Yellow (H6 a) - the punch time is the phone's, it only arrived late.
+  syncedLate: "yellow",
+  punchProblem: "red",
+  punchReplaced: "yellow",
 };
-
-// Below FACE_MATCH_THRESHOLD (90, functions/src/rekognition.ts) but at or
-// above this floor: "low confidence" (yellow) rather than an outright
-// mismatch (red).
-export const FACE_LOW_CONFIDENCE_FLOOR = 70;
 
 type Direction = "in" | "out";
 
@@ -74,6 +91,10 @@ export type SessionWarning =
   | { type: "faceMismatch"; severity: WarningSeverity; direction: Direction; event: ClockEvent }
   | { type: "faceNoFace"; severity: WarningSeverity; direction: Direction; event: ClockEvent }
   | { type: "supervisorOverride"; severity: WarningSeverity; overrideEventId: string }
+  | { type: "leftSite"; severity: WarningSeverity; exits: SiteExit[] }
+  | { type: "syncedLate"; severity: WarningSeverity; punches: SyncedLatePunch[] }
+  | { type: "punchProblem"; severity: WarningSeverity; punches: FlaggedPunch[] }
+  | { type: "punchReplaced"; severity: WarningSeverity; punches: ReplacedPunch[] }
   | {
       type: "autoClockOut";
       severity: WarningSeverity;
@@ -134,6 +155,12 @@ export interface EvaluateSessionWarningsInput {
   // Geofencing/auto-site-detection are Pro-only features, same gate the
   // pre-existing hasGeofenceWarning/hasSiteMismatchWarning booleans used.
   isPro: boolean;
+  // Employee App Phase 8: this shift's stretches (siteExits), oldest first.
+  // Optional - absent = none.
+  siteExits?: SiteExit[];
+  // Phase 9: every event of the session (in, breaks, out) - for Synced
+  // late. Optional - absent = just the clock-in and clock-out.
+  sessionEvents?: ClockEvent[];
 }
 
 export function evaluateSessionWarnings(input: EvaluateSessionWarningsInput): SessionWarning[] {
@@ -245,30 +272,37 @@ export function evaluateSessionWarnings(input: EvaluateSessionWarningsInput): Se
     }
   }
 
+  // Phase 8 - leaving the job site (Pro, same toggle as the feed entry).
+  if (input.isPro && alerts.leftJobSiteAlert !== false) {
+    const red = redSiteExits(input.siteExits ?? []);
+    if (red.length > 0) warnings.push(withSeverity("leftSite", { exits: red }));
+  }
+
+  // Phase 9 (H6 a) - not gated by a toggle (it's about the record itself).
+  const late = syncedLatePunches(input.sessionEvents ?? [clockInEvent, clockOutEvent]);
+  if (late.length > 0) warnings.push(withSeverity("syncedLate", { punches: late }));
+
+  // B (2026-11-21) - not gated by a toggle either (about the record itself).
+  const sessionEvents = input.sessionEvents ?? [clockInEvent, clockOutEvent];
+  const problems = punchProblems(sessionEvents);
+  if (problems.length > 0) warnings.push(withSeverity("punchProblem", { punches: problems }));
+  const replaced = replacedPunches(sessionEvents);
+  if (replaced.length > 0) warnings.push(withSeverity("punchReplaced", { punches: replaced }));
+
   // Face Verification (Pro) - no isPro check needed here: faceCheck is only
   // ever written by functions/src/rekognition.ts for Pro companies, and
   // only once both a clock photo and a usable employee pfp were available
   // (see checkFaceMatch) - its mere presence already means "this check was
   // applicable and ran," so absence is the only suppression needed.
-  if (input.faceVerification.alertsEnabled) {
-    const directional: [Direction, ClockEvent][] = [
-      ["in", clockInEvent],
-      ["out", clockOutEvent],
-    ];
-    for (const [direction, event] of directional) {
-      const faceCheck = event.faceCheck;
-      if (!faceCheck) continue;
-
-      if (faceCheck.status === "noFace") {
-        warnings.push(withSeverity("faceNoFace", { direction, event }));
-      } else if (faceCheck.status === "mismatch") {
-        if (faceCheck.similarity != null && faceCheck.similarity >= FACE_LOW_CONFIDENCE_FLOOR) {
-          warnings.push(withSeverity("faceLowConfidence", { direction, event }));
-        } else {
-          warnings.push(withSeverity("faceMismatch", { direction, event }));
-        }
-      }
-    }
+  // The main "Face recognition alerts" switch plus each type's own
+  // sub-toggle (2026-11-06) - lib/faceWarnings.ts.
+  const directional: [Direction, ClockEvent][] = [
+    ["in", clockInEvent],
+    ["out", clockOutEvent],
+  ];
+  for (const [direction, event] of directional) {
+    const type = faceWarningType(event.faceCheck, alerts, input.faceVerification);
+    if (type) warnings.push(withSeverity(type, { direction, event }));
   }
 
   return warnings;

@@ -13,6 +13,7 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { dateKey, startOfWeek, APPROVALS_CUTOVER_DATE } from "@/lib/reportUtils";
+import { approvalsQueryStart } from "@/lib/approvalsWindow";
 import { previousComparisonRange, percentChange, type DateRangePreset } from "@/lib/validators/dateRange";
 import { computeExcludedEventIds, type EventWithDate } from "@/lib/reportComputations";
 import { computeAnalytics, type CostEvent, type CostEmployeeInfo, type CostJobInfo, type WorkerFilter } from "@/lib/siteCosts";
@@ -72,7 +73,9 @@ export function useSiteCosts() {
       const approvalsSnapshot = await getDocs(
         query(
           collection(db, "companies", companyId, "timesheetApprovals"),
-          where("date", ">=", APPROVALS_CUTOVER_DATE),
+          // Phase 10 (W8 a): from the events' own start (the week before
+          // the range, one day early), not from the cutover.
+          where("date", ">=", approvalsQueryStart(bufferStart, APPROVALS_CUTOVER_DATE)),
           where("date", "<=", rangeEnd)
         )
       );

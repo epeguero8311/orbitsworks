@@ -270,6 +270,41 @@ test("client cannot add faceCheck to an existing clockEvent via update", async (
   );
 });
 
+// Photo retention marker (Employee App Phase 3 Step 6) - server-written only
+// by functions/src/biometricRetention.ts.
+test("client cannot create a clockEvent with photoRemovedAt set", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "clockEvents", "evt-forged-removed"), {
+      employeeId: "emp1",
+      employeeName: "Jordan",
+      siteId: null,
+      siteName: "Not specified",
+      type: "in",
+      source: "pin",
+      createdByUid: "admin-uid",
+      photoRemovedAt: new Date(),
+    })
+  );
+});
+
+test("client cannot add, change or erase photoRemovedAt via update", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A, "clockEvents", "evt1"), { photoRemovedAt: new Date() })
+  );
+  await testEnv.withSecurityRulesDisabled((c) =>
+    updateDoc(doc(c.firestore(), "companies", COMPANY_A, "clockEvents", "evt1"), { photoRemovedAt: new Date(1000) })
+  );
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A, "clockEvents", "evt1"), { photoRemovedAt: new Date(2000) })
+  );
+  const { deleteField } = require("firebase/firestore");
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A, "clockEvents", "evt1"), { photoRemovedAt: deleteField() })
+  );
+});
+
 test("client can still update a clockEvent's ordinary fields normally", async () => {
   const db = adminContext().firestore();
   await assertSucceeds(
@@ -292,6 +327,18 @@ test("client can still create an ordinary employee doc (no face fields)", async 
       name: "Ordinary",
       active: false,
       assignedSiteIds: [],
+    })
+  );
+});
+
+// prod-readiness item 7: a PIN is only ever set by a callable.
+test("client cannot create an employee doc with a pin", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "employees", "emp-with-pin"), {
+      name: "With PIN",
+      active: false,
+      assignedSiteIds: [],
       pin: "9999",
     })
   );
@@ -304,7 +351,6 @@ test("client cannot create an employee doc with faceReference set", async () => 
       name: "Forged",
       active: false,
       assignedSiteIds: [],
-      pin: "0000",
       faceReference: FAKE_FACE_REFERENCE,
     })
   );
@@ -317,7 +363,6 @@ test("client cannot create an employee doc with faceStatus set", async () => {
       name: "Forged",
       active: false,
       assignedSiteIds: [],
-      pin: "0000",
       faceStatus: "enrolled",
     })
   );
@@ -328,6 +373,44 @@ test("client cannot add faceReference to an existing employee via update", async
   await assertFails(
     updateDoc(doc(db, "companies", COMPANY_A, "employees", "emp1"), {
       faceReference: FAKE_FACE_REFERENCE,
+    })
+  );
+});
+
+// Biometric audit c: "Remove photo" is server-only (removeEmployeePhoto),
+// so the record of who removed a photo and when can't be forged or erased.
+test("client cannot create or update facePhotoRemovedAt / facePhotoRemovedByUid", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "employees", "emp-forged-removed"), {
+      name: "Forged",
+      active: false,
+      assignedSiteIds: [],
+      facePhotoRemovedAt: new Date(),
+    })
+  );
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A, "employees", "emp1"), {
+      facePhotoRemovedByUid: "someone",
+    })
+  );
+});
+
+// Biometric audit b: "Delete account" is server-only (deleteMyEmployeeAccount),
+// so an admin can't forge or erase the "Deleted app account" mark.
+test("client cannot create or update appAccountDeletedAt", async () => {
+  const db = adminContext().firestore();
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "employees", "emp-forged-deleted"), {
+      name: "Forged",
+      active: false,
+      assignedSiteIds: [],
+      appAccountDeletedAt: new Date(),
+    })
+  );
+  await assertFails(
+    updateDoc(doc(db, "companies", COMPANY_A, "employees", "emp1"), {
+      appAccountDeletedAt: new Date(),
     })
   );
 });

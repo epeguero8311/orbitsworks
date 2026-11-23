@@ -1,7 +1,8 @@
-﻿import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import { getDb } from "../db";
 import { deriveStatus } from "../clockStatus";
+import { withQueuedShift } from "../activeSiteFilter";
 import { subscribeQueueChange } from "../queueEvents";
 
 // A just-synced row stays authoritative for this long after its own
@@ -34,9 +35,25 @@ export function useLocalStatusOverlay(employees) {
       return;
     }
     const overrideMap = new Map(rows.map((r) => [r.employeeId, r.type]));
+    // Phase 10 (A3): the site of a clock-in still on this phone, so the
+    // site filter puts an offline clock-in at its own site at once.
+    const inRows = await db.getAllAsync(
+      `SELECT employeeId, siteId, MAX(clientTimestamp) as latestTs
+       FROM event_queue
+       WHERE type = 'in' AND (syncStatus IN ('pending','syncing','failed')
+          OR (syncStatus IN ('synced','photoPending') AND clientTimestamp > ?))
+       GROUP BY employeeId`,
+      [Date.now() - GRACE_MS]
+    );
+    const inSiteMap = new Map(inRows.map((r) => [r.employeeId, r.siteId ?? null]));
     setMerged(
       employees.map((e) =>
-        overrideMap.has(e.id) ? { ...e, status: deriveStatus(overrideMap.get(e.id)) } : e
+        overrideMap.has(e.id)
+          ? withQueuedShift(e, {
+              status: deriveStatus(overrideMap.get(e.id)),
+              inSiteId: inSiteMap.has(e.id) ? inSiteMap.get(e.id) : undefined,
+            })
+          : e
       )
     );
   }, [employees]);

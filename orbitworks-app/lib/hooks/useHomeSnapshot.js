@@ -58,6 +58,8 @@ export function useHomeSnapshot({ uid, companyId, liveEmployees, liveReady, isOf
         id: e.id,
         status: e.status,
         assignedSiteIds: e.assignedSiteIds ?? [],
+        // Phase 10 (A3): the open shift's site, for the site filter offline.
+        shiftSiteId: e.shiftSiteId ?? null,
       })),
     };
     save();

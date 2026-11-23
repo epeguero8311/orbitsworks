@@ -4,7 +4,11 @@ import type {
   EmployeeExportRecord,
   AttendanceRecord,
   ShiftNote,
+  SiteExit,
 } from "@/lib/types";
+import type { Cell, Workbook } from "exceljs";
+import { PHOTO_REMOVED_TEXT } from "@/lib/clockPhoto";
+import { exitMinutes, groupSiteExitsByClockIn, siteExitTag, siteExitTone, summarizeSiteExits } from "@/lib/siteExits";
 import {
   parseMaybeDate,
   formatDatePart,
@@ -31,16 +35,26 @@ function formatGeofenceColumn(status: "inside" | "outside" | undefined, distance
   return distanceM != null ? `Outside (${formatGeofenceDistance(distanceM)})` : "Outside";
 }
 
+// Phase 9: a photo a retention sweep deleted says so; any other gap is
+// "No photo".
+function noPhotoText(removed: boolean | undefined): string {
+  return removed ? PHOTO_REMOVED_TEXT : "No photo";
+}
+
 // ---- Reusable sheet builders, each adds one (or more) sheets to a given workbook ----
 
 export function addDetailSheet(
-  workbook: any,
+  workbook: Workbook,
   sessions: SessionRecord[],
   companyName: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  // Phase 9 (H7 a): the range's job site exits. Absent / none for a
+  // session = blank cells (older sessions never had any).
+  siteExits: SiteExit[] = []
 ) {
   const detailSheet = workbook.addWorksheet("Detail");
+  const exitsByClockIn = groupSiteExitsByClockIn(siteExits);
   const rangeLabel = formatDateRangeLabel(startDate, endDate);
 
   detailSheet.columns = [
@@ -54,9 +68,12 @@ export function addDetailSheet(
     { key: "breakDisplay", width: 12 },
     { key: "geofence", width: 18 },
     { key: "geofenceReason", width: 28 },
+    { key: "leftSite", width: 16 },
+    { key: "trackingOff", width: 16 },
+    { key: "syncedLate", width: 12 },
   ];
 
-  addTitleRow(detailSheet, `Detail: ${rangeLabel}`, 10);
+  addTitleRow(detailSheet, `Detail: ${rangeLabel}`, 13);
 
   const headerRow = detailSheet.getRow(2);
   [
@@ -70,6 +87,9 @@ export function addDetailSheet(
     "Break",
     "Geofence",
     "Reason",
+    "Left site (min)",
+    "Tracking off (min)",
+    "Synced late",
   ].forEach((h, i) => (headerRow.getCell(i + 1).value = h));
   styleHeaderRow(headerRow);
 
@@ -110,6 +130,15 @@ export function addDetailSheet(
     row.getCell(8).value = formatHoursMinutes(s.breakHours);
     row.getCell(9).value = formatGeofenceColumn(s.geofenceStatus, s.geofenceDistanceM);
     row.getCell(10).value = s.geofenceReason ?? "";
+    // Red minutes only in "Left site"; on a break / short ones are gray and
+    // stay in the "Job site exits" sheet.
+    const exits = s.clockInEventId ? exitsByClockIn.get(s.clockInEventId) ?? [] : [];
+    if (exits.length > 0) {
+      const sum = summarizeSiteExits(exits, clockOutDate ? clockOutDate.getTime() : Date.now());
+      row.getCell(11).value = sum.redCount > 0 ? `${sum.redMinutes} (${sum.redCount}x)` : "0";
+      row.getCell(12).value = sum.trackingOffMinutes > 0 ? String(sum.trackingOffMinutes) : "0";
+    }
+    row.getCell(13).value = s.syncedLate ? "Yes" : "";
     r += 1;
   });
 
@@ -118,7 +147,7 @@ export function addDetailSheet(
 }
 
 export function addNotesSheet(
-  workbook: any,
+  workbook: Workbook,
   shiftNotes: ShiftNote[],
   startDate: string,
   endDate: string
@@ -155,7 +184,7 @@ export function addNotesSheet(
 }
 
 export function addSummarySheet(
-  workbook: any,
+  workbook: Workbook,
   summaries: EmployeeSummary[],
   companyName: string,
   startDate: string,
@@ -214,7 +243,7 @@ export function addSummarySheet(
       row.getCell(2).value = formatHoursMinutes(s.totalHours);
       row.getCell(3).value = formatHoursMinutes(s.totalBreakHours);
       row.getCell(4).value = label;
-      row.eachCell((cell: any) => {
+      row.eachCell((cell: Cell) => {
         cell.border = { bottom: { style: "thin", color: { argb: "FFF3F4F6" } } };
         cell.alignment = { vertical: "middle" };
       });
@@ -226,7 +255,7 @@ export function addSummarySheet(
 }
 
 export async function addPhotosSheet(
-  workbook: any,
+  workbook: Workbook,
   sessions: SessionRecord[],
   startDate: string,
   endDate: string
@@ -275,10 +304,10 @@ export async function addPhotosSheet(
           ext: { width: THUMB_SIZE, height: THUMB_SIZE },
         });
       } else {
-        row.getCell(3).value = "No photo";
+        row.getCell(3).value = noPhotoText(s.clockInPhotoRemoved);
       }
     } else {
-      row.getCell(3).value = "No photo";
+      row.getCell(3).value = noPhotoText(s.clockInPhotoRemoved);
     }
 
     if (s.clockOutPhotoUrl) {
@@ -293,18 +322,59 @@ export async function addPhotosSheet(
           ext: { width: THUMB_SIZE, height: THUMB_SIZE },
         });
       } else {
-        row.getCell(4).value = "No photo";
+        row.getCell(4).value = noPhotoText(s.clockOutPhotoRemoved);
       }
     } else {
-      row.getCell(4).value = "No photo";
+      row.getCell(4).value = noPhotoText(s.clockOutPhotoRemoved);
     }
   }
 
   photosSheet.views = [{ state: "frozen", ySplit: 2 }];
 }
 
+// Phase 9 (H7 a): one row per job site stretch in the range - left the job
+// site (red), on a break / short (gray), tracking off (gray, with why).
+// Times are the phone's. A flag only: hours elsewhere never change.
+export function addSiteExitsSheet(workbook: Workbook, siteExits: SiteExit[], startDate: string, endDate: string) {
+  const sheet = workbook.addWorksheet("Job site exits");
+  const rangeLabel = formatDateRangeLabel(startDate, endDate);
+  sheet.columns = [
+    { key: "employeeName", width: 24 },
+    { key: "date", width: 14 },
+    { key: "siteName", width: 22 },
+    { key: "what", width: 34 },
+    { key: "from", width: 12 },
+    { key: "to", width: 20 },
+    { key: "minutes", width: 10 },
+    { key: "flag", width: 8 },
+  ];
+  addTitleRow(sheet, `Job site exits: ${rangeLabel}`, 8);
+  const headerRow = sheet.getRow(2);
+  ["Employee", "Date", "Job Site", "What", "From", "To", "Minutes", "Flag"].forEach((h, i) => (headerRow.getCell(i + 1).value = h));
+  styleHeaderRow(headerRow);
+
+  const sorted = [...siteExits].sort((a, b) => a.employeeName.localeCompare(b.employeeName) || a.startMs - b.startMs);
+  sorted.forEach((x, i) => {
+    const row = sheet.getRow(i + 3);
+    const start = new Date(x.startMs);
+    row.getCell(1).value = x.employeeName;
+    row.getCell(2).value = formatDatePart(start);
+    row.getCell(3).value = x.siteName;
+    row.getCell(4).value = siteExitTag(x);
+    row.getCell(5).value = formatTimePart(start);
+    const endLabel = x.endMs === null ? "No return yet" : formatTimePart(new Date(x.endMs));
+    row.getCell(6).value =
+      x.endReason === "clockOut" ? `${endLabel} (clock-out)` : x.endReason === "autoClockOut" ? `${endLabel} (auto clock-out)` : endLabel;
+    row.getCell(7).value = x.endMs === null ? "" : exitMinutes(x, x.endMs);
+    row.getCell(8).value = siteExitTone(x) === "red" ? "Red" : "Gray";
+  });
+  if (sorted.length === 0) sheet.getRow(3).getCell(1).value = "No job site exits in this range.";
+  styleDataRows(sheet, 2);
+  sheet.views = [{ state: "frozen", ySplit: 2 }];
+}
+
 export function addEmployeesSheet(
-  workbook: any,
+  workbook: Workbook,
   employeeRecords: EmployeeExportRecord[],
   companyName: string,
   startDate: string,
@@ -357,7 +427,7 @@ export function addEmployeesSheet(
 }
 
 export function addAttendanceSheet(
-  workbook: any,
+  workbook: Workbook,
   attendanceRecords: AttendanceRecord[],
   companyName: string,
   startDate: string,

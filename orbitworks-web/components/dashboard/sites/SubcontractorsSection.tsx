@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import { useSubcontractors } from "@/lib/hooks/useSubcontractors";
+import { useSubcontractors, SubcontractorInputError } from "@/lib/hooks/useSubcontractors";
 import type { Subcontractor } from "@/lib/types";
 
+// Available on every plan. Removing a subcontractor is Deactivate
+// (active: false) - never a hard delete, so old records keep the name.
 export default function SubcontractorsSection() {
   const {
     subcontractors,
@@ -11,7 +13,6 @@ export default function SubcontractorsSection() {
     addSubcontractor,
     updateSubcontractor,
     toggleSubcontractorActive,
-    deleteSubcontractor,
   } = useSubcontractors();
 
   const sortedSubcontractors = [...subcontractors].sort(
@@ -33,7 +34,7 @@ export default function SubcontractorsSection() {
   const [editSubPhone, setEditSubPhone] = useState("");
   const [editSubAddress, setEditSubAddress] = useState("");
   const [editSubError, setEditSubError] = useState("");
-  const [confirmingDeleteSub, setConfirmingDeleteSub] = useState(false);
+  const [toggleError, setToggleError] = useState("");
 
   async function handleAddSubcontractor(e: FormEvent) {
     e.preventDefault();
@@ -55,7 +56,9 @@ export default function SubcontractorsSection() {
       setSubAddress("");
     } catch (err) {
       console.error("Add subcontractor error:", err);
-      setSubError("Couldn't add the subcontractor. Try again.");
+      setSubError(
+        err instanceof SubcontractorInputError ? err.message : "Couldn't add the subcontractor. Try again."
+      );
     } finally {
       setIsSubmittingSub(false);
     }
@@ -69,13 +72,11 @@ export default function SubcontractorsSection() {
     setEditSubPhone(subcontractor.phone ?? "");
     setEditSubAddress(subcontractor.address ?? "");
     setEditSubError("");
-    setConfirmingDeleteSub(false);
   }
 
   function cancelEditSub() {
     setEditingSubId(null);
     setEditSubError("");
-    setConfirmingDeleteSub(false);
   }
 
   async function saveEditSub(subcontractor: Subcontractor) {
@@ -96,19 +97,19 @@ export default function SubcontractorsSection() {
       setEditSubError("");
     } catch (err) {
       console.error("Edit subcontractor error:", err);
-      setEditSubError("Couldn't save changes. Try again.");
+      setEditSubError(
+        err instanceof SubcontractorInputError ? err.message : "Couldn't save changes. Try again."
+      );
     }
   }
 
-  async function handleDeleteSub(subcontractor: Subcontractor) {
+  async function handleToggleActive(subcontractor: Subcontractor) {
+    setToggleError("");
     try {
-      await deleteSubcontractor(subcontractor.id);
-      setEditingSubId(null);
-      setConfirmingDeleteSub(false);
+      await toggleSubcontractorActive(subcontractor);
     } catch (err) {
-      console.error("Delete subcontractor error:", err);
-      setEditSubError("Couldn't delete the subcontractor. Try again.");
-      setConfirmingDeleteSub(false);
+      console.error("Toggle subcontractor error:", err);
+      setToggleError("Couldn't update the subcontractor. Try again.");
     }
   }
 
@@ -202,6 +203,7 @@ export default function SubcontractorsSection() {
         </button>
       </form>
       {subError && <p className="mt-2 text-sm text-red-600">{subError}</p>}
+      {toggleError && <p className="mt-2 text-sm text-red-600">{toggleError}</p>}
 
       <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 bg-white">
         {subcontractorsLoading ? (
@@ -268,49 +270,23 @@ export default function SubcontractorsSection() {
                           </div>
                         </td>
                         <td className="px-4 py-2.5 align-top" colSpan={2}>
-                          {confirmingDeleteSub ? (
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-xs text-red-700">
-                                Delete this subcontractor? This can&apos;t be undone.
-                              </span>
-                              <button
-                                onClick={() => handleDeleteSub(sub)}
-                                className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
-                              >
-                                Delete
-                              </button>
-                              <button
-                                onClick={() => setConfirmingDeleteSub(false)}
-                                className="rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-950 hover:border-gray-300"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex flex-wrap items-center gap-2">
-                              {editSubError && (
-                                <span className="text-xs text-red-600">{editSubError}</span>
-                              )}
-                              <button
-                                onClick={() => saveEditSub(sub)}
-                                className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={cancelEditSub}
-                                className="rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-950 hover:border-gray-300"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                onClick={() => setConfirmingDeleteSub(true)}
-                                className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            {editSubError && (
+                              <span className="text-xs text-red-600">{editSubError}</span>
+                            )}
+                            <button
+                              onClick={() => saveEditSub(sub)}
+                              className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={cancelEditSub}
+                              className="rounded-md border border-gray-200 px-3 py-1 text-xs font-medium text-gray-950 hover:border-gray-300"
+                            >
+                              Cancel
+                            </button>
+                          </div>
                         </td>
                       </>
                     ) : (
@@ -344,7 +320,7 @@ export default function SubcontractorsSection() {
                               Edit
                             </button>
                             <button
-                              onClick={() => toggleSubcontractorActive(sub)}
+                              onClick={() => handleToggleActive(sub)}
                               className="text-sm font-medium text-accent hover:underline"
                             >
                               {sub.active ? "Deactivate" : "Reactivate"}

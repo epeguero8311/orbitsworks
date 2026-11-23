@@ -6,6 +6,12 @@ import { useAlertActions } from "@/lib/hooks/useAlertActions";
 import { useServerAlerts } from "@/lib/hooks/useServerAlerts";
 import { useEmployeeUpdates } from "@/lib/hooks/useEmployeeUpdates";
 import type { ClockEvent } from "@/lib/types";
+import { ClockPhoto } from "@/components/time/ClockPhoto";
+import { ReferencePhoto } from "@/components/time/ReferencePhoto";
+import { faceResultText } from "@/lib/clockPhoto";
+import { alertsCapNote } from "@/lib/alertsWindow";
+import { CollapseButton } from "@/components/dashboard/CollapseButton";
+import { reviewCorrection, clockEventTypeLabel, type CorrectionNeighbours } from "@/lib/clockCorrection";
 import {
   ALERT_SEVERITY,
   AlertItem,
@@ -49,9 +55,16 @@ export default function AlertsPanel({
 
   const [editingAlertKey, setEditingAlertKey] = useState<string | null>(null);
   const [editTimeValue, setEditTimeValue] = useState("");
+  // Moving a clock-in (correctClockEvent) waits for a Confirm, same as the
+  // event detail window's "Adjust time". Holds what the confirm shows.
+  const [pendingClockInEdit, setPendingClockInEdit] = useState<
+    { alertKey: string; oldMs: number; newMs: number; neighbours: CorrectionNeighbours } | null
+  >(null);
   const [alertActionSubmitting, setAlertActionSubmitting] = useState<string | null>(null);
   const [alertActionError, setAlertActionError] = useState<string | null>(null);
   const [ignoringAll, setIgnoringAll] = useState(false);
+  // Phase 10 (W2): open on every visit.
+  const [open, setOpen] = useState(true);
 
   // currentlyActive already carries each employee's latest event (whether
   // that's an "in" or a still-open "breakStart") - see useDashboardStatus's
@@ -80,6 +93,8 @@ export default function AlertsPanel({
     "siteMismatch",
     "faceMismatch",
     "faceNoFace",
+    // Phase 8: eventId is the shift's clock-in.
+    "leftJobSite",
   ]);
 
   // Update Employee (mobile) - every employeeUpdated alert has exactly one
@@ -173,6 +188,7 @@ export default function AlertsPanel({
   }
 
   function handleCancelEditTime() {
+    setPendingClockInEdit(null);
     setEditingAlertKey(null);
     setEditTimeValue("");
     setAlertActionError(null);
@@ -185,6 +201,18 @@ export default function AlertsPanel({
     try {
       const chosenMs = new Date(editTimeValue).getTime();
       if (alert.alertType === "clockedInOutsideGeofence") {
+        // Step 1: check and show the confirm. Step 2 (Confirm) saves.
+        if (!pendingClockInEdit || pendingClockInEdit.alertKey !== alert.key || pendingClockInEdit.newMs !== chosenMs) {
+          if (!alert.event) return;
+          const review = reviewCorrection(alert.event, recentEvents, chosenMs);
+          if (!review.ok) {
+            setAlertActionError(review.error);
+            return;
+          }
+          setPendingClockInEdit({ alertKey: alert.key, oldMs: review.oldMs, newMs: review.newMs, neighbours: review.neighbours });
+          return;
+        }
+        setPendingClockInEdit(null);
         await editClockInTimeFromAlert(alert, chosenMs);
       } else {
         await submitEditTimeFromAlert(alert, chosenMs);
@@ -204,8 +232,10 @@ export default function AlertsPanel({
   return (
     <div className="mt-6 rounded-xl border border-gray-200 bg-white p-6">
       <div className="flex items-start justify-between gap-3">
-        <h2 className="text-base font-semibold text-gray-950">Alerts</h2>
-        {visibleAlertItems.length > 0 && (
+        <h2>
+          <CollapseButton title="Alerts" open={open} onToggle={() => setOpen((o) => !o)} count={isLoading ? undefined : visibleAlertItems.length} />
+        </h2>
+        {open && visibleAlertItems.length > 0 && (
           <button
             type="button"
             disabled={ignoringAll}
@@ -216,6 +246,8 @@ export default function AlertsPanel({
           </button>
         )}
       </div>
+      {open && (
+      <>
       <p className="mt-1 text-sm text-gray-600">
         Driven by your alert settings - turn these on or off in Settings.
       </p>
@@ -250,35 +282,23 @@ export default function AlertsPanel({
                           <div>
                             <p className="mb-1 text-center text-xs text-gray-500">Clock photo</p>
                             <div className="aspect-square overflow-hidden rounded-md bg-gray-100">
-                              {alert.event.photoUrl ? (
-                                <img
-                                  src={alert.event.photoUrl}
-                                  alt="Clock photo"
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-full items-center justify-center text-xs text-gray-600">
-                                  No photo
-                                </div>
-                              )}
+                              <ClockPhoto event={alert.event} alt="Clock photo" emptyText="No photo" />
                             </div>
                           </div>
                           <div>
                             <p className="mb-1 text-center text-xs text-gray-500">Profile photo</p>
                             <div className="aspect-square overflow-hidden rounded-md bg-gray-100">
-                              {alert.event.faceCheck?.referencePhotoUrl ? (
-                                <img
-                                  src={alert.event.faceCheck.referencePhotoUrl}
-                                  alt="Employee profile photo"
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-full items-center justify-center text-xs text-gray-600">
-                                  No photo
-                                </div>
-                              )}
+                              <ReferencePhoto
+                                url={alert.event.faceCheck?.referencePhotoUrl}
+                                alt="Employee profile photo"
+                              />
                             </div>
                           </div>
+                          {faceResultText(alert.event.faceCheck) && (
+                            <p className="col-span-2 text-center text-xs text-gray-600">
+                              Face check: {faceResultText(alert.event.faceCheck)}
+                            </p>
+                          )}
                         </div>
                       )}
 
@@ -346,9 +366,32 @@ export default function AlertsPanel({
                         <input
                           type="datetime-local"
                           value={editTimeValue}
-                          onChange={(e) => setEditTimeValue(e.target.value)}
+                          onChange={(e) => {
+                            setPendingClockInEdit(null);
+                            setEditTimeValue(e.target.value);
+                          }}
                           className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
                         />
+                        {pendingClockInEdit?.alertKey === alert.key && (
+                          <div className="rounded-md border-2 border-amber-300 bg-amber-50 p-2 text-xs text-gray-800">
+                            <p className="font-medium text-gray-950">
+                              Change this clock-in from {new Date(pendingClockInEdit.oldMs).toLocaleString()} to{" "}
+                              {new Date(pendingClockInEdit.newMs).toLocaleString()}?
+                            </p>
+                            {pendingClockInEdit.neighbours.prev && (
+                              <p className="mt-1 text-gray-600">
+                                Before it: {clockEventTypeLabel(pendingClockInEdit.neighbours.prev.type)} at{" "}
+                                {new Date(pendingClockInEdit.neighbours.prev.ms).toLocaleString()}
+                              </p>
+                            )}
+                            {pendingClockInEdit.neighbours.next && (
+                              <p className="mt-1 text-gray-600">
+                                After it: {clockEventTypeLabel(pendingClockInEdit.neighbours.next.type)} at{" "}
+                                {new Date(pendingClockInEdit.neighbours.next.ms).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                        )}
                         <div className="flex gap-2 pt-1">
                           <button
                             type="button"
@@ -356,7 +399,11 @@ export default function AlertsPanel({
                             onClick={() => handleSubmitEditTime(alert)}
                             className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {isSubmitting ? "Saving..." : "Save"}
+                            {isSubmitting
+                              ? "Saving..."
+                              : pendingClockInEdit?.alertKey === alert.key
+                                ? "Confirm"
+                                : "Save"}
                           </button>
                           <button
                             type="button"
@@ -459,6 +506,11 @@ export default function AlertsPanel({
           })
         )}
       </div>
+      {!isLoading && alertsCapNote(serverAlerts.length) && (
+        <p className="mt-3 text-xs text-gray-600">{alertsCapNote(serverAlerts.length)}</p>
+      )}
+      </>
+      )}
     </div>
   );
 }

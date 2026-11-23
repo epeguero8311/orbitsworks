@@ -17,7 +17,8 @@ export async function POST(request: NextRequest) {
 
     const decoded = await adminAuth.verifyIdToken(idToken);
     const companyId = decoded.companyId as string | undefined;
-    if (!companyId) {
+    // Employee App logins are mobile-only and have no use for this route.
+    if (!companyId || decoded.role === "employee") {
       return NextResponse.json({ error: "Not authorized." }, { status: 403 });
     }
 

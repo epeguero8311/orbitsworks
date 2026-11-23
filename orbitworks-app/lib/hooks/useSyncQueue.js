@@ -8,6 +8,8 @@ import { drainEmployeeQueue } from "../employeeQueueSync";
 import { drainEmployeeUpdateQueue } from "../employeeUpdateQueueSync";
 import { subscribeEmployeeQueueChange } from "../employeeQueueEvents";
 import { syncPinTable } from "../pinSync";
+import { auth } from "../firebase";
+import { ownerOf, isOwnRow } from "../queueOwnerLogic";
 
 // Employee creates/updates shown in the same list as clock events.
 // 'rejected' is their final "won't retry" state (clock events use 'dead').
@@ -19,6 +21,8 @@ function employeeRows(creates, updates) {
       type: "employeeCreate",
       employeeId: r.employeeId,
       employeeName: r.name,
+      createdByUid: r.createdByUid,
+      companyId: r.companyId,
       clientTimestamp: r.createdAt,
       syncStatus: r.syncStatus,
       attempts: r.attempts,
@@ -31,6 +35,10 @@ function employeeRows(creates, updates) {
       type: "employeeUpdate",
       employeeId: r.employeeId,
       employeeName: r.employeeName || r.name || "Employee",
+      // An edit from an older build has no login yet: the next drain
+      // claims it for this login (employeeUpdateQueueSync.js).
+      createdByUid: r.createdByUid ?? auth.currentUser?.uid,
+      companyId: r.companyId,
       clientTimestamp: r.createdAt,
       syncStatus: r.syncStatus,
       attempts: r.attempts,
@@ -86,7 +94,13 @@ export function useSyncQueue() {
         kind: "clock",
         waitingForEmployee: r.syncStatus === "pending" && waitingFor.has(r.employeeId),
       }));
-      const merged = [...clockRows, ...employeeRows(creates ?? [], updates ?? [])];
+      // Logout fix: rows another login (or company) saved on this phone
+      // are kept for it and never sent by this one - shown as such.
+      const owner = ownerOf(auth.currentUser?.uid, companyId);
+      const merged = [...clockRows, ...employeeRows(creates ?? [], updates ?? [])].map((r) => ({
+        ...r,
+        otherLogin: r.syncStatus !== "synced" && !isOwnRow(r, owner),
+      }));
       merged.sort((a, b) => b.clientTimestamp - a.clientTimestamp);
       setRows(merged);
     } catch (e) {
@@ -95,7 +109,7 @@ export function useSyncQueue() {
     }
     setSyncing(isQueueSyncing());
     setNow(Date.now());
-  }, []);
+  }, [companyId]);
 
   useEffect(() => {
     refresh();

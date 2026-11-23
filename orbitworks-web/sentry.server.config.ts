@@ -3,12 +3,20 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
+import { sentryJoinTokenScrubbers } from "@/lib/sentryScrub";
+import { sentryEnvironment } from "@/lib/sentryEnvironment";
 
 Sentry.init({
   dsn: "https://6747a98c3089d8dd2ab9418599e75846@o4512133013176320.ingest.us.sentry.io/4512133018091520",
 
+  // "production" only on the real project, "dev" everywhere else.
+  environment: sentryEnvironment(),
+
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
   tracesSampleRate: 1,
+
+  // Blank crew code tokens (/j/{token}) before anything is sent.
+  ...sentryJoinTokenScrubbers,
 
   dataCollection: {
     // To disable sending user data and HTTP bodies, uncomment the lines below. For more info visit:

@@ -1,5 +1,5 @@
 import { collection, doc } from "firebase/firestore";
-import { db as firestoreDb } from "./firebase";
+import { db as firestoreDb, auth } from "./firebase";
 import { getDb } from "./db";
 import { makeLocalId } from "./clockQueue";
 import { persistEmployeePhoto } from "./employeeQueue";
@@ -46,9 +46,9 @@ export async function queueUpdateEmployee({
   const sqlite = await getDb();
   await sqlite.runAsync(
     `INSERT INTO employee_update_queue
-      (localId, employeeId, updateId, name, pin, employeeName, photoLocalUri, deviceId, updatedByName, syncStatus, attempts, createdAt, photoNoticeShownAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
-    [localId, employeeId, updateId, name ?? null, pin || null, name || employeeName || null, photoLocalUri, deviceId ?? null, updatedByName, now, photoLocalUri ? (photoNoticeShownAt ?? null) : null]
+      (localId, employeeId, updateId, name, pin, employeeName, photoLocalUri, deviceId, updatedByName, syncStatus, attempts, createdAt, photoNoticeShownAt, createdByUid, companyId)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`,
+    [localId, employeeId, updateId, name ?? null, pin || null, name || employeeName || null, photoLocalUri, deviceId ?? null, updatedByName, now, photoLocalUri ? (photoNoticeShownAt ?? null) : null, auth.currentUser?.uid ?? null, companyId]
   );
   // The new PIN works on this phone right away and the old one stops.
   if (pin) await setLocalEmployeePin(employeeId, pin);

@@ -28,14 +28,20 @@
       "distribution": "internal",
       "channel": "preview"
     },
-    "previewStore": {
-      "distribution": "store",
-      "autoIncrement": true,
-      "environment": "preview"
-    },
     "production": {
       "autoIncrement": true,
       "channel": "production"
+    },
+    "employeeDev": {
+      "distribution": "store",
+      "channel": "employee-dev",
+      "environment": "preview",
+      "autoIncrement": true,
+      "env": {
+        "APP_VARIANT": "dev",
+        "ORBITS_STRICT_ENV": "1",
+        "EXPO_PUBLIC_FIREBASE_ENV": "dev"
+      }
     },
     "testflight": {
       "distribution": "store",
@@ -53,9 +59,9 @@
         "track": "production"
       }
     },
-    "previewStore": {
+    "employeeDev": {
       "ios": {
-        "ascAppId": "6801155800"
+        "ascAppId": "6826363680"
       }
     },
     "testflight": {

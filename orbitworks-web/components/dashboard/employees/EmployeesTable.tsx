@@ -1,9 +1,16 @@
 "use client";
 
+import { DeletedAppAccountTag } from "@/components/time/DeletedAppAccountTag";
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import type { Employee, JobSite, Job, Subcontractor } from "@/lib/types";
+import type { Employee, EmployeeInvite, JobSite, Job, Subcontractor } from "@/lib/types";
 import { UpgradeToast } from "@/components/UpgradeToast";
+import { EmployeeRoleTag } from "@/components/dashboard/employees/EmployeeRoleTag";
+import { DuplicateBadge } from "@/components/dashboard/employees/DuplicateFlag";
+import { EmployeeInviteStatusPill } from "@/components/dashboard/employees/EmployeeInviteStatusPill";
+import { ShowMoreButton } from "@/components/dashboard/ShowMoreButton";
+import { useShowMore } from "@/lib/hooks/useShowMore";
+import { EMPLOYEES_PAGE_SIZE, employeeMatchesSearch, splitByActive } from "@/lib/listPaging";
 
 // Falls back to an initial instead of the browser's broken-image icon
 // when photoUrl points at a Storage object that is missing, empty, or
@@ -44,6 +51,7 @@ export function EmployeesTable({
   // Leaving it undefined suppresses the "/ max" suffix so nothing breaks
   // in the meantime.
   employeeLimit,
+  invitesByEmployee,
 }: {
   employees: Employee[];
   sites: JobSite[];
@@ -54,11 +62,16 @@ export function EmployeesTable({
   onSelect: (employee: Employee) => void;
   onToggleActive: (employeeId: string, active: boolean) => Promise<void>;
   employeeLimit?: number;
+  // Phase 3B: each row's latest Employee App invite (status pill).
+  invitesByEmployee?: Map<string, EmployeeInvite>;
 }) {
   const [showUpgradeToast, setShowUpgradeToast] = useState(false);
   const [showPastDueToast, setShowPastDueToast] = useState(false);
   const [companyFilter, setCompanyFilter] = useState("");
   const [showInactive, setShowInactive] = useState(false);
+  // Phase 10 (W3): search by name or email (D10 a), 20 rows at a time
+  // (D7 a), inactive employees in their own list (D9 a).
+  const [search, setSearch] = useState("");
 
   const companyFilteredEmployees = useMemo(() => {
     if (!companyFilter) return employees;
@@ -69,37 +82,30 @@ export function EmployeesTable({
   }, [employees, companyFilter]);
 
   const inactiveCount = companyFilteredEmployees.filter((e) => !e.active).length;
+  const activeCount = companyFilteredEmployees.filter((e) => e.active).length;
 
   // Deleting an employee (deactivating) removes them from the list you
   // actually work off of day to day - "Show inactive" is the deliberate
   // second step to see them again, whether to reactivate or to reach the
-  // permanent-removal step for a former supervisor/admin.
-  const filteredEmployees = useMemo(() => {
-    if (showInactive) return companyFilteredEmployees;
-    return companyFilteredEmployees.filter((e) => e.active);
-  }, [companyFilteredEmployees, showInactive]);
-
-  const activeCount = companyFilteredEmployees.filter((e) => e.active).length;
-
-  // Active employees first, inactive ones pushed to the bottom. Array.sort
-  // is stable in modern JS engines, so relative order within each group is
-  // preserved -- this only moves rows between the two groups, it doesn't
-  // reshuffle within a group.
-  const sortedEmployees = useMemo(() => {
-    return [...filteredEmployees].sort((a, b) => {
-      if (a.active === b.active) return 0;
-      return a.active ? -1 : 1;
-    });
-  }, [filteredEmployees]);
+  // permanent-removal step for a former supervisor/admin. Since Phase 10
+  // they show in their own "Inactive employees" list under this one.
+  const { active: activeMatches, inactive: inactiveMatches } = useMemo(
+    () => splitByActive(companyFilteredEmployees.filter((e) => employeeMatchesSearch(e, search))),
+    [companyFilteredEmployees, search]
+  );
+  const resetKey = `${companyFilter}|${search}`;
+  const activePage = useShowMore(activeMatches, EMPLOYEES_PAGE_SIZE, resetKey);
+  const inactivePage = useShowMore(inactiveMatches, EMPLOYEES_PAGE_SIZE, resetKey);
 
   async function toggleActive(employee: Employee) {
     try {
       await onToggleActive(employee.id, !employee.active);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Toggle employee active error:", err);
-      if (err?.code === "functions/resource-exhausted") {
+      const code = (err as { code?: string } | null)?.code;
+      if (code === "functions/resource-exhausted") {
         setShowUpgradeToast(true);
-      } else if (err?.code === "functions/failed-precondition") {
+      } else if (code === "functions/failed-precondition") {
         setShowPastDueToast(true);
       }
     }
@@ -129,17 +135,132 @@ export function EmployeesTable({
     return employee.hourlyRate ? `$${employee.hourlyRate.toFixed(2)}/hr` : "-";
   }
 
+  function renderTable(rows: Employee[]) {
+    return (
+      <table className="w-full text-left text-sm">
+        <thead className="border-b border-gray-200 text-gray-600">
+          <tr>
+            <th className="px-6 py-3 font-medium">Name</th>
+            <th className="px-6 py-3 font-medium">Job title</th>
+            <th className="px-6 py-3 font-medium">Rate</th>
+            <th className="px-6 py-3 font-medium">Job sites</th>
+            <th className="px-6 py-3 font-medium">Company</th>
+            <th className="px-6 py-3 font-medium">PIN</th>
+            <th className="px-6 py-3 font-medium">Status</th>
+            <th className="px-6 py-3 font-medium"></th>
+          </tr>
+        </thead>
+        <motion.tbody layout>
+          <AnimatePresence initial={false}>
+            {rows.map((employee) => (
+              <motion.tr
+                key={employee.id}
+                layout
+                transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                onClick={() => onSelect(employee)}
+                className="cursor-pointer border-b border-gray-200 bg-white transition-colors last:border-0 hover:bg-gray-50"
+              >
+                <td className="px-6 py-4 font-medium text-gray-950">
+                  <span className="flex items-center gap-2">
+                    <EmployeeAvatar photoUrl={employee.photoUrl} name={employee.name} />
+                    {employee.name}
+                    <EmployeeRoleTag employee={employee} />
+                    <DeletedAppAccountTag deleted={!!employee.appAccountDeletedAt} />
+                    <DuplicateBadge employee={employee} />
+                    {!employee.appAccess && <EmployeeInviteStatusPill invite={invitesByEmployee?.get(employee.id)} />}
+                    {/* Face Verification (Pro) - "bad" takes priority
+                        over "no pfp" since a bad pfp usually still has
+                        a photoUrl set (it's bad because DetectFaces
+                        couldn't find/confirm a face in it, not because
+                        it's missing). */}
+                    {employee.faceReference?.status === "bad" ? (
+                      <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                        Photo needs update
+                      </span>
+                    ) : !employee.photoUrl ? (
+                      <span className="text-xs font-normal text-gray-500">No face check</span>
+                    ) : null}
+                  </span>
+                </td>
+                <td className="px-6 py-4 text-gray-600">
+                  {displayJobTitle(employee)}
+                </td>
+                <td className="px-6 py-4 text-gray-600">
+                  {displayRate(employee)}
+                </td>
+                <td className="px-6 py-4 text-gray-600">
+                  {siteNames(employee.assignedSiteIds)}
+                </td>
+                <td className="px-6 py-4 text-gray-600">
+                  {employee.subcontractorId ? (
+                    <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
+                      {employee.subcontractorName ?? "Subcontractor"}
+                    </span>
+                  ) : (
+                    companyName
+                  )}
+                </td>
+                <td className="px-6 py-4 font-mono text-gray-950">
+                  {employee.pin ?? "-"}
+                </td>
+                <td className="px-6 py-4">
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.span
+                      key={employee.active ? "active" : "inactive"}
+                      initial={{ opacity: 0, scale: 0.85 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.85 }}
+                      transition={{ duration: 0.15 }}
+                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
+                        employee.active
+                          ? "bg-green-50 text-green-700"
+                          : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {employee.active ? "Active" : "Inactive"}
+                    </motion.span>
+                  </AnimatePresence>
+                </td>
+                <td className="px-6 py-4 text-right">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleActive(employee);
+                    }}
+                    className="text-sm font-medium text-accent hover:underline"
+                  >
+                    {employee.active ? "Deactivate" : "Reactivate"}
+                  </button>
+                </td>
+              </motion.tr>
+            ))}
+          </AnimatePresence>
+        </motion.tbody>
+      </table>
+    );
+  }
+
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-6 py-4">
-        <h2 className="text-base font-semibold text-gray-950">
-          All employees
-          {!loading && (
-            <span className="ml-2 font-normal text-gray-600">
-              ({filteredEmployees.length})
-            </span>
-          )}
-        </h2>
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-base font-semibold text-gray-950">
+            All employees
+            {!loading && (
+              <span className="ml-2 font-normal text-gray-600">
+                ({activeMatches.length})
+              </span>
+            )}
+          </h2>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name or email"
+            aria-label="Search employees by name or email"
+            className="w-56 rounded-md border border-gray-200 px-2.5 py-1.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+          />
+        </div>
         <div className="flex items-center gap-4">
           {subcontractors.length > 0 && (
             <select
@@ -182,116 +303,32 @@ export function EmployeesTable({
         <p className="p-6 text-sm text-gray-600">
           No employees yet. Add one above to get started.
         </p>
-      ) : sortedEmployees.length === 0 ? (
+      ) : activeMatches.length === 0 ? (
         <p className="p-6 text-sm text-gray-600">
-          No employees match this filter.
+          {search.trim() ? "No active employees match this search." : "No employees match this filter."}
         </p>
       ) : (
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-gray-200 text-gray-600">
-            <tr>
-              <th className="px-6 py-3 font-medium">Name</th>
-              <th className="px-6 py-3 font-medium">Job title</th>
-              <th className="px-6 py-3 font-medium">Rate</th>
-              <th className="px-6 py-3 font-medium">Job sites</th>
-              <th className="px-6 py-3 font-medium">Company</th>
-              <th className="px-6 py-3 font-medium">PIN</th>
-              <th className="px-6 py-3 font-medium">Status</th>
-              <th className="px-6 py-3 font-medium"></th>
-            </tr>
-          </thead>
-          <motion.tbody layout>
-            <AnimatePresence initial={false}>
-              {sortedEmployees.map((employee) => (
-                <motion.tr
-                  key={employee.id}
-                  layout
-                  transition={{ type: "spring", stiffness: 500, damping: 40 }}
-                  onClick={() => onSelect(employee)}
-                  className="cursor-pointer border-b border-gray-200 bg-white transition-colors last:border-0 hover:bg-gray-50"
-                >
-                  <td className="px-6 py-4 font-medium text-gray-950">
-                    <span className="flex items-center gap-2">
-                      <EmployeeAvatar photoUrl={employee.photoUrl} name={employee.name} />
-                      {employee.name}
-                      {employee.isAdmin ? (
-                        <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
-                          Admin
-                        </span>
-                      ) : employee.isSupervisor ? (
-                        <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
-                          Supervisor
-                        </span>
-                      ) : null}
-                      {/* Face Verification (Pro) - "bad" takes priority
-                          over "no pfp" since a bad pfp usually still has
-                          a photoUrl set (it's bad because DetectFaces
-                          couldn't find/confirm a face in it, not because
-                          it's missing). */}
-                      {employee.faceReference?.status === "bad" ? (
-                        <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
-                          Photo needs update
-                        </span>
-                      ) : !employee.photoUrl ? (
-                        <span className="text-xs font-normal text-gray-500">No face check</span>
-                      ) : null}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-gray-600">
-                    {displayJobTitle(employee)}
-                  </td>
-                  <td className="px-6 py-4 text-gray-600">
-                    {displayRate(employee)}
-                  </td>
-                  <td className="px-6 py-4 text-gray-600">
-                    {siteNames(employee.assignedSiteIds)}
-                  </td>
-                  <td className="px-6 py-4 text-gray-600">
-                    {employee.subcontractorId ? (
-                      <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
-                        {employee.subcontractorName ?? "Subcontractor"}
-                      </span>
-                    ) : (
-                      companyName
-                    )}
-                  </td>
-                  <td className="px-6 py-4 font-mono text-gray-950">
-                    {employee.pin ?? "-"}
-                  </td>
-                  <td className="px-6 py-4">
-                    <AnimatePresence mode="wait" initial={false}>
-                      <motion.span
-                        key={employee.active ? "active" : "inactive"}
-                        initial={{ opacity: 0, scale: 0.85 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.85 }}
-                        transition={{ duration: 0.15 }}
-                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
-                          employee.active
-                            ? "bg-green-50 text-green-700"
-                            : "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {employee.active ? "Active" : "Inactive"}
-                      </motion.span>
-                    </AnimatePresence>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleActive(employee);
-                      }}
-                      className="text-sm font-medium text-accent hover:underline"
-                    >
-                      {employee.active ? "Deactivate" : "Reactivate"}
-                    </button>
-                  </td>
-                </motion.tr>
-              ))}
-            </AnimatePresence>
-          </motion.tbody>
-        </table>
+        <>
+          {renderTable(activePage.visible)}
+          <ShowMoreButton shown={activePage.shown} total={activePage.total} nextStep={activePage.nextStep} onShowMore={activePage.showMore} />
+        </>
+      )}
+
+      {!loading && showInactive && inactiveCount > 0 && (
+        <div className="border-t border-gray-200">
+          <h3 className="px-6 pt-4 pb-2 text-sm font-semibold text-gray-950">
+            Inactive employees
+            <span className="ml-2 font-normal text-gray-600">({inactiveMatches.length})</span>
+          </h3>
+          {inactiveMatches.length === 0 ? (
+            <p className="px-6 pb-4 text-sm text-gray-600">No inactive employees match this search.</p>
+          ) : (
+            <>
+              {renderTable(inactivePage.visible)}
+              <ShowMoreButton shown={inactivePage.shown} total={inactivePage.total} nextStep={inactivePage.nextStep} onShowMore={inactivePage.showMore} />
+            </>
+          )}
+        </div>
       )}
 
       <UpgradeToast
@@ -303,7 +340,7 @@ export function EmployeesTable({
         visible={showPastDueToast}
         onClose={() => setShowPastDueToast(false)}
         message="Your last payment failed. Reactivating employees is paused until it's resolved."
-        actionLabel={"Fix billing →"}
+        actionLabel={"Fix billing \u2192"}
       />
     </div>
   );

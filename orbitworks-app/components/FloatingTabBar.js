@@ -27,7 +27,19 @@ const BAR_BACKGROUND_DARK = "rgba(46,46,51,0.92)";
 // bottom tab bar it replaces, only the look changes. The active pill and
 // icon tints pull from useTheme() so they stay in sync with the rest of
 // the app's accent color.
-export default function FloatingTabBar({ state, descriptors, navigation }) {
+//
+// Optional props restyle it for another tab set (the Employee App passes
+// its own icons and a blue bar). Left out, it looks exactly as before.
+export default function FloatingTabBar({
+  state,
+  descriptors,
+  navigation,
+  icons = TAB_ICONS,
+  barColor,
+  activeColor,
+  iconColor = "#ffffff",
+  inactiveIconColor = "rgba(255,255,255,0.55)",
+}) {
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [barWidth, setBarWidth] = useState(0);
@@ -54,7 +66,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
     <View
       style={[
         styles.container,
-        { bottom: TAB_BAR_BOTTOM_MARGIN + insets.bottom, backgroundColor: isDark ? BAR_BACKGROUND_DARK : BAR_BACKGROUND_LIGHT },
+        { bottom: TAB_BAR_BOTTOM_MARGIN + insets.bottom, backgroundColor: barColor ?? (isDark ? BAR_BACKGROUND_DARK : BAR_BACKGROUND_LIGHT) },
       ]}
       onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
     >
@@ -62,7 +74,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
         <Animated.View
           style={[
             styles.activePill,
-            { backgroundColor: colors.accent, transform: [{ translateX }] },
+            { backgroundColor: activeColor ?? colors.accent, transform: [{ translateX }] },
           ]}
         />
       )}
@@ -90,9 +102,9 @@ export default function FloatingTabBar({ state, descriptors, navigation }) {
           >
             <View>
               <Feather
-                name={TAB_ICONS[route.name]}
+                name={icons[route.name]}
                 size={22}
-                color={focused ? "#ffffff" : "rgba(255,255,255,0.55)"}
+                color={focused ? iconColor : inactiveIconColor}
               />
               {badge != null && (
                 <View style={styles.badge}>

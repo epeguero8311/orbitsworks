@@ -3,7 +3,11 @@
 import { useClockEventDetail } from "@/lib/hooks/useClockEventDetail";
 import { EmployeeReassignDropdown } from "@/components/dashboard/clockEventDetail/EmployeeReassignDropdown";
 import { EventSide } from "@/components/dashboard/clockEventDetail/EventSide";
+import { CorrectionConfirm } from "@/components/dashboard/clockEventDetail/CorrectionConfirm";
 import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
+import { sessionSiteNote } from "@/lib/clockOutSite";
+import { SyncedLateTag } from "@/components/time/SyncedLateTag";
+import { DeletedAppAccountTag } from "@/components/time/DeletedAppAccountTag";
 import { ClockEvent } from "@/lib/types";
 
 type Props = {
@@ -34,6 +38,7 @@ export default function ClockEventDetailModal({
               <h2 className="text-base font-semibold text-gray-950">
                 {d.liveEvent.employeeName}
               </h2>
+              <DeletedAppAccountTag deleted={d.appAccountDeleted} />
               {d.isAdmin && (
                 <EmployeeReassignDropdown
                   currentEmployeeId={d.liveEvent.employeeId}
@@ -45,7 +50,12 @@ export default function ClockEventDetailModal({
             <p className="mt-0.5 text-sm text-gray-600">
               {d.dayLabel} - {d.liveEvent.siteName}
               <AutoDetectedTag event={d.liveEvent} />
+              <SyncedLateTag event={d.liveEvent} />
             </p>
+            {/* Fix round 2 (B b): a shift that ended at another site. */}
+            {sessionSiteNote(d.liveEvent, d.clockInEvent, d.clockOutEvent) && (
+              <p className="mt-0.5 text-xs text-gray-500">{sessionSiteNote(d.liveEvent, d.clockInEvent, d.clockOutEvent)}</p>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -87,6 +97,16 @@ export default function ClockEventDetailModal({
               </button>
             </div>
           </div>
+        )}
+
+        {d.pendingCorrection && (
+          <CorrectionConfirm
+            pending={d.pendingCorrection}
+            employeeName={d.liveEvent.employeeName}
+            submitting={d.submitting}
+            onConfirm={d.handleConfirmCorrection}
+            onCancel={d.handleCancelCorrection}
+          />
         )}
 
         <div className="mt-4 flex flex-col gap-4 sm:flex-row">

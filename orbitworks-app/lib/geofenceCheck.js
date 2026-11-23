@@ -66,6 +66,7 @@ function detectSiteLocal(location, accuracyM, sites) {
   }
 
   const closest = scored.sort((a, b) => a.distanceM - b.distanceM)[0];
+  if (!closest) return { status: "outside", distanceM: null, siteId: null, siteName: null };
   return {
     status: "outside",
     distanceM: Math.round(closest.distanceM),
@@ -103,18 +104,33 @@ export async function isAutoDetectionActive() {
   return settings.isPro && settings.hasLocatedSites;
 }
 
-// This device's own best-effort guess at which site a clock-in is at,
-// across every located site (not just geofenced ones) - purely to
-// populate the optimistic queued event before it syncs; the server's own
-// detectSite always has the final say (see this file's header comment).
-// Returns { siteId: null, siteName: "Not specified" } when nothing is
-// close enough to any candidate, or there's no location signal at all.
-export async function detectLocalSite(location, accuracyM) {
-  const sites = await getCachedLocatedSites();
-  if (sites.length === 0) return { siteId: null, siteName: "Not specified" };
+// Phase 10 F1/F2 (D15 b, D18 b) - same numbers as functions/src/
+// geofencing.ts's pickDetectedClockInSite: a fix up to 500 m can match one
+// of the employee's assigned sites, an unassigned site needs 100 m or
+// better.
+const DETECTION_MAX_ACCURACY_M = 500;
+const UNASSIGNED_DETECTION_MAX_ACCURACY_M = 100;
 
-  const { siteId, siteName } = detectSiteLocal(location, accuracyM, sites);
-  return { siteId, siteName: siteName || "Not specified" };
+// This device's own best-effort guess at which site a clock-in is at -
+// purely to populate the optimistic queued event before it syncs; the
+// server (onClockEventCreated) always has the final say.
+//   { usable: true, siteId, siteName } - detected, or a fix of 100 m or
+//     better inside no site (siteId null, "Not specified")
+//   { usable: false } - can't tell (no usable fix, no located site, or a
+//     100-500 m fix inside none of the assigned sites): the caller uses
+//     the site filter pill instead, and the server keeps it.
+export async function detectLocalSite(location, accuracyM, assignedSiteIds) {
+  const usableFix =
+    !!location && typeof accuracyM === "number" && Number.isFinite(accuracyM) && accuracyM >= 0 && accuracyM <= DETECTION_MAX_ACCURACY_M;
+  if (!usableFix) return { usable: false };
+  const sites = await getCachedLocatedSites();
+  if (sites.length === 0) return { usable: false };
+  const trustAll = accuracyM <= UNASSIGNED_DETECTION_MAX_ACCURACY_M;
+  const assigned = Array.isArray(assignedSiteIds) ? assignedSiteIds : [];
+  const candidates = trustAll ? sites : sites.filter((s) => assigned.includes(s.siteId));
+  const { siteId, siteName } = detectSiteLocal(location, accuracyM, candidates);
+  if (siteId) return { usable: true, siteId, siteName: siteName || "Not specified" };
+  return trustAll ? { usable: true, siteId: null, siteName: "Not specified" } : { usable: false };
 }
 
 // "Ask for job site each time" (App Settings on the website) - the list

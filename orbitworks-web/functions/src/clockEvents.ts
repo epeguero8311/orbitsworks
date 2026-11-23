@@ -11,9 +11,11 @@ import {
   OVERRIDE_REASON_MAX_LENGTH,
 } from "./shared";
 import { MAPBOX_TOKEN, haversineMeters, reverseGeocode } from "./geocoding";
-import { classifyGeofence, detectSite, DetectableSite, GeofenceStatus } from "./geofencing";
-import { checkLateClockIn, checkEarlyClockOut, checkOutsideGeofence, checkSiteMismatch } from "./alerts";
+import { classifyGeofence, geofenceForDetectedSite, geofenceForKeptSite, isSiteMismatch, loadDetectableSites, pickDetectedClockInSite, GeofenceStatus } from "./geofencing";
+import { checkLateClockIn, checkEarlyClockOut, checkOutsideGeofence, checkSiteMismatch, createAlertIfNew } from "./alerts";
+import { closeOpenSiteExits } from "./employeeSiteExits";
 import { checkFaceMatch, REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY } from "./rekognition";
+import { correctClockEventSchema, CORRECTION_FUTURE_SLACK_MS, findCorrectionConflict, correctionConflictMessage } from "./clockCorrectionValidators";
 
 // Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
 // why this can't just be imported.
@@ -60,6 +62,8 @@ async function handleDeviceTracking(
 
     // "pin" is the real app's normal PIN+photo clock-in source; faceMatch
     // is kept for forward compatibility even though nothing sends it today.
+    // "employeeApp" is left out on purpose: this tracks shared supervisor
+    // devices, and an employee's own phone is not one of them.
     const source = data.source;
     if (source !== "faceMatch" && source !== "supervisorOverride" && source !== "pin") return;
 
@@ -98,6 +102,77 @@ async function handleDeviceTracking(
   }
 }
 
+// Phase 4 (see onClockEventCreated): the shift's clock-in is the latest
+// "in" before this event; its timesheetApproval doc shares its id.
+async function alertIfLateIntoApproved(
+  companyId: string,
+  employeeId: string,
+  eventId: string,
+  data: FirebaseFirestore.DocumentData
+): Promise<void> {
+  const eventTs: admin.firestore.Timestamp = data.timestamp ?? admin.firestore.Timestamp.now();
+  const companyRef = db.collection("companies").doc(companyId);
+  const inSnap = await companyRef
+    .collection("clockEvents")
+    .where("employeeId", "==", employeeId)
+    .where("type", "==", "in")
+    .where("timestamp", "<", eventTs)
+    .orderBy("timestamp", "desc")
+    .limit(1)
+    .get();
+  if (inSnap.empty) return;
+  const approval = await companyRef.collection("timesheetApprovals").doc(inSnap.docs[0].id).get();
+  if (approval.data()?.status !== "approved") return;
+  await createAlertIfNew(
+    {
+      companyId,
+      alertType: "syncedLateApproved",
+      employeeId,
+      employeeName: (data.employeeName as string | undefined) ?? null,
+      siteId: (data.siteId as string | null | undefined) ?? null,
+      siteName: (data.siteName as string | undefined) ?? null,
+      message: "A punch saved offline synced into a timesheet that was already approved. Please review it.",
+      eventId,
+      employeeUpdateId: null,
+      dateKey: localDateKey(eventTs.toDate()),
+    },
+    eventTs
+  );
+}
+
+// Phase 10 (D19 a): which events copy their shift's clock-in site.
+export function copiesShiftSite(data: { type?: unknown; source?: unknown }): boolean {
+  const isBreak = data.type === "breakStart" || data.type === "breakEnd";
+  if (isBreak) return data.source !== "employeeApp" && data.source !== "adminManual";
+  return data.type === "out" && data.source === "supervisorOverride";
+}
+
+// The site of the employee's newest clock-in at or before atTs (index:
+// employeeId + type + timestamp desc). undefined = no clock-in found
+// (nothing changes). A clock-in with no site gives "Not specified".
+async function shiftClockInSite(
+  companyId: string,
+  employeeId: string,
+  atTs: admin.firestore.Timestamp | undefined
+): Promise<{ siteId: string | null; siteName: string } | undefined> {
+  if (!atTs || typeof atTs.toMillis !== "function") return undefined;
+  const snap = await db
+    .collection("companies")
+    .doc(companyId)
+    .collection("clockEvents")
+    .where("employeeId", "==", employeeId)
+    .where("type", "==", "in")
+    .where("timestamp", "<=", atTs)
+    .orderBy("timestamp", "desc")
+    .limit(1)
+    .get()
+    .catch(() => null);
+  if (!snap || snap.empty) return undefined;
+  const clockIn = snap.docs[0].data() as { siteId?: string | null; siteName?: string };
+  const siteId = typeof clockIn.siteId === "string" && clockIn.siteId ? clockIn.siteId : null;
+  return { siteId, siteName: siteId ? clockIn.siteName || "Not specified" : "Not specified" };
+}
+
 // Keeps employees/{employeeId}.lastEventType in sync with the most
 // recent clock event, so getPinSyncTable can hand the mobile app a
 // current-status snapshot without a separate per-employee query. This
@@ -120,21 +195,30 @@ export const onClockEventCreated = onDocumentCreated(
     // write time (mobile app / temp link) - the client never resolves an
     // address, a distance, a geofence classification, or (new, auto site
     // detection) the site itself - that would let a tampered client just
-    // claim "inside" or pick whichever site it likes. Only Pro companies'
-    // clients are ever wired up to attempt a location fix at all, so
-    // `location` is omitted entirely (not even null) for a Core company's
-    // event - checking that key, rather than the company's plan, is what
-    // lets this skip a company-doc read for the common Core case instead of
-    // spending one on every single clock event.
+    // claim "inside" or pick whichever site it likes. The supervisor app
+    // only attempts a fix for Pro companies, so its Core events have no
+    // `location` key at all - checking that key, rather than the company's
+    // plan, skips a company-doc read for them. Employee App punches
+    // (Phase 6) carry a location on every plan; a Core one costs that one
+    // read and then nothing else here (no geocode, no geofence).
     //
     // Admin manual entries (source: "adminManual") are exempt from
     // geofencing entirely, not just enforcement - there's no real GPS fix
     // to compare for one, so labeling it "outside" would be misleading.
     const locationAttempted = data.source !== "adminManual" && data.location !== undefined;
     let companyIsPro = false;
+    // Phase 10 (D16 a): "Ask for job site each time" (website App Settings)
+    // on keeps the supervisor's pick - the server never re-detects over it.
+    // A company that never saved this setting (prod companyA at release)
+    // keeps the pre-release behaviour: re-detect (prod-readiness item 6 A).
+    // It moves to the saved value on its first Settings save (the website,
+    // live and new, writes the whole map with the toggle), and
+    // createCompany saves it for every new company.
+    let askJobSiteEachTime = true;
     if (locationAttempted) {
       const companySnap = await db.collection("companies").doc(companyId).get();
       companyIsPro = isProPlan(companySnap.data()?.planTier as string | undefined);
+      askJobSiteEachTime = resolveAskJobSiteEachTime(companySnap.data()?.appSettings);
     }
 
     // Auto site detection (Pro) - only the mobile app's own clock-in/out
@@ -145,12 +229,20 @@ export const onClockEventCreated = onDocumentCreated(
     // client's siteId alone") whenever detection doesn't apply at all - a
     // Core company, a Pro company with zero fenced sites (both must "keep
     // today's flow exactly"), or a non-pin/non-in/out event.
+    // "employeeApp" is left out on purpose: employeeClockPunch already
+    // picked its site before the write (Phase 6: Pro + a good fix inside a
+    // site = that site, else crew code site -> single assigned -> none),
+    // using the same detectClockInSite helper as this branch. Running this
+    // branch for it would null the Phase 3 site on "no match".
     const isPinInOrOut =
       companyIsPro && data.source === "pin" && (data.type === "in" || data.type === "out");
 
     let resolvedSiteId: string | null | undefined;
     let resolvedSiteName: string | null | undefined;
     let siteCorrected = false;
+    // false = the site was set back to the shift's clock-in site (a
+    // supervisor clock-out that couldn't detect) - no Auto-detected tag.
+    let resolvedAutoDetected = true;
     let siteMismatch = false;
     let resolvedGeofenceApplicable = false;
     let resolvedGeofenceStatus: GeofenceStatus | null = null;
@@ -174,106 +266,106 @@ export const onClockEventCreated = onDocumentCreated(
         // enforcement, not whether a site can be matched at all). A site
         // with no saved coordinates still can't be matched - see
         // SitesSection.tsx's own nudge for that remaining gap.
-        const sitesSnap = await jobSitesRef.where("active", "==", true).get();
-        const allCandidates: DetectableSite[] = sitesSnap.docs.map((d) => {
-          const s = d.data() as {
-            name?: string;
-            lat?: number;
-            lng?: number;
-            radiusMeters?: number;
-            requireGeofence?: boolean;
-          };
-          return {
-            id: d.id,
-            name: s.name ?? "",
-            lat: s.lat,
-            lng: s.lng,
-            radiusMeters: s.radiusMeters,
-            requireGeofence: s.requireGeofence === true,
-            active: true,
-          };
-        });
-
-        const attribution = detectSite(rawLocation, accuracyM, allCandidates);
-        if (attribution.hasCandidates) {
-          resolvedSiteId = attribution.siteId;
-          resolvedSiteName = attribution.siteName;
-          siteCorrected = resolvedSiteId !== clientSiteId;
-
-          // Site mismatch (info-only, never blocks) - only meaningful when
-          // the employee actually has assigned sites and a real site (not
-          // "no match") was detected; "no site detected" gets its own
-          // separate Approvals treatment instead of being a mismatch.
-          const assignedSiteIds = employeeData?.assignedSiteIds ?? [];
-          if (resolvedSiteId && assignedSiteIds.length > 0 && !assignedSiteIds.includes(resolvedSiteId)) {
-            siteMismatch = true;
+        // Phase 10 F1/F2 - the same pickDetectedClockInSite as the Employee
+        // App clock-in (geofencing.ts):
+        //   - "Ask for job site each time" on (D16 a): the pick is kept
+        //   - detected: that site, even unassigned (siteMismatch flags it)
+        //   - noMatch (fix 100 m or better, inside no site): no site
+        //   - fallback (no usable fix D15 b, a 100-500 m fix inside none
+        //     of the assigned sites D18 b): the pick is kept
+        // A kept pick still gets its geofence badge (geofenceForKeptSite).
+        const allCandidates = await loadDetectableSites(jobSitesRef);
+        const hasLocatedSite = allCandidates.some((s) => typeof s.lat === "number" && typeof s.lng === "number");
+        if (hasLocatedSite) {
+          const pick = askJobSiteEachTime
+            ? ({ kind: "fallback" } as const)
+            : pickDetectedClockInSite(rawLocation, accuracyM, allCandidates, employeeData?.assignedSiteIds);
+          const geofence =
+            pick.kind === "fallback"
+              ? geofenceForKeptSite(rawLocation, accuracyM, allCandidates, clientSiteId)
+              : geofenceForDetectedSite(rawLocation, accuracyM, allCandidates, pick);
+          if (pick.kind !== "fallback") {
+            resolvedSiteId = pick.kind === "detected" ? pick.siteId : null;
+            resolvedSiteName = pick.kind === "detected" ? pick.siteName : null;
+            siteCorrected = resolvedSiteId !== clientSiteId;
+            // Site mismatch (info-only) - shared with the Employee App
+            // clock-in (geofencing.ts isSiteMismatch).
+            siteMismatch = isSiteMismatch(resolvedSiteId, employeeData?.assignedSiteIds);
           }
-
-          if (resolvedSiteId) {
-            // Matched a real site - the "outside geofence" badge/alert
-            // only ever applies when THAT site opted into geofencing.
-            // Matching a non-geofenced site (e.g. an office with no fence)
-            // must look identical to a Core company/no-fenced-sites event -
-            // no badge, no alert - never implied just because detection
-            // got smarter about which site this is.
-            const matched = allCandidates.find((c) => c.id === resolvedSiteId);
-            if (matched?.requireGeofence) {
-              resolvedGeofenceApplicable = true;
-              resolvedGeofenceStatus = "inside";
-              resolvedDistanceM = attribution.distanceM;
-            }
-          } else {
-            // Nothing matched broadly - fall back to a fenced-only check
-            // so the "outside geofence" badge/alert and the "no job site
-            // detected" Approvals prompt keep working exactly as before
-            // this change, for whoever is genuinely nowhere near any
-            // geofenced site.
-            const fencedCandidates = allCandidates.filter((c) => c.requireGeofence);
-            const fenceCheck = detectSite(rawLocation, accuracyM, fencedCandidates);
-            if (fenceCheck.hasCandidates) {
-              resolvedGeofenceApplicable = true;
-              resolvedGeofenceStatus = fenceCheck.status;
-              resolvedDistanceM = fenceCheck.distanceM;
-            }
-          }
+          resolvedGeofenceApplicable = geofence.applicable;
+          resolvedGeofenceStatus = geofence.status;
+          resolvedDistanceM = geofence.distanceM;
         }
       } else {
-        // type === "out": never re-detect - a clock-out always keeps the
-        // clock-in's site (per spec), verified with a direct
-        // classifyGeofence check against that one known site rather than a
-        // fresh search. Searching again could otherwise land the clock-out
-        // on a *different* site than the one actually worked, if the
-        // worker's last GPS fix happens to be closer to another site on
-        // their way out. Gated on "any active, located site exists" (not
-        // "any geofenced site") to match the broader attribution above -
-        // classifyGeofence below still only ever applies/flags anything
-        // when the resolved site's own requireGeofence is true.
-        const locatedSitesExist = await jobSitesRef
-          .where("active", "==", true)
-          .limit(1)
-          .get();
-        if (!locatedSitesExist.empty) {
-          resolvedSiteId = employeeData?.lastEventSiteId ?? null;
-          resolvedSiteName = employeeData?.lastEventSiteName ?? null;
-          siteCorrected = resolvedSiteId !== clientSiteId;
-
-          if (resolvedSiteId) {
-            const siteSnap = await jobSitesRef.doc(resolvedSiteId).get();
-            const site = siteSnap.data() as
-              | { lat?: number; lng?: number; radiusMeters?: number; requireGeofence?: boolean }
-              | undefined;
-            const classification = classifyGeofence(rawLocation, accuracyM, site);
-            resolvedGeofenceApplicable = classification.applicable;
-            resolvedGeofenceStatus = classification.status;
-            resolvedDistanceM = classification.distanceM;
+        // type === "out" (fix round 2, F a): its own detection, same rule
+        // as the clock-in (pickDetectedClockInSite). Its fallback is the
+        // shift's clock-in site = the employee's lastEventSiteId (set by
+        // clock-ins and clock-outs only, never breaks):
+        //   - "Ask for job site each time" on: the clock-in site (there is
+        //     no picker on a clock-out)
+        //   - detected: that site, Auto-detected (never a mismatch flag -
+        //     only a clock-in raises it, H a)
+        //   - noMatch (fix 100 m or better inside no site): no site
+        //   - fallback (no usable fix, a rough fix outside the assigned
+        //     sites, no located site): the clock-in site, not tagged
+        // Geofence badge (D a): the detected site's fence; noMatch = the
+        // fenced-only check; fallback = the clock-in site's fence.
+        // Gated on "any active site exists", same as before.
+        const activeSitesExist = await jobSitesRef.where("active", "==", true).limit(1).get();
+        if (!activeSitesExist.empty) {
+          const allCandidates = await loadDetectableSites(jobSitesRef);
+          const shiftSiteId = employeeData?.lastEventSiteId ?? null;
+          const pick = askJobSiteEachTime
+            ? ({ kind: "fallback" } as const)
+            : pickDetectedClockInSite(rawLocation, accuracyM, allCandidates, employeeData?.assignedSiteIds);
+          if (pick.kind === "fallback") {
+            resolvedSiteId = shiftSiteId;
+            resolvedSiteName = employeeData?.lastEventSiteName ?? null;
+            resolvedAutoDetected = false;
+          } else {
+            resolvedSiteId = pick.kind === "detected" ? pick.siteId : null;
+            resolvedSiteName = pick.kind === "detected" ? pick.siteName : null;
           }
+          siteCorrected = resolvedSiteId !== clientSiteId;
+          const geofence =
+            pick.kind === "fallback"
+              ? geofenceForKeptSite(rawLocation, accuracyM, allCandidates, shiftSiteId)
+              : geofenceForDetectedSite(rawLocation, accuracyM, allCandidates, pick);
+          resolvedGeofenceApplicable = geofence.applicable;
+          resolvedGeofenceStatus = geofence.status;
+          resolvedDistanceM = geofence.distanceM;
         }
       }
     }
 
+    // Employee App clock-in (Phase 6): employeeClockPunch already set
+    // siteMismatch with the same isSiteMismatch (detected site only), so
+    // the site-mismatch alert below fires the same as for a pin punch.
+    if (data.source === "employeeApp" && data.type === "in" && data.siteMismatch === true) {
+      siteMismatch = true;
+    }
+
+    // Phase 10 (D19 a): a supervisor-app break (and the automatic break end
+    // before a clock-out) and a supervisor override clock-out take the
+    // site of that shift's clock-in - the same rule the Employee App
+    // already follows, so one shift never shows two sites. Admin manual
+    // entries keep the site the admin chose; Employee App events already
+    // carry the shift's site (employeeClockPunch).
+    const copiedSite = copiesShiftSite(data)
+      ? await shiftClockInSite(companyId, employeeId, data.timestamp as admin.firestore.Timestamp | undefined)
+      : undefined;
+
     const siteWasResolved = resolvedSiteId !== undefined;
-    const finalSiteId = siteWasResolved ? resolvedSiteId : ((data.siteId as string | null | undefined) ?? null);
-    const finalSiteName = siteWasResolved ? (resolvedSiteName ?? "") : ((data.siteName as string | undefined) ?? "");
+    const finalSiteId = siteWasResolved
+      ? resolvedSiteId
+      : copiedSite
+        ? copiedSite.siteId
+        : ((data.siteId as string | null | undefined) ?? null);
+    const finalSiteName = siteWasResolved
+      ? (resolvedSiteName ?? "")
+      : copiedSite
+        ? copiedSite.siteName
+        : ((data.siteName as string | undefined) ?? "");
 
     // Ordering guard (sync speed step 4): the mobile app now sends several
     // employees' events in parallel, and any phone can deliver an older
@@ -332,12 +424,20 @@ export const onClockEventCreated = onDocumentCreated(
         console.warn("Failed to update employee lastEventType", { companyId, eventId: event.params.eventId, error: String(err) });
       });
 
+    const copiedChanged =
+      !!copiedSite && (copiedSite.siteId !== ((data.siteId as string | null | undefined) ?? null) || copiedSite.siteName !== data.siteName);
+    if (copiedChanged) {
+      await event.data!.ref.update({ siteId: copiedSite!.siteId, siteName: copiedSite!.siteName }).catch((err) => {
+        console.error("Failed to copy the shift site onto clock event", event.params.eventId, err);
+      });
+    }
+
     if (siteWasResolved || resolvedGeofenceApplicable) {
       const eventUpdates: Record<string, unknown> = {};
       if (siteWasResolved) {
         eventUpdates.siteId = resolvedSiteId;
         eventUpdates.siteName = resolvedSiteName ?? "";
-        eventUpdates.siteAutoDetected = true;
+        if (resolvedAutoDetected) eventUpdates.siteAutoDetected = true;
         if (siteCorrected) eventUpdates.siteCorrected = true;
         if (siteMismatch) eventUpdates.siteMismatch = true;
       }
@@ -400,6 +500,18 @@ export const onClockEventCreated = onDocumentCreated(
         .catch((err) => {
           console.error("Failed to create timesheetApproval for", event.params.eventId, err);
         });
+    }
+
+    // Employee App Phase 4: a punch queued on the phone (queued - synced
+    // late or not) can land in a shift whose timesheet an admin already
+    // approved. It stays approved (decided 2026-10-28) - the admin just gets
+    // a syncedLateApproved alert (web only, no push) to take a look. A late
+    // clock-in starts its own new pending approval above, so only
+    // out/breaks can hit an approved one.
+    if (data.queued === true && data.type !== "in") {
+      await alertIfLateIntoApproved(companyId, employeeId, event.params.eventId, data).catch((err) => {
+        console.warn("Late-sync approved-timesheet check failed", event.params.eventId, err);
+      });
     }
 
     // Supervisor overrides: upsert the shared overrideEvents doc for this
@@ -502,8 +614,14 @@ export const onClockEventCreated = onDocumentCreated(
         if (locationAddress) updates.locationAddress = locationAddress;
       }
 
-      if (!isPinInOrOut) {
-        const siteId = data.siteId as string | null | undefined;
+      // Employee App (Phase 6) saves a location on breaks too, but breaks
+      // never get a geofence badge (a supervisor break has no location at
+      // all). Its clock in/out do, against the site the punch was given.
+      const isEmployeeAppBreak = data.source === "employeeApp" && data.type !== "in" && data.type !== "out";
+      if (!isPinInOrOut && !isEmployeeAppBreak) {
+        // finalSiteId: the event's own site, or the shift's clock-in site
+        // copied above (Phase 10 D19 a - an override clock-out).
+        const siteId = finalSiteId;
         const siteSnap = siteId ? await jobSitesRef.doc(siteId).get() : null;
         const site = siteSnap?.data() as
           | { lat?: number; lng?: number; radiusMeters?: number; requireGeofence?: boolean }
@@ -518,11 +636,20 @@ export const onClockEventCreated = onDocumentCreated(
           updates.distanceFromSiteM = distanceFromSiteM;
         }
 
-        const geofence = classifyGeofence(
-          hasFix ? (rawLocation as { lat: number; lng: number }) : null,
-          (data.locationAccuracyM as number | null | undefined) ?? null,
-          site
-        );
+        const fix = hasFix ? (rawLocation as { lat: number; lng: number }) : null;
+        const fixAccuracyM = (data.locationAccuracyM as number | null | undefined) ?? null;
+        // Phase 10 (E3 b): an Employee App clock-in with no site ("Not
+        // specified") gets the same fenced-only check as a supervisor
+        // clock-in that matched no site - someone nowhere near a geofenced
+        // site is still flagged "outside", with the distance to the
+        // nearest one.
+        // Fix round 2 (D a): an Employee App clock-out that matched no site
+        // gets the same check.
+        const noSiteEmployeeClockIn = data.source === "employeeApp" && (data.type === "in" || data.type === "out") && !siteId;
+        const geofence = noSiteEmployeeClockIn
+          ? geofenceForKeptSite(fix, fixAccuracyM, await loadDetectableSites(jobSitesRef), null)
+          : classifyGeofence(fix, fixAccuracyM, site);
+        if (noSiteEmployeeClockIn && geofence.applicable) updates.distanceFromSiteM = geofence.distanceM;
         if (geofence.applicable) {
           updates.geofenceStatus = geofence.status;
         }
@@ -548,6 +675,16 @@ export const onClockEventCreated = onDocumentCreated(
     // extra .catch here is belt-and-suspenders against a future edit to
     // that function accidentally removing its internal guard.
     await handleDeviceTracking(event).catch(() => {});
+
+    // Employee App Phase 8 (leave tracking): any clock-out - the phone's,
+    // a supervisor's, an admin's or an auto clock-out - ends the employee's
+    // open "left" / "tracking off" stretches at the clock-out time. Fully
+    // isolated: it only ever touches siteExits, never this event, and never
+    // throws (closeOpenSiteExits catches everything).
+    if (data.type === "out") {
+      const outMs = (data.adjustedTimestamp ?? data.timestamp)?.toMillis?.() ?? Date.now();
+      await closeOpenSiteExits(companyId, employeeId, outMs, data.source === "autoClockOut" ? "autoClockOut" : "clockOut");
+    }
 
     // Phone sync always wins (Auto Clock-Out) - fully isolated from
     // everything above: never blocks or rejects the real punch that just
@@ -673,6 +810,9 @@ export const onClockEventCreated = onDocumentCreated(
     // timesheetApproval/overrideEvent writes, or any alert check above
     // it. checkFaceMatch re-fetches the event itself and does its own
     // Pro/enabled/pfp guards - see functions/src/rekognition.ts.
+    // No source filter: every source with a clock photo goes through it,
+    // including "employeeApp" (Pro + clock photo + reference selfie = check;
+    // no selfie or Core = no check).
     // claim: the mobile app now attaches the photo after the doc (sync
     // speed step 3), so onClockEventPhotoAdded below may also see it -
     // the claim makes sure only one of the two runs the check. For an
@@ -720,31 +860,27 @@ export const correctClockEvent = onCall(async (request) => {
     throw new HttpsError("permission-denied", "Not authorized.");
   }
 
-  const eventId = (request.data && request.data.eventId ? String(request.data.eventId) : "").trim();
-  const newTimestampMs = request.data && typeof request.data.newTimestamp === "number"
-    ? request.data.newTimestamp
-    : null;
-  const reason = request.data && typeof request.data.reason === "string"
-    ? request.data.reason.trim()
-    : undefined;
-
-  if (!eventId) {
-    throw new HttpsError("invalid-argument", "eventId is required.");
+  // Same input the live website has always sent ({ eventId, newTimestamp,
+  // reason? }) - see clockCorrectionValidators.ts.
+  const parsed = correctClockEventSchema.safeParse(request.data ?? {});
+  if (!parsed.success) {
+    throw new HttpsError("invalid-argument", parsed.error.issues[0]?.message ?? "Invalid correction.");
   }
-  if (newTimestampMs === null || !Number.isFinite(newTimestampMs)) {
-    throw new HttpsError("invalid-argument", "newTimestamp is required and must be a number (epoch ms).");
+  const { eventId, newTimestamp: newTimestampMs, reason } = parsed.data;
+
+  if (newTimestampMs > Date.now() + CORRECTION_FUTURE_SLACK_MS) {
+    throw new HttpsError("invalid-argument", "That time is in the future. Pick a time that has already happened.");
   }
 
-  const eventRef = db
-    .collection("companies")
-    .doc(callerCompanyId)
-    .collection("clockEvents")
-    .doc(eventId);
+  const eventsCol = db.collection("companies").doc(callerCompanyId).collection("clockEvents");
+  const eventRef = eventsCol.doc(eventId);
   const eventSnap = await eventRef.get();
   if (!eventSnap.exists) {
     throw new HttpsError("not-found", "Clock event not found.");
   }
   const event = eventSnap.data() as {
+    employeeId?: string;
+    type?: string;
     timestamp?: admin.firestore.Timestamp;
     adjustedTimestamp?: admin.firestore.Timestamp;
     adjustmentHistory?: Array<Record<string, unknown>>;
@@ -753,6 +889,34 @@ export const correctClockEvent = onCall(async (request) => {
   const previousValue = event.adjustedTimestamp ?? event.timestamp;
   if (!previousValue) {
     throw new HttpsError("failed-precondition", "Clock event has no existing timestamp to correct.");
+  }
+
+  // Order check: the corrected time must stay strictly between this
+  // employee's previous and next events (by effective time). Only events
+  // whose effective time lies between the old and the new time can be
+  // crossed, so only that span is read - padded by a week on the raw
+  // timestamp to catch an event an earlier correction moved into it
+  // (uses the existing employeeId + timestamp index).
+  if (typeof event.employeeId === "string" && event.employeeId) {
+    const currentMs = previousValue.toMillis();
+    const pad = 7 * 24 * 60 * 60 * 1000;
+    const lo = Math.min(currentMs, newTimestampMs) - pad;
+    const hi = Math.max(currentMs, newTimestampMs) + pad;
+    const span = await eventsCol
+      .where("employeeId", "==", event.employeeId)
+      .where("timestamp", ">=", admin.firestore.Timestamp.fromMillis(lo))
+      .where("timestamp", "<=", admin.firestore.Timestamp.fromMillis(hi))
+      .orderBy("timestamp", "asc")
+      .get();
+    const others = span.docs.map((d) => {
+      const data = d.data() as { type?: string; timestamp?: admin.firestore.Timestamp; adjustedTimestamp?: admin.firestore.Timestamp };
+      const eff = data.adjustedTimestamp ?? data.timestamp;
+      return { id: d.id, type: String(data.type ?? ""), ms: eff ? eff.toMillis() : NaN };
+    });
+    const conflict = findCorrectionConflict(others, eventId, currentMs, newTimestampMs);
+    if (conflict) {
+      throw new HttpsError("failed-precondition", correctionConflictMessage(String(event.type ?? ""), conflict));
+    }
   }
 
   const newTimestamp = admin.firestore.Timestamp.fromMillis(newTimestampMs);
@@ -1145,3 +1309,10 @@ export const addManualTimestamp = onCall(async (request) => {
 
   return { success: true };
 });
+
+// See the Phase 10 (D16 a) note in onClockEventCreated: only a saved true
+// keeps the pick; saved false or never saved (legacy) re-detects.
+export function resolveAskJobSiteEachTime(appSettings: unknown): boolean {
+  if (!appSettings || typeof appSettings !== "object") return false;
+  return (appSettings as { askJobSiteEachTime?: unknown }).askJobSiteEachTime === true;
+}

@@ -18,37 +18,80 @@ import { useEmployeeUpdateQueueSync } from "./lib/hooks/useEmployeeUpdateQueueSy
 import { useQueuePendingCount } from "./lib/hooks/useQueuePendingCount";
 import { usePushRegistration } from "./lib/hooks/usePushRegistration";
 import { useAlertsFeed } from "./lib/hooks/useAlertsFeed";
+import { usePunchQueue } from "./lib/hooks/usePunchQueue";
+import { useCommentQueue } from "./lib/hooks/useCommentQueue";
+import { usePunchQueueSync } from "./lib/hooks/usePunchQueueSync";
+import { usePinVerifierSync } from "./lib/hooks/usePinVerifierSync";
+import { useEmployeePush } from "./lib/hooks/useEmployeePush";
 import { navigationRef } from "./lib/navigationRef";
 import FloatingTabBar from "./components/FloatingTabBar";
 import LoginScreen from "./screens/LoginScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import AccountDisabledScreen from "./screens/AccountDisabledScreen";
 import LoadingScreen from "./screens/LoadingScreen";
-import DashboardScreen from "./screens/DashboardScreen";
-import AlertsScreen from "./screens/AlertsScreen";
-import SyncQueueScreen from "./screens/SyncQueueScreen";
-import SettingsScreen from "./screens/SettingsScreen";
-import EmployeeListScreen from "./screens/EmployeeListScreen";
-import SiteSelectScreen from "./screens/SiteSelectScreen";
-import NotesScreen from "./screens/NotesScreen";
-import PinEntryScreen from "./screens/PinEntryScreen";
-import ClockCameraScreen from "./screens/ClockCameraScreen";
-import ClockConfirmScreen from "./screens/ClockConfirmScreen";
-import ClockDeclinedScreen from "./screens/ClockDeclinedScreen";
-import DeclinedAlertsScreen from "./screens/DeclinedAlertsScreen";
-import BreaksPinEntryScreen from "./screens/BreaksPinEntryScreen";
-import BreaksEmployeeListScreen from "./screens/BreaksEmployeeListScreen";
-import OverridePinEntryScreen from "./screens/OverridePinEntryScreen";
-import OverrideEmployeeListScreen from "./screens/OverrideEmployeeListScreen";
-import OverrideReasonScreen from "./screens/OverrideReasonScreen";
-import CreateEmployeeScreen from "./screens/CreateEmployeeScreen";
-import UpdateEmployeeScreen from "./screens/UpdateEmployeeScreen";
-import EditEmployeeScreen from "./screens/EditEmployeeScreen";
-import EmployeeSyncAlertsScreen from "./screens/EmployeeSyncAlertsScreen";
+import RoleUpdating from "./components/RoleUpdating";
+import ConfirmModal from "./components/ui/ConfirmModal";
+import DashboardScreen from "./screens/supervisor/DashboardScreen";
+import AlertsScreen from "./screens/supervisor/AlertsScreen";
+import SyncQueueScreen from "./screens/supervisor/SyncQueueScreen";
+import SettingsScreen from "./screens/supervisor/SettingsScreen";
+import EmployeeListScreen from "./screens/supervisor/EmployeeListScreen";
+import SiteSelectScreen from "./screens/supervisor/SiteSelectScreen";
+import NotesScreen from "./screens/supervisor/NotesScreen";
+import PinEntryScreen from "./screens/supervisor/PinEntryScreen";
+import ClockCameraScreen from "./screens/supervisor/ClockCameraScreen";
+import ClockConfirmScreen from "./screens/supervisor/ClockConfirmScreen";
+import ClockDeclinedScreen from "./screens/supervisor/ClockDeclinedScreen";
+import DeclinedAlertsScreen from "./screens/supervisor/DeclinedAlertsScreen";
+import BreaksPinEntryScreen from "./screens/supervisor/BreaksPinEntryScreen";
+import BreaksEmployeeListScreen from "./screens/supervisor/BreaksEmployeeListScreen";
+import OverridePinEntryScreen from "./screens/supervisor/OverridePinEntryScreen";
+import OverrideEmployeeListScreen from "./screens/supervisor/OverrideEmployeeListScreen";
+import OverrideReasonScreen from "./screens/supervisor/OverrideReasonScreen";
+import CreateEmployeeScreen from "./screens/supervisor/CreateEmployeeScreen";
+import UpdateEmployeeScreen from "./screens/supervisor/UpdateEmployeeScreen";
+import EditEmployeeScreen from "./screens/supervisor/EditEmployeeScreen";
+import EmployeeSyncAlertsScreen from "./screens/supervisor/EmployeeSyncAlertsScreen";
+import EmployeeHomeScreen from "./screens/EmployeeHomeScreen";
+import ClockPunchScreen from "./screens/ClockPunchScreen";
+import EmployeeAlertsScreen from "./screens/employee/EmployeeAlertsScreen";
+import EmployeeSyncScreen from "./screens/employee/EmployeeSyncScreen";
+import EmployeeSettingsScreen from "./screens/employee/EmployeeSettingsScreen";
+import EmployeeHistoryScreen from "./screens/employee/EmployeeHistoryScreen";
+import EmployeeHistoryDayScreen from "./screens/employee/EmployeeHistoryDayScreen";
+import ShiftCommentsScreen from "./screens/employee/ShiftCommentsScreen";
+import AlwaysLocationScreen from "./screens/employee/AlwaysLocationScreen";
+import JoinScanScreen from "./screens/JoinScanScreen";
+import JoinStartScreen from "./screens/JoinStartScreen";
+import { useJoinLink } from "./lib/hooks/useJoinLink";
+import { redactJoinTokens } from "./lib/joinLink";
+import { scrubSensitive } from "./lib/sentryScrub";
+import { resolveFirebaseEnv } from "./config/envRules";
 import * as Sentry from '@sentry/react-native';
+
+// Sentry "environment": "production" only when this bundle talks to the
+// real Firebase project; the dev app (and any dev-Firebase build) is "dev".
+const SENTRY_ENVIRONMENT = resolveFirebaseEnv(process.env.EXPO_PUBLIC_FIREBASE_ENV) === "prod" ? "production" : "dev";
+
+// Crew code tokens are secrets: blank any /j/{token} before anything
+// reaches Sentry (breadcrumbs, URLs, messages, exceptions).
+function scrubJoinTokens(item) {
+  try {
+    return JSON.parse(redactJoinTokens(JSON.stringify(item)));
+  } catch {
+    return item;
+  }
+}
 
 Sentry.init({
   dsn: 'https://f796828c3aaf68527b01e471a0aa9404@o4512133013176320.ingest.us.sentry.io/4512133093261312',
+
+  environment: SENTRY_ENVIRONMENT,
+
+  // Join tokens always; the sign-up email/password/birthday and the new
+  // PIN while the sign-up screen has them (lib/sentryScrub.js).
+  beforeBreadcrumb: (breadcrumb) => scrubSensitive(scrubJoinTokens(breadcrumb)),
+  beforeSend: (event) => scrubSensitive(scrubJoinTokens(event)),
 
   // Adds more context data to events (IP address, cookies, user, etc.)
   // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
@@ -95,15 +138,103 @@ function MainTabs() {
   );
 }
 
-function RootNavigator() {
-  const { currentUser, loading, accountDisabled, accountChecked } = useAuth();
-  const { isDark } = useTheme();
-  const [splashAnimationDone, setSplashAnimationDone] = useState(false);
+// Employee App tabs: Home, History, Alerts, Sync and Settings (which also
+// holds Log out). Clock in/out (ClockPunch) stays a full-screen stack
+// step on top of these. Phase 4: these tabs stay mounted for the whole
+// employee login, so this is where the phone keeps sending saved punches
+// (usePunchQueueSync) and the Sync tab badge counts Waiting + Syncing +
+// Failed.
+const EmployeeTab = createBottomTabNavigator();
+const EMPLOYEE_TAB_ICONS = {
+  EmployeeHome: "home",
+  EmployeeHistory: "clock",
+  EmployeeAlerts: "bell",
+  EmployeeSync: "repeat",
+  EmployeeSettings: "settings",
+};
+
+const EmployeeHistoryStack = createNativeStackNavigator();
+
+// History tab: the list with each day's detail pushed on top, inside the
+// tab, so the bottom nav stays up and back returns to the list.
+function EmployeeHistoryTab() {
+  const { colors } = useTheme();
+  return (
+    <EmployeeHistoryStack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+      <EmployeeHistoryStack.Screen name="EmployeeHistoryList" component={EmployeeHistoryScreen} />
+      <EmployeeHistoryStack.Screen name="EmployeeHistoryDay" component={EmployeeHistoryDayScreen} />
+    </EmployeeHistoryStack.Navigator>
+  );
+}
+
+function EmployeeTabs() {
+  const { colors } = useTheme();
+  const { userData, linkedEmployeeId } = useAuth();
+  const companyId = userData?.companyId;
+  const employeeId = linkedEmployeeId || userData?.employeeId;
+  usePunchQueueSync(companyId, employeeId);
+  usePinVerifierSync(companyId, employeeId);
+  // Phase 7: this phone's push token for the employee + tap opens Alerts.
+  useEmployeePush(employeeId);
+  const { badge: punchBadge } = usePunchQueue(companyId, employeeId);
+  // Phase 5: Not synced / waiting comments count on the Sync tab too.
+  const { badge: commentBadge } = useCommentQueue(companyId, employeeId);
+  const badge = punchBadge + commentBadge;
+  return (
+    <EmployeeTab.Navigator
+      tabBar={(props) => (
+        <FloatingTabBar
+          {...props}
+          icons={EMPLOYEE_TAB_ICONS}
+          barColor={colors.accent}
+          activeColor="rgba(255,255,255,0.22)"
+          inactiveIconColor="rgba(255,255,255,0.8)"
+        />
+      )}
+      screenOptions={{ headerShown: false }}
+    >
+      <EmployeeTab.Screen name="EmployeeHome" component={EmployeeHomeScreen} options={{ tabBarLabel: "Home" }} />
+      <EmployeeTab.Screen name="EmployeeHistory" component={EmployeeHistoryTab} options={{ tabBarLabel: "History" }} />
+      <EmployeeTab.Screen name="EmployeeAlerts" component={EmployeeAlertsScreen} options={{ tabBarLabel: "Alerts" }} />
+      <EmployeeTab.Screen
+        name="EmployeeSync"
+        component={EmployeeSyncScreen}
+        options={{ tabBarLabel: "Sync", tabBarBadge: badge > 0 ? badge : undefined }}
+      />
+      <EmployeeTab.Screen name="EmployeeSettings" component={EmployeeSettingsScreen} options={{ tabBarLabel: "Settings" }} />
+    </EmployeeTab.Navigator>
+  );
+}
+
+// Supervisor/admin background work (PIN table, offline clock/employee
+// queues, push registration). Never mounted for an Employee App login -
+// those calls are supervisor-only server-side and would just fail, and an
+// employee must never register a push token for company-wide alerts. Each
+// hook already no-ops until userData.companyId is known, same as when it
+// lived directly in RootNavigator.
+function SupervisorBackgroundSync() {
+  const { userData, linkedEmployeeId } = useAuth();
   usePinTableSync();
   useQueueSync();
   useEmployeeQueueSync();
   useEmployeeUpdateQueueSync();
   usePushRegistration();
+  // RC1 C: own Employee App punches saved before a promotion keep sending
+  // (punches only; a no-op when there are none).
+  usePunchQueueSync(userData?.companyId, linkedEmployeeId || userData?.employeeId);
+  return null;
+}
+
+function RootNavigator() {
+  const { currentUser, userData, loading, accountDisabled, accountChecked, roleUpdate, dismissRoleNotice } = useAuth();
+  const { isDark } = useTheme();
+  const [splashAnimationDone, setSplashAnimationDone] = useState(false);
+  const [navReady, setNavReady] = useState(false);
+  // AuthContext sets currentUser and userData in the same render, so an
+  // Employee App login never mounts a supervisor screen even for one frame.
+  const isEmployeeLogin = userData?.role === "employee";
+  const backgroundSync = isEmployeeLogin ? null : <SupervisorBackgroundSync />;
+  useJoinLink({ loggedIn: !!currentUser, navReady: navReady && splashAnimationDone });
 
   const onNativeSplashHandoff = useCallback(() => {
     // Native splash and our JS splash are the same solid blue, so
@@ -121,26 +252,63 @@ function RootNavigator() {
   }, [loading]);
 
   if (!splashAnimationDone) {
-    // Hide once sign-in is known and (for supervisors/admins) the server
-    // has said whether the account is still active - see accountChecked.
+    // Hide once sign-in is known and the server has said whether the
+    // account is still active - see accountChecked.
     const splashReady = !loading && (!currentUser || accountChecked);
     return (
-      <LoadingScreen
-        ready={splashReady}
-        onFinish={() => {
-          markLaunch("splashHidden");
-          setSplashAnimationDone(true);
-        }}
-      />
+      <>
+        {backgroundSync}
+        <LoadingScreen
+          ready={splashReady}
+          onFinish={() => {
+            markLaunch("splashHidden");
+            setSplashAnimationDone(true);
+          }}
+        />
+      </>
     );
   }
 
+  // RC1: a role change from the website is being applied - nothing else
+  // shows (no punch can start) until the token has the new role.
+  if (currentUser && roleUpdate && roleUpdate.step !== "notice") {
+    return (
+      <>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <RoleUpdating kind={roleUpdate.kind} step={roleUpdate.step} />
+      </>
+    );
+  }
+
+  // RC1: a new role = a fresh screen tree, so every listener and sync
+  // starts again with the new token (none is left dead on a denied read).
+  const roleTreeKey = currentUser ? `${currentUser.uid}:${userData?.role ?? "none"}` : "signedOut";
+
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer ref={navigationRef} onReady={() => setNavReady(true)}>
+      {backgroundSync}
       <StatusBar style={isDark ? "light" : "dark"} />
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <ConfirmModal
+        visible={!!(currentUser && roleUpdate && roleUpdate.step === "notice")}
+        title="Your role changed"
+        message={roleUpdate?.notice}
+        confirmLabel="OK"
+        cancelLabel={null}
+        onConfirm={dismissRoleNotice}
+        onCancel={dismissRoleNotice}
+      />
+      <Stack.Navigator key={roleTreeKey} screenOptions={{ headerShown: false }}>
         {currentUser && accountDisabled ? (
           <Stack.Screen name="AccountDisabled" component={AccountDisabledScreen} />
+        ) : currentUser && isEmployeeLogin ? (
+          // Employee App: Home + clock in/out only, no supervisor screens.
+          <>
+            <Stack.Screen name="EmployeeTabs" component={EmployeeTabs} />
+            <Stack.Screen name="ClockPunch" component={ClockPunchScreen} options={{ gestureEnabled: false }} />
+            <Stack.Screen name="ShiftComments" component={ShiftCommentsScreen} />
+            {/* Phase 8: location consent + Always location (job site alerts). */}
+            <Stack.Screen name="AlwaysLocation" component={AlwaysLocationScreen} />
+          </>
         ) : currentUser ? (
           <>
             <Stack.Screen name="MainTabs" component={MainTabs} options={{ freezeOnBlur: false }} />
@@ -166,6 +334,8 @@ function RootNavigator() {
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+            <Stack.Screen name="JoinScan" component={JoinScanScreen} />
+            <Stack.Screen name="JoinStart" component={JoinStartScreen} options={{ gestureEnabled: false }} />
           </>
         )}
       </Stack.Navigator>

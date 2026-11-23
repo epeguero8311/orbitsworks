@@ -5,6 +5,8 @@ import { getStorage } from "firebase/storage";
 import { getFunctions } from "firebase/functions";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
+import { FIREBASE_PROJECTS } from "../config/envRules";
+import { getEnvironmentVerdict } from "./envGuard";
 
 // orbitworks-7ef59 - the real customer-facing project. Never point a
 // dev/preview build at this on purpose; only a correctly configured
@@ -109,6 +111,17 @@ export const FIREBASE_PROJECT_ID = firebaseConfig.projectId;
 // "confirm the project before touching anything" only works if there is
 // always somewhere to look.
 console.log(`[firebase] env=${FIREBASE_ENV} project=${firebaseConfig.projectId} buildProfile=${buildProfile ?? "(unset)"}`);
+
+// Second layer behind index.js's gate: never initialize Firebase for a
+// build the environment guard rejects, and keep these configs in step
+// with config/envRules.js.
+if (PROD_CONFIG.projectId !== FIREBASE_PROJECTS.prod || DEV_CONFIG.projectId !== FIREBASE_PROJECTS.dev) {
+  throw new Error("firebase.js: project IDs don't match config/envRules.js - no Firebase calls made.");
+}
+const envVerdict = getEnvironmentVerdict();
+if (!envVerdict.ok) {
+  throw new Error(`firebase.js: wrong environment (${envVerdict.reason}) - no Firebase calls made.`);
+}
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 

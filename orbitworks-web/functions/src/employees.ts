@@ -9,8 +9,11 @@ import {
   isOverTotalCap,
   EmployeeCapFields,
 } from "./shared";
-import { reserveNewPin } from "./pins";
-import { storagePathFromDownloadUrl } from "./rekognition";
+import { pinHistoryRef, reserveNewPin } from "./pins";
+import { deleteEmployeeFacePhotos, markConsentFaceDataDeleted } from "./facePhotos";
+import { loginRoleFor } from "./employeeAccess";
+import { pendingInviteRefsForRow } from "./employeeInvites";
+import { employeeDocPinOnCreate, employeePinData, employeePinRef, readEmployeePin } from "./lib/employeePin";
 
 // Creates the employee doc and reserves its PIN entirely server-side
 // (Admin SDK transaction via reserveNewPin, same primitive acceptInvite
@@ -73,11 +76,12 @@ export const addEmployee = onCall(async (request) => {
     assignedSiteIds,
     hourlyRate,
     active: true,
-    pin,
+    ...employeeDocPinOnCreate(pin),
     subcontractorId,
     subcontractorName,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
+  batch.set(employeePinRef(callerCompanyId, employeeRef.id), employeePinData(pin));
   // Finalizes the placeholder reserveNewPin left behind - same
   // reserve-then-finalize pattern acceptInvite uses for supervisors.
   batch.set(
@@ -252,7 +256,7 @@ export const setEmployeeRole = onCall(async (request) => {
   if (!employeeSnap.exists) {
     throw new HttpsError("not-found", "Employee not found.");
   }
-  const employee = employeeSnap.data() as { linkedUserId?: string };
+  const employee = employeeSnap.data() as { linkedUserId?: string; appAccess?: boolean };
   const linkedUserId = employee.linkedUserId;
   if (!linkedUserId) {
     throw new HttpsError(
@@ -275,14 +279,25 @@ export const setEmployeeRole = onCall(async (request) => {
     throw new HttpsError("failed-precondition", "The company owner's role can't be changed here.");
   }
 
-  const dashboardRole = isAdmin ? "admin" : "supervisor";
+  // Employee App: a login that came from the employee app (appAccess)
+  // drops back to the "employee" role when both toggles are turned off,
+  // instead of the legacy "supervisor" floor below. Every employee doc
+  // without appAccess resolves exactly as before (admin, else supervisor).
+  const dashboardRole = loginRoleFor({ isAdmin, isSupervisor, appAccess: employee.appAccess });
 
+  // RC1: claims FIRST, then the users doc. The signed-in app watches
+  // users/{uid}; the moment role/roleChangedAt change it forces a token
+  // refresh, which must already get the new claims (otherwise it would
+  // route by a role the rules don't grant yet).
   await employeeRef.update({ isSupervisor, isAdmin });
-  await userRef.update({ role: dashboardRole });
   await admin.auth().setCustomUserClaims(linkedUserId, {
     role: dashboardRole,
     companyId: callerCompanyId,
     employeeId,
+  });
+  await userRef.update({
+    role: dashboardRole,
+    roleChangedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
   return { success: true };
@@ -526,24 +541,18 @@ async function deleteEmployeeRecord(
   const employee = employeeSnap.data() as { linkedUserId?: string; pin?: string; photoUrl?: string };
   const linkedUserId = employee.linkedUserId;
 
-  // Fixes the orphaned-Storage-file bug: a reference photo used to
-  // outlive the employee doc that pointed to it indefinitely, since
-  // deleting the doc never touched Storage. The photo is biometric data
-  // (see components/legal/BiometricPolicyContent.tsx), so it's deleted
-  // here instead of waiting on any time-based sweep.
-  if (employee.photoUrl) {
-    const path = storagePathFromDownloadUrl(employee.photoUrl);
-    if (path) {
-      try {
-        await admin.storage().bucket().file(path).delete();
-      } catch (err) {
-        const code = (err as { code?: number } | undefined)?.code;
-        if (code !== 404) {
-          console.warn("Failed to delete employee reference photo on delete", { callerCompanyId, employeeId, path, error: String(err) });
-        }
-      }
-    }
+  // Every face photo of this employee goes now, not on a later sweep: the
+  // file photoUrl points at plus the whole employees/{id}/ folder
+  // (reference.jpg, Employee App selfie/ originals, supervisor app
+  // updates/ incl. retained old photos) - functions/src/facePhotos.ts.
+  // Clock events and their photos stay (90-day schedule). The
+  // employeeConsents record is kept as proof, stamped faceDataDeletedAt.
+  try {
+    await deleteEmployeeFacePhotos(callerCompanyId, employeeId, employee.photoUrl ?? null);
+  } catch (err) {
+    console.warn("Failed to delete employee face photos on delete", { callerCompanyId, employeeId, error: String(err) });
   }
+  await markConsentFaceDataDeleted(callerCompanyId, employeeId, "employeeDeleted");
 
   let email: string | null = null;
 
@@ -573,18 +582,22 @@ async function deleteEmployeeRecord(
     const userRef = db.collection("users").doc(linkedUserId);
     try {
       await admin.auth().deleteUser(linkedUserId);
-    } catch (err: any) {
-      if (err?.code !== "auth/user-not-found") throw err;
+    } catch (err) {
+      if ((err as { code?: string } | null)?.code !== "auth/user-not-found") throw err;
     }
     await userRef.delete();
   }
 
   const batch = db.batch();
-  if (employee.pin) {
+  const currentPin = await readEmployeePin(callerCompanyId, employeeId, employee);
+  if (currentPin) {
     batch.delete(
-      db.collection("companies").doc(callerCompanyId).collection("pins").doc(employee.pin)
+      db.collection("companies").doc(callerCompanyId).collection("pins").doc(currentPin)
     );
   }
+  batch.delete(employeePinRef(callerCompanyId, employeeId));
+  // Phase 5: the earlier PINs go with the employee.
+  batch.delete(pinHistoryRef(callerCompanyId, employeeId));
   if (email) {
     const invitesSnap = await db
       .collection("invites")
@@ -594,6 +607,11 @@ async function deleteEmployeeRecord(
     for (const inviteDoc of invitesSnap.docs) {
       batch.delete(inviteDoc.ref);
     }
+  }
+  // Employee App "Invite to app" invites for this row (Phase 3B): revoke
+  // any still pending, so the link dies with the row.
+  for (const ref of await pendingInviteRefsForRow(callerCompanyId, employeeId)) {
+    batch.update(ref, { status: "revoked", revokedAt: admin.firestore.FieldValue.serverTimestamp(), revokedByUid: callerUid });
   }
   batch.delete(employeeRef);
   await batch.commit();
@@ -648,7 +666,7 @@ export const deleteEmployeesBulk = onCall(async (request) => {
     try {
       await deleteEmployeeRecord(callerCompanyId, employeeId, request.auth.uid);
       deletedCount++;
-    } catch (err: any) {
+    } catch (err) {
       if (err instanceof HttpsError && err.code === "not-found") continue;
       throw err;
     }

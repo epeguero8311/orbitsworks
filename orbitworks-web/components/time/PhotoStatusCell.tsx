@@ -1,21 +1,24 @@
 import type { ClockEvent } from "@/lib/types";
 import { photoStatus } from "@/lib/clockStatus";
+import { clockPhotoCellLabel, clockPhotoState } from "@/lib/clockPhoto";
 
 // Photo column in the Time Tracking log (search results and day view).
-// The mobile app now records the clock event first and attaches its photo
-// a moment later, so an event can briefly have no photo yet - shown as
+// The mobile app records the clock event first and attaches its photo a
+// moment later, so an event can briefly have no photo yet - shown as
 // "Uploading", never as "-", and flagged red if it never arrives.
+// Otherwise "View" / "Removed" (retention sweep) / "-" (see
+// lib/clockPhoto.ts). A removed photo wins over pending/missing.
 export function PhotoStatusCell({ event }: { event: ClockEvent }) {
-  switch (photoStatus(event)) {
-    case "ready":
-      return <>View</>;
-    case "pending":
+  const status = photoStatus(event);
+  if (clockPhotoState(event) !== "removed") {
+    if (status === "pending") {
       return (
         <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
           Uploading
         </span>
       );
-    case "missing":
+    }
+    if (status === "missing") {
       return (
         <span
           className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700"
@@ -24,7 +27,7 @@ export function PhotoStatusCell({ event }: { event: ClockEvent }) {
           Photo missing
         </span>
       );
-    default:
-      return <>-</>;
+    }
   }
+  return <>{clockPhotoCellLabel(event)}</>;
 }

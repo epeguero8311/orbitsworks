@@ -4,7 +4,7 @@ import type { Timestamp } from "firebase-admin/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { db, localDateKey, localMinutesOfDay } from "./shared";
-import { ALERTS_FEED_ENABLED, isCompanyInTestScope } from "./flags";
+import { ALERTS_FEED_ENABLED } from "./flags";
 import { sendPushForAlert } from "./pushSend";
 import { formatGeofenceDistance, type GeofenceStatus } from "./geofencing";
 import {
@@ -14,6 +14,19 @@ import {
   type MinimalClockEvent,
 } from "./clockStatus";
 import { applyAutoBreak, splitShiftSegments } from "./autoBreak";
+import { sendEmployeeAlert } from "./employeeAlerts";
+import {
+  faceNoFaceText,
+  formatMinutesOfDay,
+  maxHoursText,
+  openShiftStart,
+  overtimeText,
+  parseHHMM,
+  shiftEndingDue,
+  shiftEndingText,
+  stillClockedInDue,
+  stillClockedInText,
+} from "./employeeShiftAlerts";
 
 // lowStaffing was removed (not a concept this product tracks).
 // clockedInOutsideGeofence/siteMismatch both landed here under the exact
@@ -42,6 +55,17 @@ export const ALERT_TYPES = [
   // maybeCreateAndPush) so it never pushes, and excluded client-side from
   // the mobile Alerts tab (useAlertsFeed.js).
   "autoClockOut",
+  // Employee App Phase 4 (offline punches) - see
+  // functions/src/employeeClockQueued.ts. Admin/owner web only, never
+  // pushed (createAlertIfNew directly), and filtered out of the supervisor
+  // mobile Alerts tab (useAlertsFeed.js) like autoClockOut.
+  //   syncWrongPin       - a queued punch for one employee had a wrong PIN
+  //                        when it synced, so it was not recorded (from the
+  //                        1st since Phase 7; one per employee per day)
+  //   syncedLateApproved - a queued punch synced into a timesheet that was
+  //                        already approved (one per event)
+  "syncWrongPin",
+  "syncedLateApproved",
   // Offline employee create/PIN edit (mobile) - the phone's PIN was already
   // taken when it synced, so the server gave the employee a new one. Admin/
   // owner web Overview only, never pushed, excluded from the mobile Alerts
@@ -49,6 +73,33 @@ export const ALERT_TYPES = [
   // Keyed per sync operation (eventId = the create's employeeId or the
   // edit's updateId), so each change is its own alert.
   "pinChanged",
+  // Employee App Phase 8 - an employee left the clock-in site's radius for
+  // 2+ minutes (not on a break). Website Overview + supervisor Alerts tab,
+  // never pushed (createAlertIfNew directly). One per SiteExit: keyed by
+  // siteExitId; eventId is the shift's clock-in. Behind the company's
+  // leftJobSiteAlert setting (default on). See employeeSiteExits.ts.
+  "leftJobSite",
+  // Employee App "Delete account" - the employee deleted their own app
+  // login (functions/src/employeeAccount.ts). Admin/owner web Overview
+  // only, never pushed (createAlertIfNew directly), filtered out of the
+  // supervisor mobile Alerts tab (useAlertsFeed.js). One per employee per
+  // day (employeeId + dateKey, the default id).
+  "employeeAccountDeleted",
+  // RC1 follow-up - an employee removed a punch (or shift comment) that
+  // never reached the server, so it is lost for good. Reported by the
+  // phone (reportRemovedItem, employeeRemovedItems.ts), queued if offline.
+  // Admin/owner web Overview only, never pushed (createAlertIfNew
+  // directly), filtered out of the supervisor mobile Alerts tab like
+  // syncWrongPin. One per removed item: keyed by the item's requestId
+  // (eventId-keyed branch in createAlertIfNew).
+  "punchRemoved",
+  // B (2026-11-21, latePunchTypes.ts): a queued punch more than 24 h late
+  // (web only), more than 30 days late (urgent, pushed), or one that needs
+  // a look - phone clock set back, photo missing, time not proven, or it
+  // replaced / conflicts with other events (web only). One per punch.
+  "punchSyncedLate",
+  "punchSyncedVeryLate",
+  "punchFlagged",
 ] as const;
 
 export type AlertType = (typeof ALERT_TYPES)[number];
@@ -78,7 +129,19 @@ export const ALERT_SEVERITY: Record<AlertType, "urgent" | "warning" | "info"> = 
   employeeUpdated: "warning",
   // Yellow per spec - informational, never blocks anything.
   autoClockOut: "warning",
+  syncWrongPin: "warning",
+  syncedLateApproved: "warning",
   pinChanged: "warning",
+  // Flag only - leaving never blocks or ends anything.
+  leftJobSite: "warning",
+  // Info only - the employee's own choice, nothing to fix.
+  employeeAccountDeleted: "info",
+  // A punch is gone for good - someone has to fix the time by hand.
+  punchRemoved: "warning",
+  punchSyncedLate: "warning",
+  // Over 30 days late: pay may already be done.
+  punchSyncedVeryLate: "urgent",
+  punchFlagged: "warning",
 };
 
 // The untrusted-input boundary for alert generation: validates every id
@@ -101,6 +164,9 @@ export const alertInputSchema = z.object({
   // every other type, same convention as eventId/siteId being present but
   // unused outside their own alert types.
   employeeUpdateId: z.string().min(1).nullable(),
+  // Phase 8 - set only for leftJobSite (the SiteExit doc id, which keys
+  // the alert). Optional so every other type stays as it was.
+  siteExitId: z.string().min(1).nullable().optional(),
   dateKey: z.string().min(1),
 });
 
@@ -140,15 +206,18 @@ export const ALERT_SETTINGS_DEFAULTS = {
   earlyClockOutAlert: true,
   clockedInOutsideGeofence: true,
   siteMismatchWarning: true,
-  // Face Verification (Pro) - default true per spec.
-  // Dead weight in practice - no UI ever writes these, so they always
-  // resolve to the true default here. The real on/off switch for
-  // faceMismatch/faceNoFace is company.faceVerification.alertsEnabled,
-  // read separately below (getCompanyAlertContext's faceAlertsEnabled) -
-  // faceBadReference never checks either one, it always fires.
+  // Face Verification (Pro) - default true per spec. faceMismatchAlert and
+  // faceNoFaceAlert are the website's two sub-toggles (2026-11-06) under
+  // "Face recognition alerts" = company.faceVerification.alertsEnabled
+  // (getCompanyAlertContext's faceAlertsEnabled): each type needs the main
+  // switch AND its own. faceNoFaceAlert also gates the employee's own
+  // "Couldn't detect a face" message. faceBadReference never checks any of
+  // them, it always fires.
   faceMismatchAlert: true,
   faceNoFaceAlert: true,
   faceBadReferenceAlert: true,
+  // Employee App Phase 8 - "Left the job site" feed entry (default on).
+  leftJobSiteAlert: true,
 } as const;
 
 type AlertSettings = typeof ALERT_SETTINGS_DEFAULTS;
@@ -157,6 +226,8 @@ interface CompanyAlertContext {
   alerts: AlertSettings;
   businessHoursOpen: string;
   businessHoursClose: string;
+  // null = the company has no valid close time set.
+  businessHoursCloseMinutes: number | null;
   gracePeriodMinutes: number;
   weeklyOvertimeThreshold: number;
   automaticBreakMinutes: number;
@@ -183,6 +254,9 @@ async function getCompanyAlertContext(companyId: string): Promise<CompanyAlertCo
     alerts: { ...ALERT_SETTINGS_DEFAULTS, ...(data.alerts ?? {}) },
     businessHoursOpen: data.businessHours?.open ?? "08:00",
     businessHoursClose: data.businessHours?.close ?? "17:00",
+    // Phase 7: shift ending / still clocked in need a real close time - the
+    // "17:00" fallback above is only for the late/early checks.
+    businessHoursCloseMinutes: parseHHMM(data.businessHours?.close),
     gracePeriodMinutes: data.attendanceRules?.gracePeriodMinutes ?? 0,
     weeklyOvertimeThreshold: data.weeklyOvertimeThreshold ?? 40,
     automaticBreakMinutes: data.exportSettings?.automaticBreakMinutes ?? 0,
@@ -212,7 +286,18 @@ const ALERT_ID_PREFIX: Record<AlertType, string> = {
   // branch in createAlertIfNew below) - same convention as
   // clockedInOutsideGeofence/siteMismatch.
   autoClockOut: "autoout",
+  syncWrongPin: "syncpin",
+  // Keyed by the late event's own id (eventId-keyed branch below).
+  syncedLateApproved: "latesync",
   pinChanged: "pinchanged",
+  // Keyed by the SiteExit id (siteExitId branch below).
+  leftJobSite: "left",
+  employeeAccountDeleted: "appdeleted",
+  punchRemoved: "removed",
+  // B: keyed by the punch event id (eventId-keyed branch below).
+  punchSyncedLate: "synclate",
+  punchSyncedVeryLate: "syncverylate",
+  punchFlagged: "punchflag",
 };
 
 function buildAlertId(alertType: AlertType, subjectId: string, dateKey: string): string {
@@ -249,10 +334,17 @@ export async function createAlertIfNew(input: AlertInput, occurredAt: Timestamp)
   // `eventId` is always the CLOCK-IN event's id, not the auto-written
   // "out" event's id (see functions/src/autoClockOut.ts).
   const subjectId =
-    data.alertType === "clockedInOutsideGeofence" ||
+    data.alertType === "leftJobSite"
+      ? data.siteExitId ?? data.eventId ?? data.employeeId ?? "company"
+      : data.alertType === "clockedInOutsideGeofence" ||
     data.alertType === "siteMismatch" ||
     data.alertType === "autoClockOut" ||
-    data.alertType === "pinChanged"
+    data.alertType === "syncedLateApproved" ||
+    data.alertType === "pinChanged" ||
+    data.alertType === "punchRemoved" ||
+    data.alertType === "punchSyncedLate" ||
+    data.alertType === "punchSyncedVeryLate" ||
+    data.alertType === "punchFlagged"
       ? data.eventId ?? data.employeeId ?? "company"
       : data.employeeId ?? data.siteId ?? "company";
   const alertId = buildAlertId(data.alertType, subjectId, data.dateKey);
@@ -308,7 +400,6 @@ export async function checkLateClockIn(
   if (!ALERTS_FEED_ENABLED.value()) return;
   if (data?.type !== "in") return;
   if (typeof companyId !== "string" || !companyId) return;
-  if (!isCompanyInTestScope(companyId)) return;
   if (typeof data.employeeId !== "string" || !data.employeeId) return;
 
   const ctx = await getCompanyAlertContext(companyId);
@@ -355,7 +446,6 @@ export async function checkEarlyClockOut(
   // autoClockOut.ts), so this must not fire a second one.
   if (data?.source === "autoClockOut") return;
   if (typeof companyId !== "string" || !companyId) return;
-  if (!isCompanyInTestScope(companyId)) return;
   if (typeof data.employeeId !== "string" || !data.employeeId) return;
 
   const ctx = await getCompanyAlertContext(companyId);
@@ -409,7 +499,6 @@ export async function checkOutsideGeofence(
   if (data?.type !== "in") return;
   if (!geofence.applicable || geofence.status !== "outside") return;
   if (typeof companyId !== "string" || !companyId) return;
-  if (!isCompanyInTestScope(companyId)) return;
   if (typeof data.employeeId !== "string" || !data.employeeId) return;
 
   const ctx = await getCompanyAlertContext(companyId);
@@ -459,7 +548,6 @@ export async function checkSiteMismatch(
   if (data?.type !== "in") return;
   if (!siteMismatch) return;
   if (typeof companyId !== "string" || !companyId) return;
-  if (!isCompanyInTestScope(companyId)) return;
   if (typeof data.employeeId !== "string" || !data.employeeId) return;
 
   const ctx = await getCompanyAlertContext(companyId);
@@ -486,6 +574,72 @@ export async function checkSiteMismatch(
   );
 }
 
+// Employee App Phase 8 - "Left the job site" (employeeSiteExits.ts calls
+// this once per new SiteExit of kind "left" that did not start on a
+// break). Feed only: written with createAlertIfNew, never pushed - same as
+// autoClockOut. Never throws; a failure never touches the exit or a punch.
+export async function createLeftJobSiteAlert(input: {
+  companyId: string;
+  employeeId: string;
+  employeeName: string;
+  siteId: string | null;
+  siteName: string;
+  clockInEventId: string;
+  siteExitId: string;
+  startMs: number;
+  distanceM: number | null;
+}): Promise<boolean> {
+  try {
+    if (!ALERTS_FEED_ENABLED.value()) return false;
+    const ctx = await getCompanyAlertContext(input.companyId);
+    if (!ctx || !ctx.alerts.leftJobSiteAlert) return false;
+
+    const started = new Date(input.startMs);
+    const siteName = input.siteName || "the job site";
+    const time = formatMinutesOfDay(localMinutesOfDay(started));
+    const away = input.distanceM != null ? ` (${formatGeofenceDistance(input.distanceM)} away)` : "";
+    const created = await createAlertIfNew(
+      {
+        companyId: input.companyId,
+        alertType: "leftJobSite",
+        employeeId: input.employeeId,
+        employeeName: input.employeeName || "An employee",
+        siteId: input.siteId,
+        siteName: input.siteName || null,
+        message: `Left ${siteName} at ${time}${away}`,
+        eventId: input.clockInEventId,
+        employeeUpdateId: null,
+        siteExitId: input.siteExitId,
+        dateKey: localDateKey(started),
+      },
+      admin.firestore.Timestamp.fromMillis(input.startMs)
+    );
+    return created !== null;
+  } catch (err) {
+    console.warn("leftJobSite alert failed", { companyId: input.companyId, error: String(err) });
+    return false;
+  }
+}
+
+// Phase 8 (G3 c): a short exit (back within 3 min) never shows as an alert.
+// When its return syncs, employeeSiteExits.ts calls this to delete the
+// exit's leftJobSite feed alert (same deterministic id createAlertIfNew
+// used), so it leaves the website Overview and the supervisor Alerts tab.
+// Never throws; a missing alert (toggle off, never written) is fine.
+export async function clearLeftJobSiteAlert(companyId: string, siteExitId: string, startMs: number): Promise<boolean> {
+  try {
+    const id = buildAlertId("leftJobSite", siteExitId, localDateKey(new Date(startMs)));
+    const ref = db.collection("companies").doc(companyId).collection("alerts").doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) return false;
+    await ref.delete();
+    return true;
+  } catch (err) {
+    console.warn("leftJobSite alert clear failed", { companyId, error: String(err) });
+    return false;
+  }
+}
+
 // Face Verification (Pro) - called from functions/src/rekognition.ts
 // AFTER it writes faceCheck onto the clock event, fully isolated (its own
 // try/catch there) from the check itself. Mirrors checkOutsideGeofence/
@@ -503,7 +657,6 @@ export async function createFaceMismatchAlert(
   timestamp: admin.firestore.Timestamp | null
 ): Promise<void> {
   if (!ALERTS_FEED_ENABLED.value()) return;
-  if (!isCompanyInTestScope(companyId)) return;
 
   const ctx = await getCompanyAlertContext(companyId);
   if (!ctx || !ctx.alerts.faceMismatchAlert || !ctx.faceAlertsEnabled) return;
@@ -526,15 +679,19 @@ export async function createFaceMismatchAlert(
   );
 }
 
+// opts.notifyEmployee (rekognition.ts: the first check of an Employee App
+// punch only) also sends the employee "Couldn't detect a face" - Alerts tab
+// + push, same gates as the admin alert. eventType picks "clock-in" /
+// "clock-out" in the text.
 export async function createFaceNoFaceAlert(
   companyId: string,
   eventId: string,
   employeeId: string,
   employeeName: string,
-  timestamp: admin.firestore.Timestamp | null
+  timestamp: admin.firestore.Timestamp | null,
+  opts: { notifyEmployee?: boolean; eventType?: string } = {}
 ): Promise<void> {
   if (!ALERTS_FEED_ENABLED.value()) return;
-  if (!isCompanyInTestScope(companyId)) return;
 
   const ctx = await getCompanyAlertContext(companyId);
   if (!ctx || !ctx.alerts.faceNoFaceAlert || !ctx.faceAlertsEnabled) return;
@@ -555,6 +712,15 @@ export async function createFaceNoFaceAlert(
     },
     timestamp ?? admin.firestore.Timestamp.now()
   );
+  if (opts.notifyEmployee) {
+    await sendEmployeeAlert({
+      companyId,
+      employeeId,
+      key: eventId,
+      shiftId: opts.eventType === "in" ? eventId : null,
+      ...faceNoFaceText(opts.eventType, ts.getTime()),
+    });
+  }
 }
 
 // faceBadReference is the one alert type that breaks the "one per
@@ -578,7 +744,6 @@ export async function createOrKeepFaceBadReferenceAlert(
   employeeName: string
 ): Promise<void> {
   if (!ALERTS_FEED_ENABLED.value()) return;
-  if (!isCompanyInTestScope(companyId)) return;
 
   const ctx = await getCompanyAlertContext(companyId);
   if (!ctx || !ctx.alerts.faceBadReferenceAlert) return;
@@ -689,7 +854,6 @@ export async function createEmployeeUpdatedAlert(
   timestamp: admin.firestore.Timestamp
 ): Promise<void> {
   if (!ALERTS_FEED_ENABLED.value()) return;
-  if (!isCompanyInTestScope(companyId)) return;
 
   const alertId = buildEmployeeUpdatedAlertId(updateId);
   const input: AlertInput = {
@@ -856,7 +1020,6 @@ function toMinimalEvent(doc: FirebaseFirestore.QueryDocumentSnapshot): MinimalCl
 // never take down the sweep for every other company.
 async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot): Promise<void> {
   const companyId = companyDoc.id;
-  if (!isCompanyInTestScope(companyId)) return;
   const ctx = await getCompanyAlertContext(companyId);
   if (!ctx) return;
   const { alerts } = ctx;
@@ -931,12 +1094,18 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
     }
   }
 
-  // Max Hours - same-day shifts only, matching dashboardOverviewUtils.ts
+  // Max Hours - counted from the open shift's start (its clock-in), so an
+  // overnight shift counts too (Employee App Phase 7 fix: before, only a
+  // shift whose LATEST event was today counted, so overnight workers never
+  // got it). dateKey = the shift start's day: for a day shift that is
+  // today, so the alert id is exactly what it always was and nothing
+  // re-fires. The employee also gets their own alert, once per shift.
   if (alerts.maxHoursWarning) {
     for (const event of currentlyActive) {
-      const d = effectiveDate(event);
-      if (!d || localDateKey(d) !== localDateKey(now)) continue;
       const employeeEvents = recentEvents.filter((e) => e.employeeId === event.employeeId);
+      const shiftStart = openShiftStart(employeeEvents);
+      const d = shiftStart ? effectiveDate(shiftStart) : null;
+      if (!shiftStart || !d) continue;
       const workedHours = getAccumulatedWorkedMs(employeeEvents, now) / (1000 * 60 * 60);
       if (workedHours < alerts.maxHoursThreshold) continue;
       const employeeName = employeeNames.get(event.employeeId) ?? "An employee";
@@ -956,6 +1125,13 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
         },
         admin.firestore.Timestamp.now()
       );
+      await sendEmployeeAlert({
+        companyId,
+        employeeId: event.employeeId,
+        key: shiftStart.id,
+        shiftId: shiftStart.id,
+        ...maxHoursText(workedHours, alerts.maxHoursThreshold),
+      });
     }
   }
 
@@ -981,6 +1157,28 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
         },
         admin.firestore.Timestamp.now()
       );
+    }
+  }
+
+  // Employee App Phase 7 - the employee's own end-of-day alerts, both behind
+  // the "Missed clock out alert" toggle (its delay is still clocked in's
+  // delay) and both only with a real business close time. Once per shift
+  // each (alert id). Employees only - supervisors get nothing new here.
+  const closeMinutes = ctx.businessHoursCloseMinutes;
+  if (alerts.missedClockOutAlert && closeMinutes !== null) {
+    const delayMinutes = Number(alerts.missedClockOutMinutes);
+    for (const event of currentlyActive) {
+      const shiftStart = openShiftStart(recentEvents.filter((e) => e.employeeId === event.employeeId));
+      const d = shiftStart ? effectiveDate(shiftStart) : null;
+      if (!shiftStart || !d) continue;
+      const due = { shiftStartMs: d.getTime(), nowMs: now.getTime(), closeMinutes };
+      const base = { companyId, employeeId: event.employeeId, key: shiftStart.id, shiftId: shiftStart.id };
+      if (shiftEndingDue(due)) {
+        await sendEmployeeAlert({ ...base, ...shiftEndingText(closeMinutes) });
+      }
+      if (stillClockedInDue({ ...due, delayMinutes })) {
+        await sendEmployeeAlert({ ...base, ...stillClockedInText(closeMinutes, delayMinutes) });
+      }
     }
   }
 
@@ -1034,6 +1232,13 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
         },
         admin.firestore.Timestamp.now()
       );
+      await sendEmployeeAlert({
+        companyId,
+        employeeId,
+        key: `${employeeId}-${weekKey}`,
+        shiftId: null,
+        ...overtimeText(hours, ctx.weeklyOvertimeThreshold),
+      });
     }
   }
 }
@@ -1061,7 +1266,7 @@ export const checkPeriodicAlerts = onSchedule("every 15 minutes", async () => {
 // Offline employee create/PIN edit (mobile): the PIN the phone handed out
 // offline was already taken by the time it synced, so the server assigned a
 // new one. Written straight through createAlertIfNew (same as autoClockOut's
-// alert) rather than behind ALERTS_FEED_ENABLED/TEST_COMPANY_IDS - an admin
+// alert) rather than behind ALERTS_FEED_ENABLED - an admin
 // has to learn the employee's real PIN somewhere, so this is not a beta
 // feed item. Never throws: a failed alert write must not fail the sync.
 export async function createPinChangedAlert(

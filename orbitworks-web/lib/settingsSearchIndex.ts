@@ -126,6 +126,12 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["geofence", "location", "outside", "pro"],
   },
   {
+    id: "left-job-site-alert",
+    label: "Left the job site",
+    tab: "alerts",
+    keywords: ["geofence", "left", "leave", "job site", "exit", "location", "pro"],
+  },
+  {
     id: "site-mismatch-alert",
     label: "Clocked in at unassigned site",
     tab: "alerts",

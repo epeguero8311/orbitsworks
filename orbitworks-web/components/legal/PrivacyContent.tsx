@@ -4,13 +4,13 @@ export default function PrivacyContent() {
   return (
     <div className="prose prose-sm max-w-none text-gray-700">
       <p className="text-sm text-gray-500">
-        Last updated: October 14, 2026 (version {TERMS_VERSION})
+        Last updated: November 17, 2026 (version {TERMS_VERSION})
       </p>
 
       <p>
-        This Privacy Policy describes how OrbitWorks collects, uses,
+        This Privacy Policy describes how OrbitsWorks collects, uses,
         stores, processes, shares, retains, and deletes personal
-        information in connection with the OrbitWorks Service.
+        information in connection with the OrbitsWorks Service.
       </p>
       <p>
         This Privacy Policy should be read together with our Terms and
@@ -19,7 +19,7 @@ export default function PrivacyContent() {
 
       <h2>1. Information We Collect</h2>
       <p>
-        Depending on how a Customer configures and uses OrbitWorks, we may
+        Depending on how a Customer configures and uses OrbitsWorks, we may
         collect the following information.
       </p>
 
@@ -66,36 +66,49 @@ export default function PrivacyContent() {
 
       <h3>Location Information</h3>
       <p>
-        On Pro plans, when an Employee clocks in or out with their PIN,
+        When an Employee clocks in, clocks out or takes a break - on a
+        supervisor device (Pro plans) or in the Employee App (every plan) -
         the mobile app attempts a single, one-time device location fix
-        (latitude, longitude, and accuracy) if the Employee has granted
-        while-in-use location permission. We do not request "Always"/
-        background location permission, and we do not collect location
-        continuously while an Employee is clocked in or at any time while
-        an Employee is clocked out. Core plans never attempt a location
-        fix.
+        (latitude, longitude, and accuracy) if location permission has
+        been granted. We never collect location at any time while an
+        Employee is clocked out.
+      </p>
+      <p>
+        Leaving the job site (Pro plans, geofenced job sites only): when
+        Customer has enabled a geofence for a job site and an Employee
+        clocks in there from their own phone in the Employee App, the app
+        asks the Employee to agree to location tracking and to allow
+        &quot;Always&quot; location. With both, the phone&apos;s operating system
+        notifies the app when the Employee leaves or returns to that job
+        site&apos;s area while clocked in, and the app records the time and one
+        location fix for each. We do not collect a continuous trail of
+        locations. These locations are deleted after 90 days; the times
+        are kept with the shift record. Tracking stops at clock-out. If
+        tracking cannot run (permission lowered, the Employee signs out,
+        the phone stops it), only the time it was off is recorded.
       </p>
       <p>
         If a location fix is captured, we convert it to an approximate
         address for display and, where Customer has configured and
         enabled a geofence for a job site, compute whether the Employee
-        was inside or outside that site's radius. This is used only to
-        show the location associated with a clock event and to generate
-        an optional alert for Customer's review; location results never
-        block a clock event. Location information is stored as part of
+        was inside or outside that site&apos;s radius. This is used only to
+        show the location associated with a clock event or a job site
+        exit and to generate an optional alert for Customer&apos;s review;
+        location results never block a clock event and never clock anyone
+        out. Location information is stored as part of
         the clock event record it was captured with and follows the
         retention described in Section 5.
       </p>
 
       <h3>Photos and Biometric Information</h3>
       <p>
-        OrbitWorks processes two kinds of photos in connection with face
+        OrbitsWorks processes two kinds of photos in connection with face
         verification, a Pro-plan feature described more fully in our
         Biometric Data Policy:
       </p>
       <ul>
         <li>
-          an Employee's profile photo, used as the reference photo for
+          an Employee&apos;s profile photo, used as the reference photo for
           comparison; and
         </li>
         <li>
@@ -108,14 +121,23 @@ export default function PrivacyContent() {
         profile photo on a Pro plan; an Employee with no profile photo on
         file is not checked. Clock-in and clock-out photos are captured
         for every plan tier as a visual record of attendance, whether or
-        not face verification is active for that Employee or company.
+        not face verification is active for that Employee or company, and
+        are deleted 90 days after they are taken.
+      </p>
+      <p>
+        Photos are stored with our cloud storage provider and, in
+        OrbitsWorks, are shown only to signed-in users of the
+        Customer&apos;s own account. Each photo is served through a private
+        link: a long, unguessable web address. Anyone who is given that
+        link can open the photo, so photo links and exported reports
+        should not be shared outside the Customer&apos;s organization.
       </p>
       <p>
         Comparison is performed by Amazon Web Services Rekognition on a
-        one-to-one basis between an Employee's reference photo and their
+        one-to-one basis between an Employee&apos;s reference photo and their
         own clock photo. We do not use any Rekognition feature that
         stores a reusable facial template, and no separate biometric
-        template or face embedding is stored by OrbitWorks. The
+        template or face embedding is stored by OrbitsWorks. The
         comparison result (a match/mismatch/no-face status and similarity
         score) is stored on the clock event; the underlying photos
         themselves are stored as described in the Biometric Data Policy.
@@ -128,10 +150,10 @@ export default function PrivacyContent() {
 
       <h3>Billing Information</h3>
       <p>
-        Payments are processed by Stripe. OrbitWorks may store Stripe
+        Payments are processed by Stripe. OrbitsWorks may store Stripe
         customer identifiers, subscription identifiers, payment status,
         billing-plan information, and related transaction references.
-        OrbitWorks does not store full payment card numbers.
+        OrbitsWorks does not store full payment card numbers.
       </p>
 
       <h3>Technical Information</h3>
@@ -143,7 +165,7 @@ export default function PrivacyContent() {
       </p>
 
       <h2>2. How We Use Information</h2>
-      <p>OrbitWorks may use personal information to:</p>
+      <p>OrbitsWorks may use personal information to:</p>
       <ul>
         <li>provide and operate the Service;</li>
         <li>authenticate users;</li>
@@ -166,14 +188,14 @@ export default function PrivacyContent() {
 
       <h2>3. Customer Instructions</h2>
       <p>
-        For information Customer submits about Employees, OrbitWorks
+        For information Customer submits about Employees, OrbitsWorks
         generally processes that information to provide the Service
-        according to Customer's configuration and instructions.
+        according to Customer&apos;s configuration and instructions.
       </p>
       <p>
         Customer determines which Employees are added, which features are
         enabled, which information is entered, and how workforce
-        information is used for Customer's employment and business
+        information is used for Customer&apos;s employment and business
         purposes.
       </p>
       <p>
@@ -183,18 +205,18 @@ export default function PrivacyContent() {
 
       <h2>4. How We Share Information</h2>
       <p>
-        OrbitWorks may share information with service providers that
+        OrbitsWorks may share information with service providers that
         assist us in operating the Service. These providers may include:
       </p>
       <ul>
         <li>Google Firebase and Google Cloud for hosting, authentication, databases, file storage, and infrastructure;</li>
         <li>Stripe for subscription billing and payment processing;</li>
-        <li>Amazon Web Services and Amazon Rekognition for optional face-verification functionality; and</li>
+        <li>Amazon Web Services and Amazon Rekognition for face-verification functionality on Pro plans; and</li>
         <li>other infrastructure, security, analytics, communications, or support providers reasonably necessary to operate the Service.</li>
       </ul>
       <p>
         These providers process information only as necessary to provide
-        services to OrbitWorks or as otherwise permitted by applicable
+        services to OrbitsWorks or as otherwise permitted by applicable
         law and their agreements with us.
       </p>
       <p>We do not sell Employee personal information.</p>
@@ -205,9 +227,9 @@ export default function PrivacyContent() {
       <p>
         We may also disclose information where reasonably necessary to
         comply with law, respond to lawful legal process, protect the
-        rights or security of OrbitWorks or others, investigate fraud or
+        rights or security of OrbitsWorks or others, investigate fraud or
         misuse, or in connection with a merger, acquisition, financing,
-        restructuring, or sale of all or part of OrbitWorks.
+        restructuring, or sale of all or part of OrbitsWorks.
       </p>
 
       <h2>5. Data Retention</h2>
@@ -220,11 +242,12 @@ export default function PrivacyContent() {
       <p>Default retention may include:</p>
       <ul>
         <li>
-          <strong>Employee profiles and profile photos</strong>: while the
-          Customer account or Employee record remains active and for up
-          to 90 days following applicable account termination or
-          deletion, unless deleted earlier or retention is required by
-          law.
+          <strong>Employee profiles</strong>: while the Customer account
+          or Employee record remains active and for up to 90 days
+          following applicable account termination or deletion, unless
+          deleted earlier or retention is required by law. Profile photos
+          are reference photos and follow the Biometric information
+          schedule below.
         </li>
         <li>
           <strong>Clock, attendance, timesheet, and related workforce
@@ -244,15 +267,21 @@ export default function PrivacyContent() {
           fraud-prevention, and legal obligations.
         </li>
         <li>
-          <strong>Biometric information</strong> (reference and
-          clock-event photos processed for face verification): verification
-          photos are deleted 90 days after capture (or 90 days after an
-          open mismatch/no-face alert on that photo is resolved); an
-          Employee's reference photo is deleted 1 year after deactivation
-          or 3 years after their last clock event, whichever is sooner,
-          and immediately if the Employee record is deleted; and every
-          biometric photo for Customer's account is deleted 90 days after
-          Customer's subscription is canceled. Full detail is in the
+          <strong>Biometric information</strong> (reference photos,
+          sign-up selfies, and clock-in/clock-out photos): clock-in and
+          clock-out photos, taken on every plan, are deleted 90 days after
+          capture (or 90 days after an open mismatch/no-face alert on that
+          photo is resolved); an Employee&apos;s reference photo and any
+          sign-up selfie are deleted 1 year after deactivation or 3 years
+          after their last clock event, whichever is sooner, and
+          immediately if the Employee record is deleted, if Customer uses
+          Remove photo, or if the Employee deletes their OrbitsWorks app
+          account; and every biometric photo for Customer&apos;s account is
+          deleted 90 days after Customer&apos;s subscription is canceled.
+          Face-verification results (status and similarity score) stay
+          with the clock event as part of the attendance record. Deleted
+          files can be recovered by our storage provider for up to 7 days
+          before they are permanently removed. Full detail is in the
           Biometric Data Policy.
         </li>
         <li>
@@ -270,7 +299,7 @@ export default function PrivacyContent() {
       <p>
         Customer is responsible for determining what workforce or
         employment records it is legally required to retain and should
-        export required records before they are deleted from OrbitWorks.
+        export required records before they are deleted from OrbitsWorks.
       </p>
 
       <h2>6. Access, Correction, Export, and Deletion</h2>
@@ -283,7 +312,7 @@ export default function PrivacyContent() {
         controlled by their employer to their employer.
       </p>
       <p>
-        Where appropriate, OrbitWorks will assist Customer with verified
+        Where appropriate, OrbitsWorks will assist Customer with verified
         requests to access, correct, export, or delete personal
         information.
       </p>
@@ -295,7 +324,7 @@ export default function PrivacyContent() {
 
       <h2>7. Security</h2>
       <p>
-        OrbitWorks uses reasonable administrative, technical, and
+        OrbitsWorks uses reasonable administrative, technical, and
         organizational safeguards designed to protect personal
         information.
       </p>
@@ -307,28 +336,28 @@ export default function PrivacyContent() {
       </p>
       <p>
         No internet-connected service or information-storage system can
-        be guaranteed to be completely secure, and OrbitWorks cannot
+        be guaranteed to be completely secure, and OrbitsWorks cannot
         guarantee absolute security.
       </p>
 
       <h2>8. Data Breaches and Security Incidents</h2>
       <p>
-        If OrbitWorks becomes aware of a security incident involving
-        personal information, OrbitWorks will investigate the incident
+        If OrbitsWorks becomes aware of a security incident involving
+        personal information, OrbitsWorks will investigate the incident
         and take reasonable steps to contain, mitigate, and remediate it.
       </p>
       <p>
         Where required by applicable law or contractual obligation,
-        OrbitWorks will provide legally required notifications to
+        OrbitsWorks will provide legally required notifications to
         affected Customers or other parties.
       </p>
 
-      <h2>9. Children's Information</h2>
+      <h2>9. Children&apos;s Information</h2>
       <p>
-        OrbitWorks is designed for workforce and business use and is not
+        OrbitsWorks is designed for workforce and business use and is not
         intended for use by children except where a Customer lawfully
         employs or otherwise manages a minor and is permitted to process
-        the minor's information under applicable law.
+        the minor&apos;s information under applicable law.
       </p>
       <p>
         Customer is responsible for complying with any additional legal
@@ -337,7 +366,7 @@ export default function PrivacyContent() {
 
       <h2>10. International Processing</h2>
       <p>
-        OrbitWorks and its service providers may process information in
+        OrbitsWorks and its service providers may process information in
         the United States and other locations where they operate.
       </p>
       <p>
@@ -347,16 +376,16 @@ export default function PrivacyContent() {
 
       <h2>11. Sale or Transfer of Business</h2>
       <p>
-        If OrbitWorks is involved in a merger, acquisition,
+        If OrbitsWorks is involved in a merger, acquisition,
         restructuring, financing, bankruptcy, or sale of assets, personal
         information may be transferred as part of that transaction,
         subject to applicable law.
       </p>
 
       <h2>12. Changes to This Privacy Policy</h2>
-      <p>OrbitWorks may update this Privacy Policy from time to time.</p>
+      <p>OrbitsWorks may update this Privacy Policy from time to time.</p>
       <p>
-        Material changes will be reflected by an updated "Last updated"
+        Material changes will be reflected by an updated &quot;Last updated&quot;
         date and may also be communicated through the Service, by email,
         or through another reasonable method.
       </p>
@@ -365,7 +394,7 @@ export default function PrivacyContent() {
       <p>
         Questions, privacy requests, or concerns regarding this Privacy
         Policy may be submitted using the contact information provided on
-        the OrbitWorks website.
+        the OrbitsWorks website.
       </p>
     </div>
   );

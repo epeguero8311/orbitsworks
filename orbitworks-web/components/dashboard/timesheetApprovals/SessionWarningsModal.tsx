@@ -1,6 +1,11 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { SiteExitsNote } from "@/components/time/SiteExitsNote";
+import { ShiftCommentsNote } from "@/components/time/ShiftCommentsNote";
+import { lateLabel } from "@/lib/syncedLate";
+import { replacedSourceText } from "@/lib/punchFlags";
+import { siteExitTone } from "@/lib/siteExits";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
@@ -11,7 +16,10 @@ import {
   type SessionWarning,
   type WarningSeverity,
 } from "@/lib/sessionWarnings";
-import type { ClockEvent, JobSite, OverrideEvent } from "@/lib/types";
+import type { ClockEvent, JobSite, OverrideEvent, ShiftNote, SiteExit } from "@/lib/types";
+import { ClockPhoto } from "@/components/time/ClockPhoto";
+import { ReferencePhoto } from "@/components/time/ReferencePhoto";
+import { faceResultText } from "@/lib/clockPhoto";
 import type { EventComment } from "@/lib/clockEventComments";
 import { EmployeeCommentsList } from "@/components/time/EmployeeCommentsList";
 
@@ -212,33 +220,30 @@ function FaceWarningItem({
             {direction === "in" ? "Clock in" : "Clock out"} photo
           </p>
           <div className="aspect-square overflow-hidden rounded-md bg-white">
-            {event.photoUrl ? (
-              <img src={event.photoUrl} alt="Clock photo" className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full items-center justify-center text-xs text-gray-600">No photo</div>
-            )}
+            <ClockPhoto event={event} alt="Clock photo" emptyText="No photo" />
           </div>
         </div>
         <div>
           <p className="mb-1 text-center text-xs text-gray-500">Reference photo</p>
           <div className="aspect-square overflow-hidden rounded-md bg-white">
-            {faceCheck?.referencePhotoUrl ? (
-              <img
-                src={faceCheck.referencePhotoUrl}
-                alt="Employee reference photo"
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-xs text-gray-600">No photo</div>
-            )}
+            <ReferencePhoto url={faceCheck?.referencePhotoUrl} alt="Employee reference photo" />
           </div>
         </div>
       </div>
+      {faceResultText(faceCheck) && <p className="text-gray-600">Face check: {faceResultText(faceCheck)}</p>}
       {faceCheck?.similarity != null && (
         <p className="text-gray-600">Similarity: {faceCheck.similarity}%</p>
       )}
     </WarningCard>
   );
+}
+
+const PUNCH_LABEL: Record<string, string> = { in: "Clock in", out: "Clock out", breakStart: "Break start", breakEnd: "Break end" };
+const PUNCH_WORD: Record<string, string> = { in: "clock-in", out: "clock-out", breakStart: "break start", breakEnd: "break end" };
+
+function whenLabel(atMs: number | null): string {
+  if (atMs === null) return "";
+  return new Date(atMs).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function warningTitle(warning: SessionWarning): string {
@@ -263,6 +268,14 @@ function warningTitle(warning: SessionWarning): string {
       return "No face detected";
     case "autoClockOut":
       return "Auto clocked out";
+    case "leftSite":
+      return "Left the job site";
+    case "syncedLate":
+      return "Synced late";
+    case "punchProblem":
+      return "Punch needs a look";
+    case "punchReplaced":
+      return "Real punch replaced an entry";
     default:
       return "";
   }
@@ -280,6 +293,8 @@ export default function SessionWarningsModal({
   onAssignSite,
   onClose,
   comments = [],
+  punchComments = [],
+  siteExits = [],
 }: {
   employeeName: string;
   siteName: string;
@@ -287,11 +302,18 @@ export default function SessionWarningsModal({
   sites: JobSite[];
   onAssignSite: (siteId: string) => Promise<void>;
   onClose: () => void;
+  // Phase 9 (H6 a): the shift's employee comments (a card, not a warning)
+  // and every job site stretch - the gray ones (on break, short, tracking
+  // off) show under the warnings, the red ones are the leftSite warning.
+  comments?: ShiftNote[];
+  siteExits?: SiteExit[];
   // The employee's camera-screen comments on this session's clock-in and
-  // clock-out - a card under the warnings, not a warning. The window also
-  // opens for a session that has comments and no warnings.
-  comments?: EventComment[];
+  // clock-out - in the same Employee comments card, above the shift
+  // comments. The window also opens for a session that has comments and
+  // no warnings.
+  punchComments?: EventComment[];
 }) {
+  const grayExits = siteExits.filter((x) => siteExitTone(x) === "gray");
   const { userData } = useAuth();
   const overrideWarning = warnings.find((w) => w.type === "supervisorOverride");
   const [overrideEvent, setOverrideEvent] = useState<OverrideEvent | null>(null);
@@ -339,9 +361,7 @@ export default function SessionWarningsModal({
         className="w-full max-w-sm rounded-xl bg-white p-6"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-base font-semibold text-gray-950">
-          {warnings.length > 0 ? "Session warnings" : "Shift details"}
-        </h2>
+        <h2 className="text-base font-semibold text-gray-950">{warnings.length > 0 ? "Session warnings" : "Shift details"}</h2>
         <p className="mt-0.5 text-xs text-gray-600">{employeeName}</p>
 
         <div className="mt-3 max-h-[70vh] space-y-3 overflow-y-auto">
@@ -471,6 +491,58 @@ export default function SessionWarningsModal({
                     </p>
                   </WarningCard>
                 );
+              case "leftSite":
+                return (
+                  <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
+                    <SiteExitsNote exits={warning.exits} />
+                    <p className="mt-1 text-xs text-gray-500">A flag only - the hours are not changed.</p>
+                  </WarningCard>
+                );
+              case "syncedLate":
+                return (
+                  <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
+                    <ul className="space-y-0.5 text-gray-600">
+                      {warning.punches.map((p) => (
+                        <li key={p.id}>
+                          {PUNCH_LABEL[p.type] ?? p.type}: {lateLabel(p.lateMs)}
+                          {p.timeNotProven
+                            ? ` - time not proven${p.offlineSinceMs !== null ? ` (phone offline since ${whenLabel(p.offlineSinceMs)})` : ""}`
+                            : ""}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-xs text-gray-500">Saved on the phone with no signal. The time shown is when the employee punched.</p>
+                  </WarningCard>
+                );
+              case "punchProblem":
+                return (
+                  <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
+                    <ul className="space-y-0.5 text-gray-600">
+                      {warning.punches.map((p) => (
+                        <li key={p.id}>
+                          {PUNCH_LABEL[p.type] ?? p.type} {whenLabel(p.atMs)}: {p.items.join("; ")}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-xs text-gray-500">Recorded anyway - a phone punch is never refused. Check it before approving.</p>
+                  </WarningCard>
+                );
+              case "punchReplaced":
+                return (
+                  <WarningCard key={i} severity={warning.severity} title={warningTitle(warning)}>
+                    <ul className="space-y-0.5 text-gray-600">
+                      {warning.punches.map((p) => (
+                        <li key={p.id}>
+                          Real {PUNCH_WORD[p.type] ?? p.type} {whenLabel(p.atMs)} replaced{" "}
+                          {p.replaced
+                            .map((r) => `the ${replacedSourceText(r.source)} ${PUNCH_WORD[r.type] ?? r.type} ${whenLabel(r.atMs)}`)
+                            .join(", ")}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-xs text-gray-500">The employee&apos;s real punch wins. Edit the time in Time Tracking if the replaced one was right.</p>
+                  </WarningCard>
+                );
               case "faceLowConfidence":
               case "faceMismatch":
               case "faceNoFace":
@@ -487,11 +559,20 @@ export default function SessionWarningsModal({
                 return null;
             }
           })}
-          {comments.length > 0 && (
+          {grayExits.length > 0 && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
+              <p className="font-medium text-gray-700">Other job site times (no warning)</p>
+              <div className="mt-1">
+                <SiteExitsNote exits={grayExits} />
+              </div>
+            </div>
+          )}
+          {punchComments.length + comments.length > 0 && (
             <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
               <p className="font-medium text-gray-700">Employee comments</p>
-              <div className="mt-2">
-                <EmployeeCommentsList comments={comments} />
+              <div className="mt-2 space-y-2">
+                <EmployeeCommentsList comments={punchComments} />
+                <ShiftCommentsNote comments={comments} />
               </div>
             </div>
           )}

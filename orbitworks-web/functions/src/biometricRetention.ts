@@ -2,6 +2,7 @@ import * as admin from "firebase-admin";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { db } from "./shared";
 import { storagePathFromDownloadUrl } from "./rekognition";
+import { deleteEmployeeFacePhotos } from "./facePhotos";
 
 // Biometric Data Policy retention rules (see components/legal/
 // BiometricPolicyContent.tsx, which these functions must stay in sync
@@ -39,6 +40,11 @@ async function deletePhotoStorageObject(photoUrl: string, context: Record<string
   }
 }
 
+// Used by both cleanupClockEventPhotos and cleanupCanceledCompanyPhotos, so
+// every deleted clock photo gets the same marker. photoRemovedAt is the only
+// thing added - faceCheck, timestamps, source, site and flags never change,
+// so the website still shows the face match result with a "Photo removed"
+// placeholder.
 async function deleteClockEventPhoto(companyId: string, eventId: string, photoUrl: string): Promise<void> {
   await deletePhotoStorageObject(photoUrl, { companyId, eventId });
   await db
@@ -46,7 +52,7 @@ async function deleteClockEventPhoto(companyId: string, eventId: string, photoUr
     .doc(companyId)
     .collection("clockEvents")
     .doc(eventId)
-    .update({ photoUrl: admin.firestore.FieldValue.delete() })
+    .update({ photoUrl: admin.firestore.FieldValue.delete(), photoRemovedAt: admin.firestore.Timestamp.now() })
     .catch((err) => {
       console.warn("Failed to clear clock event photoUrl", { companyId, eventId, error: String(err) });
     });
@@ -54,11 +60,19 @@ async function deleteClockEventPhoto(companyId: string, eventId: string, photoUr
 
 // Clears the reference photo on an employee doc that otherwise stays -
 // the deactivation/last-event sweep and the company-cancellation sweep
-// both use this. deleteEmployeeRecord (employees.ts) deletes the whole
-// doc instead, so it only needs deletePhotoStorageObject directly, not
-// this.
+// both use this. Deletes EVERY face photo of the employee (the photoUrl
+// file plus the whole employees/{id}/ folder: reference.jpg, Employee App
+// selfie/ originals, supervisor app updates/) - not just the photoUrl
+// file, which used to leave the identical sign-up selfie behind
+// (biometric audit d). On a Storage failure the fields are left as they
+// are so the next daily sweep tries again.
 async function deleteEmployeeReferencePhoto(companyId: string, employeeId: string, photoUrl: string): Promise<void> {
-  await deletePhotoStorageObject(photoUrl, { companyId, employeeId });
+  try {
+    await deleteEmployeeFacePhotos(companyId, employeeId, photoUrl);
+  } catch (err) {
+    console.warn("Face photo delete failed, retrying next sweep", { companyId, employeeId, error: String(err) });
+    return;
+  }
   await db
     .collection("companies")
     .doc(companyId)
@@ -272,6 +286,17 @@ export const cleanupCanceledCompanyPhotos = onSchedule("every 24 hours", async (
     for (const eventDoc of eventsSnap.docs) {
       const photoUrl = (eventDoc.data() as { photoUrl?: string }).photoUrl;
       if (photoUrl) await deleteClockEventPhoto(companyId, eventDoc.id, photoUrl);
+    }
+
+    // Anything left under employees/ (a selfie/ or updates/ file whose
+    // employee no longer has a photoUrl, or no longer exists) - every file
+    // there is a face photo. clockEvents/ files are only removed through
+    // the loop above, so their events get the photoRemovedAt marker.
+    try {
+      await admin.storage().bucket().deleteFiles({ prefix: `companies/${companyId}/employees/` });
+    } catch (err) {
+      console.warn("Leftover employee photo delete failed, retrying next sweep", { companyId, error: String(err) });
+      continue;
     }
 
     await companyDoc.ref.update({ biometricPhotosWipedAt: admin.firestore.Timestamp.now() }).catch((err) => {

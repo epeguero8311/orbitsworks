@@ -13,6 +13,7 @@ import {
   compareReferencePhotos,
 } from "./rekognition";
 import { createEmployeeUpdatedAlert, createPinChangedAlert } from "./alerts";
+import { readEmployeePin } from "./lib/employeePin";
 
 const UPDATED_BY_NAME_MAX_LENGTH = 100;
 const RETAINED_PHOTO_MS = 30 * 24 * 60 * 60 * 1000;
@@ -129,6 +130,8 @@ export const updateEmployeeProfile = onCall(
     if (employee.active !== true) {
       throw new HttpsError("failed-precondition", "This employee is not active.");
     }
+    // prod-readiness item 7: current PIN from employeePins (old field fallback).
+    employee.pin = (await readEmployeePin(companyId, employeeId, employee)) ?? undefined;
 
     // Idempotent replay: the same caller retrying after an earlier attempt's
     // response never reached the device - same reasoning as createEmployee.ts's

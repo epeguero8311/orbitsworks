@@ -35,8 +35,21 @@ export type AlertItem = {
     | "employeeUpdated"
     // Auto Clock-Out - see functions/src/autoClockOut.ts.
     | "autoClockOut"
+    // Employee App Phase 4 (offline punches) - see functions/src/alerts.ts.
+    | "syncWrongPin"
+    | "syncedLateApproved"
     // Offline employee create/PIN edit - see createPinChangedAlert.
-    | "pinChanged";
+    | "pinChanged"
+    // Employee App "Delete account" - see functions/src/employeeAccount.ts.
+    | "employeeAccountDeleted"
+    // RC1 follow-up - an unsent punch/comment removed on the phone.
+    | "punchRemoved"
+    // B (2026-11-21) - late / flagged queued punches (functions/src/latePunchTypes.ts).
+    | "punchSyncedLate"
+    | "punchSyncedVeryLate"
+    | "punchFlagged"
+    // Employee App Phase 8 - left the job site during a shift (feed only).
+    | "leftJobSite";
   // Who/what this alert is about - an employee name for every alert type
   // today. A future site-level alert (no single employee involved) should
   // put the site name (or "All Sites") here instead - alertTitle() below
@@ -77,7 +90,15 @@ export const ALERT_SHORT_TAGS: Record<AlertItem["alertType"], string> = {
   faceBadReference: "Bad Reference Photo",
   employeeUpdated: "Employee Updated",
   autoClockOut: "Auto Clocked Out",
+  syncWrongPin: "Wrong PIN at Sync",
+  syncedLateApproved: "Late Punch on Approved Timesheet",
   pinChanged: "PIN Changed",
+  employeeAccountDeleted: "Deleted App Account",
+  leftJobSite: "Left Job Site",
+  punchRemoved: "Unsent Punch Removed",
+  punchSyncedLate: "Punch Synced Late",
+  punchSyncedVeryLate: "Punch Synced Very Late",
+  punchFlagged: "Punch Needs a Look",
 };
 
 // Drives the severity dot in AlertsPanel - urgent (red) for alerts that need
@@ -109,7 +130,19 @@ export const ALERT_SEVERITY: Record<AlertItem["alertType"], AlertSeverity> = {
   // clockedInOutsideGeofence/siteMismatch's own "someone should take a
   // look" framing.
   autoClockOut: "warning",
+  // Employee App Phase 4 - someone should take a look, nothing is blocked.
+  syncWrongPin: "warning",
+  syncedLateApproved: "warning",
   pinChanged: "warning",
+  // Info only - the employee's own choice; nothing to fix.
+  employeeAccountDeleted: "info",
+  // Phase 8 - a flag only, leaving never blocks or ends anything.
+  leftJobSite: "warning",
+  // Lost for good - the time has to be fixed by hand.
+  punchRemoved: "warning",
+  punchSyncedLate: "warning",
+  punchSyncedVeryLate: "urgent",
+  punchFlagged: "warning",
 };
 
 export function alertTitle(alert: AlertItem) {

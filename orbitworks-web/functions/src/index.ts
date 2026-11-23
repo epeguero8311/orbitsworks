@@ -17,6 +17,21 @@ export {
 
 export { createEmployee } from "./createEmployee";
 
+export { joinCompany } from "./joinCompany";
+
+export { getJoinInfo } from "./getJoinInfo";
+
+// Employee App email invites (Phase 3B).
+export {
+  createEmployeeInvite,
+  onEmployeeInviteCreated,
+  resendEmployeeInvite,
+  revokeEmployeeInvite,
+  removeEmployeeInvite,
+} from "./employeeInvites";
+export { getInviteInfo } from "./getInviteInfo";
+export { acceptEmployeeInvite } from "./acceptEmployeeInvite";
+
 export { updateEmployeeProfile } from "./updateEmployee";
 
 export {
@@ -24,6 +39,7 @@ export {
   backfillEmployeePins,
   verifyPin,
   getPinSyncTable,
+  getEmployeePins,
 } from "./pins";
 
 export {
@@ -60,6 +76,12 @@ export {
 
 export { onEmployeePhotoWrite } from "./rekognition";
 
+export { syncEmployeeAppConfig, backfillEmployeeAppConfig } from "./employeeAppConfig";
+
+export { syncEmployeeSelfView } from "./employeeSelfView";
+
+export { employeeClockPunch, getEmployeeHomeSite, getMyPin, getMyPinVerifier } from "./employeeClock";
+
 export { runAutoClockOut } from "./autoClockOut";
 
 export {
@@ -67,3 +89,23 @@ export {
   cleanupDeactivatedEmployeePhotos,
   cleanupCanceledCompanyPhotos,
 } from "./biometricRetention";
+export { removeEmployeePhoto } from "./facePhotos";
+
+// Employee App Phase 7: the employee's own push token + alerts cleanup.
+export { registerEmployeePushToken, clearEmployeePushToken, cleanupEmployeeAlerts } from "./employeeAlerts";
+
+// Employee App Phase 8: leaving the job site (Pro, flag only) + the
+// location consent asked before Always location.
+export {
+  recordSiteExit,
+  getShiftFence,
+  cleanupSiteExitLocations,
+  getLocationConsent,
+  acceptLocationConsent,
+} from "./employeeSiteExits";
+
+// Phase 9: dismiss a possible-duplicate flag (Employees page).
+export { dismissDuplicateFlag } from "./employeeDuplicates";
+export { deleteMyEmployeeAccount } from "./employeeAccount";
+// RC1 follow-up: the phone reports an unsent punch/comment the employee removed.
+export { reportRemovedItem } from "./employeeRemovedItems";

@@ -14,12 +14,12 @@ Pro plan companies can generate a short-lived link for one job site. Anyone who 
 Useful for subcontractors, one-day workers, or anyone who doesn't have (or doesn't want) the app installed - they still clock in with a real PIN and a verified photo, same as the app requires.
 
 ## Where
-Sidebar > Temp Clock-In Link.
+Sidebar > Crew Access > Temporary clock-in link.
 
 ## How
-1. Open Temp Clock-In Link.
+1. Open Crew Access. The Temporary clock-in link tab opens first.
 2. Pick a job site (or "No site") and how long the link should stay active - 10, 30, or 60 minutes.
-3. Click Generate link, then copy it and send it, or hand the phone to whoever needs to clock in.
+3. Click Create temp link, then copy it and send it, or hand the phone to whoever needs to clock in.
 4. Whoever opens the link enters their 4-digit PIN and takes a photo to confirm - it automatically clocks them in or out depending on their current status.
 
 ## What you'll see
@@ -27,4 +27,4 @@ Sidebar > Temp Clock-In Link.
 - Copy the link again anytime, or revoke it early before it expires.
 - A permanent link history - every link this company has ever generated, who authorized it, when, and whether it expired or was revoked. Nothing there can be edited or deleted.
 - After 15 wrong PIN guesses on the same link, it's automatically revoked.
-- If you're on Core, an upgrade prompt shows in place of the page instead.
+- If you're on Core, the whole Crew Access page shows one locked card instead (the account owner can upgrade to Pro).

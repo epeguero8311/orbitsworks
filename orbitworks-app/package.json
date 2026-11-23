@@ -12,6 +12,7 @@
     "@sentry/react-native": "~7.11.0",
     "expo": "~57.0.27",
     "expo-camera": "~57.0.6",
+    "expo-constants": "57.0.21",
     "expo-crypto": "~57.0.3",
     "expo-dev-client": "~57.0.19",
     "expo-device": "~57.0.2",
@@ -25,6 +26,7 @@
     "expo-splash-screen": "~57.0.9",
     "expo-sqlite": "~57.0.4",
     "expo-status-bar": "~57.0.1",
+    "expo-task-manager": "~57.0.22",
     "expo-updates": "~57.0.24",
     "firebase": "^12.17.0",
     "react": "19.2.3",
@@ -38,7 +40,15 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "generate:icons": "node scripts/generate-icons.mjs"
+    "generate:icons": "node scripts/generate-icons.mjs",
+    "test": "node --test test/envRules.test.js test/joinLink.test.js test/joinSignup.test.js test/joinSignIn.test.js test/employeeHome.test.js test/historyDays.test.js test/punchTimingFormat.test.js test/punchQueueLogic.test.js test/pinVerifier.test.js test/shiftComment.test.js test/commentQueueLogic.test.js test/historyWeek.test.js test/employeeSettings.test.js test/savedPin.test.js test/savedPinStore.test.js test/shiftComments.test.js test/punchLocation.test.js test/punchFix.test.js test/breakReminders.test.js test/employeeAlertsView.test.js test/signOutSteps.test.js test/siteExit.test.js test/siteExitLogic.test.js test/activeSiteFilter.test.js test/roleSync.test.js test/removedReportLogic.test.js test/queueOwnerLogic.test.js",
+    "lint": "eslint .",
+    "check:imports": "node scripts/check-imports.js"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "eslint": "9.39.5",
+    "eslint-config-expo": "57.0.2",
+    "globals": "16.5.0"
+  }
 }

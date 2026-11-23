@@ -127,7 +127,9 @@ test("kill switch OFF: no alert doc, no push", async () => {
   assert.equal(await countAlerts(companyId), 0);
 });
 
-test("TEST_COMPANY_IDS set: only the allowlisted company gets alerts", async () => {
+// TEST_COMPANY_IDS was removed (2026-11-14). A value left over in a
+// functions/.env.<project> file must not limit alerts to any company.
+test("leftover TEST_COMPANY_IDS value is ignored: every company gets alerts", async () => {
   const allowedCompanyId = "c1-allowed";
   const otherCompanyId = "c1-other";
   await seedCompany(allowedCompanyId);
@@ -146,10 +148,10 @@ test("TEST_COMPANY_IDS set: only the allowlisted company gets alerts", async () 
   );
 
   assert.equal(await countAlerts(allowedCompanyId), 1);
-  assert.equal(await countAlerts(otherCompanyId), 0);
+  assert.equal(await countAlerts(otherCompanyId), 1);
 });
 
-test("TEST_COMPANY_IDS empty/unset: no restriction (today's behavior)", async () => {
+test("no TEST_COMPANY_IDS at all: alerts still fire", async () => {
   const companyId = "c1-unrestricted";
   await seedCompany(companyId);
   setFlags({ alertsFeed: true, pushEnabled: false });
@@ -484,8 +486,8 @@ test("breakTooLong fires via the periodic sweep", async () => {
   assert.equal(snap.size, 1);
 });
 
-test("TEST_COMPANY_IDS restricts the periodic sweep too", async () => {
-  const companyId = "c9-not-allowed";
+test("leftover TEST_COMPANY_IDS value is ignored by the periodic sweep too", async () => {
+  const companyId = "c9-not-in-list";
   await seedCompany(companyId);
   setFlags({ alertsFeed: true, pushEnabled: false, testCompanyIds: "some-other-company" });
 
@@ -509,28 +511,162 @@ test("TEST_COMPANY_IDS restricts the periodic sweep too", async () => {
 
   await funcs.checkPeriodicAlerts.run({});
 
-  assert.equal(await countAlerts(companyId), 0);
+  const snap = await db
+    .collection("companies")
+    .doc(companyId)
+    .collection("alerts")
+    .where("alertType", "==", "breakTooLong")
+    .get();
+  assert.equal(snap.size, 1);
 });
 
-test("maxHours fires via the periodic sweep", async () => {
-  const companyId = "c10";
+// Max Hours counts the open shift from its clock-in (Phase 7: an overnight
+// shift counts too). These tests freeze Date at a fixed Chicago time so
+// they never depend on the real clock. 2026-10-21 is a plain CDT (UTC-5)
+// weekday - no daylight-saving change.
+async function runMaxHoursSweep(t, { companyId, nowChicago, clockInChicago, extraEvents = [], ids = false }) {
+  t.mock.timers.enable({ apis: ["Date"], now: new Date(`${nowChicago}-05:00`).getTime() });
   await seedCompany(companyId); // defaults include maxHoursThreshold: 8
   setFlags({ alertsFeed: true, pushEnabled: false });
-
-  const now = Date.now();
-  await db.collection("companies").doc(companyId).collection("clockEvents").add({
-    employeeId: "e1",
-    employeeName: "Sam",
-    siteId: null,
-    siteName: null,
-    type: "in",
-    timestamp: admin.firestore.Timestamp.fromDate(new Date(now - 9 * 60 * 60 * 1000)), // 9h ago, over the 8h default
-  });
+  const add = (type, chicago) =>
+    db.collection("companies").doc(companyId).collection("clockEvents").add({
+      employeeId: "e1",
+      employeeName: "Sam",
+      siteId: null,
+      siteName: null,
+      type,
+      timestamp: admin.firestore.Timestamp.fromDate(new Date(`${chicago}-05:00`)),
+    });
+  await add("in", clockInChicago);
+  for (const [type, chicago] of extraEvents) await add(type, chicago);
 
   await funcs.checkPeriodicAlerts.run({});
 
   const snap = await db.collection("companies").doc(companyId).collection("alerts").where("alertType", "==", "maxHours").get();
-  assert.equal(snap.size, 1);
+  return ids ? snap.docs.map((d) => d.id).sort() : snap.size;
+}
+
+test("maxHours fires via the periodic sweep - before 9am Chicago (fake clock)", async (t) => {
+  // 08:45, clocked in at 00:30 the same day = 8h15m, over the 8h default.
+  const count = await runMaxHoursSweep(t, {
+    companyId: "c10",
+    nowChicago: "2026-10-21T08:45:00",
+    clockInChicago: "2026-10-21T00:30:00",
+  });
+  assert.equal(count, 1);
+});
+
+test("maxHours fires via the periodic sweep - after 9am Chicago (fake clock)", async (t) => {
+  // 15:00, clocked in at 06:00 the same day = 9h.
+  const count = await runMaxHoursSweep(t, {
+    companyId: "c10b",
+    nowChicago: "2026-10-21T15:00:00",
+    clockInChicago: "2026-10-21T06:00:00",
+  });
+  assert.equal(count, 1);
+});
+
+test("Phase 7: maxHours counts an overnight shift from its clock-in, keyed to the clock-in day (fake clock)", async (t) => {
+  // 08:30, clocked in at 23:30 the day before = 9h. Used to be skipped.
+  const ids = await runMaxHoursSweep(t, {
+    companyId: "c10c",
+    nowChicago: "2026-10-21T08:30:00",
+    clockInChicago: "2026-10-20T23:30:00",
+    ids: true,
+  });
+  assert.deepEqual(ids, ["max-e1-2026-10-20"]);
+});
+
+test("Phase 7: overnight shift with a break after midnight - break time not counted, under 8h = no alert", async (t) => {
+  // 23:30 -> 07:00 is 7.5h, minus a 1h break = 6.5h worked.
+  const count = await runMaxHoursSweep(t, {
+    companyId: "c10d",
+    nowChicago: "2026-10-21T07:00:00",
+    clockInChicago: "2026-10-20T23:30:00",
+    extraEvents: [
+      ["breakStart", "2026-10-21T02:00:00"],
+      ["breakEnd", "2026-10-21T03:00:00"],
+    ],
+  });
+  assert.equal(count, 0);
+});
+
+test("Phase 7: day shift keeps exactly the old alert id, and a second sweep adds nothing", async (t) => {
+  // Same id the pre-Phase-7 code made (max-{employeeId}-{today}), so no
+  // supervisor alert re-fires after the deploy.
+  const ids = await runMaxHoursSweep(t, {
+    companyId: "c10e",
+    nowChicago: "2026-10-21T15:00:00",
+    clockInChicago: "2026-10-21T06:00:00",
+    extraEvents: [
+      ["breakStart", "2026-10-21T11:00:00"],
+      ["breakEnd", "2026-10-21T11:15:00"],
+    ],
+    ids: true,
+  });
+  assert.deepEqual(ids, ["max-e1-2026-10-21"]);
+  await funcs.checkPeriodicAlerts.run({});
+  const again = await db.collection("companies").doc("c10e").collection("alerts").where("alertType", "==", "maxHours").get();
+  assert.equal(again.size, 1);
+});
+
+test("Phase 7: a clocked-out shift gets no maxHours", async (t) => {
+  const count = await runMaxHoursSweep(t, {
+    companyId: "c10f",
+    nowChicago: "2026-10-21T18:00:00",
+    clockInChicago: "2026-10-21T06:00:00",
+    extraEvents: [["out", "2026-10-21T16:00:00"]],
+  });
+  assert.equal(count, 0);
+});
+
+// Phase 7: the supervisor push must look exactly as it did before the
+// sendExpoMessages refactor - same fields, same audience filter.
+test("Phase 7: supervisor push message unchanged after the refactor (fields, enabled-only, malformed skipped)", async () => {
+  const companyId = "c-push-shape";
+  await seedCompany(companyId);
+  setFlags({ alertsFeed: true, pushEnabled: true });
+  const tokens = db.collection("companies").doc(companyId).collection("pushTokens");
+  await tokens.doc("on").set({ deviceId: "on", token: "ExponentPushToken[onnnnnnnnnnnnnnnnnnnnn]", platform: "ios", notificationsEnabled: true });
+  await tokens.doc("off").set({ deviceId: "off", token: "ExponentPushToken[offfffffffffffffffffff]", platform: "ios", notificationsEnabled: false });
+  await tokens.doc("bad").set({ deviceId: "bad", token: "garbage", platform: "ios", notificationsEnabled: true });
+  const sent = [];
+  sendPushImpl = async (messages) => {
+    sent.push(...messages);
+    return messages.map(() => ({ status: "ok" }));
+  };
+
+  await alertsModule.checkLateClockIn(companyId, "evt-shape", lateClockInEvent({ employeeId: "e1", minutesLate: 20 }));
+
+  const alertId = "late-e1-2026-06-15";
+  assert.deepEqual(sent, [
+    {
+      to: "ExponentPushToken[onnnnnnnnnnnnnnnnnnnnn]",
+      title: "Late Clock-In",
+      body: "Clocked in late",
+      data: { alertId, alertType: "lateClockIn" },
+    },
+  ]);
+  // A good ticket never removes a token.
+  assert.equal((await tokens.get()).size, 3);
+});
+
+test("Phase 7: supervisor push - one chunk failing never throws and keeps every token", async () => {
+  const companyId = "c-push-chunk";
+  setFlags({ pushEnabled: true });
+  await db.collection("companies").doc(companyId).collection("pushTokens").doc("d1").set({
+    deviceId: "d1",
+    token: "ExponentPushToken[d1111111111111111111111]",
+    platform: "android",
+    notificationsEnabled: true,
+  });
+  sendPushImpl = async () => {
+    throw new Error("Expo down");
+  };
+  await assert.doesNotReject(
+    pushSendModule.sendPushForAlert({ id: "a1", companyId, alertType: "maxHours", message: "m" })
+  );
+  assert.equal((await db.collection("companies").doc(companyId).collection("pushTokens").get()).size, 1);
 });
 
 test("missedClockOut fires via the periodic sweep", async () => {

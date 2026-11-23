@@ -179,7 +179,9 @@ const TodayShiftContext = createContext(EMPTY);
 export function TodayShiftProvider({ children }) {
   const { currentUser, userData } = useAuth();
   const { employees, sites, todayInEvents, loading, fromCache } = useTodayShiftListeners(
-    currentUser ? userData?.companyId : null
+    // Supervisor/admin only - an Employee App login cannot read the whole
+    // company list (rules) and never shows it.
+    currentUser && userData?.role !== "employee" ? userData?.companyId : null
   );
   const value = useMemo(
     () => ({ employees, sites, todayInEvents, loading, fromCache }),

@@ -1,19 +1,9 @@
 import { useEffect } from "react";
-import Constants, { ExecutionEnvironment } from "expo-constants";
 import { useAuth } from "../AuthContext";
 import { registerForPushNotificationsAsync } from "../pushNotifications";
 import { navigateToAlert } from "../navigationRef";
-
-// Same reason as lib/pushNotifications.js: expo-notifications must never
-// be imported at module scope, since merely importing it (not just calling
-// a push API) runs an internal side effect that throws on Android under
-// Expo Go. require() it lazily inside the effect below, only after
-// confirming we are not in Expo Go.
-const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
-
-function loadNotifications() {
-  return require("expo-notifications");
-}
+// expo-notifications is loaded lazily, never in Expo Go (notificationsModule.js).
+import { isExpoGo, loadNotifications } from "../notificationsModule";
 
 function extractAlertId(response) {
   return response?.notification?.request?.content?.data?.alertId ?? null;
@@ -43,6 +33,7 @@ export function usePushRegistration() {
     }
 
     const Notifications = loadNotifications();
+    if (!Notifications) return;
 
     // App launched fresh by tapping a notification (cold start).
     Notifications.getLastNotificationResponseAsync()

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
-import { isProPlan } from "@/lib/stripe/tiers";
+import { isCoreOrProPlan, isProPlan } from "@/lib/stripe/tiers";
 import type { ExportSettings } from "@/lib/types";
 
 export type AttendanceRules = {
@@ -33,6 +33,17 @@ export type Alerts = {
   // separate threshold needed for either.
   lateClockInAlert: boolean;
   earlyClockOutAlert: boolean;
+  // Employee App Phase 8 (Pro): "Left the job site" - the Overview /
+  // supervisor app feed entry and the red Timesheet Approvals warning.
+  // Default on. Leaving never blocks anything. Mirrors
+  // functions/src/alerts.ts ALERT_SETTINGS_DEFAULTS.leftJobSiteAlert.
+  leftJobSiteAlert: boolean;
+  // Face Verification (Pro) sub-toggles under "Face recognition alerts"
+  // (faceVerification.alertsEnabled, the main switch). Default on. Mirror
+  // ALERT_SETTINGS_DEFAULTS in functions/src/alerts.ts. faceNoFaceAlert
+  // also controls the employee's own "Couldn't detect a face" message.
+  faceMismatchAlert: boolean;
+  faceNoFaceAlert: boolean;
 };
 
 export type AppSettings = {
@@ -98,6 +109,9 @@ export const DEFAULT_ALERTS: Alerts = {
   siteMismatchWarning: true,
   lateClockInAlert: true,
   earlyClockOutAlert: true,
+  leftJobSiteAlert: true,
+  faceMismatchAlert: true,
+  faceNoFaceAlert: true,
 };
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -147,6 +161,13 @@ export function useCompanySettings() {
   const { userData } = useAuth();
   const [settings, setSettings] = useState<CompanySettings>(DEFAULT_SETTINGS);
   const [isPro, setIsPro] = useState(false);
+  // Email invites (Phase 3B): Core or Pro, not past_due. Same rule as the
+  // server's companyCanUseInvites; the server still enforces it.
+  const [canUseInvites, setCanUseInvites] = useState(false);
+  // Phase 9 (H2/H3): the one invite form's plan state - seats from the
+  // company doc (employeeCap from the plan, activeEmployeeCount from
+  // onEmployeeWrite), same source as crew codes (lib/joinCodes/server.ts).
+  const [plan, setPlan] = useState<{ pastDue: boolean; activeCap: number | null; activeCount: number }>({ pastDue: false, activeCap: null, activeCount: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -155,6 +176,12 @@ export function useCompanySettings() {
     const unsubscribe = onSnapshot(companyRef, (snapshot) => {
       const data = snapshot.exists() ? snapshot.data() : {};
       setIsPro(isProPlan(data.planTier as string | undefined));
+      setCanUseInvites(isCoreOrProPlan(data.planTier as string | undefined) && data.subscriptionStatus !== "past_due");
+      setPlan({
+        pastDue: data.subscriptionStatus === "past_due",
+        activeCap: typeof data.employeeCap === "number" ? data.employeeCap : null,
+        activeCount: typeof data.activeEmployeeCount === "number" ? data.activeEmployeeCount : 0,
+      });
       setSettings({
         name: data.name ?? null,
         logoUrl: data.logoUrl ?? null,
@@ -194,5 +221,6 @@ export function useCompanySettings() {
     return unsubscribe;
   }, [userData?.companyId]);
 
-  return { settings, isPro, loading };
+  const seatsLeft = plan.activeCap === null ? null : Math.max(0, plan.activeCap - plan.activeCount);
+  return { settings, isPro, canUseInvites, loading, pastDue: plan.pastDue, activeCap: plan.activeCap, seatsLeft };
 }

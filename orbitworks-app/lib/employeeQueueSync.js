@@ -2,7 +2,8 @@ import NetInfo from "@react-native-community/netinfo";
 import * as FileSystem from "expo-file-system/legacy";
 import { httpsCallable } from "firebase/functions";
 import { ref, getDownloadURL } from "firebase/storage";
-import { functions, storage } from "./firebase";
+import { functions, storage, auth } from "./firebase";
+import { ownerOf, isOwnRow, OWN_ROW_SQL, ownParams } from "./queueOwnerLogic";
 import { getDb, runExclusive } from "./db";
 import { recordEmployeeSyncAlert } from "./employeeSyncAlerts";
 import { notifyEmployeeQueueChange } from "./employeeQueueEvents";
@@ -188,7 +189,8 @@ export async function syncEmployeeQueueItemNow(localId, companyId) {
     "SELECT * FROM employee_queue WHERE localId = ? AND syncStatus IN ('pending','failed')",
     [localId]
   );
-  if (!item) return null;
+  // Logout fix: only the login that saved it, for its company.
+  if (!item || !isOwnRow(item, ownerOf(auth.currentUser?.uid, companyId))) return null;
 
   syncing = true;
   try {
@@ -229,12 +231,18 @@ export async function drainEmployeeQueue(companyId) {
   try {
     await cleanupEmployeeQueue().catch(() => {});
 
+    // Logout fix: only this login's own rows for this company; another
+    // login's wait on the phone for it.
+    const owner = ownerOf(auth.currentUser?.uid, companyId);
+    if (!owner) return;
     const sqlite = await getDb();
     const pending = await sqlite.getAllAsync(
-      "SELECT * FROM employee_queue WHERE syncStatus IN ('pending','failed') ORDER BY createdAt ASC"
+      `SELECT * FROM employee_queue WHERE syncStatus IN ('pending','failed') AND ${OWN_ROW_SQL} ORDER BY createdAt ASC`,
+      ownParams(owner)
     );
 
     for (const item of pending) {
+      if (!isOwnRow(item, ownerOf(auth.currentUser?.uid, companyId))) break;
       await runExclusive(() =>
         sqlite.runAsync("UPDATE employee_queue SET syncStatus = 'syncing' WHERE localId = ?", [item.localId])
       );

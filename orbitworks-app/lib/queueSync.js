@@ -9,6 +9,14 @@ import { notifyQueueChange } from "./queueEvents";
 import { isFaultActive, resolveTimeoutMs, hangForever, fakePermissionDeniedError } from "./syncFaults";
 import { uploadLocalFileToStorage } from "./storageUpload";
 import { cleanEmployeeComment } from "./validators/employeeComment";
+import { ownerOf, isOwnRow, OWN_ROW_SQL, ownParams } from "./queueOwnerLogic";
+
+// Logout fix (2026-11-21): the signed-in login's owner key. A drain sends
+// only rows this login saved for this company (lib/queueOwnerLogic.js);
+// another login's rows wait on the phone for it, untouched.
+function currentOwner(companyId) {
+  return ownerOf(auth.currentUser?.uid, companyId);
+}
 
 // The running drain, or null. Only one drain runs at a time, but it is
 // no longer a "busy, come back later" lock: a drainQueue call that
@@ -631,16 +639,17 @@ export async function cleanupSyncedQueueItems() {
 // driver paths), falls back to reading just the id column, then
 // hydrating each row one at a time so a single corrupted row can be
 // skipped-and-logged instead of blocking every other item's read.
+// Logout fix: only the signed-in login's own rows for its company.
 const READY_WHERE =
-  "syncStatus IN ('pending','failed','photoPending') AND (nextAttemptAt IS NULL OR nextAttemptAt <= ?)";
+  `syncStatus IN ('pending','failed','photoPending') AND (nextAttemptAt IS NULL OR nextAttemptAt <= ?) AND ${OWN_ROW_SQL}`;
 
-async function readPendingItems(sqlite) {
+async function readPendingItems(sqlite, owner) {
   const now = Date.now();
   let rows;
   try {
     rows = await sqlite.getAllAsync(
       `SELECT * FROM event_queue WHERE ${READY_WHERE} ORDER BY clientTimestamp ASC, localId ASC`,
-      [now]
+      [now, ...ownParams(owner)]
     );
   } catch (batchErr) {
     Sentry.captureException(batchErr, { tags: { area: "queueSync", step: "batchRead" } });
@@ -649,7 +658,7 @@ async function readPendingItems(sqlite) {
     try {
       ids = await sqlite.getAllAsync(
         `SELECT localId FROM event_queue WHERE ${READY_WHERE} ORDER BY clientTimestamp ASC, localId ASC`,
-        [now]
+        [now, ...ownParams(owner)]
       );
     } catch (idsErr) {
       Sentry.captureException(idsErr, { tags: { area: "queueSync", step: "batchReadFallbackIds" } });
@@ -669,21 +678,22 @@ async function readPendingItems(sqlite) {
       }
     }
   }
-  return rows.filter((r) => !inFlight.has(r.localId));
+  return rows.filter((r) => !inFlight.has(r.localId) && isOwnRow(r, owner));
 }
 
 // One automatic retry timer for the soonest backed-off row, so a failed
 // row is retried when its backoff ends even if no other trigger fires
 // (useQueueSync's 60s poll is still there as a backstop).
 let retryTimer = null;
-async function scheduleBackoffRetry(sqlite, companyId) {
+async function scheduleBackoffRetry(sqlite, companyId, owner) {
   if (retryTimer) {
     clearTimeout(retryTimer);
     retryTimer = null;
   }
   try {
     const row = await sqlite.getFirstAsync(
-      "SELECT MIN(nextAttemptAt) as t FROM event_queue WHERE syncStatus IN ('pending','failed','photoPending') AND nextAttemptAt IS NOT NULL"
+      `SELECT MIN(nextAttemptAt) as t FROM event_queue WHERE syncStatus IN ('pending','failed','photoPending') AND nextAttemptAt IS NOT NULL AND ${OWN_ROW_SQL}`,
+      ownParams(owner)
     );
     if (!row || row.t == null) return;
     const delay = Math.max(1000, row.t - Date.now());
@@ -715,6 +725,10 @@ async function clearBackoff() {
 async function processItem(state, sqlite, companyId, item) {
   const { myEpoch, trigger, stats } = state;
   const isPhotoStep = item.syncStatus === "photoPending";
+  // Logout fix: checked again right before sending - the login may have
+  // changed since the read. Not this login's row = left exactly as it is
+  // (no try counted).
+  if (!isOwnRow(item, currentOwner(companyId))) return false;
   inFlight.add(item.localId);
   try {
     await runExclusive(() =>
@@ -856,10 +870,11 @@ async function runEmployeeLane(state, sqlite, companyId, items) {
 // anything back, and 'dead' rows are skipped so one stuck event can't
 // block an employee forever. Returns null if the read fails - the drain
 // then runs unordered rather than not at all.
-async function readDocHeads(sqlite) {
+async function readDocHeads(sqlite, owner) {
   try {
     const rows = await sqlite.getAllAsync(
-      "SELECT employeeId, localId FROM event_queue WHERE syncStatus IN ('pending','failed','syncing') ORDER BY clientTimestamp ASC, localId ASC"
+      `SELECT employeeId, localId FROM event_queue WHERE syncStatus IN ('pending','failed','syncing') AND ${OWN_ROW_SQL} ORDER BY clientTimestamp ASC, localId ASC`,
+      ownParams(owner)
     );
     const heads = new Map();
     for (const r of rows) if (!heads.has(r.employeeId)) heads.set(r.employeeId, r.localId);
@@ -902,6 +917,8 @@ function wakePump(p) {
 // whether to clear retry backoff - see BACKOFF_RESET_TRIGGERS).
 export async function drainQueue(companyId, trigger = "other") {
   if (!companyId) return;
+  // Logout fix: signed out = nothing to send with.
+  if (!currentOwner(companyId)) return;
 
   if (BACKOFF_RESET_TRIGGERS.has(trigger)) {
     await clearBackoff().catch(() => {});
@@ -961,6 +978,9 @@ export async function drainQueue(companyId, trigger = "other") {
 
 async function runPump(p, companyId) {
   const { myEpoch, trigger, stats } = p;
+  // Fixed for this drain: a login change mid-drain sends nothing more
+  // (processItem checks the live login too).
+  const owner = currentOwner(companyId);
   const lanes = new Map(); // employeeId -> promise (event docs)
   const photos = new Map(); // localId -> promise (photo uploads)
   const seen = new Set(); // localIds picked up by this drain (summary only)
@@ -1018,8 +1038,11 @@ async function runPump(p, companyId) {
     // including a photo whose doc was just sent.
     while (myEpoch === currentEpoch) {
       p.wakeRequested = false;
-      const ready = await readPendingItems(sqlite);
-      const heads = await readDocHeads(sqlite);
+      // Logout fix: the login changed (signed out, or another account) -
+      // this drain stops; the new login's own drain sends its own rows.
+      if (!owner || currentOwner(companyId)?.uid !== owner.uid) break;
+      const ready = owner ? await readPendingItems(sqlite, owner) : [];
+      const heads = owner ? await readDocHeads(sqlite, owner) : null;
       const waitingForCreate = await readPendingCreateEmployeeIds(sqlite);
 
       // Event docs: one lane per employee, in order.
@@ -1104,7 +1127,7 @@ async function runPump(p, companyId) {
       await runExclusive(() =>
         sqlite.runAsync("INSERT OR REPLACE INTO sync_meta (key, value) VALUES ('queueLastSync', ?)", [String(Date.now())])
       ).catch(() => {});
-      await scheduleBackoffRetry(sqlite, companyId);
+      if (owner) await scheduleBackoffRetry(sqlite, companyId, owner);
     }
   } finally {
     clearInterval(stallCheck);
@@ -1146,11 +1169,21 @@ export async function retryQueueItem(localId) {
   notifyQueueChange();
 }
 
-export async function getPendingCount() {
+// Logout fix: the signed-in login's own unsent rows (with companyId: for
+// that company only). Signed out = 0.
+export async function getPendingCount(companyId) {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return 0;
   const sqlite = await getDb();
-  const row = await sqlite.getFirstAsync(
-    "SELECT COUNT(*) as c FROM event_queue WHERE syncStatus IN ('pending','syncing','failed','photoPending')"
-  );
+  const row = companyId
+    ? await sqlite.getFirstAsync(
+        `SELECT COUNT(*) as c FROM event_queue WHERE syncStatus IN ('pending','syncing','failed','photoPending') AND ${OWN_ROW_SQL}`,
+        [uid, companyId]
+      )
+    : await sqlite.getFirstAsync(
+        "SELECT COUNT(*) as c FROM event_queue WHERE syncStatus IN ('pending','syncing','failed','photoPending') AND createdByUid = ?",
+        [uid]
+      );
   return row ? row.c : 0;
 }
 

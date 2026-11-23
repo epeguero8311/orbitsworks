@@ -3,15 +3,27 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
+import { sentryJoinTokenScrubbers } from "@/lib/sentryScrub";
+import { sentryEnvironment } from "@/lib/sentryEnvironment";
+
+// Crew code pages (/j/{token}) have the token in the URL: no session
+// replay there, since a replay records the page URL.
+const onJoinPage = typeof window !== "undefined" && window.location.pathname.startsWith("/j/");
 
 Sentry.init({
   dsn: "https://6747a98c3089d8dd2ab9418599e75846@o4512133013176320.ingest.us.sentry.io/4512133018091520",
 
+  // "production" only on the real project, "dev" everywhere else.
+  environment: sentryEnvironment(),
+
   // Add optional integrations for additional features
-  integrations: [Sentry.replayIntegration()],
+  integrations: onJoinPage ? [] : [Sentry.replayIntegration()],
 
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
   tracesSampleRate: 1,
+
+  // Blank crew code tokens (/j/{token}) before anything is sent.
+  ...sentryJoinTokenScrubbers,
 
   // Define how likely Replay events are sampled.
   // This sets the sample rate to be 10%. You may want this to be 100% while

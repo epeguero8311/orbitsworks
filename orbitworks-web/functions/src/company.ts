@@ -2,6 +2,8 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db, FREE_EMPLOYEE_CAP, isOverActiveCap, isOverTotalCap, EmployeeCapFields } from "./shared";
 import { reserveNewPin } from "./pins";
+import { employeeDocPinOnCreate, employeePinData, employeePinRef } from "./lib/employeePin";
+import { acceptInviteSchema, pickStaffInvite } from "./staffInviteValidators";
 
 export const createCompany = onCall(async (request) => {
   if (!request.auth) {
@@ -53,6 +55,10 @@ export const createCompany = onCall(async (request) => {
       overtimeWarning: true,
       missedClockOutAlert: true,
     },
+    // Saved up front so the server's "never saved = legacy re-detect" rule
+    // (clockEvents.ts resolveAskJobSiteEachTime) never applies to a new
+    // company - it gets the website's default, on.
+    appSettings: { askJobSiteEachTime: true },
     ownerUid: uid,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
 
@@ -141,19 +147,46 @@ export const acceptInvite = onCall(async (request) => {
     throw new HttpsError("already-exists", "This account is already set up.");
   }
 
-  const inviteQuery = await db
-    .collection("invites")
-    .where("email", "==", email)
-    .where("status", "==", "pending")
-    .limit(1)
-    .get();
-
-  if (inviteQuery.empty) {
+  const parsedInput = acceptInviteSchema.safeParse(request.data ?? {});
+  if (!parsedInput.success) {
     await admin.auth().deleteUser(uid);
+    throw new HttpsError("invalid-argument", parsedInput.error.issues[0]?.message ?? "Invalid request.");
+  }
+  const { inviteId } = parsedInput.data;
+
+  // The invite the person came from (?invite= on the link), never just any
+  // pending invite that happens to match their email - see pickStaffInvite.
+  let byId: { id: string; email?: string; status?: string } | null = null;
+  let pendingForEmail: Array<{ id: string; email?: string; status?: string }> = [];
+  if (inviteId) {
+    const snap = await db.collection("invites").doc(inviteId).get();
+    byId = snap.exists ? { id: snap.id, ...(snap.data() as { email?: string; status?: string }) } : null;
+  } else {
+    const q = await db
+      .collection("invites")
+      .where("email", "==", email)
+      .where("status", "==", "pending")
+      .limit(2)
+      .get();
+    pendingForEmail = q.docs.map((d) => ({ id: d.id, ...(d.data() as { email?: string; status?: string }) }));
+  }
+  const pick = pickStaffInvite(email, inviteId, byId, pendingForEmail);
+  if (!pick.ok) {
+    await admin.auth().deleteUser(uid);
+    if (pick.reason === "ambiguous") {
+      throw new HttpsError(
+        "failed-precondition",
+        "You have more than one invite. Open the link in the invite email from the company you want to join."
+      );
+    }
+    if (pick.reason === "notPending") {
+      throw new HttpsError("failed-precondition", "This invite has already been used or is no longer active.");
+    }
+    // notFound and notForThisEmail look the same from outside.
     throw new HttpsError("not-found", "No pending invite found for this email.");
   }
 
-  const inviteDoc = inviteQuery.docs[0];
+  const inviteDoc = await db.collection("invites").doc(pick.id).get();
   const invite = inviteDoc.data() as {
     companyId: string;
     role?: "supervisor" | "admin";
@@ -295,9 +328,10 @@ export const acceptInvite = onCall(async (request) => {
     isAdmin: role === "admin",
     linkedUserId: uid,
     email: email,
-    pin: pin,
+    ...employeeDocPinOnCreate(pin),
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
+  batch.set(employeePinRef(invite.companyId, employeeRef.id), employeePinData(pin));
 
   // Finalize the PIN reservation claimed above with the real employeeId,
   // atomically with the employee/user docs it belongs to.
