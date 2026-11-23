@@ -31,14 +31,20 @@
   - `main`'s rules: 10/12. The one difference is that a subcontractor delete is refused now.
 - **Storage rules:** non-employee roles are unchanged; only `&& !isEmployeeRole()` was added. Checked by diff, not by emulator.
 
+## Rollback material
+
+- **Old prod functions env** (has `TEST_COMPANY_IDS`, so alerts go to ShipMate only), for the step 5 rollback: `C:\Users\Epegu\orbitworks-rollback\rollback.env.orbitworks-7ef59`. It is outside the repo and not committed.
+- **Old code for a functions rollback:** `5fd9898` (the old `main`).
+- **Old rulesets:** Firestore `9685428f-d935-45c1-80a7-7b13641c58c2`, Storage `977d9d5f-8e51-4c7b-8e96-9c8a14901305`.
+
 ## Steps
 
 | # | Step | Result |
 |---|---|---|
 | 1 | Live clients compat (emulator) | OK |
-| 2 | Merge `employee-app` into local `main` (no push) | |
-| 3 | Indexes + field overrides, wait for READY | |
-| 4 | Rules (Firestore + Storage) | |
+| 2 | Merge `employee-app` into local `main` (no push) | OK: `eabf7fd` pushed to `employee-app`. Local `main` merge `86c5258` has the same tree as `eabf7fd` and is not pushed. The prod env check and `tsc` pass. |
+| 3 | Indexes + field overrides, wait for READY | OK: deployed 2026-11-22, no deletes. All 16 composite indexes READY, the `token` overrides on `employeePushTokens` and `pushTokens` (COLLECTION + COLLECTION_GROUP) READY, and the TTL on `publicRateLimits.expiresAt` ACTIVE. |
+| 4 | Rules (Firestore + Storage) | OK: deployed 2026-11-23 21:34 UTC. New rulesets: Firestore `cc0393d4-f056-41f2-8fb8-4422f8711050`, Storage `a0a44424-528a-4b35-b4ca-aef39c65f787`. Read back from prod, they are the same as the repo files (md5 with line endings ignored). `liveClientsCompat.test.js` against the deployed Firestore rules: 14/14, including the new page-load test for the live Employees, Time Tracking and Reports pages (admin + owner). Sentry: no permission errors in the 2 h after the deploy. |
 | 5 | Functions (all) | |
 | 6 | Data scripts (backfillEmployeeAppConfig, recheckBadFaceReferences, migrateEmployeePins copy) | |
 | 7 | Password reset: custom domain off, real reset to the ShipMate login | |
