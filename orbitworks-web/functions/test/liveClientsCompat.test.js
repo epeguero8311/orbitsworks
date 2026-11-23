@@ -154,4 +154,42 @@ for (const [label, ctx] of [["admin", adm], ["owner", own]]) {
     await assertSucceeds(updateDoc(sub, { active: false }));
     await assertFails(deleteDoc(sub));
   });
+
+  // Prod dry run step 4 sanity check: the reads behind the live Employees,
+  // Time Tracking and Reports pages (main @ 5fd9898: useEmployees, useJobs,
+  // useSites, useSubcontractors, useCompanySettings, useClockEvents via
+  // ManualClockForm/ClockEventLookup, useReports).
+  test(`website ${label}: page loads - Employees, Time Tracking, Reports`, async () => {
+    await env.withSecurityRulesDisabled(async (c) => {
+      const d = c.firestore();
+      await setDoc(doc(d, "users", "owner-uid"), { companyId: C, role: "owner", name: "Olive" });
+      await setDoc(doc(d, "companies", C, "clockEvents", "e1"), { employeeId: "emp1", employeeName: "Jordan", siteId: "site1", type: "in", source: "mobile", timestamp: Timestamp.fromMillis(Date.now() - 3600000) });
+      await setDoc(doc(d, "companies", C, "timesheetApprovals", "a1"), { employeeId: "emp1", date: "2026-11-20", status: "approved" });
+      await setDoc(doc(d, "companies", C, "shiftNotes", "n1"), { note: "x", siteId: "site1", timestamp: Timestamp.now() });
+    });
+    const db = ctx();
+    const co = (...p) => collection(db, "companies", C, ...p);
+    // shared: AuthContext + useCompanySettings
+    await assertSucceeds(getDoc(doc(db, "users", `${label}-uid`)));
+    await assertSucceeds(getDoc(doc(db, "companies", C)));
+    // Employees page
+    await assertSucceeds(getDocs(query(co("employees"), orderBy("createdAt", "desc"))));
+    await assertSucceeds(getDocs(query(co("jobs"), orderBy("createdAt", "desc"))));
+    await assertSucceeds(getDocs(query(co("jobSites"), orderBy("createdAt", "desc"))));
+    await assertSucceeds(getDocs(co("subcontractors")));
+    // Time Tracking page (ClockEventLookup filters)
+    const ev = co("clockEvents");
+    await assertSucceeds(getDocs(query(ev, orderBy("timestamp", "desc"), limit(50))));
+    await assertSucceeds(getDocs(query(ev, where("employeeId", "==", "emp1"), orderBy("timestamp", "desc"))));
+    await assertSucceeds(getDocs(query(ev, where("siteId", "==", "site1"), orderBy("timestamp", "desc"))));
+    // Reports page (useReports)
+    const start = Timestamp.fromMillis(Date.now() - 7 * 86400000), end = Timestamp.now();
+    await assertSucceeds(getDocs(query(ev, where("timestamp", ">=", start), where("timestamp", "<=", end), orderBy("timestamp", "asc"))));
+    await assertSucceeds(getDocs(co("employees")));
+    await assertSucceeds(getDocs(co("jobSites")));
+    await assertSucceeds(getDocs(co("jobs")));
+    await assertSucceeds(getDocs(query(co("shiftNotes"), where("timestamp", ">=", start), where("timestamp", "<=", end))));
+    await assertSucceeds(getDocs(query(co("timesheetApprovals"), where("date", ">=", "2026-01-01"), where("date", "<=", "2026-11-30"))));
+    await assertSucceeds(getDocs(query(collection(db, "users"), where("companyId", "==", C))));
+  });
 }
