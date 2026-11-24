@@ -106,6 +106,11 @@ async function seed() {
   await ev("in3", "emp3", "in", base + 2 * HOUR);
   await ev("out3", "emp3", "out", base + 4 * HOUR);
   await db.doc(`companies/${C}/timesheetApprovals/in1`).set({ employeeId: "emp1", employeeName: "Ann", status: "pending", date: "x" });
+  // Session-linked records (decision 6B).
+  await db.doc(`companies/${C}/siteExits/x1`).set({ employeeId: "emp1", employeeName: "Ann", clockInEventId: "in1", kind: "left", startMs: base + HOUR, endMs: base + 1.5 * HOUR });
+  await db.doc(`companies/${C}/shiftNotes/n1`).set({ employeeId: "emp1", clockEventId: "in1", note: "fixed the pump", source: "employeeApp", createdByUid: "u1", createdByName: "Ann" });
+  // A supervisor site note on another shift - never touched.
+  await db.doc(`companies/${C}/shiftNotes/n2`).set({ note: "site note", siteId: null, siteName: "", createdByUid: "sup", createdByName: "Sup" });
   return base;
 }
 
@@ -113,7 +118,7 @@ async function read(id) {
   return (await db.doc(`companies/${C}/clockEvents/${id}`).get()).data();
 }
 
-test("reassignClockSession: moves every event, audit-logged, approval follows", async () => {
+test("reassignClockSession: moves every event, audit-logged; approval, site exits and comments follow", async () => {
   await seed();
   const res = await reassign({ clockInEventId: "in1", newEmployeeId: "emp2", reason: "wrong PIN" });
   assert.deepEqual(res.movedEventIds, ["in1", "bs1", "be1", "out1"]);
@@ -132,6 +137,11 @@ test("reassignClockSession: moves every event, audit-logged, approval follows", 
   assert.equal(approval.employeeId, "emp2");
   assert.equal(approval.employeeName, "Bob");
   assert.equal((await read("in2")).employeeId, "emp2", "target's own events untouched");
+  const exit = (await db.doc(`companies/${C}/siteExits/x1`).get()).data();
+  assert.equal(exit.employeeId, "emp2");
+  assert.equal(exit.employeeName, "Bob");
+  assert.equal((await db.doc(`companies/${C}/shiftNotes/n1`).get()).data().employeeId, "emp2");
+  assert.equal((await db.doc(`companies/${C}/shiftNotes/n2`).get()).data().employeeId, undefined, "unrelated note untouched");
 });
 
 test("reassignClockSession: overlap refuses and writes nothing", async () => {
@@ -144,6 +154,9 @@ test("reassignClockSession: overlap refuses and writes nothing", async () => {
   for (const id of ["in1", "bs1", "be1", "out1"]) {
     assert.equal((await read(id)).employeeId, "emp1");
   }
+  assert.equal((await db.doc(`companies/${C}/siteExits/x1`).get()).data().employeeId, "emp1", "site exit not moved");
+  assert.equal((await db.doc(`companies/${C}/shiftNotes/n1`).get()).data().employeeId, "emp1", "comment not moved");
+  assert.equal((await db.doc(`companies/${C}/timesheetApprovals/in1`).get()).data().employeeId, "emp1", "approval not moved");
 });
 
 test("reassignClockSession: approved, open, same/inactive employee, non-admin are refused", async () => {

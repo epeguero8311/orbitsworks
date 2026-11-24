@@ -1114,7 +1114,8 @@ export const reassignClockEvent = onCall({ secrets: [REKOGNITION_ACCESS_KEY_ID, 
 // split between two people. Refused when the session is approved, or when
 // the target employee has time overlapping it. Each moved event gets the
 // same "employeeId" adjustmentHistory entry reassignClockEvent writes, the
-// session's approval doc follows the new employee, and the face check is
+// session's approval doc, site exits and shift comments follow the new
+// employee in the same transaction, and the face check is
 // re-run against the new employee's reference photo (a failed match shows
 // up as the usual red "Face mismatch" warning).
 export const reassignClockSession = onCall({ secrets: [REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY] }, async (request) => {
@@ -1238,6 +1239,12 @@ export const reassignClockSession = onCall({ secrets: [REKOGNITION_ACCESS_KEY_ID
       });
     }
 
+    // Decision 6B: the session's job-site stretches and the employee's shift
+    // comments follow it too (both keyed by the clock-in id), in this same
+    // transaction. Only records still on the original employee are moved.
+    const exitsSnap = await tx.get(companyRef.collection("siteExits").where("clockInEventId", "==", clockInEventId));
+    const notesSnap = await tx.get(companyRef.collection("shiftNotes").where("clockEventId", "==", clockInEventId));
+
     const fromNameById = new Map(sourceSnap.docs.map((d) => [d.id, (d.data() as RawEvent).employeeName ?? "Unknown"]));
     const changedAt = admin.firestore.Timestamp.now();
     for (const id of session.ids) {
@@ -1261,6 +1268,14 @@ export const reassignClockSession = onCall({ secrets: [REKOGNITION_ACCESS_KEY_ID
     }
     if (approvalSnap.exists) {
       tx.update(approvalRef, { employeeId: newEmployeeId, employeeName: newEmployeeName });
+    }
+    for (const d of exitsSnap.docs) {
+      if (d.data().employeeId !== fromEmployeeId) continue;
+      tx.update(d.ref, { employeeId: newEmployeeId, employeeName: newEmployeeName });
+    }
+    for (const d of notesSnap.docs) {
+      if (d.data().employeeId !== fromEmployeeId) continue;
+      tx.update(d.ref, { employeeId: newEmployeeId });
     }
     return session.ids;
   });

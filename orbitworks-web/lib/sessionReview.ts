@@ -56,12 +56,17 @@ export function sessionPhotoView(event: ClockEvent): PhotoView {
   return { kind: "photo" };
 }
 
-// Face tag: green >= 90%, yellow 70-89%, red < 70% or no face. Gray when the
+// Face tag: a mismatch is always red, whatever its score (decision 4B), so
+// the tag never disagrees with the red "Face mismatch" alert. For matches:
+// green >= 90%, yellow 70-89%, red < 70%. No face = red. Gray when the
 // check hasn't run (Core plan, no reference photo, or still pending).
 export function sessionFaceTag(event: ClockEvent): Tag {
   const view = sessionPhotoView(event);
   if (view.kind === "placeholder") return { text: view.text, className: RED };
   const fc = event.faceCheck;
+  if (fc?.status === "mismatch") {
+    return { text: `Face mismatch${fc.similarity != null ? ` ${Math.round(fc.similarity)}%` : ""}`, className: RED };
+  }
   if (!fc || fc.similarity == null) {
     return { text: "Face not checked", className: GRAY };
   }

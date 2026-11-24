@@ -27,6 +27,7 @@ export function SessionPhotoCard({
   adjust: AdjustTimeProps;
 }) {
   const [showHistory, setShowHistory] = useState(false);
+  const [revealPhoto, setRevealPhoto] = useState(false);
   const view = sessionPhotoView(event);
   const source = sessionSourceTag(event.source);
   const face = sessionFaceTag(event);
@@ -48,10 +49,22 @@ export function SessionPhotoCard({
         )}
       </div>
 
-      {view.kind === "placeholder" ? (
-        <div className="mt-3 flex aspect-square w-full items-center justify-center rounded-md bg-gray-100 px-2 text-center text-sm text-gray-600">
-          {view.text}
-        </div>
+      {view.kind === "placeholder" && !revealPhoto ? (
+        <>
+          <div className="mt-3 flex aspect-square w-full items-center justify-center rounded-md bg-gray-100 px-2 text-center text-sm text-gray-600">
+            {view.text}
+          </div>
+          {/* Decision 3B: a no-face photo still has an image behind it. */}
+          {event.photoUrl && (
+            <button
+              type="button"
+              onClick={() => setRevealPhoto(true)}
+              className="mt-1 text-xs font-medium text-accent hover:underline"
+            >
+              Show photo anyway
+            </button>
+          )}
+        </>
       ) : (
         <ClockPhotoBlock event={event} label={label} showReferenceCompare={false} />
       )}
