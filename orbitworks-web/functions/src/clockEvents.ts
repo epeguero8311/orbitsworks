@@ -16,6 +16,7 @@ import { checkLateClockIn, checkEarlyClockOut, checkOutsideGeofence, checkSiteMi
 import { closeOpenSiteExits } from "./employeeSiteExits";
 import { checkFaceMatch, REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY } from "./rekognition";
 import { correctClockEventSchema, CORRECTION_FUTURE_SLACK_MS, findCorrectionConflict, correctionConflictMessage } from "./clockCorrectionValidators";
+import { reassignClockSessionSchema, collectSessionEvents, findOverlap, overlapMessage, type SessionEvent } from "./sessionReassignValidators";
 
 // Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
 // why this can't just be imported.
@@ -138,6 +139,41 @@ async function alertIfLateIntoApproved(
     },
     eventTs
   );
+}
+
+// Session review (decided 2026-11-24, option A + server guard): an approved
+// session is read-only - "Adjust time" and "Change" employee are refused
+// until it is set back to Pending. The approval doc shares the clock-in's
+// id; any other event belongs to the employee's latest clock-in at or
+// before it (raw timestamp - same lookup as alertIfLateIntoApproved; index
+// employeeId + type + timestamp). No approval doc (pre-cutover history) =
+// not approved.
+export const APPROVED_SESSION_MESSAGE =
+  "This session is approved. Set it to Pending on Timesheet Approvals before changing it.";
+
+async function sessionIsApproved(
+  companyId: string,
+  eventId: string,
+  event: { employeeId?: string; type?: string; timestamp?: admin.firestore.Timestamp }
+): Promise<boolean> {
+  const companyRef = db.collection("companies").doc(companyId);
+  let clockInId: string | null = null;
+  if (event.type === "in") {
+    clockInId = eventId;
+  } else if (typeof event.employeeId === "string" && event.employeeId && event.timestamp) {
+    const inSnap = await companyRef
+      .collection("clockEvents")
+      .where("employeeId", "==", event.employeeId)
+      .where("type", "==", "in")
+      .where("timestamp", "<=", event.timestamp)
+      .orderBy("timestamp", "desc")
+      .limit(1)
+      .get();
+    if (!inSnap.empty) clockInId = inSnap.docs[0].id;
+  }
+  if (!clockInId) return false;
+  const approval = await companyRef.collection("timesheetApprovals").doc(clockInId).get();
+  return approval.data()?.status === "approved";
 }
 
 // Phase 10 (D19 a): which events copy their shift's clock-in site.
@@ -891,6 +927,10 @@ export const correctClockEvent = onCall(async (request) => {
     throw new HttpsError("failed-precondition", "Clock event has no existing timestamp to correct.");
   }
 
+  if (await sessionIsApproved(callerCompanyId, eventId, event)) {
+    throw new HttpsError("failed-precondition", APPROVED_SESSION_MESSAGE);
+  }
+
   // Order check: the corrected time must stay strictly between this
   // employee's previous and next events (by effective time). Only events
   // whose effective time lies between the old and the new time can be
@@ -986,11 +1026,17 @@ export const reassignClockEvent = onCall({ secrets: [REKOGNITION_ACCESS_KEY_ID, 
   const event = eventSnap.data() as {
     employeeId?: string;
     employeeName?: string;
+    type?: string;
+    timestamp?: admin.firestore.Timestamp;
     adjustmentHistory?: Array<Record<string, unknown>>;
   };
 
   if (event.employeeId === newEmployeeId) {
     throw new HttpsError("failed-precondition", "Event is already assigned to that employee.");
+  }
+
+  if (await sessionIsApproved(callerCompanyId, eventId, event)) {
+    throw new HttpsError("failed-precondition", APPROVED_SESSION_MESSAGE);
   }
 
   const newEmployeeRef = db
@@ -1060,6 +1106,177 @@ export const reassignClockEvent = onCall({ secrets: [REKOGNITION_ACCESS_KEY_ID, 
   }
 
   return { success: true };
+});
+
+// Session review (Timesheet Approvals): the wrong-PIN fix. Moves EVERY event
+// of one finished session (clock-in, breaks, clock-out) to another employee
+// in a single transaction - all or nothing, so a session can never end up
+// split between two people. Refused when the session is approved, or when
+// the target employee has time overlapping it. Each moved event gets the
+// same "employeeId" adjustmentHistory entry reassignClockEvent writes, the
+// session's approval doc follows the new employee, and the face check is
+// re-run against the new employee's reference photo (a failed match shows
+// up as the usual red "Face mismatch" warning).
+export const reassignClockSession = onCall({ secrets: [REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY] }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+  const callerRole = request.auth.token.role as string | undefined;
+  const callerCompanyId = request.auth.token.companyId as string | undefined;
+  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
+    throw new HttpsError("permission-denied", "Not authorized.");
+  }
+
+  const parsed = reassignClockSessionSchema.safeParse(request.data ?? {});
+  if (!parsed.success) {
+    throw new HttpsError("invalid-argument", parsed.error.issues[0]?.message ?? "Invalid request.");
+  }
+  const { clockInEventId, newEmployeeId, reason } = parsed.data;
+
+  let changedByName = "Admin";
+  const callerSnap = await db.collection("users").doc(request.auth.uid).get();
+  if (callerSnap.exists) {
+    const callerData = callerSnap.data() as { name?: string };
+    if (callerData.name) changedByName = callerData.name;
+  }
+
+  const companyRef = db.collection("companies").doc(callerCompanyId);
+  const eventsCol = companyRef.collection("clockEvents");
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  type RawEvent = {
+    employeeId?: string;
+    employeeName?: string;
+    type?: string;
+    photoUrl?: string;
+    timestamp?: admin.firestore.Timestamp;
+    adjustedTimestamp?: admin.firestore.Timestamp;
+  };
+  const toSessionEvent = (d: FirebaseFirestore.QueryDocumentSnapshot): SessionEvent => {
+    const data = d.data() as RawEvent;
+    const eff = data.adjustedTimestamp ?? data.timestamp;
+    return { id: d.id, type: String(data.type ?? ""), ms: eff ? eff.toMillis() : NaN };
+  };
+
+  const movedIds = await db.runTransaction(async (tx) => {
+    const inRef = eventsCol.doc(clockInEventId);
+    const inSnap = await tx.get(inRef);
+    if (!inSnap.exists) {
+      throw new HttpsError("not-found", "Clock event not found.");
+    }
+    const clockIn = inSnap.data() as RawEvent;
+    if (clockIn.type !== "in" || !clockIn.timestamp || !clockIn.employeeId) {
+      throw new HttpsError("failed-precondition", "That event is not a clock-in.");
+    }
+    const fromEmployeeId = clockIn.employeeId;
+    if (fromEmployeeId === newEmployeeId) {
+      throw new HttpsError("failed-precondition", "This session already belongs to that employee.");
+    }
+
+    const approvalRef = companyRef.collection("timesheetApprovals").doc(clockInEventId);
+    const approvalSnap = await tx.get(approvalRef);
+    if (approvalSnap.data()?.status === "approved") {
+      throw new HttpsError("failed-precondition", APPROVED_SESSION_MESSAGE);
+    }
+
+    const newEmployeeSnap = await tx.get(companyRef.collection("employees").doc(newEmployeeId));
+    if (!newEmployeeSnap.exists) {
+      throw new HttpsError("not-found", "Target employee not found.");
+    }
+    const newEmployee = newEmployeeSnap.data() as {
+      name?: string;
+      active?: boolean;
+      subcontractorId?: string | null;
+      subcontractorName?: string | null;
+    };
+    if (!newEmployee.active) {
+      throw new HttpsError("failed-precondition", "Target employee is not active.");
+    }
+    const newEmployeeName = newEmployee.name ?? "Unknown";
+
+    // The session: the source employee's events around the clock-in, padded
+    // a week on the raw timestamp to catch events an earlier "Adjust time"
+    // moved (same padding as correctClockEvent's order check).
+    const inRawMs = clockIn.timestamp.toMillis();
+    const sourceSnap = await tx.get(
+      eventsCol
+        .where("employeeId", "==", fromEmployeeId)
+        .where("timestamp", ">=", admin.firestore.Timestamp.fromMillis(inRawMs - WEEK_MS))
+        .where("timestamp", "<=", admin.firestore.Timestamp.fromMillis(inRawMs + WEEK_MS))
+        .orderBy("timestamp", "asc")
+    );
+    const session = collectSessionEvents(sourceSnap.docs.map(toSessionEvent), clockInEventId);
+    if (!session.ok) {
+      throw new HttpsError("failed-precondition", session.error);
+    }
+
+    // Overlap: the target's events around the session, reaching back to
+    // their latest clock-in before it so an old still-open session counts.
+    const latestTargetIn = await tx.get(
+      eventsCol
+        .where("employeeId", "==", newEmployeeId)
+        .where("type", "==", "in")
+        .where("timestamp", "<=", admin.firestore.Timestamp.fromMillis(session.outMs + WEEK_MS))
+        .orderBy("timestamp", "desc")
+        .limit(1)
+    );
+    const latestInRawMs = latestTargetIn.empty
+      ? Infinity
+      : (latestTargetIn.docs[0].data() as RawEvent).timestamp?.toMillis() ?? Infinity;
+    const targetLo = Math.min(session.inMs - WEEK_MS, latestInRawMs);
+    const targetSnap = await tx.get(
+      eventsCol
+        .where("employeeId", "==", newEmployeeId)
+        .where("timestamp", ">=", admin.firestore.Timestamp.fromMillis(targetLo))
+        .where("timestamp", "<=", admin.firestore.Timestamp.fromMillis(session.outMs + WEEK_MS))
+        .orderBy("timestamp", "asc")
+    );
+    const overlap = findOverlap(targetSnap.docs.map(toSessionEvent), session.inMs, session.outMs);
+    if (overlap) {
+      throw new HttpsError("failed-precondition", overlapMessage(newEmployeeName, overlap), {
+        overlapStartMs: overlap.startMs,
+        overlapEndMs: overlap.endMs,
+      });
+    }
+
+    const fromNameById = new Map(sourceSnap.docs.map((d) => [d.id, (d.data() as RawEvent).employeeName ?? "Unknown"]));
+    const changedAt = admin.firestore.Timestamp.now();
+    for (const id of session.ids) {
+      const adjustment = {
+        fieldChanged: "employeeId",
+        previousValue: fromNameById.get(id) ?? "Unknown",
+        newValue: newEmployeeName,
+        changedByUid: request.auth!.uid,
+        changedByName,
+        changedAt,
+        ...(reason ? { reason } : {}),
+      };
+      tx.update(eventsCol.doc(id), {
+        employeeId: newEmployeeId,
+        employeeName: newEmployeeName,
+        subcontractorId: newEmployee.subcontractorId ?? null,
+        subcontractorName: newEmployee.subcontractorName ?? null,
+        adjustmentHistory: admin.firestore.FieldValue.arrayUnion(adjustment),
+        faceCheck: admin.firestore.FieldValue.delete(),
+      });
+    }
+    if (approvalSnap.exists) {
+      tx.update(approvalRef, { employeeId: newEmployeeId, employeeName: newEmployeeName });
+    }
+    return session.ids;
+  });
+
+  // Face check against the NEW employee's reference photo, after the
+  // commit and isolated from it (same reasoning as reassignClockEvent).
+  // checkFaceMatch skips events without a photo and non-Pro companies.
+  await Promise.all(
+    movedIds.map((id) =>
+      checkFaceMatch(callerCompanyId, id).catch((err) =>
+        console.warn("Face check failed after session reassign", { eventId: id, companyId: callerCompanyId, error: String(err) })
+      )
+    )
+  );
+
+  return { success: true, movedEventIds: movedIds };
 });
 
 // Admin/owner-only. Fixes a session whose clock-in resolved to "no job

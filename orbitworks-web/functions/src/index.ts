@@ -47,6 +47,7 @@ export {
   onClockEventPhotoAdded,
   correctClockEvent,
   reassignClockEvent,
+  reassignClockSession,
   assignSessionSite,
   addManualTimestamp,
 } from "./clockEvents";

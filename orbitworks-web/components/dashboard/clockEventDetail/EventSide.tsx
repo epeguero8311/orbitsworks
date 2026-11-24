@@ -7,12 +7,12 @@ import { useSiteExitsByClockIn } from "@/lib/hooks/useSiteExitsByClockIn";
 import { SiteExitsNote } from "@/components/time/SiteExitsNote";
 import { clockInIds, commentsForEvent } from "@/lib/shiftComments";
 import { effectiveDate, sourceLabel } from "@/lib/clockEventDetailUtils";
-import { faceCheckLabel, photoStatus } from "@/lib/clockStatus";
+import { faceCheckLabel } from "@/lib/clockStatus";
 import { EventLocation } from "@/components/time/EventLocation";
 import { GeofenceDetail } from "@/components/time/GeofenceDetail";
-import { ClockPhoto } from "@/components/time/ClockPhoto";
-import { clockPhotoState } from "@/lib/clockPhoto";
-import { ReferencePhoto } from "@/components/time/ReferencePhoto";
+import { ClockPhotoBlock } from "@/components/time/ClockPhotoBlock";
+import { AdjustTimeControl } from "@/components/dashboard/clockEventDetail/AdjustTimeControl";
+import { AdjustmentHistoryList } from "@/components/dashboard/clockEventDetail/AdjustmentHistoryList";
 import { ShiftCommentsNote } from "@/components/time/ShiftCommentsNote";
 
 export function EventSide({
@@ -70,19 +70,6 @@ export function EventSide({
   }
 
   const badge = sourceLabel(event.source);
-  // Shown in place of the photo while it is still uploading or never
-  // arrived. Otherwise ClockPhoto shows the photo, "Photo removed"
-  // (retention sweep) or "No photo recorded".
-  const photoState = photoStatus(event);
-  const photoNotice =
-    clockPhotoState(event) === "removed"
-      ? null
-      : photoState === "pending"
-        ? "Photo uploading from the phone"
-        : photoState === "missing"
-          ? "Photo was taken but never arrived"
-          : null;
-  const noPhotoClass = photoState === "missing" ? "text-red-700" : "text-gray-600";
   const faceBadge = faceCheckLabel(event.faceCheck);
   // Admin/supervisor only, per spec - the whole Time Tracking page this
   // modal opens from is already admin/owner-only (supervisors are
@@ -94,7 +81,6 @@ export function EventSide({
   const isAdjusted = !!event.adjustedTimestamp;
   const hasHistory = !!event.adjustmentHistory && event.adjustmentHistory.length > 0;
   const displayDate = effectiveDate(event);
-  const isAdjustingThis = adjustingId === event.id;
   const isShowingHistory = showHistoryId === event.id;
 
   return (
@@ -114,38 +100,7 @@ export function EventSide({
         )}
       </div>
 
-      {showReferenceCompare ? (
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <div>
-            <p className="mb-1 text-center text-xs text-gray-500">Clock photo</p>
-            <div className="aspect-square w-full overflow-hidden rounded-md bg-gray-100">
-              {photoNotice ? (
-                <div className={`flex h-full w-full items-center justify-center px-2 text-center text-xs ${noPhotoClass}`}>
-                  {photoNotice}
-                </div>
-              ) : (
-                <ClockPhoto event={event} alt={`${label} proof photo`} />
-              )}
-            </div>
-          </div>
-          <div>
-            <p className="mb-1 text-center text-xs text-gray-500">Profile photo</p>
-            <div className="aspect-square w-full overflow-hidden rounded-md bg-gray-100">
-              <ReferencePhoto url={event.faceCheck?.referencePhotoUrl} alt="Employee profile photo" />
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="mt-3 aspect-square w-full overflow-hidden rounded-md bg-gray-100">
-          {photoNotice ? (
-            <div className={`flex h-full w-full items-center justify-center px-2 text-center text-xs ${noPhotoClass}`}>
-              {photoNotice}
-            </div>
-          ) : (
-            <ClockPhoto event={event} alt={`${label} proof photo`} />
-          )}
-        </div>
-      )}
+      <ClockPhotoBlock event={event} label={label} showReferenceCompare={showReferenceCompare} />
 
       <p className="mt-3 font-mono text-sm text-gray-950">
         {displayDate ? displayDate.toLocaleString() : "-"}
@@ -191,94 +146,23 @@ export function EventSide({
       )}
 
       {isShowingHistory && hasHistory && (
-        <div className="mt-3 space-y-2 rounded-md bg-gray-50 p-3">
-          <p className="text-xs font-medium text-gray-950">Adjustment history</p>
-          {event.adjustmentHistory!
-            .slice()
-            .reverse()
-            .map((adj, i) => (
-              <div key={i} className="text-xs text-gray-600">
-                {adj.fieldChanged === "employeeId" ? (
-                  <p>
-                    Reassigned from {String(adj.previousValue)} to{" "}
-                    {String(adj.newValue)}
-                  </p>
-                ) : (
-                  <p>
-                    {(adj.previousValue as ClockEvent["timestamp"])!
-                      .toDate()
-                      .toLocaleString()}{" "}
-                    to{" "}
-                    {(adj.newValue as ClockEvent["timestamp"])!
-                      .toDate()
-                      .toLocaleString()}
-                  </p>
-                )}
-                <p className="text-gray-500">
-                  by {adj.changedByName} on{" "}
-                  {adj.changedAt.toDate().toLocaleString()}
-                  {adj.reason ? ` - ${adj.reason}` : ""}
-                </p>
-              </div>
-            ))}
-        </div>
+        <AdjustmentHistoryList history={event.adjustmentHistory!} />
       )}
 
       {isAdmin && (
-        <div className="mt-3">
-          {isAdjustingThis ? (
-            <div className="space-y-2 rounded-md border border-gray-200 p-3">
-              <label className="block text-xs font-medium text-gray-600">
-                Corrected time
-              </label>
-              <input
-                type="datetime-local"
-                value={newTimeValue}
-                onChange={(e) => onNewTimeChange(e.target.value)}
-                className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
-              />
-              <label className="block text-xs font-medium text-gray-600">
-                Reason (optional)
-              </label>
-              <input
-                type="text"
-                value={reasonValue}
-                onChange={(e) => onReasonChange(e.target.value)}
-                placeholder="e.g. Forgot to clock out"
-                maxLength={500}
-                className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
-              />
-              {errorMsg && (
-                <p className="text-xs text-red-600">{errorMsg}</p>
-              )}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  disabled={submitting || !newTimeValue}
-                  onClick={() => onSubmitAdjust(event)}
-                  className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {submitting ? "Saving..." : "Save correction"}
-                </button>
-                <button
-                  type="button"
-                  onClick={onCancelAdjust}
-                  className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onStartAdjust(event)}
-              className="text-xs font-medium text-accent hover:underline"
-            >
-              Adjust time
-            </button>
-          )}
-        </div>
+        <AdjustTimeControl
+          event={event}
+          adjustingId={adjustingId}
+          onStartAdjust={onStartAdjust}
+          onCancelAdjust={onCancelAdjust}
+          onSubmitAdjust={onSubmitAdjust}
+          newTimeValue={newTimeValue}
+          onNewTimeChange={onNewTimeChange}
+          reasonValue={reasonValue}
+          onReasonChange={onReasonChange}
+          submitting={submitting}
+          errorMsg={errorMsg}
+        />
       )}
     </div>
   );

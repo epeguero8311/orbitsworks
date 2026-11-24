@@ -8,7 +8,8 @@ import { useSites } from "@/lib/hooks/useSites";
 import { worstSeverity } from "@/lib/sessionWarnings";
 import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal";
 import ConfirmDeleteSessionModal from "@/components/dashboard/timesheetApprovals/ConfirmDeleteSessionModal";
-import SessionWarningsModal from "@/components/dashboard/timesheetApprovals/SessionWarningsModal";
+import SessionReviewModal from "@/components/dashboard/timesheetApprovals/sessionReview/SessionReviewModal";
+import { sessionStartMs } from "@/lib/sessionReview";
 import { approvalsColumnCount, buildColumnWidths } from "@/lib/approvalsColumns";
 import { clockOutSiteNote } from "@/lib/clockOutSite";
 
@@ -79,7 +80,9 @@ export function ApprovalsTable({
   const { sites } = useSites();
   const [editingRow, setEditingRow] = useState<ApprovalRow | null>(null);
   const [deletingRow, setDeletingRow] = useState<ApprovalRow | null>(null);
-  const [viewingWarningsRow, setViewingWarningsRow] = useState<ApprovalRow | null>(null);
+  // Session review: tracked by key, so the modal always shows the live row
+  // (an edit, reassign or approval re-renders it with the new values).
+  const [reviewKey, setReviewKey] = useState<string | null>(null);
   // setApprovalStatus is a Cloud Function - the first call after it's been
   // idle pays a cold-start delay (several seconds, sometimes more), which
   // otherwise leaves the dropdown looking stuck since it only reflects
@@ -242,6 +245,13 @@ export function ApprovalsTable({
     }
   }
 
+  const reviewRow = reviewKey ? rows.find((r) => r.key === reviewKey) ?? null : null;
+  const reviewSiblings = reviewRow
+    ? rows
+        .filter((r) => r.employeeId === reviewRow.employeeId && r.date === reviewRow.date)
+        .sort((a, b) => sessionStartMs(a.clockInEvent) - sessionStartMs(b.clockInEvent))
+    : [];
+
   const editEvents: ClockEvent[] = editingRow
     ? [editingRow.clockInEvent, editingRow.clockOutEvent]
     : [];
@@ -261,7 +271,13 @@ export function ApprovalsTable({
     return (
       <tr
         key={row.key}
-        className={`border-b border-gray-200 last:border-0 ${highlightClass}`}
+        onClick={(e) => {
+          // The row opens Session review, except clicks on its own controls
+          // (checkbox, Job/Status dropdowns, icons, pencil/trash).
+          if ((e.target as HTMLElement).closest("input, select, button, a, label")) return;
+          setReviewKey(row.key);
+        }}
+        className={`cursor-pointer border-b border-gray-200 last:border-0 ${highlightClass}`}
       >
         <td className="px-3 py-4 xl:px-6 xl:py-5">
           <input
@@ -289,7 +305,7 @@ export function ApprovalsTable({
             {row.comments.length + row.punchComments.length > 0 && (
               <button
                 type="button"
-                onClick={() => setViewingWarningsRow(row)}
+                onClick={() => setReviewKey(row.key)}
                 className="inline-flex items-center justify-center rounded-full bg-blue-50 p-1 text-accent transition-transform hover:scale-110 hover:bg-blue-100"
                 title={`${row.comments.length + row.punchComments.length} employee comment${row.comments.length + row.punchComments.length === 1 ? "" : "s"}`}
                 aria-label="See employee comments"
@@ -300,14 +316,14 @@ export function ApprovalsTable({
             {worst != null && (
               <button
                 type="button"
-                onClick={() => setViewingWarningsRow(row)}
+                onClick={() => setReviewKey(row.key)}
                 className={`inline-flex items-center justify-center rounded-full p-1 transition-transform hover:scale-110 ${
                   worst === "red"
                     ? "bg-red-100 text-red-700 hover:bg-red-200"
                     : "bg-amber-100 text-amber-700 hover:bg-amber-200"
                 }`}
-                title="Click to see warnings"
-                aria-label="Click to see warnings"
+                title="Review session"
+                aria-label="Review session and warnings"
               >
                 <ShieldAlert className="h-3.5 w-3.5" />
               </button>
@@ -504,19 +520,16 @@ export function ApprovalsTable({
         />
       )}
 
-      {viewingWarningsRow && (
-        <SessionWarningsModal
-          employeeName={viewingWarningsRow.employeeName}
-          siteName={viewingWarningsRow.siteName}
-          warnings={viewingWarningsRow.warnings}
-          comments={viewingWarningsRow.comments}
-          punchComments={viewingWarningsRow.punchComments}
-          siteExits={viewingWarningsRow.siteExits}
+      {reviewRow && (
+        <SessionReviewModal
+          row={reviewRow}
+          siblings={reviewSiblings}
+          status={optimisticStatus.get(reviewRow.key) ?? reviewRow.status}
           sites={sites}
-          onAssignSite={(siteId) =>
-            onAssignSite(viewingWarningsRow.key, viewingWarningsRow.sessionEventIds, siteId)
-          }
-          onClose={() => setViewingWarningsRow(null)}
+          onSelectRow={setReviewKey}
+          onSetStatus={(status) => handleStatusChange(reviewRow, status)}
+          onAssignSite={(siteId) => onAssignSite(reviewRow.key, reviewRow.sessionEventIds, siteId)}
+          onClose={() => setReviewKey(null)}
         />
       )}
 
