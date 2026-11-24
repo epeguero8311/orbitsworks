@@ -60,6 +60,11 @@ export type ApprovalRow = {
   // clock-out (each one tied to its own event - see lib/clockEventComments.ts).
   // Shown with the shift comments above: same icon, same card.
   punchComments: EventComment[];
+  // Session review: every event of this session (in, breaks, out) and the
+  // employee's events across the fetched range (the "Adjust time" order
+  // check needs the neighbours either side of the session).
+  sessionEvents: ClockEvent[];
+  employeeEvents: ClockEvent[];
 };
 
 type EventWithId = Omit<ClockEvent, "id"> & { id: string };
@@ -294,6 +299,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
 
             const clockInEvent: ClockEvent = { ...pendingIn };
             const clockOutEvent: ClockEvent = { ...ev };
+            const sessionEvents = empEvents.filter((e) => sessionIds.includes(e.id));
 
             allRows.push({
               key: pendingIn.id,
@@ -329,8 +335,10 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
                 faceVerification: settings.faceVerification,
                 isPro,
                 siteExits: exitsByClockIn.get(pendingIn.id) ?? [],
-                sessionEvents: empEvents.filter((e) => sessionIds.includes(e.id)),
+                sessionEvents,
               }),
+              sessionEvents,
+              employeeEvents: empEvents,
               comments: commentsByClockIn.get(pendingIn.id) ?? [],
               siteExits: exitsByClockIn.get(pendingIn.id) ?? [],
               punchComments: sessionComments(clockInEvent, clockOutEvent),

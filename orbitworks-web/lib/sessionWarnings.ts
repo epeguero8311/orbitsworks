@@ -8,7 +8,7 @@ import { faceWarningType, FACE_LOW_CONFIDENCE_FLOOR } from "@/lib/faceWarnings";
 
 export { FACE_LOW_CONFIDENCE_FLOOR };
 
-// Timesheet Approvals' per-session warning icon/modal (SessionWarningsModal,
+// Timesheet Approvals' per-session warning icon/modal (sessionReview/SessionAlerts in the Session review modal,
 // ApprovalsTable) - distinct from the company-wide Overview alerts feed
 // (lib/dashboardOverviewUtils.ts's AlertItem/ALERT_SEVERITY, backed by
 // functions/src/alerts.ts). That feed covers currently-open shifts and

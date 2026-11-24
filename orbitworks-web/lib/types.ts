@@ -309,6 +309,16 @@ export interface ClockEventAdjustment {
   reason?: string;
 }
 
+// reassignClockSession callable (Timesheet Approvals > Session review):
+// moves EVERY event of one session (clock-in, breaks, clock-out) to another
+// employee in one all-or-nothing write. Validated server-side in
+// functions/src/sessionReassignValidators.ts.
+export interface ReassignClockSessionInput {
+  clockInEventId: string;
+  newEmployeeId: string;
+  reason?: string;
+}
+
 export interface ClockEvent {
   id: string;
   employeeId: string;

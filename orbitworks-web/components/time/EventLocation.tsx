@@ -28,7 +28,15 @@ const PROXIMITY_BADGE_CLASSES: Record<string, string> = {
   unknown: "bg-gray-100 text-gray-600",
 };
 
-export function EventLocation({ event }: { event: ClockEvent }) {
+// Shared by Time Tracking (EventSide) and Timesheet Approvals > Session
+// review. emptyText = what shows when the event has no GPS fix.
+export function EventLocation({
+  event,
+  emptyText = "No location recorded",
+}: {
+  event: ClockEvent;
+  emptyText?: string;
+}) {
   const { sites } = useSites();
 
   const hasCoords = !!event.location && typeof event.location === "object";
@@ -79,7 +87,7 @@ export function EventLocation({ event }: { event: ClockEvent }) {
   }, [event.id, event.locationAddress, lat, lng]);
 
   if (lat == null || lng == null) {
-    return <p className="mt-2 text-sm text-gray-500">No location recorded</p>;
+    return <p className="mt-2 text-sm text-gray-500">{emptyText}</p>;
   }
 
   const resolvedAddress = event.locationAddress ?? fetchedAddress;
