@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import { db, isOverActiveCap, isOverTotalCap, EmployeeCapFields } from "./shared";
 import { createPinChangedAlert } from "./alerts";
 import { employeeDocPinOnCreate, employeePinData, employeePinRef, readEmployeePin } from "./lib/employeePin";
+import { requirePermissionIfAdmin } from "./adminAccess";
 
 // Mirrors orbitworks-app/lib/validators/createEmployee.js's JUNK_PINS - keep
 // both in sync by hand (no shared package across the app/web boundary, same
@@ -101,6 +102,8 @@ export async function reserveNonJunkPin(companyId: string, clientPin: string | n
 // employee doc actually exists.
 export const createEmployee = onCall(async (request) => {
   const { companyId, uid } = requireCreatorAuth(request);
+  // Task 4: an admin needs "Create / edit employees" (supervisors unchanged).
+  await requirePermissionIfAdmin(request, "employees");
 
   const data = request.data ?? {};
   const employeeId = typeof data.employeeId === "string" ? data.employeeId.trim() : "";

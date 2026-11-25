@@ -2,6 +2,7 @@ import * as admin from "firebase-admin";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { db } from "./shared";
 import { dismissDuplicateFlagSchema } from "./employeeDuplicateValidators";
+import { requirePermissionIfAdmin } from "./adminAccess";
 
 // ---- Phase 9 (H4 a): dismiss a possible-duplicate flag ----
 //
@@ -18,6 +19,8 @@ export const dismissDuplicateFlag = onCall(async (request) => {
   const role = request.auth.token.role as string | undefined;
   const companyId = request.auth.token.companyId as string | undefined;
   if ((role !== "admin" && role !== "owner") || !companyId) throw new HttpsError("permission-denied", "Not authorized.");
+  // Task 4: "Create / edit employees".
+  await requirePermissionIfAdmin(request, "employees");
   const parsed = dismissDuplicateFlagSchema.safeParse(request.data ?? {});
   if (!parsed.success) throw new HttpsError("invalid-argument", "Invalid employee.");
 

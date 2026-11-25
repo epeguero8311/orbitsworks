@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db, localDateKey } from "./shared";
 import { resolveOvertimeFreezeFields } from "./overtimeFreeze";
+import { loadAdminCaller, requirePermission, requireShiftSite, requireSite } from "./adminAccess";
 
 // Firestore batch writes cap at 500 operations - each approval here is one
 // write, so this is also the max number of rows a single bulk-approve call
@@ -134,11 +135,10 @@ export const setApprovalStatus = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "approveHours" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "approveHours");
+  const callerCompanyId = caller.companyId;
 
   const eventId = (request.data && request.data.eventId ? String(request.data.eventId) : "").trim();
   const status = request.data && request.data.status;
@@ -151,6 +151,8 @@ export const setApprovalStatus = onCall(async (request) => {
   if (!eventId || (status !== "pending" && status !== "approved")) {
     throw new HttpsError("invalid-argument", "eventId and a valid status are required.");
   }
+  // Task 4: only shifts on the caller's sites (rule 1).
+  await requireShiftSite(caller, eventId);
 
   const approvalRef = db
     .collection("companies")
@@ -200,11 +202,10 @@ export const setApprovalStatusBulk = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "approveHours" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "approveHours");
+  const callerCompanyId = caller.companyId;
 
   const eventIds: string[] = Array.isArray(request.data?.eventIds)
     ? Array.from(new Set(request.data.eventIds.map((id: unknown) => String(id))))
@@ -239,6 +240,14 @@ export const setApprovalStatusBulk = onCall(async (request) => {
       healDataByEventId.set(eventIds[i], healData);
     })
   );
+  // Task 4: every row must be on one of the caller's sites (rule 1) -
+  // nothing is written if any one isn't.
+  approvalSnaps.forEach((snap, i) => {
+    const siteId = snap.exists
+      ? (snap.data()?.siteId as string | null | undefined)
+      : (healDataByEventId.get(eventIds[i])?.siteId as string | null | undefined);
+    requireSite(caller, siteId ?? null);
+  });
 
   const approvedByName = status === "approved" ? await resolveApprovedByName(request.auth.uid) : "";
   const statusFields = statusUpdateFields(status, request.auth.uid, approvedByName);
@@ -304,11 +313,10 @@ export const deleteTimesheetSession = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "approveHours" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "approveHours");
+  const callerCompanyId = caller.companyId;
 
   const eventIds: string[] = Array.isArray(request.data?.eventIds)
     ? request.data.eventIds.map((id: unknown) => String(id))
@@ -318,6 +326,8 @@ export const deleteTimesheetSession = onCall(async (request) => {
   if (eventIds.length === 0 || !approvalId) {
     throw new HttpsError("invalid-argument", "eventIds and approvalId are required.");
   }
+  // Task 4: only shifts on the caller's sites (rule 1).
+  await requireShiftSite(caller, approvalId);
 
   const eventsRef = db.collection("companies").doc(callerCompanyId).collection("clockEvents");
   const approvalRef = db

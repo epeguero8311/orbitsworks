@@ -1,0 +1,220 @@
+// Task 4 (Admin Permissions) - the REAL compiled functions on the Firestore +
+// Auth emulators: setAdminAccess hierarchy (D5), new admins start with
+// nothing (D9/D16, G2), site + permission checks on approve / time edits /
+// tips / clock actions (D2/D7/D10/D18), legacy admins unchanged (D6/D8),
+// and the new-job-site trigger (D17).
+// Run (from functions/): firebase emulators:exec --only firestore,auth "node --test test/adminPermissions.test.js"
+process.env.GCLOUD_PROJECT = "orbitworks-adminperms-test";
+process.env.FIRESTORE_EMULATOR_HOST = "localhost:8090";
+process.env.FIREBASE_AUTH_EMULATOR_HOST = "127.0.0.1:9099";
+process.env.REKOGNITION_ACCESS_KEY_ID = "test-access-key";
+process.env.REKOGNITION_SECRET_ACCESS_KEY = "test-secret-key";
+process.env.MAPBOX_TOKEN = "";
+process.env.ALERTS_FEED_ENABLED = "false";
+process.env.DEVICE_TRACKING_ENABLED = "false";
+process.env.PUSH_NOTIFICATIONS_ENABLED = "false";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const admin = require("firebase-admin");
+const { db } = require("../lib/shared.js");
+const funcs = require("../lib/index.js");
+
+const C = "co1";
+const P = process.env.GCLOUD_PROJECT;
+const ALL = { approveHours: true, employees: true, editPay: true, exportPayroll: true, analytics: true, billing: true, settings: true, invites: true };
+const NONE = Object.fromEntries(Object.keys(ALL).map((k) => [k, false]));
+
+async function clearAll() {
+  await fetch(`http://localhost:8090/emulator/v1/projects/${P}/databases/(default)/documents`, { method: "DELETE" });
+  await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${P}/accounts`, { method: "DELETE" });
+}
+
+const company = () => db.collection("companies").doc(C);
+const ct = (day, hhmm) => admin.firestore.Timestamp.fromMillis(Date.parse(`2026-11-${String(day).padStart(2, "0")}T${hhmm}:00-06:00`));
+
+// A login (Auth user + users doc + linked employee) with the given access.
+async function login(uid, role, adminAccess, { employeeId = `emp-${uid}`, isSupervisor = false } = {}) {
+  await admin.auth().deleteUser(uid).catch(() => {});
+  await admin.auth().createUser({ uid, email: `${uid}@x.co` });
+  await admin.auth().setCustomUserClaims(uid, { role, companyId: C, employeeId });
+  await company().collection("employees").doc(employeeId).set({ name: uid, active: true, linkedUserId: uid, isAdmin: role === "admin", isSupervisor });
+  await db.doc(`users/${uid}`).set({ role, companyId: C, name: `Name ${uid}`, ...(adminAccess ? { adminAccess } : {}) });
+  return { uid, token: { role, companyId: C, employeeId } };
+}
+
+async function seed() {
+  await clearAll();
+  await company().set({ name: "Co", tipsEnabled: true });
+  await company().collection("jobSites").doc("siteA").set({ name: "Site A", active: true });
+  await company().collection("jobSites").doc("siteC").set({ name: "Site C", active: true });
+  await company().collection("employees").doc("juan").set({ name: "Juan", active: true });
+  // Juan: one shift on A, one on C (Nov 16), plus an open shift on C.
+  const shift = async (id, site, day, from, to) => {
+    const base = { employeeId: "juan", employeeName: "Juan", siteId: site, siteName: site, createdByUid: "seed" };
+    await company().collection("clockEvents").doc(id).set({ ...base, type: "in", timestamp: ct(day, from) });
+    if (to) await company().collection("clockEvents").doc(`${id}-out`).set({ ...base, type: "out", timestamp: ct(day, to) });
+    await company().collection("timesheetApprovals").doc(id).set({ employeeId: "juan", employeeName: "Juan", date: `2026-11-${day}`, siteId: site, siteName: site, status: "pending" });
+  };
+  await shift("sA", "siteA", 16, "08:00", "13:00");
+  await shift("sC", "siteC", 16, "14:00", "23:00");
+  const users = {
+    owner: await login("owner", "owner", null),
+    full: await login("full", "admin", { level: "full", sites: "all", permissions: ALL }),
+    full2: await login("full2", "admin", { level: "full", sites: "all", permissions: ALL }),
+    legacy: await login("legacy", "admin", null),
+    restricted: await login("restricted", "admin", { level: "admin", sites: ["siteA"], permissions: { ...NONE, approveHours: true, editPay: true, invites: true } }),
+    plain: await login("plain", "admin", { level: "admin", sites: "all", permissions: { ...NONE, invites: true } }),
+    nothing: await login("nothing", "admin", { level: "admin", sites: [], permissions: NONE }),
+  };
+  return users;
+}
+
+const run = (fn, data, auth) => funcs[fn].run({ data, auth, rawRequest: {} });
+const denied = (e) => e.code === "permission-denied";
+const user = async (uid) => (await db.doc(`users/${uid}`).get()).data();
+const claims = async (uid) => (await admin.auth().getUser(uid)).customClaims;
+const approval = async (id) => (await company().collection("timesheetApprovals").doc(id).get()).data();
+const accessBody = (targetUid, over = {}) => ({ targetUid, level: "admin", sites: ["siteA"], permissions: { ...NONE, approveHours: true }, ...over });
+
+test("setAdminAccess: owner > Full access > Admin; nobody edits the owner or themselves", async () => {
+  const u = await seed();
+  // Owner can do anything to admins, incl. granting Full access.
+  await run("setAdminAccess", accessBody("nothing", { level: "full" }), u.owner);
+  assert.equal((await user("nothing")).adminAccess.level, "full");
+  assert.equal((await claims("nothing")).lvl, "full");
+  assert.ok((await user("nothing")).roleChangedAt, "RC1 refresh bumped");
+  // Full access sets a regular admin...
+  await run("setAdminAccess", accessBody("plain"), u.full);
+  assert.deepEqual((await user("plain")).adminAccess.sites, ["siteA"]);
+  assert.deepEqual(await claims("plain"), { role: "admin", companyId: C, employeeId: "emp-plain", lvl: "admin", allSites: false, perms: ["ah"] });
+  // ...but can't grant Full access, nor touch another Full access admin.
+  await assert.rejects(run("setAdminAccess", accessBody("plain", { level: "full" }), u.full), denied);
+  await assert.rejects(run("setAdminAccess", accessBody("full2"), u.full), denied);
+  // A regular admin (even with every other permission) can't set access.
+  await assert.rejects(run("setAdminAccess", accessBody("nothing"), u.restricted), denied);
+  await assert.rejects(run("setAdminAccess", accessBody("restricted", { sites: "all", permissions: ALL }), u.restricted), denied);
+  await assert.rejects(run("setAdminAccess", accessBody("legacy"), u.legacy), denied);
+  // Nobody edits themselves; nobody edits the owner.
+  await assert.rejects(run("setAdminAccess", accessBody("full"), u.full), denied);
+  await assert.rejects(run("setAdminAccess", accessBody("owner"), u.full), denied);
+  // Unknown sites refused.
+  await assert.rejects(run("setAdminAccess", accessBody("plain", { sites: ["nope"] }), u.owner), (e) => e.code === "invalid-argument");
+});
+
+test("restricted admin: approve / tip / delete / edit only their sites' shifts", async () => {
+  const u = await seed();
+  await run("setApprovalStatus", { eventId: "sA", status: "approved" }, u.restricted);
+  assert.equal((await approval("sA")).status, "approved");
+  await assert.rejects(run("setApprovalStatus", { eventId: "sC", status: "approved" }, u.restricted), denied);
+  // Bulk with one other-site row: nothing written.
+  await run("setApprovalStatus", { eventId: "sA", status: "pending" }, u.restricted);
+  await assert.rejects(run("setApprovalStatusBulk", { eventIds: ["sA", "sC"], status: "approved" }, u.restricted), denied);
+  assert.equal((await approval("sA")).status, "pending");
+  // Tips: Edit pay + site (D7).
+  await run("setShiftTip", { eventId: "sA", amountCents: 500 }, u.restricted);
+  await assert.rejects(run("setShiftTip", { eventId: "sC", amountCents: 500 }, u.restricted), denied);
+  await assert.rejects(run("setShiftTip", { eventId: "sA", amountCents: 600 }, u.plain), denied); // no Edit pay
+  // Time edits = Approve hours + site (D10).
+  await assert.rejects(run("correctClockEvent", { eventId: "sC-out", newTimestamp: ct(16, "22:00").toMillis() }, u.restricted), denied);
+  await assert.rejects(run("deleteTimesheetSession", { approvalId: "sC", eventIds: ["sC", "sC-out"] }, u.restricted), denied);
+  await assert.rejects(run("assignSessionSite", { approvalId: "sA", eventIds: ["sA", "sA-out"], siteId: "siteC" }, u.restricted), denied);
+  await assert.rejects(
+    run("addManualTimestamp", { employeeId: "juan", date: "2026-11-17", clockInTime: "08:00", clockOutTime: "12:00", siteId: "siteC", reason: "forgot" }, u.restricted),
+    denied
+  );
+  // No Approve hours at all.
+  await assert.rejects(run("setApprovalStatus", { eventId: "sA", status: "approved" }, u.plain), denied);
+  await assert.rejects(run("setApprovalStatus", { eventId: "sA", status: "approved" }, u.nothing), denied);
+});
+
+test("legacy admin (no stored access) keeps everything except Billing; owner + Full access everything", async () => {
+  const u = await seed();
+  for (const who of [u.legacy, u.full, u.owner]) {
+    await run("setApprovalStatus", { eventId: "sC", status: "approved" }, who);
+    await run("setApprovalStatus", { eventId: "sC", status: "pending" }, who);
+    await run("setShiftTip", { eventId: "sC", amountCents: who.uid.length * 100 }, who);
+  }
+});
+
+test("adminClockAction: Approve hours + the open shift's site (D18)", async () => {
+  const u = await seed();
+  // Juan clocks in on C (open shift) through an all-sites admin.
+  await run("adminClockAction", { employeeId: "juan", action: "in", siteId: "siteC", note: "" }, u.legacy);
+  await assert.rejects(run("adminClockAction", { employeeId: "juan", action: "out", note: "x" }, u.restricted), denied);
+  await assert.rejects(run("adminClockAction", { employeeId: "juan", action: "out" }, u.plain), denied); // no Approve hours
+  await run("adminClockAction", { employeeId: "juan", action: "breakStart" }, u.full);
+  await run("adminClockAction", { employeeId: "juan", action: "out", note: "done" }, u.owner);
+  const evs = (await company().collection("clockEvents").where("employeeId", "==", "juan").orderBy("timestamp").get()).docs.map((d) => d.data());
+  assert.deepEqual(evs.slice(-4).map((e) => [e.type, e.source, e.siteId]), [
+    ["in", "adminManual", "siteC"],
+    ["breakStart", "adminManual", "siteC"],
+    ["breakEnd", "autoBreakEnd", "siteC"],
+    ["out", "adminManual", "siteC"],
+  ]);
+  // A restricted admin can clock in only on their own sites.
+  await assert.rejects(run("adminClockAction", { employeeId: "juan", action: "in", siteId: "siteC" }, u.restricted), denied);
+  await run("adminClockAction", { employeeId: "juan", action: "in", siteId: "siteA" }, u.restricted);
+  await run("adminClockAction", { employeeId: "juan", action: "outAt", atMs: Date.now() + 1000, note: "set" }, u.restricted);
+});
+
+test("Make admin (setEmployeeRole) starts with nothing; hierarchy on demote/deactivate/delete (D5, D16)", async () => {
+  const u = await seed();
+  await company().collection("employees").doc("bob").set({ name: "Bob", active: true, linkedUserId: "bob", isSupervisor: true });
+  await admin.auth().deleteUser("bob").catch(() => {});
+  await admin.auth().createUser({ uid: "bob", email: "bob@x.co" });
+  await db.doc("users/bob").set({ role: "supervisor", companyId: C, name: "Bob" });
+  // An admin with only Invites can make Bob an admin - he gets NO access.
+  await run("setEmployeeRole", { employeeId: "bob", isAdmin: true, isSupervisor: true }, u.plain);
+  assert.deepEqual((await user("bob")).adminAccess, { level: "admin", sites: [], permissions: NONE });
+  const c = await claims("bob");
+  assert.equal(c.role, "admin");
+  assert.equal(c.allSites, false);
+  assert.deepEqual(c.perms, []);
+  assert.equal(c.sup, true, "still a supervisor (G1 sub A)");
+  // ...but can't demote an admin (needs owner / Full access) or a Full admin.
+  await assert.rejects(run("setEmployeeRole", { employeeId: "bob", isAdmin: false, isSupervisor: true }, u.plain), denied);
+  await assert.rejects(run("setEmployeeRole", { employeeId: "emp-full2", isAdmin: false, isSupervisor: false }, u.full), denied);
+  await assert.rejects(run("setEmployeeActive", { employeeId: "emp-full2", active: false }, u.full), denied);
+  await assert.rejects(run("deleteEmployee", { employeeId: "emp-full2" }, u.full), denied);
+  await assert.rejects(run("setEmployeeActive", { employeeId: "emp-full", active: false }, u.full), denied); // self
+  // Owner can demote Full access; leaving admin drops the stored access.
+  await run("setEmployeeRole", { employeeId: "emp-full2", isAdmin: false, isSupervisor: true }, u.owner);
+  assert.equal((await user("full2")).adminAccess, undefined);
+  assert.equal((await claims("full2")).lvl, undefined);
+  // No Invites permission -> no role changes at all.
+  await assert.rejects(run("setEmployeeRole", { employeeId: "juan", isAdmin: true, isSupervisor: false }, u.nothing), denied);
+});
+
+test("acceptInvite: an admin invite always starts with no access (G2), whatever the invite says", async () => {
+  await seed();
+  await db.doc("invites/inv1").set({
+    email: "newadmin@x.co", companyId: C, role: "admin", assignedSiteIds: [], status: "pending", invitedByUid: "restricted",
+    // Written past the rules (which refuse these) to prove acceptInvite ignores them.
+    adminAccess: { level: "full", sites: "all", permissions: ALL }, level: "full",
+  });
+  const created = await admin.auth().createUser({ email: "newadmin@x.co", password: "secret123" });
+  await funcs.acceptInvite.run({ data: { name: "New Admin", inviteId: "inv1" }, auth: { uid: created.uid, token: { email: "newadmin@x.co" } }, rawRequest: {} });
+  assert.deepEqual((await user(created.uid)).adminAccess, { level: "admin", sites: [], permissions: NONE });
+  const c = await claims(created.uid);
+  assert.equal(c.lvl, "admin");
+  assert.equal(c.allSites, false);
+  assert.deepEqual(c.perms, []);
+});
+
+test("setSiteAdmins (owner / Full only) + a restricted creator gets their new site (D17)", async () => {
+  const u = await seed();
+  await company().collection("jobSites").doc("siteD").set({ name: "Site D", active: true });
+  await assert.rejects(run("setSiteAdmins", { siteId: "siteD", adminUids: ["restricted"] }, u.restricted), denied);
+  await run("setSiteAdmins", { siteId: "siteD", adminUids: ["restricted", "plain", "full", "owner"] }, u.full);
+  assert.deepEqual((await user("restricted")).adminAccess.sites, ["siteA", "siteD"]);
+  assert.equal((await user("plain")).adminAccess.sites, "all", "All-sites admin unchanged");
+
+  await company().collection("jobSites").doc("siteE").set({ name: "Site E", active: true, createdByUid: "restricted" });
+  await funcs.onJobSiteCreated.run({
+    data: { data: () => ({ createdByUid: "restricted" }) },
+    params: { companyId: C, siteId: "siteE" },
+  });
+  assert.deepEqual((await user("restricted")).adminAccess.sites, ["siteA", "siteD", "siteE"]);
+  assert.deepEqual((await claims("restricted")).perms.sort(), ["ah", "inv", "pay"]);
+});

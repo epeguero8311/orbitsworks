@@ -63,7 +63,13 @@ async function change(c, uid, toggles, expectedRole) {
   assert.equal(emp.isSupervisor, !!toggles.isSupervisor);
   assert.equal(emp.isAdmin, !!toggles.isAdmin);
   assert.equal(user.role, expectedRole, "users doc role");
-  assert.deepEqual(claims, { role: expectedRole, companyId: c, employeeId: "emp1" }, "claims");
+  // Task 4: a NEW admin's claims also carry the access mirror - no sites,
+  // no permissions (D16), sup = still a supervisor (G1 sub A).
+  const accessMirror =
+    expectedRole === "admin"
+      ? { lvl: "admin", allSites: false, perms: [], ...(toggles.isSupervisor ? { sup: true } : {}) }
+      : {};
+  assert.deepEqual(claims, { role: expectedRole, companyId: c, employeeId: "emp1", ...accessMirror }, "claims");
   assert.ok(user.roleChangedAt, "roleChangedAt stamped");
   assert.ok(user.roleChangedAt.toMillis() >= before - 5000, "roleChangedAt is now");
   const seen = roleSeenAtClaims.filter((r) => r.uid === uid).pop();

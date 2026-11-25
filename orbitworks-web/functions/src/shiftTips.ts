@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import { db } from "./shared";
 import { buildSelfHealData, resolveApprovedByName } from "./timesheetApprovals";
 import { setShiftTipSchema } from "./shiftTipValidators";
+import { loadAdminCaller, requirePermission, requireShiftSite } from "./adminAccess";
 
 // Tips (Task 3, decisions D1-D3 in docs/plans/overtime-columns-tips-plan.md).
 //
@@ -24,17 +25,18 @@ export const setShiftTip = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "editPay" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "editPay");
+  const callerCompanyId = caller.companyId;
 
   const parsed = setShiftTipSchema.safeParse(request.data ?? {});
   if (!parsed.success) {
     throw new HttpsError("invalid-argument", "Enter a tip from $0 to $1,000 with at most 2 decimals.");
   }
   const { eventId, amountCents } = parsed.data;
+  // Task 4 (D7): Edit pay rates & wages + access to the shift's site.
+  await requireShiftSite(caller, eventId);
 
   const companyRef = db.collection("companies").doc(callerCompanyId);
   const companySnap = await companyRef.get();

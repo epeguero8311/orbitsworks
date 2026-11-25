@@ -4,6 +4,8 @@ import { db, FREE_EMPLOYEE_CAP, isOverActiveCap, isOverTotalCap, EmployeeCapFiel
 import { reserveNewPin } from "./pins";
 import { employeeDocPinOnCreate, employeePinData, employeePinRef } from "./lib/employeePin";
 import { acceptInviteSchema, pickStaffInvite } from "./staffInviteValidators";
+import { NEW_ADMIN_ACCESS } from "./adminAccessModel";
+import { writeRoleClaims } from "./adminAccess";
 
 export const createCompany = onCall(async (request) => {
   if (!request.auth) {
@@ -236,6 +238,9 @@ export const acceptInvite = onCall(async (request) => {
       assignedSiteIds: employee.assignedSiteIds || [],
       name: linkedName,
       email: email,
+      // Task 4 (D9/D16): a new admin starts with no sites + no permissions,
+      // whatever the invite says - only setAdminAccess grants access.
+      ...(role === "admin" ? { adminAccess: NEW_ADMIN_ACCESS } : {}),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -258,7 +263,7 @@ export const acceptInvite = onCall(async (request) => {
 
     await batch.commit();
 
-    await admin.auth().setCustomUserClaims(uid, {
+    await writeRoleClaims(uid, {
       role,
       companyId: invite.companyId,
       employeeId: invite.linkExistingEmployeeId,
@@ -314,6 +319,8 @@ export const acceptInvite = onCall(async (request) => {
     assignedSiteIds: invite.assignedSiteIds || [],
     name: name,
     email: email,
+    // Task 4 (D9/D16): see the promote branch above.
+    ...(role === "admin" ? { adminAccess: NEW_ADMIN_ACCESS } : {}),
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
@@ -353,7 +360,7 @@ export const acceptInvite = onCall(async (request) => {
 
   await batch.commit();
 
-  await admin.auth().setCustomUserClaims(uid, {
+  await writeRoleClaims(uid, {
     role,
     companyId: invite.companyId,
     employeeId: employeeRef.id,

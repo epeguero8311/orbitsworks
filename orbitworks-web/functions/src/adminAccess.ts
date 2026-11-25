@@ -4,6 +4,7 @@ import { db } from "./shared";
 import {
   accessClaimsFor,
   canAccessSite,
+  canManageAdmin,
   hasPermission,
   resolveAdminAccess,
   type AdminAccess,
@@ -111,4 +112,59 @@ export async function writeRoleClaims(
     }
   }
   await admin.auth().setCustomUserClaims(uid, claims);
+}
+
+// D5: deactivating / deleting / re-roling an employee whose login is an
+// admin follows the admin hierarchy (only the owner touches Full access;
+// only owner / Full access touch admins; never yourself as an admin; never
+// the owner). Plain employees and supervisors: no extra check.
+export async function requireCanManageEmployees(caller: AdminCaller, employeeIds: string[]): Promise<void> {
+  const employeesRef = db.collection("companies").doc(caller.companyId).collection("employees");
+  for (const id of employeeIds) {
+    const emp = await employeesRef.doc(id).get();
+    const linkedUserId = emp.data()?.linkedUserId as string | undefined;
+    if (!linkedUserId) continue;
+    const target = await loadUserAccess(caller.companyId, linkedUserId);
+    if (!target.exists) continue;
+    if (target.role === "owner") throw new HttpsError("permission-denied", "Nobody can change the owner.");
+    if (target.role !== "admin") continue;
+    const check = canManageAdmin({ callerUid: caller.uid, caller: caller.access, targetUid: linkedUserId, target: target.access });
+    if (!check.ok) throw new HttpsError("permission-denied", check.reason);
+  }
+}
+
+// The clock-in that opens the session an event belongs to: the event itself
+// for an "in", else the employee's latest "in" at or before it.
+export async function sessionClockInId(companyId: string, eventId: string): Promise<string | null> {
+  if (!eventId) return null;
+  const events = db.collection("companies").doc(companyId).collection("clockEvents");
+  const snap = await events.doc(eventId).get();
+  if (!snap.exists) return null;
+  const e = snap.data() as { type?: string; employeeId?: string; timestamp?: admin.firestore.Timestamp };
+  if (e.type === "in") return eventId;
+  if (!e.employeeId || !e.timestamp) return null;
+  const q = await events
+    .where("employeeId", "==", e.employeeId)
+    .where("type", "==", "in")
+    .where("timestamp", "<=", e.timestamp)
+    .orderBy("timestamp", "desc")
+    .limit(1)
+    .get();
+  return q.empty ? null : q.docs[0].id;
+}
+
+// Site check for an admin action on any event of a shift (rule 1: the
+// shift's site). Unknown ids pass through to the function's own not-found.
+export async function requireEventShiftSite(caller: AdminCaller, eventId: string): Promise<void> {
+  const clockInId = await sessionClockInId(caller.companyId, eventId);
+  if (clockInId) await requireShiftSite(caller, clockInId);
+}
+
+// For callables that supervisors may also use (createEmployee,
+// updateEmployeeProfile): an admin/owner caller also needs the permission;
+// a supervisor's path is unchanged (D15).
+export async function requirePermissionIfAdmin(request: Pick<CallableRequest, "auth">, key: PermissionKey): Promise<void> {
+  const role = request.auth?.token.role;
+  if (role !== "admin" && role !== "owner") return;
+  requirePermission(await loadAdminCaller(request), key);
 }

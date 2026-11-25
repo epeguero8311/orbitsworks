@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import { HttpsError } from "firebase-functions/v2/https";
 import { db } from "./shared";
+import { writeRoleClaims } from "./adminAccess";
 
 // ---- Employee App (self-service) login ----
 //
@@ -119,5 +120,6 @@ export async function linkEmployeeLogin(input: LinkEmployeeLoginInput): Promise<
   });
   await batch.commit();
 
-  await admin.auth().setCustomUserClaims(uid, { role, companyId, employeeId });
+  // Task 4: keeps an admin's access mirror (writeRoleClaims).
+  await writeRoleClaims(uid, { role, companyId, employeeId });
 }

@@ -1,6 +1,7 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { FieldValue } from "firebase-admin/firestore";
+import { canUseBilling } from "@/lib/stripe/billingAccess";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { stripe } from "@/lib/stripe/server";
 import { getTierByKey } from "@/lib/stripe/tiers";
@@ -19,10 +20,10 @@ export async function POST(request: NextRequest) {
     }
 
     const decoded = await adminAuth.verifyIdToken(idToken);
-    const role = decoded.role as string | undefined;
     const companyId = decoded.companyId as string | undefined;
 
-    if (!companyId || role !== "owner") {
+    // Task 4: owner, Full access, or the Billing permission.
+    if (!companyId || !(await canUseBilling(decoded))) {
       return NextResponse.json({ error: "Not authorized." }, { status: 403 });
     }
 

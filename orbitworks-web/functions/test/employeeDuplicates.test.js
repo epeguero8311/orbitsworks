@@ -57,7 +57,8 @@ test("supervisor, employee, signed out, another company, bad input and missing e
   await assert.rejects(call(c, { employeeId: "new" }, auth(c, "supervisor")), /Not authorized/);
   await assert.rejects(call(c, { employeeId: "new" }, auth(c, "employee")), /Not authorized/);
   await assert.rejects(funcs.dismissDuplicateFlag.run({ data: { employeeId: "new" }, auth: null, rawRequest: {} }), /signed in/);
-  await assert.rejects(call("other-co", { employeeId: "new" }), /not found/i);
+  // Task 4: the caller's users doc (another company) now refuses it up front.
+  await assert.rejects(call("other-co", { employeeId: "new" }), /not found|Not authorized/i);
   await assert.rejects(call(c, { employeeId: "bad id" }), /Invalid employee/);
   await assert.rejects(call(c, { employeeId: "new", companyId: c }), /Invalid employee/);
   assert.deepEqual((await emp(c, "new").get()).data().possibleDuplicateOf, ["old"]);

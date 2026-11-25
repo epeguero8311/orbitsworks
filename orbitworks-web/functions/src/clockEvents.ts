@@ -17,6 +17,7 @@ import { closeOpenSiteExits } from "./employeeSiteExits";
 import { checkFaceMatch, REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY } from "./rekognition";
 import { correctClockEventSchema, CORRECTION_FUTURE_SLACK_MS, findCorrectionConflict, correctionConflictMessage } from "./clockCorrectionValidators";
 import { reassignClockSessionSchema, collectSessionEvents, findOverlap, overlapMessage, type SessionEvent } from "./sessionReassignValidators";
+import { loadAdminCaller, requirePermission, requireEventShiftSite, requireShiftSite, requireSite } from "./adminAccess";
 
 // Duplicated from lib/stripe/tiers.ts's isProPlan - see geocoding.ts for
 // why this can't just be imported.
@@ -890,11 +891,10 @@ export const correctClockEvent = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "approveHours" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "approveHours");
+  const callerCompanyId = caller.companyId;
 
   // Same input the live website has always sent ({ eventId, newTimestamp,
   // reason? }) - see clockCorrectionValidators.ts.
@@ -903,6 +903,8 @@ export const correctClockEvent = onCall(async (request) => {
     throw new HttpsError("invalid-argument", parsed.error.issues[0]?.message ?? "Invalid correction.");
   }
   const { eventId, newTimestamp: newTimestampMs, reason } = parsed.data;
+  // Task 4: only shifts on the caller's sites (rule 1).
+  await requireEventShiftSite(caller, eventId);
 
   if (newTimestampMs > Date.now() + CORRECTION_FUTURE_SLACK_MS) {
     throw new HttpsError("invalid-argument", "That time is in the future. Pick a time that has already happened.");
@@ -995,13 +997,14 @@ export const reassignClockEvent = onCall({ secrets: [REKOGNITION_ACCESS_KEY_ID, 
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "approveHours" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "approveHours");
+  const callerCompanyId = caller.companyId;
 
   const eventId = (request.data && request.data.eventId ? String(request.data.eventId) : "").trim();
+  // Task 4: only shifts on the caller's sites (rule 1).
+  await requireEventShiftSite(caller, eventId);
   const newEmployeeId = (request.data && request.data.newEmployeeId ? String(request.data.newEmployeeId) : "").trim();
   const reason = request.data && typeof request.data.reason === "string"
     ? request.data.reason.trim()
@@ -1122,17 +1125,18 @@ export const reassignClockSession = onCall({ secrets: [REKOGNITION_ACCESS_KEY_ID
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "approveHours" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "approveHours");
+  const callerCompanyId = caller.companyId;
 
   const parsed = reassignClockSessionSchema.safeParse(request.data ?? {});
   if (!parsed.success) {
     throw new HttpsError("invalid-argument", parsed.error.issues[0]?.message ?? "Invalid request.");
   }
   const { clockInEventId, newEmployeeId, reason } = parsed.data;
+  // Task 4: only shifts on the caller's sites (rule 1).
+  await requireShiftSite(caller, clockInEventId);
 
   let changedByName = "Admin";
   const callerSnap = await db.collection("users").doc(request.auth.uid).get();
@@ -1307,17 +1311,19 @@ export const assignSessionSite = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "approveHours" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "approveHours");
+  const callerCompanyId = caller.companyId;
 
   const approvalId = (request.data?.approvalId ? String(request.data.approvalId) : "").trim();
   const eventIds = Array.isArray(request.data?.eventIds)
     ? (request.data.eventIds as unknown[]).map((id) => String(id)).filter(Boolean)
     : [];
   const siteId = (request.data?.siteId ? String(request.data.siteId) : "").trim();
+  // Task 4: the shift's current site AND the new one must be the caller's.
+  if (approvalId) await requireShiftSite(caller, approvalId);
+  if (siteId) requireSite(caller, siteId);
   if (!approvalId) {
     throw new HttpsError("invalid-argument", "approvalId is required.");
   }
@@ -1398,11 +1404,10 @@ export const addManualTimestamp = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "approveHours" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "approveHours");
+  const callerCompanyId = caller.companyId;
 
   const d = request.data ?? {};
   const employeeId = (d.employeeId ? String(d.employeeId) : "").trim();
@@ -1412,6 +1417,8 @@ export const addManualTimestamp = onCall(async (request) => {
   const breakStartTime = d.breakStartTime ? String(d.breakStartTime).trim() : null;
   const breakEndTime = d.breakEndTime ? String(d.breakEndTime).trim() : null;
   const siteId = d.siteId ? String(d.siteId) : null;
+  // Task 4: the new shift's site must be one of the caller's (null = Unassigned).
+  requireSite(caller, siteId);
   const reason = (d.reason ? String(d.reason) : "").trim();
 
   // Company override is optional and tri-state: key absent -> use the

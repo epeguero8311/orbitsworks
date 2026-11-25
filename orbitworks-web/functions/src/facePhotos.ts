@@ -4,6 +4,7 @@ import { db } from "./shared";
 import { storagePathFromDownloadUrl } from "./rekognition";
 import { resolveFaceBadReferenceAlert } from "./alerts";
 import { removeEmployeePhotoSchema } from "./facePhotoValidators";
+import { loadAdminCaller, requirePermission } from "./adminAccess";
 
 // ---- One employee's face photos (biometric audit c + d) ----
 //
@@ -102,11 +103,10 @@ export const removeEmployeePhoto = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const companyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !companyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "employees" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "employees");
+  const companyId = caller.companyId;
   const parsed = removeEmployeePhotoSchema.safeParse(request.data);
   if (!parsed.success) {
     throw new HttpsError("invalid-argument", "employeeId is required.");

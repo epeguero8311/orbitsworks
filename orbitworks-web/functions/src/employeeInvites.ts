@@ -12,6 +12,7 @@ import { companyCanUseInvites, rowCanBeInvited, InviteCompany, InviteEmployeeRow
 import { buildEmployeeInviteEmail } from "./emailTemplates/employeeInviteEmail";
 import { EMPLOYEE_INVITE_EXPIRY_DAYS, EMPLOYEE_INVITE_EXPIRY_MS, EmployeeInviteDoc, inviteDisplayStatus } from "./employeeInviteTypes";
 import { createEmployeeInviteSchema, employeeInviteTokenSchema, INVITE_TOKEN_BYTES } from "./employeeInviteValidators";
+import { loadAdminCaller, requirePermission } from "./adminAccess";
 
 // ---- Employee App email invites: admin side (Phase 3B) ----
 //
@@ -41,14 +42,11 @@ const MESSAGES = {
   sendFailed: "Couldn't send the invite email.",
 } as const;
 
-function requireAdmin(request: CallableRequest): { uid: string; companyId: string } {
-  if (!request.auth) throw new HttpsError("unauthenticated", "You must be signed in.");
-  const role = request.auth.token.role as string | undefined;
-  const companyId = request.auth.token.companyId as string | undefined;
-  if ((role !== "admin" && role !== "owner") || !companyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
-  return { uid: request.auth.uid, companyId };
+// Task 4: employee-app invites = "Create / edit employees".
+async function requireAdmin(request: CallableRequest): Promise<{ uid: string; companyId: string }> {
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "employees");
+  return { uid: caller.uid, companyId: caller.companyId };
 }
 
 function parse<S extends z.ZodType>(schema: S, raw: unknown): z.infer<S> {
@@ -107,7 +105,7 @@ async function requireInvitableRow(companyId: string, employeeId: string): Promi
 // ---- create ----
 
 export async function runCreateEmployeeInvite(request: CallableRequest): Promise<{ token: string; inviteId: string }> {
-  const { uid, companyId } = requireAdmin(request);
+  const { uid, companyId } = await requireAdmin(request);
   const input = parse(createEmployeeInviteSchema, request.data);
 
   await requireInvitePlan(companyId);
@@ -207,7 +205,7 @@ async function loadOwnInvite(companyId: string, token: string): Promise<{ ref: a
 // ---- resend (G1): pending or expired -> email again, fresh 7 days ----
 
 export async function runResendEmployeeInvite(request: CallableRequest): Promise<{ success: true }> {
-  const { companyId } = requireAdmin(request);
+  const { companyId } = await requireAdmin(request);
   const { token } = parse(employeeInviteTokenSchema, request.data);
   const { ref, invite } = await loadOwnInvite(companyId, token);
 
@@ -236,7 +234,7 @@ export const resendEmployeeInvite = onCall({ secrets: [RESEND_API_KEY] }, (reque
 // a sign-up that is accepting the same invite. ----
 
 export async function runRevokeEmployeeInvite(request: CallableRequest): Promise<{ success: true }> {
-  const { uid, companyId } = requireAdmin(request);
+  const { uid, companyId } = await requireAdmin(request);
   const { token } = parse(employeeInviteTokenSchema, request.data);
   const ref = invitesRef().doc(token);
   await db.runTransaction(async (tx) => {
@@ -254,7 +252,7 @@ export const revokeEmployeeInvite = onCall((request) => runRevokeEmployeeInvite(
 // ---- remove (H1): delete a dead invite (revoked / accepted / expired) ----
 
 export async function runRemoveEmployeeInvite(request: CallableRequest): Promise<{ success: true }> {
-  const { companyId } = requireAdmin(request);
+  const { companyId } = await requireAdmin(request);
   const { token } = parse(employeeInviteTokenSchema, request.data);
   const ref = invitesRef().doc(token);
   await db.runTransaction(async (tx) => {

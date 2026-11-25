@@ -14,6 +14,8 @@ import { deleteEmployeeFacePhotos, markConsentFaceDataDeleted } from "./facePhot
 import { loginRoleFor } from "./employeeAccess";
 import { pendingInviteRefsForRow } from "./employeeInvites";
 import { employeeDocPinOnCreate, employeePinData, employeePinRef, readEmployeePin } from "./lib/employeePin";
+import { NEW_ADMIN_ACCESS, canManageAdmin, resolveAdminAccess } from "./adminAccessModel";
+import { loadAdminCaller, requirePermission, writeRoleClaims, requireCanManageEmployees } from "./adminAccess";
 
 // Creates the employee doc and reserves its PIN entirely server-side
 // (Admin SDK transaction via reserveNewPin, same primitive acceptInvite
@@ -24,11 +26,10 @@ export const addEmployee = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "employees" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "employees");
+  const callerCompanyId = caller.companyId;
 
   const data = request.data ?? {};
   const name = (data.name ? String(data.name) : "").trim();
@@ -98,17 +99,17 @@ export const setEmployeeActive = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "employees" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "employees");
+  const callerCompanyId = caller.companyId;
 
   const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
   const active = !!(request.data && request.data.active);
   if (!employeeId) {
     throw new HttpsError("invalid-argument", "employeeId is required.");
   }
+  await requireCanManageEmployees(caller, [employeeId]);
 
   const employeeRef = db
     .collection("companies")
@@ -168,11 +169,10 @@ export const deactivateEmployeesBulk = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "employees" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "employees");
+  const callerCompanyId = caller.companyId;
 
   const employeeIds: string[] = Array.isArray(request.data?.employeeIds)
     ? request.data.employeeIds.map((id: unknown) => String(id))
@@ -180,6 +180,7 @@ export const deactivateEmployeesBulk = onCall(async (request) => {
   if (employeeIds.length === 0) {
     throw new HttpsError("invalid-argument", "employeeIds is required.");
   }
+  await requireCanManageEmployees(caller, employeeIds);
 
   const employeesRef = db.collection("companies").doc(callerCompanyId).collection("employees");
   const batch = db.batch();
@@ -235,11 +236,11 @@ export const setEmployeeRole = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: Team role toggles = "Invite admins / supervisors"; changing an
+  // existing admin also needs the D5 hierarchy (owner / Full access only).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "invites");
+  const callerCompanyId = caller.companyId;
 
   const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
   const isAdmin = !!(request.data && request.data.isAdmin);
@@ -274,9 +275,19 @@ export const setEmployeeRole = onCall(async (request) => {
   // changed through this action (there is no employee-level path back to
   // them in the first place, since the signup account never gets an
   // employee doc, but this guard makes the invariant explicit).
-  const linkedUser = userSnap.data() as { role?: string };
+  const linkedUser = userSnap.data() as { role?: string; adminAccess?: unknown };
   if (linkedUser.role === "owner") {
     throw new HttpsError("failed-precondition", "The company owner's role can't be changed here.");
+  }
+  const wasAdmin = linkedUser.role === "admin";
+  if (wasAdmin) {
+    const check = canManageAdmin({
+      callerUid: caller.uid,
+      caller: caller.access,
+      targetUid: linkedUserId,
+      target: resolveAdminAccess("admin", linkedUser.adminAccess),
+    });
+    if (!check.ok) throw new HttpsError("permission-denied", check.reason);
   }
 
   // Employee App: a login that came from the employee app (appAccess)
@@ -290,7 +301,16 @@ export const setEmployeeRole = onCall(async (request) => {
   // refresh, which must already get the new claims (otherwise it would
   // route by a role the rules don't grant yet).
   await employeeRef.update({ isSupervisor, isAdmin });
-  await admin.auth().setCustomUserClaims(linkedUserId, {
+  // Task 4 (D9/D16): a NEW admin starts with no sites + no permissions (the
+  // website opens the Permissions modal right after); an admin who stays
+  // an admin keeps their access; leaving admin drops it.
+  const becomesAdmin = dashboardRole === "admin";
+  if (becomesAdmin && !wasAdmin) {
+    await userRef.update({ adminAccess: NEW_ADMIN_ACCESS });
+  } else if (!becomesAdmin && wasAdmin) {
+    await userRef.update({ adminAccess: admin.firestore.FieldValue.delete() });
+  }
+  await writeRoleClaims(linkedUserId, {
     role: dashboardRole,
     companyId: callerCompanyId,
     employeeId,
@@ -318,17 +338,17 @@ export const setEmployeePinSupervisor = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "invites" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "invites");
+  const callerCompanyId = caller.companyId;
 
   const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
   const isSupervisor = !!(request.data && request.data.isSupervisor);
   if (!employeeId) {
     throw new HttpsError("invalid-argument", "employeeId is required.");
   }
+  await requireCanManageEmployees(caller, [employeeId]);
 
   const employeeRef = db
     .collection("companies")
@@ -397,11 +417,10 @@ export const backfillTotalEmployeeCount = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "employees" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "employees");
+  const callerCompanyId = caller.companyId;
 
   const employeesRef = db.collection("companies").doc(callerCompanyId).collection("employees");
   const countSnap = await employeesRef.count().get();
@@ -416,11 +435,10 @@ export const reassignEmployeeSubcontractor = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "employees" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "employees");
+  const callerCompanyId = caller.companyId;
 
   const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
   const rawNewSubcontractorId = request.data ? request.data.newSubcontractorId : undefined;
@@ -621,16 +639,16 @@ export const deleteEmployee = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "employees" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "employees");
+  const callerCompanyId = caller.companyId;
 
   const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
   if (!employeeId) {
     throw new HttpsError("invalid-argument", "employeeId is required.");
   }
+  await requireCanManageEmployees(caller, [employeeId]);
 
   await deleteEmployeeRecord(callerCompanyId, employeeId, request.auth.uid);
 
@@ -648,11 +666,10 @@ export const deleteEmployeesBulk = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "employees" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "employees");
+  const callerCompanyId = caller.companyId;
 
   const employeeIds: string[] = Array.isArray(request.data?.employeeIds)
     ? request.data.employeeIds.map((id: unknown) => String(id))
@@ -660,6 +677,7 @@ export const deleteEmployeesBulk = onCall(async (request) => {
   if (employeeIds.length === 0) {
     throw new HttpsError("invalid-argument", "employeeIds is required.");
   }
+  await requireCanManageEmployees(caller, employeeIds);
 
   let deletedCount = 0;
   for (const employeeId of employeeIds) {

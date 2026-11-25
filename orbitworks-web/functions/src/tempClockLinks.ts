@@ -5,6 +5,7 @@ import { db } from "./shared";
 import { listActiveTempClockLinksSchema, listTempClockLinkHistorySchema } from "./tempClockLinkValidators";
 import { findActiveEmployeeByPin } from "./lib/employeePin";
 import { TEMP_LINK_HISTORY_PAGE_SIZE, type ActiveTempLinkEntry, type TempLinkHistoryEntry, type TempLinkHistoryPage } from "./tempClockLinkTypes";
+import { loadAdminCaller, requirePermission } from "./adminAccess";
 
 const ALLOWED_DURATIONS_MINUTES = new Set([10, 30, 60]);
 const TOKEN_BYTES = 24;
@@ -77,11 +78,10 @@ export const generateTempClockLink = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "approveHours" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "approveHours");
+  const callerCompanyId = caller.companyId;
 
   const rawSiteId = (request.data?.siteId ? String(request.data.siteId) : "").trim();
   const durationMinutes = Number(request.data?.durationMinutes);
@@ -161,11 +161,10 @@ export const listActiveTempClockLinks = onCall(async (request): Promise<{ links:
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "approveHours" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "approveHours");
+  const callerCompanyId = caller.companyId;
   if (!listActiveTempClockLinksSchema.safeParse(request.data ?? {}).success) {
     throw new HttpsError("invalid-argument", "Invalid request.");
   }
@@ -209,11 +208,10 @@ export const listTempClockLinkHistory = onCall(async (request): Promise<TempLink
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "approveHours" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "approveHours");
+  const callerCompanyId = caller.companyId;
   const parsed = listTempClockLinkHistorySchema.safeParse(request.data ?? {});
   if (!parsed.success) {
     throw new HttpsError("invalid-argument", "Invalid request.");
@@ -255,11 +253,10 @@ export const revokeTempClockLink = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "approveHours" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "approveHours");
+  const callerCompanyId = caller.companyId;
 
   const token = (request.data?.token ? String(request.data.token) : "").trim();
   if (!token) {

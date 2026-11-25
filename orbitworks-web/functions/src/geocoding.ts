@@ -2,6 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import { db } from "./shared";
+import { loadAdminCaller, requirePermission } from "./adminAccess";
 
 // Bind into the `secrets` array of any function that geocodes, e.g.
 // `onCall({ secrets: [MAPBOX_TOKEN] }, ...)`.
@@ -121,11 +122,10 @@ export const geocodeJobSiteAddress = onCall({ secrets: [MAPBOX_TOKEN] }, async (
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "settings" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "settings");
+  const callerCompanyId = caller.companyId;
 
   const companySnap = await db.collection("companies").doc(callerCompanyId).get();
   const planTier = companySnap.data()?.planTier as string | undefined;

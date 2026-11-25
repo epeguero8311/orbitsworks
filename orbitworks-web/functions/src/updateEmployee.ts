@@ -14,6 +14,7 @@ import {
 } from "./rekognition";
 import { createEmployeeUpdatedAlert, createPinChangedAlert } from "./alerts";
 import { readEmployeePin } from "./lib/employeePin";
+import { requirePermissionIfAdmin } from "./adminAccess";
 
 const UPDATED_BY_NAME_MAX_LENGTH = 100;
 const RETAINED_PHOTO_MS = 30 * 24 * 60 * 60 * 1000;
@@ -83,6 +84,8 @@ export const updateEmployeeProfile = onCall(
     // already let the person use it.
     const pin = data.pin !== undefined && data.pin !== null ? String(data.pin).trim() : undefined;
     const role = request.auth?.token.role as string | undefined;
+    // Task 4: an admin needs "Create / edit employees" (supervisors unchanged).
+    await requirePermissionIfAdmin(request, "employees");
     // When the edit was made on the phone, for last-edit-wins below. Older
     // app builds don't send it -> server time (sync time), as before.
     const editedAt = clientTimeOrNow(data.clientEditedAt);

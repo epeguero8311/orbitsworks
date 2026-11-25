@@ -13,6 +13,7 @@ import {
 } from "./lib/employeePin";
 import { getEmployeePinsSchema } from "./employeePinValidators";
 import type { EmployeePinsResult } from "./employeePinTypes";
+import { loadAdminCaller, requirePermission } from "./adminAccess";
 
 // Earlier PINs (Phase 5, lib/pinHistory.ts). Server-only.
 export function pinHistoryRef(companyId: string, employeeId: string) {
@@ -163,11 +164,10 @@ export const setEmployeePin = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "employees" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "employees");
+  const callerCompanyId = caller.companyId;
 
   const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
   if (!employeeId) {
@@ -198,11 +198,10 @@ export const backfillEmployeePins = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "employees" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "employees");
+  const callerCompanyId = caller.companyId;
 
   const employeesRef = db.collection("companies").doc(callerCompanyId).collection("employees");
   const pinsRef = db.collection("companies").doc(callerCompanyId).collection("pins");
@@ -427,11 +426,10 @@ export const getEmployeePins = onCall(async (request): Promise<EmployeePinsResul
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
-  const callerRole = request.auth.token.role as string | undefined;
-  const callerCompanyId = request.auth.token.companyId as string | undefined;
-  if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-    throw new HttpsError("permission-denied", "Not authorized.");
-  }
+  // Task 4: "employees" permission (server-side check).
+  const caller = await loadAdminCaller(request);
+  requirePermission(caller, "employees");
+  const callerCompanyId = caller.companyId;
   const parsed = getEmployeePinsSchema.safeParse(request.data ?? {});
   if (!parsed.success) {
     throw new HttpsError("invalid-argument", "Invalid request.");

@@ -7,6 +7,7 @@ import { buildInviteEmail } from "./emailTemplates/inviteEmail";
 import { checkInviteRateLimit, canResendEmail } from "./lib/inviteRateLimit";
 import { supervisorJoinLink, NO_SITE_FOR_PROJECT } from "./lib/appUrls";
 import { recordInviteEmailFailure, sendInviteEmailAndRecord } from "./lib/inviteEmailDelivery";
+import { loadAdminCaller, requirePermission } from "./adminAccess";
 
 type InviteData = {
   email?: string;
@@ -82,11 +83,10 @@ export const resendInviteEmail = onCall(
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "You must be signed in.");
     }
-    const callerRole = request.auth.token.role as string | undefined;
-    const callerCompanyId = request.auth.token.companyId as string | undefined;
-    if ((callerRole !== "admin" && callerRole !== "owner") || !callerCompanyId) {
-      throw new HttpsError("permission-denied", "Not authorized.");
-    }
+    // Task 4: "invites" permission (server-side check).
+    const caller = await loadAdminCaller(request);
+    requirePermission(caller, "invites");
+    const callerCompanyId = caller.companyId;
 
     const inviteId = (request.data && request.data.inviteId ? String(request.data.inviteId) : "").trim();
     if (!inviteId) {
