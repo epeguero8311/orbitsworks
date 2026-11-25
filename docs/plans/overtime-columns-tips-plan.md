@@ -251,6 +251,7 @@ Admin 1 sees: Juan Mon, Site A 5h | Day total 14h | OT 6h (lands on another site
 
 ### Open (for Claude Code to propose, Emilio to approve)
 - Data model for roles / site access / permissions.
+- From Task 3 (D10): editing tips (setShiftTip) falls under "Edit pay rates & wages" AND the admin's site access (only shifts on their sites). Add the server-side check in setShiftTip when Task 4 is built.
 
 ---
 
@@ -333,6 +334,18 @@ All D1-D10 picks = option A (the starred recommendation), Nov 25, 2026.
 Also fixed: the Approve Hours hours display could show "4h 60m" (minutes rounded separately); it now rounds total minutes first ("5h 0m"). Affects Break / Worked / Regular / Overtime cells.
 
 Dev check (Nov 25, localhost against orbitworks-dev-ew): a, b, c, d, e (OT Test Co B briefly on core2_tier1, back to pro_tier1), g, i OK; c/f/h/j partly (see the checklist below). Dev seed fix: devSeedOvertime.js wrote source "admin" (not a real source) - now "adminManual"; the 46 seeded dev events were changed to match (source field only). Reports totals unchanged after: A $255, C $920, D $892.50, E $213; B $570 (Overtime OFF + Fri Pending from testing).
+
+## Task 3 decisions (Nov 25, 2026 - Emilio, after recon docs/plans/tips-recon.md)
+D1. Storage: tip on timesheetApprovals/{clockInEventId} (tipCents, tipUpdatedByUid, tipUpdatedByName, tipUpdatedAt) + full history in timesheetApprovals/{id}/tipEdits/{autoId} (companyId, amountCents, previousAmountCents, admin uid + name, server timestamp). Clients read only (admin/owner, companyId claim); no client writes anywhere.
+D2. Write path: new setShiftTip Cloud Function (zod, one transaction, update-only, server-looked-up admin name). Never touches status / approvedBy / overtimeApplied / autoBreak*Applied / job. Creates the approval doc first if missing (same self-heal as approving).
+D3. Validation: amount >= 0, max 2 decimals, stored in whole cents, cap $1,000.
+D4. Pass check (dev seed, Juan Nov 12 = example E + $45 tip on the Foreman shift): Laborer row $75, Foreman row $183, Day total $258.
+D5. Tips go into every pay output, Overtime ON and OFF, all plans: Reports tables, Payroll CSV, Payroll Hours Excel (incl. Full Report), Time History Excel.
+D6. Tips follow hours: a pending shift's tip is included/excluded exactly like its hours.
+D7. Toggle OFF = hidden in the modal + export, saved tips kept (they come back when turned on).
+D8. Analytics site cost stays wages only (no tips).
+D9. Deleted shift: approval doc goes, tipEdits history is KEPT for audit (not shown anywhere).
+D10. Task 4: tip edits = "Edit pay rates & wages" + the admin's site access (noted under Task 4; not built now).
 
 ---
 
