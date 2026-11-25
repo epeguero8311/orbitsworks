@@ -317,7 +317,7 @@ After step 10 passed (Nov 25, 2026) - hours columns change + fixes:
 
 ## Task 2 decisions (Nov 25, 2026 - Emilio, after step 0 recon)
 D1. Default columns = today's 8: Name, Company, Site, Job, Time, Break, Worked, Status. (The plan left Site out by mistake - it is already on the table.) Max stays 8 counting Name + Status, so the default is full: adding Type / Device / OT / Tips means turning another column off first. The checkbox and the week-mode Date column don't count.
-D2. Regular Hours / Overtime with Overtime OFF: shown greyed out in the modal ("Turn on Overtime in Export Settings"), not drawn in the table; the saved choice comes back when Overtime turns on. Tips (Task 3) works the same way with its own toggle.
+D2. Regular Hours / Overtime with Overtime OFF: shown greyed out in the modal ("Turn on Overtime in Export Settings"), not drawn in the table; still count toward the 8 while saved; the saved choice comes back when Overtime turns on. Tips (Task 3) works the same way with its own toggle.
 D3. Clock-in/out Type values: Admin Manual (adminManual), Employee App (employeeApp), Supervisor App (pin, supervisorPin, supervisorOverride, faceMatch), Quick Link (tempLink), plus "Auto clock-out" (autoClockOut) and "Deactivated" (employeeDeactivated).
 D4. Device: supervisor-app punches = device name at punch time (deviceNameSnapshot) or "Unnamed device"; employee-app punches = "Employee's phone"; Quick Link / Admin Manual / auto = "-"; old shifts with no data = "-". No app release. FOLLOW-UP (not this task): record the phone model on employee-app punches with the next app release.
 D5. Free plan: Type + Device locked with the PRO pill, same as Core (one isPro check).
@@ -329,6 +329,7 @@ D9. Owner and any admin can change the columns (supervisors never reach the dash
 D10. Type shows the event's original source only (no "edited" marker; edit history stays in Session review).
 
 All D1-D10 picks = option A (the starred recommendation), Nov 25, 2026.
+Also fixed: the Approve Hours hours display could show "4h 60m" (minutes rounded separately); it now rounds total minutes first ("5h 0m"). Affects Break / Worked / Regular / Overtime cells.
 
 Dev check (Nov 25, localhost against orbitworks-dev-ew): a, b, c, d, e (OT Test Co B briefly on core2_tier1, back to pro_tier1), g, i OK; c/f/h/j partly (see the checklist below). Dev seed fix: devSeedOvertime.js wrote source "admin" (not a real source) - now "adminManual"; the 46 seeded dev events were changed to match (source field only). Reports totals unchanged after: A $255, C $920, D $892.50, E $213; B $570 (Overtime OFF + Fri Pending from testing).
 
