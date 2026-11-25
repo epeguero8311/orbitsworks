@@ -172,3 +172,29 @@ Last edited by Ana Lopez (i)
 Export: Worked 10.00 | OT 2.00 | Tips $45.00 | Est. Pay $258.00 ($213 wages + $45 tips)
 ```
 - Data model (where tips + history are stored): Claude Code proposes, Emilio approves before building. Must follow the tenant (companyId) rules.
+
+---
+
+## Task 1 decisions (Nov 24, 2026 - Emilio)
+1. Multiplier/threshold storage: UI-only move. Keep top-level overtimeMultiplier + weeklyOvertimeThreshold, add new fields next to them. No migration.
+2. Overtime warning keeps working off the threshold even when the Overtime toggle is OFF.
+3. Overtime alert keeps today's supervisor-app push + employee-app alert. Only the message text changes to "{Name} has reached overtime ({X}h)". (Overrides "website only" in the plan.)
+4. Combined-day behavior (Automatic Break once per day, Max hours on combined day total, auto clock-out on combined day hours) ONLY when Overtime is ON. OFF = per-shift exactly like today.
+5. Auto clock-out combined total subtracts the earlier closed shifts' Automatic Break.
+6. Approve Hours job = source of truth. Single-job days: Reports page + Excel Job dropdowns work like today. 2+ job days: those dropdowns are locked and the day splits into rows. Excel jobs lookup gets an OT rate column. Shift with no job -> employee's default job.
+7. Job Site Cost splits OT proportionally by hours (plan example). Pay/export stay chronological (rule 6).
+8. Analytics uses the Approve Hours job when there is one, else default job.
+9. Job Overtime rate gets its own rate history, like rateHistory.
+10. Subcontractors: keep no OT premium.
+11. Time History Excel (ClockEventLookup): in scope, switch it to the shared OT function.
+12. Round overtime hours: same 0/5/15/30-min options, round up, applied per day. Period total = sum of days.
+13. Titles & Pay warning: literal 1.5x the job rate (legal floor), not the company multiplier. Warn only, never block.
+14. Day/week boundaries: one time zone everywhere. Company time zone field if one exists, else America/Chicago.
+
+Extras:
+- Dev-only deploys (orbitworks-dev-ew). Prod is a separate, later decision.
+- zod validator + Firestore rules type checks for the new fields.
+- On approval, group the week lookup by employee+week (no per-row query in a bulk approve of up to 500).
+- lib/overtime.ts applies Automatic Break once per day on combined day hours; the existing per-shift path stays untouched for Overtime OFF.
+- Week starts on: any day of the week, default Monday.
+- Dev vs prod functions: functions:list match is enough (no source-zip compare). Firebase CLI stays on dev for orbitworks-web.
