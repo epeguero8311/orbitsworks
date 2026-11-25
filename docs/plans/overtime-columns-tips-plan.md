@@ -198,3 +198,10 @@ Extras:
 - lib/overtime.ts applies Automatic Break once per day on combined day hours; the existing per-shift path stays untouched for Overtime OFF.
 - Week starts on: any day of the week, default Monday.
 - Dev vs prod functions: functions:list match is enough (no source-zip compare). Firebase CLI stays on dev for orbitworks-web.
+
+OT calculation edge rules (Nov 24, 2026, after step 4):
+15. Weekly overtime after = 0 means weekly OT is off (same as daily 0).
+16. With Overtime ON, the day's Automatic Break comes off the day's last closed shift first (earlier shifts only if it is shorter than the break).
+17. OT rounding moves minutes from regular to OT; total worked hours never change.
+18. Missing clock-out = 0h + flagged incomplete. Only alerts and auto clock-out count an open shift up to "now".
+19. Job title names are limited to 120 characters (zod validator).
