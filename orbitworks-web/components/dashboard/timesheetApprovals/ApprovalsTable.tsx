@@ -16,6 +16,7 @@ import {
   buildColumnWidths,
   type ApprovalsColumnKey,
 } from "@/lib/approvalsColumns";
+import { formatTipCents } from "@/lib/validators/shiftTip";
 import { clockDeviceLabel, clockTypeLabel } from "@/lib/approvalsClockInfo";
 import { clockOutSiteNote } from "@/lib/clockOutSite";
 
@@ -68,6 +69,8 @@ export function ApprovalsTable({
   onAddTimestamp,
   columns,
   onOpenColumns,
+  tipsEnabled,
+  onSetTip,
 }: {
   rows: ApprovalRow[];
   loading: boolean;
@@ -89,6 +92,10 @@ export function ApprovalsTable({
   onAddTimestamp: () => void;
   columns: ApprovalsColumnKey[];
   onOpenColumns: () => void;
+  // Tips (Task 3): the Session review Tips field (the Tips column itself
+  // comes through `columns`, already hidden while Tips is OFF).
+  tipsEnabled: boolean;
+  onSetTip: (eventId: string, amountCents: number) => Promise<void>;
 }) {
   const { sites } = useSites();
   const [editingRow, setEditingRow] = useState<ApprovalRow | null>(null);
@@ -382,6 +389,10 @@ export function ApprovalsTable({
         return (
           <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{formatWorked(row.hours, row.breakHours)}</td>
         );
+      case "tips":
+        return (
+          <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{formatTipCents(row.tipCents)}</td>
+        );
       case "status":
         return (
           <td className="px-3 py-4 xl:px-4 xl:py-5">
@@ -603,6 +614,8 @@ export function ApprovalsTable({
           onSelectRow={setReviewKey}
           onSetStatus={(status) => handleStatusChange(reviewRow, status)}
           onAssignSite={(siteId) => onAssignSite(reviewRow.key, reviewRow.sessionEventIds, siteId)}
+          tipsEnabled={tipsEnabled}
+          onSaveTip={(amountCents) => onSetTip(reviewRow.eventId, amountCents)}
           onClose={() => setReviewKey(null)}
         />
       )}

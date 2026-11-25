@@ -9,6 +9,7 @@ import {
   where,
 } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
+import { setShiftTipSchema } from "@/lib/validators/shiftTip";
 import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
@@ -73,6 +74,11 @@ export type ApprovalRow = {
   // check needs the neighbours either side of the session).
   sessionEvents: ClockEvent[];
   employeeEvents: ClockEvent[];
+  // Tips (Task 3): the shift's tip in whole cents (0 = none) and who last
+  // changed it, from the approval doc (live). Shown only while Tips is ON.
+  tipCents: number;
+  tipUpdatedByName: string | null;
+  tipUpdatedAt: Date | null;
 };
 
 type EventWithId = Omit<ClockEvent, "id"> & { id: string };
@@ -396,6 +402,9 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
               punchComments: sessionComments(clockInEvent, clockOutEvent),
               jobId: approval?.jobId ?? null,
               defaultJobId: employee.jobId ?? null,
+              tipCents: typeof approval?.tipCents === "number" ? approval.tipCents : 0,
+              tipUpdatedByName: approval?.tipUpdatedByName ?? null,
+              tipUpdatedAt: approval?.tipUpdatedAt?.toDate?.() ?? null,
             });
           }
           pendingIn = null;
@@ -466,6 +475,14 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     await fn({ approvalId, eventIds });
   };
 
+  // Tips (Task 3): saves one shift's tip (whole cents) + a history entry.
+  // Never changes the approval (functions/src/shiftTips.ts).
+  const setShiftTip = async (eventId: string, amountCents: number) => {
+    const parsed = setShiftTipSchema.parse({ eventId, amountCents });
+    const fn = httpsCallable(functions, "setShiftTip");
+    await fn(parsed);
+  };
+
   const assignSessionSite = async (approvalId: string, eventIds: string[], siteId: string) => {
     const fn = httpsCallable(functions, "assignSessionSite");
     await fn({ approvalId, eventIds, siteId });
@@ -481,5 +498,6 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     setApprovalStatusBulk,
     deleteTimesheetSession,
     assignSessionSite,
+    setShiftTip,
   };
 }

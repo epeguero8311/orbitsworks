@@ -14,6 +14,7 @@ import { SessionPhotoCard } from "./SessionPhotoCard";
 import { SessionMapPanel } from "./SessionMapPanel";
 import { SessionComments } from "./SessionComments";
 import { SessionAlerts } from "./SessionAlerts";
+import { SessionTips } from "./SessionTips";
 
 type Status = "pending" | "approved";
 
@@ -26,6 +27,9 @@ type Props = {
   onSelectRow: (key: string) => void;
   onSetStatus: (status: Status) => Promise<void>;
   onAssignSite: (siteId: string) => Promise<void>;
+  // Tips (Task 3): field shown only while the company's Tips toggle is ON.
+  tipsEnabled: boolean;
+  onSaveTip: (amountCents: number) => Promise<void>;
   onClose: () => void;
 };
 
@@ -45,7 +49,18 @@ export default function SessionReviewModal(props: Props) {
   );
 }
 
-function SessionReviewBody({ row, siblings, status, sites, onSelectRow, onSetStatus, onAssignSite, onClose }: Props) {
+function SessionReviewBody({
+  row,
+  siblings,
+  status,
+  sites,
+  onSelectRow,
+  onSetStatus,
+  onAssignSite,
+  tipsEnabled,
+  onSaveTip,
+  onClose,
+}: Props) {
   const r = useSessionReview(row, status);
   const d = r.detail;
   const [statusSubmitting, setStatusSubmitting] = useState(false);
@@ -243,6 +258,18 @@ function SessionReviewBody({ row, siblings, status, sites, onSelectRow, onSetSta
         </div>
 
         <div>
+          {/* Tips (Task 3, D10 recon): admin/owner only, editable whether
+              the session is pending or approved - never changes approval. */}
+          {tipsEnabled && d.isAdmin && (
+            <div className="mb-4">
+              <SessionTips
+                clockInEventId={row.eventId}
+                tipCents={row.tipCents}
+                lastEditedByName={row.tipUpdatedByName}
+                onSave={onSaveTip}
+              />
+            </div>
+          )}
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-600">Session Alerts</p>
           <SessionAlerts
             warnings={row.warnings}

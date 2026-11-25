@@ -45,6 +45,7 @@ export default function TimesheetApprovalsPage() {
     setApprovalStatusBulk,
     deleteTimesheetSession,
     assignSessionSite,
+    setShiftTip,
   } = useTimesheetApprovals(rangeStart, rangeEnd);
   const { jobs } = useJobs();
   const [addingOpen, setAddingOpen] = useState(false);
@@ -93,6 +94,8 @@ export default function TimesheetApprovalsPage() {
         onAddTimestamp={() => setAddingOpen(true)}
         columns={approvalsColumns.visible}
         onOpenColumns={() => setColumnsOpen(true)}
+        tipsEnabled={approvalsColumns.tipsEnabled}
+        onSetTip={setShiftTip}
       />
 
       {addingOpen && (
