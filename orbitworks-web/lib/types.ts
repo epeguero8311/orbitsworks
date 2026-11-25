@@ -790,6 +790,24 @@ export interface TimesheetApproval {
   // these fields entirely and read the company's live settings instead.
   autoBreakMinutesApplied?: number;
   autoBreakMinShiftHoursApplied?: number;
+  // Overtime (Task 1) rule 11: OT frozen on this session when it was
+  // approved with the Overtime toggle ON (functions/src/overtimeFreeze.ts).
+  // Reports/exports use overtimeMinutes instead of recalculating; the
+  // settings snapshot lets Approve Hours spot a data edit that moved it.
+  overtimeApplied?: {
+    overtimeMinutes: number;
+    dailyOvertimeMinutes: number;
+    weeklyOvertimeMinutes: number;
+    workedMinutes: number;
+    settings: {
+      weeklyThresholdHours: number;
+      dailyThresholdHours: number;
+      weekStartsOn: number;
+      multiplier: number;
+      roundOvertimeMinutes: 0 | 5 | 15 | 30;
+      timeZone: string;
+    };
+  };
 }
 
 // ---- Supervisor Overrides ----

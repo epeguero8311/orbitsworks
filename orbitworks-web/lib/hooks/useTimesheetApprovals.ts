@@ -12,7 +12,9 @@ import { httpsCallable } from "firebase/functions";
 import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
-import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
+import { useCompanySettings, overtimeSettingsFrom } from "@/lib/hooks/useCompanySettings";
+import { overtimeWeekKey } from "@/lib/overtime";
+import { computeApprovalsOvertime, type ApprovalOvertimeInfo } from "@/lib/approvalsOvertime";
 import { useSites } from "@/lib/hooks/useSites";
 import { localDateKey, dateKey, startOfWeek } from "@/lib/reportUtils";
 import { applyAutoBreak } from "@/lib/autoBreak";
@@ -87,6 +89,8 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
   const { userData } = useAuth();
   const { employees } = useEmployees();
   const { settings, isPro } = useCompanySettings();
+  const overtimeEnabled = settings.overtimeEnabled;
+  const overtimeWeekStartsOn = settings.overtimeWeekStartsOn;
   const { sites } = useSites();
   const [events, setEvents] = useState<EventWithId[]>([]);
   const [approvals, setApprovals] = useState<Map<string, TimesheetApproval>>(new Map());
@@ -113,7 +117,15 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     // weeklyOvertimeThreshold, even in Day mode where the display range is
     // a single day. visibleRows (below) still filters back down to
     // exactly startDate..endDate, same as before this widening.
-    const fetchStartKey = dateKey(startOfWeek(new Date(`${startDate}T00:00:00`)));
+    let fetchStartKey = dateKey(startOfWeek(new Date(`${startDate}T00:00:00`)));
+    // Overtime (Task 1) ON: the week follows "Week starts on", which can
+    // begin before the Monday above - load from there (one day of margin).
+    if (overtimeEnabled) {
+      const otStart = new Date(`${overtimeWeekKey(startDate, overtimeWeekStartsOn)}T00:00:00`);
+      otStart.setDate(otStart.getDate() - 1);
+      const otStartKey = dateKey(otStart);
+      if (otStartKey < fetchStartKey) fetchStartKey = otStartKey;
+    }
     const fetchEndWeekStart = startOfWeek(new Date(`${endDate}T00:00:00`));
     const fetchEndDate = new Date(fetchEndWeekStart);
     fetchEndDate.setDate(fetchEndDate.getDate() + 6);
@@ -158,9 +170,11 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     );
 
     const approvalsRef = collection(db, "companies", userData.companyId, "timesheetApprovals");
+    // Overtime ON also needs the approvals of the week's earlier days
+    // (their frozen Automatic Break / OT). OFF: exactly the range, as before.
     const approvalsQuery = query(
       approvalsRef,
-      where("date", ">=", startDate),
+      where("date", ">=", overtimeEnabled && fetchStartKey < startDate ? fetchStartKey : startDate),
       where("date", "<=", endDate)
     );
 
@@ -182,7 +196,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
       unsubEvents();
       unsubApprovals();
     };
-  }, [userData?.companyId, startDate, endDate]);
+  }, [userData?.companyId, startDate, endDate, overtimeEnabled, overtimeWeekStartsOn]);
 
   const rows = useMemo<ApprovalRow[]>(() => {
     const mainCompanyName = settings?.name || "Main company";
@@ -202,6 +216,18 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
         return at - bt;
       })
     );
+
+    // Overtime (Task 1) step 8: per-shift OT info, only with Overtime ON.
+    const otSettings = settings.overtimeEnabled ? overtimeSettingsFrom(settings) : null;
+    const otInfoById = new Map<string, ApprovalOvertimeInfo>();
+    if (otSettings) {
+      byEmployee.forEach((list) => {
+        const evs = list
+          .map((e) => ({ id: e.id, employeeId: e.employeeId, type: e.type, ms: (e.adjustedTimestamp ?? e.timestamp)?.toMillis() ?? 0 }))
+          .filter((e) => e.ms > 0);
+        computeApprovalsOvertime(evs, approvals, otSettings).forEach((info, id) => otInfoById.set(id, info));
+      });
+    }
 
     const allRows: ApprovalRow[] = [];
     const now = new Date();
@@ -291,7 +317,9 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
             // session that trips maxHours/overtime here could disagree
             // with what actually got approved/exported.
             const hours = durationMs / (1000 * 60 * 60);
-            const breakHours = effectiveBreakMs / (1000 * 60 * 60);
+            // Overtime ON: Automatic Break once per day (decision 4).
+            const otInfo = otInfoById.get(pendingIn.id);
+            const breakHours = (otInfo ? otInfo.breakMs : effectiveBreakMs) / (1000 * 60 * 60);
             cumulativeWeekHours += hours - breakHours;
             const overrideEventId = approval?.flags?.find(
               (f) => f.type === "SUPERVISOR_OVERRIDE"
@@ -336,6 +364,20 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
                 isPro,
                 siteExits: exitsByClockIn.get(pendingIn.id) ?? [],
                 sessionEvents,
+                ...(otInfo
+                  ? {
+                      overtimeOn: {
+                        dayWorkedHours: otInfo.dayWorkedMs / (1000 * 60 * 60),
+                        shiftOvertimeHours: otInfo.overtimeMs / (1000 * 60 * 60),
+                        changed: otInfo.overtimeChanged
+                          ? {
+                              frozenHours: otInfo.overtimeChanged.frozenMinutes / 60,
+                              liveHours: otInfo.overtimeChanged.liveMinutes / 60,
+                            }
+                          : null,
+                      },
+                    }
+                  : {}),
               }),
               sessionEvents,
               employeeEvents: empEvents,
@@ -373,14 +415,9 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     sites,
     startDate,
     endDate,
-    settings?.name,
-    settings.exportSettings.automaticBreakMinutes,
-    settings.exportSettings.minimumShiftHours,
-    settings.alerts,
-    settings.businessHours,
-    settings.attendanceRules.gracePeriodMinutes,
-    settings.weeklyOvertimeThreshold,
-    settings.faceVerification,
+    // settings as a whole (Overtime, Task 1: the OT branch reads several
+    // of its fields, on top of the alerts/break/business-hours ones).
+    settings,
     isPro,
     exitsByClockIn,
     commentsByClockIn,

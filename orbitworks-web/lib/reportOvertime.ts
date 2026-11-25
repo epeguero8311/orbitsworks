@@ -144,8 +144,11 @@ export function buildOvertimeReportRows(params: {
   roundDailyMinutes: RoundingIncrement;
   startDate: string;
   endDate: string;
+  // Rule 11: OT minutes frozen on approved sessions (overtimeApplied).
+  frozenOvertimeMinutesByClockInId?: Map<string, number>;
 }): OvertimeReportRow[] {
   const { shifts, employees, jobs, jobIdByClockInId, autoBreakByClockInId, settings, roundDailyMinutes, startDate, endDate } = params;
+  const frozenOvertime = params.frozenOvertimeMinutesByClockInId ?? new Map<string, number>();
 
   const shiftsByEmployee = new Map<string, ReportShift[]>();
   for (const s of shifts) {
@@ -169,6 +172,7 @@ export function buildOvertimeReportRows(params: {
     };
     const inputs: OvertimeShiftInput[] = empShifts.map((s) => {
       const frozen = autoBreakByClockInId.get(s.id);
+      const frozenOt = frozenOvertime.get(s.id);
       return {
         id: s.id,
         startMs: s.startMs,
@@ -176,6 +180,7 @@ export function buildOvertimeReportRows(params: {
         breakMs: s.breakMs,
         jobId: resolveJob(s.id),
         ...(frozen ? { autoBreak: { minutes: frozen.minutes, minimumShiftHours: frozen.minShiftHours } } : {}),
+        ...(frozenOt !== undefined ? { frozenOvertimeMs: frozenOt * MINUTE_MS } : {}),
       };
     });
     const result = computeOvertime(

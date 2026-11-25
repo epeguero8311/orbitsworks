@@ -197,7 +197,9 @@ function renderWarning(
       return (
         <AlertCard key={key} severity={w.severity} title="Max hours exceeded">
           <Detail>
-            Worked {w.hours.toFixed(1)}h, limit {w.thresholdHours}h
+            {w.combinedDay
+              ? `Worked ${w.hours.toFixed(1)}h today (all shifts), limit ${w.thresholdHours}h`
+              : `Worked ${w.hours.toFixed(1)}h, limit ${w.thresholdHours}h`}
           </Detail>
         </AlertCard>
       );
@@ -205,7 +207,18 @@ function renderWarning(
       return (
         <AlertCard key={key} severity={w.severity} title="Overtime">
           <Detail>
-            {w.weekHours.toFixed(1)}h this week, limit {w.thresholdHours}h
+            {w.shiftOvertimeHours != null
+              ? `${w.shiftOvertimeHours.toFixed(2)}h overtime on this shift`
+              : `${w.weekHours.toFixed(1)}h this week, limit ${w.thresholdHours}h`}
+          </Detail>
+        </AlertCard>
+      );
+    case "overtimeChanged":
+      return (
+        <AlertCard key={key} severity={w.severity} title="Overtime changed - re-approve">
+          <Detail>
+            Approved with {w.frozenHours.toFixed(2)}h overtime; another day this week changed and it would now be{" "}
+            {w.liveHours.toFixed(2)}h. Set this shift back to pending and approve it again to update it.
           </Detail>
         </AlertCard>
       );

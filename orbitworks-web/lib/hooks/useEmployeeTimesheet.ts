@@ -241,6 +241,10 @@ export function useEmployeeTimesheet() {
                             minutes: approval.autoBreakMinutesApplied ?? 0,
                             minimumShiftHours: approval.autoBreakMinShiftHoursApplied ?? 0,
                           },
+                          // Rule 11: approved OT stays frozen.
+                          ...(typeof approval.overtimeApplied?.overtimeMinutes === "number"
+                            ? { frozenOvertimeMs: approval.overtimeApplied.overtimeMinutes * 60 * 1000 }
+                            : {}),
                         }
                       : {}),
                   },

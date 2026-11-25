@@ -43,7 +43,10 @@ export type SessionWarningType =
   // back, whose photo is missing, or that doesn't fit the others (red); a
   // real queued punch that replaced auto / hand-entered events (yellow).
   | "punchProblem"
-  | "punchReplaced";
+  | "punchReplaced"
+  // Overtime (Task 1) rule 11: an approved shift's frozen OT no longer
+  // matches what an edit elsewhere in the week now gives - re-approve.
+  | "overtimeChanged";
 
 // Single source of truth for severity - evaluateSessionWarnings below reads
 // this rather than hardcoding a severity per warning, so a type's color can
@@ -73,6 +76,7 @@ export const WARNING_SEVERITY: Record<SessionWarningType, WarningSeverity> = {
   syncedLate: "yellow",
   punchProblem: "red",
   punchReplaced: "yellow",
+  overtimeChanged: "yellow",
 };
 
 type Direction = "in" | "out";
@@ -80,8 +84,16 @@ type Direction = "in" | "out";
 export type SessionWarning =
   | { type: "lateClockIn"; severity: WarningSeverity; expectedMinutes: number; actualTime: Timestamp }
   | { type: "earlyClockOut"; severity: WarningSeverity; expectedMinutes: number; actualTime: Timestamp }
-  | { type: "maxHours"; severity: WarningSeverity; hours: number; thresholdHours: number }
-  | { type: "overtime"; severity: WarningSeverity; weekHours: number; thresholdHours: number }
+  | { type: "maxHours"; severity: WarningSeverity; hours: number; thresholdHours: number; combinedDay?: boolean }
+  | {
+      type: "overtime";
+      severity: WarningSeverity;
+      weekHours: number;
+      thresholdHours: number;
+      // Overtime ON: this shift's OT hours (daily + weekly).
+      shiftOvertimeHours?: number;
+    }
+  | { type: "overtimeChanged"; severity: WarningSeverity; frozenHours: number; liveHours: number }
   | { type: "missedClockOut"; severity: WarningSeverity; note?: string; actualTime: Timestamp }
   | { type: "maxBreak"; severity: WarningSeverity; breakMinutes: number; thresholdMinutes: number }
   | { type: "unassignedSite"; severity: WarningSeverity; siteName: string; assignedSiteNames: string[] }
@@ -161,6 +173,15 @@ export interface EvaluateSessionWarningsInput {
   // Phase 9: every event of the session (in, breaks, out) - for Synced
   // late. Optional - absent = just the clock-in and clock-out.
   sessionEvents?: ClockEvent[];
+  // Overtime (Task 1) step 8 - only with the company's Overtime toggle ON
+  // (lib/approvalsOvertime.ts). Absent = every warning exactly as before.
+  overtimeOn?: {
+    // Combined day worked hours (all of the day's shifts) - Max hours.
+    dayWorkedHours: number;
+    // This shift's OT hours (frozen if approved).
+    shiftOvertimeHours: number;
+    changed: { frozenHours: number; liveHours: number } | null;
+  };
 }
 
 export function evaluateSessionWarnings(input: EvaluateSessionWarningsInput): SessionWarning[] {
@@ -191,11 +212,35 @@ export function evaluateSessionWarnings(input: EvaluateSessionWarningsInput): Se
     }
   }
 
-  if (alerts.maxHoursWarning && input.hours >= alerts.maxHoursThreshold) {
+  const ot = input.overtimeOn;
+  if (ot) {
+    // Overtime ON: Max hours on the combined day total (decision 23);
+    // Overtime when this shift has OT (daily or weekly, decision 22);
+    // re-approve when frozen OT moved (rule 11).
+    if (alerts.maxHoursWarning && ot.dayWorkedHours >= alerts.maxHoursThreshold) {
+      warnings.push(
+        withSeverity("maxHours", { hours: ot.dayWorkedHours, thresholdHours: alerts.maxHoursThreshold, combinedDay: true })
+      );
+    }
+    if (alerts.overtimeWarning && ot.shiftOvertimeHours > 0) {
+      warnings.push(
+        withSeverity("overtime", {
+          weekHours: input.weekHoursThroughSession,
+          thresholdHours: input.weeklyOvertimeThreshold,
+          shiftOvertimeHours: ot.shiftOvertimeHours,
+        })
+      );
+    }
+    if (ot.changed) {
+      warnings.push(withSeverity("overtimeChanged", ot.changed));
+    }
+  }
+
+  if (!ot && alerts.maxHoursWarning && input.hours >= alerts.maxHoursThreshold) {
     warnings.push(withSeverity("maxHours", { hours: input.hours, thresholdHours: alerts.maxHoursThreshold }));
   }
 
-  if (alerts.overtimeWarning && input.weekHoursThroughSession >= input.weeklyOvertimeThreshold) {
+  if (!ot && alerts.overtimeWarning && input.weekHoursThroughSession >= input.weeklyOvertimeThreshold) {
     warnings.push(
       withSeverity("overtime", {
         weekHours: input.weekHoursThroughSession,

@@ -1,6 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db, localDateKey } from "./shared";
+import { resolveOvertimeFreezeFields } from "./overtimeFreeze";
 
 // Firestore batch writes cap at 500 operations - each approval here is one
 // write, so this is also the max number of rows a single bulk-approve call
@@ -169,10 +170,15 @@ export const setApprovalStatus = onCall(async (request) => {
   const approvedByName = status === "approved" ? await resolveApprovedByName(request.auth.uid) : "";
   const jobFields = await resolveJobFields(callerCompanyId, status, jobId);
   const autoBreakFields = await resolveAutoBreakFields(callerCompanyId, status);
+  // Overtime (Task 1) rule 11: freeze this shift's OT (Overtime ON only).
+  const overtimeFields = (await resolveOvertimeFreezeFields(callerCompanyId, status, [eventId])).get(eventId) ?? {
+    overtimeApplied: admin.firestore.FieldValue.delete(),
+  };
   await approvalRef.update({
     ...statusUpdateFields(status, request.auth.uid, approvedByName),
     ...jobFields,
     ...autoBreakFields,
+    ...overtimeFields,
   });
 
   return { success: true };
@@ -247,6 +253,10 @@ export const setApprovalStatusBulk = onCall(async (request) => {
     })
   );
 
+  // Overtime (Task 1) rule 11: frozen OT per row, computed per
+  // employee+week (one query per group, never per row).
+  const overtimeFieldsByEventId = await resolveOvertimeFreezeFields(callerCompanyId, status, eventIds);
+
   const batch = db.batch();
   approvalRefs.forEach((ref, i) => {
     const eventId = eventIds[i];
@@ -255,6 +265,9 @@ export const setApprovalStatusBulk = onCall(async (request) => {
       ...statusFields,
       ...jobFieldsByEventId.get(eventId),
       ...autoBreakFields,
+      // null = clear; a freshly self-healed doc has nothing to clear.
+      ...(overtimeFieldsByEventId.get(eventId) ??
+        (healData ? {} : { overtimeApplied: admin.firestore.FieldValue.delete() })),
     };
     if (healData) {
       batch.set(ref, { ...healData, ...updateFields });

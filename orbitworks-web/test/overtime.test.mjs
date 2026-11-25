@@ -273,3 +273,18 @@ test("functions/src/overtime.ts is an exact mirror of lib/overtime.ts", () => {
   const read = (p) => fs.readFileSync(path.join(here, "..", p), "utf8").replace(/\r\n/g, "\n");
   assert.equal(read("functions/src/overtime.ts"), read("lib/overtime.ts"));
 });
+
+test("frozen OT on an approved shift replaces the live OT (rule 11), capped at worked", () => {
+  const a = shift(9, 8, 18, "laborer", { id: "a" }); // 10h -> 2 live OT at daily 8
+  const live = computeOvertime([a], settings({ dailyThresholdHours: 8 }), ratesFor);
+  assert.equal(h(live.shifts[0].overtimeMs), 2);
+  assert.equal(live.shifts[0].frozen, false);
+  const frozen = computeOvertime([{ ...a, frozenOvertimeMs: 3 * HOUR }], settings({ dailyThresholdHours: 12 }), ratesFor);
+  assert.equal(h(frozen.shifts[0].overtimeMs), 3); // settings changed, OT stays frozen
+  assert.equal(frozen.shifts[0].frozen, true);
+  assert.equal(money(frozen.totals.pay), 7 * 15 + 3 * 22.5);
+  const capped = computeOvertime([{ ...a, frozenOvertimeMs: 20 * HOUR }], settings(), ratesFor);
+  assert.equal(h(capped.shifts[0].overtimeMs), 10);
+  const off = computeOvertime([{ ...a, frozenOvertimeMs: 3 * HOUR }], settings({ enabled: false }), ratesFor);
+  assert.equal(off.shifts[0].overtimeMs, 0);
+});

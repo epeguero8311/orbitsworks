@@ -68,6 +68,11 @@ export interface OvertimeShiftInput {
   // Overtime OFF: used for this shift. Overtime ON: the day uses the frozen
   // settings of its last closed shift (where the deduction lands).
   autoBreak?: { minutes: number; minimumShiftHours: number };
+  // Rule 11: OT frozen on this shift when it was approved
+  // (timesheetApprovals overtimeApplied). With Overtime ON it replaces the
+  // live OT of this shift (capped at its worked time); other shifts are
+  // still computed live. Omitted = live.
+  frozenOvertimeMs?: number;
 }
 
 export interface OvertimeJobRates {
@@ -111,6 +116,8 @@ export interface OvertimeShiftResult {
   incomplete: boolean;
   // No clock-out but counted up to nowMs.
   open: boolean;
+  // OT came from frozenOvertimeMs (approved shift), not the live math.
+  frozen: boolean;
 }
 
 export interface OvertimeDayJobResult {
@@ -203,6 +210,7 @@ type WorkingShift = {
   dailyOvertimeMs: number;
   weeklyOvertimeMs: number;
   overtimeMs: number;
+  frozen: boolean;
 };
 
 function workedOf(s: WorkingShift): number {
@@ -248,6 +256,7 @@ export function computeOvertime(
         dailyOvertimeMs: 0,
         weeklyOvertimeMs: 0,
         overtimeMs: 0,
+        frozen: false,
       };
     })
     .sort((a, b) => a.input.startMs - b.input.startMs || (a.input.id < b.input.id ? -1 : a.input.id > b.input.id ? 1 : 0));
@@ -338,6 +347,16 @@ export function computeOvertime(
     }
   }
 
+  // ---- 4b. Frozen OT on approved shifts (rule 11) ----
+  if (settings.enabled) {
+    for (const s of working) {
+      const frozen = s.input.frozenOvertimeMs;
+      if (frozen === undefined) continue;
+      s.overtimeMs = Math.min(Math.max(0, frozen), workedOf(s));
+      s.frozen = true;
+    }
+  }
+
   // ---- 5. Pay per shift ----
   const shiftResults: OvertimeShiftResult[] = working.map((s) => {
     const workedMs = workedOf(s);
@@ -371,6 +390,7 @@ export function computeOvertime(
       pay: addPay(regularPay, overtimePay),
       incomplete: s.incomplete,
       open: s.open,
+      frozen: s.frozen,
     };
   });
 

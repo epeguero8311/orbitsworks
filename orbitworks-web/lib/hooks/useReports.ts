@@ -315,13 +315,18 @@ export function useReports() {
           const wideStatus = new Map<string, "pending" | "approved">();
           const wideAutoBreak = new Map<string, { minutes: number; minShiftHours: number }>();
           const jobIdByClockInId = new Map<string, string | null>();
+          const frozenOvertimeMinutesByClockInId = new Map<string, number>();
           wideApprovals.docs.forEach((d) => {
             const data = d.data() as {
               status?: "pending" | "approved";
               jobId?: string | null;
               autoBreakMinutesApplied?: number;
               autoBreakMinShiftHoursApplied?: number;
+              overtimeApplied?: { overtimeMinutes?: number };
             };
+            if (data.status === "approved" && typeof data.overtimeApplied?.overtimeMinutes === "number") {
+              frozenOvertimeMinutesByClockInId.set(d.id, data.overtimeApplied.overtimeMinutes);
+            }
             wideStatus.set(d.id, data.status ?? "pending");
             if (data.status === "approved") {
               wideAutoBreak.set(d.id, {
@@ -365,6 +370,7 @@ export function useReports() {
               roundDailyMinutes: settings.exportSettings.roundDailyMinutes,
               startDate,
               endDate,
+              frozenOvertimeMinutesByClockInId,
             })
           );
         }
