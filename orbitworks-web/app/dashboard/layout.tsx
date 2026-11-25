@@ -30,6 +30,7 @@ import { PastDueBanner } from "@/components/PastDueBanner";
 import { HelpChat } from "@/components/help-chat/HelpChat";
 import { TermsReacceptModal } from "@/components/dashboard/TermsReacceptModal";
 import { TERMS_VERSION } from "@/components/legal/TermsContent";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutGrid },
@@ -38,16 +39,19 @@ const NAV_ITEMS = [
   { href: "/dashboard/time", label: "Time Tracking", icon: Clock },
   { href: "/dashboard/timesheet-approvals", label: "Approvals", icon: ClipboardCheck },
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
-  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, pro: true },
+  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, pro: true, perm: "analytics" as const },
   { href: "/dashboard/crew-access", label: "Crew Access", icon: KeyRound, pro: true },
   // Billing is filtered out below for non-owners - only the owner has
   // Stripe access.
-  { href: "/dashboard/billing", label: "Billing", icon: CreditCard, ownerOnly: true },
-  { href: "/dashboard/settings", label: "Settings", icon: SettingsIcon },
+  { href: "/dashboard/billing", label: "Billing", icon: CreditCard, perm: "billing" as const },
+  { href: "/dashboard/settings", label: "Settings", icon: SettingsIcon, perm: "settings" as const },
 ];
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { currentUser, userData, loading } = useAuth();
+  // Task 4: nav + page guards follow the admin's permissions (UI only - the
+  // rules and the server enforce them for real).
+  const adminAccess = useAdminAccess();
   const router = useRouter();
   const pathname = usePathname();
   const [companyName, setCompanyName] = useState<string | null>(null);
@@ -78,10 +82,16 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       router.push("/use-app");
       return;
     }
-    if (!loading && userData && userData.role !== "owner" && pathname.startsWith("/dashboard/billing")) {
+    // Billing: owner, Full access, or the Billing permission (D8).
+    if (!loading && userData && !adminAccess.can("billing") && pathname.startsWith("/dashboard/billing")) {
       router.push("/403");
+      return;
     }
-  }, [loading, currentUser, userData, pathname, router]);
+    const blocked = NAV_ITEMS.find(
+      (item) => "perm" in item && item.perm && pathname.startsWith(item.href) && !adminAccess.can(item.perm)
+    );
+    if (!loading && userData && blocked) router.push("/dashboard");
+  }, [loading, currentUser, userData, pathname, router, adminAccess]);
 
   useEffect(() => {
     // Employee App logins can't read the company doc (firestore.rules) and
@@ -169,7 +179,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
 
         <nav className={`flex-1 space-y-1 py-5 ${sidebarCollapsed ? "lg:px-2" : "px-4"}`}>
-          {NAV_ITEMS.filter((item) => !item.ownerOnly || userData?.role === "owner").map((item) => {
+          {NAV_ITEMS.filter((item) => !adminAccess.noAccess && (!("perm" in item) || !item.perm || adminAccess.can(item.perm))).map((item) => {
             const isActive =
               item.href === "/dashboard"
                 ? pathname === "/dashboard"
@@ -257,7 +267,18 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
 
         <div className="w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-10">
-          {children}
+          {adminAccess.noAccess ? (
+            // Task 4 (D9): a new admin starts with no sites + no permissions.
+            <div className="mx-auto mt-16 max-w-md rounded-xl border border-gray-200 bg-white p-8 text-center">
+              <h1 className="text-base font-semibold text-gray-950">No access yet</h1>
+              <p className="mt-2 text-sm text-gray-600">
+                Your admin account is set up, but you don&apos;t have access to any job sites or actions yet. Ask the
+                owner to set your permissions (Employees &gt; your name &gt; Permissions).
+              </p>
+            </div>
+          ) : (
+            children
+          )}
         </div>
         <HelpChat isSubscribed={subscriptionStatus === "active" && planTier !== "free"} />
       </main>

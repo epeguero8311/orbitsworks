@@ -9,6 +9,8 @@ import { EmployeeDeleteSection } from "@/components/dashboard/employees/Employee
 import { EmployeeAppInviteSection, type EmployeeAppInviteApi } from "@/components/dashboard/employees/EmployeeAppInviteSection";
 import { DuplicateSection } from "@/components/dashboard/employees/DuplicateFlag";
 import type { Employee, EmployeeInvite, JobSite, Job, Subcontractor } from "@/lib/types";
+import PermissionsModal from "@/components/dashboard/employees/PermissionsModal";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 
 export function EmployeeModal({
   employee,
@@ -40,6 +42,7 @@ export function EmployeeModal({
   onOpenEmployee: (id: string) => void;
 }) {
   const m = useEmployeeModal({ employee, jobs, subcontractors, companyName, companyId, onClose });
+  const adminAccess = useAdminAccess();
 
   return (
     <div
@@ -110,6 +113,9 @@ export function EmployeeModal({
           onPromoteEmailChange={m.setPromoteEmail}
           isAdmin={m.isAdmin}
           onIsAdminChange={m.setIsAdmin}
+          onOpenPermissions={
+            employee.isAdmin && employee.linkedUserId && adminAccess.isFull ? () => m.setPermissionsOpen(true) : undefined
+          }
           isSupervisorAccess={m.isSupervisorAccess}
           onIsSupervisorAccessChange={m.setIsSupervisorAccess}
           dob={m.dob}
@@ -117,6 +123,14 @@ export function EmployeeModal({
         />
 
         <DuplicateSection employee={employee} employees={allEmployees} onOpenEmployee={onOpenEmployee} />
+
+        {m.permissionsOpen && employee.linkedUserId && (
+          <PermissionsModal
+            targetUid={employee.linkedUserId}
+            targetName={employee.name}
+            onClose={() => m.setPermissionsOpen(false)}
+          />
+        )}
 
         <EmployeeAppInviteSection employee={employee} invite={appInvite} api={appInviteApi} planOk={appInvitePlanOk} />
 

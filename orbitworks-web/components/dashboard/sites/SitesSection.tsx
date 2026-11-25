@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useCallback, useState, FormEvent } from "react";
 import Link from "next/link";
 import { useSites, AddressNotVerifiedError, type PickedLocation } from "@/lib/hooks/useSites";
 import { Toggle } from "@/components/dashboard/settings/Toggle";
@@ -13,6 +13,8 @@ import type { JobSite } from "@/lib/types";
 import { ShowMoreButton } from "@/components/dashboard/ShowMoreButton";
 import { useShowMore } from "@/lib/hooks/useShowMore";
 import { SITES_PAGE_SIZE } from "@/lib/listPaging";
+import SiteAdminsPicker from "@/components/dashboard/sites/SiteAdminsPicker";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 
 export default function SitesSection() {
   const {
@@ -44,6 +46,10 @@ export default function SitesSection() {
   const hasMixedGeofencing = isPro && sitesMissingCoordinates.length > 0;
 
   const [siteName, setSiteName] = useState("");
+  // Task 4: the new site's "which admins can see this" picker.
+  const adminAccess = useAdminAccess();
+  const [newSiteForPicker, setNewSiteForPicker] = useState<{ id: string; name: string } | null>(null);
+  const closeSitePicker = useCallback(() => setNewSiteForPicker(null), []);
   const [siteAddress, setSiteAddress] = useState("");
   const [addressVerified, setAddressVerified] = useState(false);
   const [pickedLocation, setPickedLocation] = useState<PickedLocation | null>(null);
@@ -98,7 +104,9 @@ export default function SitesSection() {
 
     setIsSubmittingSite(true);
     try {
-      await addSite(parsed.data, pickedLocation);
+      const newSiteId = await addSite(parsed.data, pickedLocation);
+      // Task 4 (D6/D17): owner / Full access pick which restricted admins see it.
+      if (adminAccess.isFull && newSiteId) setNewSiteForPicker({ id: newSiteId, name: parsed.data.name });
       setSiteName("");
       setSiteAddress("");
       setAddressVerified(false);
@@ -302,6 +310,13 @@ export default function SitesSection() {
         <ShowMoreButton shown={sitesPage.shown} total={sitesPage.total} nextStep={sitesPage.nextStep} onShowMore={sitesPage.showMore} />
       </div>
 
+      {newSiteForPicker && (
+        <SiteAdminsPicker
+          siteId={newSiteForPicker.id}
+          siteName={newSiteForPicker.name}
+          onClose={closeSitePicker}
+        />
+      )}
       {siteForModal && (
         <EditSiteModal
           site={siteForModal}

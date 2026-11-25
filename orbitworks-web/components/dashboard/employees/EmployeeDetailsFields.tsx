@@ -26,6 +26,7 @@ export function EmployeeDetailsFields({
   onPromoteEmailChange,
   isAdmin,
   onIsAdminChange,
+  onOpenPermissions,
   isSupervisorAccess,
   onIsSupervisorAccessChange,
   dob,
@@ -54,6 +55,8 @@ export function EmployeeDetailsFields({
   onPromoteEmailChange: (value: string) => void;
   isAdmin: boolean;
   onIsAdminChange: (value: boolean) => void;
+  // Task 4: shown for a saved admin when the viewer is owner / Full access.
+  onOpenPermissions?: () => void;
   isSupervisorAccess: boolean;
   onIsSupervisorAccessChange: (value: boolean) => void;
   dob: string;
@@ -190,8 +193,17 @@ export function EmployeeDetailsFields({
               <div>
                 <p className="text-sm font-medium text-gray-950">Admin access</p>
                 <p className="text-xs text-gray-600">
-                  Full web dashboard access, not just clock overrides. Doesn&apos;t include billing.
+                  Web dashboard access. New admins start with no access until you set their permissions.
                 </p>
+                {onOpenPermissions && (
+                  <button
+                    type="button"
+                    onClick={onOpenPermissions}
+                    className="mt-1 text-xs font-medium text-accent hover:underline"
+                  >
+                    Permissions
+                  </button>
+                )}
               </div>
               <button
                 type="button"

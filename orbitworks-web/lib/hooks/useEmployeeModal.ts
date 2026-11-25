@@ -68,6 +68,9 @@ export function useEmployeeModal({
   // either, both, or neither.
   const [isAdmin, setIsAdmin] = useState(employee.isAdmin ?? false);
   const [isSupervisorAccess, setIsSupervisorAccess] = useState(employee.isSupervisor ?? false);
+  // Task 4 (D16): the Permissions modal - opened from the Permissions button,
+  // and right after "Make admin" is saved (a new admin starts with nothing).
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [dob, setDob] = useState(employee.dob ?? "");
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>(
     employee.assignedSiteIds ?? []
@@ -429,6 +432,7 @@ export function useEmployeeModal({
           isAdmin,
           isSupervisor: isSupervisorAccess,
         });
+        if (isAdmin && !(employee.isAdmin ?? false)) setPermissionsOpen(true);
       }
 
       setConfirmingRateChange(false);
@@ -506,6 +510,8 @@ export function useEmployeeModal({
     setIsAdmin,
     isSupervisorAccess,
     setIsSupervisorAccess,
+    permissionsOpen,
+    setPermissionsOpen,
     dob,
     setDob,
     // sites
