@@ -12,13 +12,17 @@ import {
   AppSettings,
   FaceVerificationSettings,
   AutoClockOutSettings,
+  OvertimeFields,
   DEFAULT_ATTENDANCE_RULES,
   DEFAULT_ALERTS,
   DEFAULT_APP_SETTINGS,
   DEFAULT_EXPORT_SETTINGS,
   DEFAULT_FACE_VERIFICATION_SETTINGS,
   DEFAULT_AUTO_CLOCK_OUT,
+  DEFAULT_OVERTIME_FIELDS,
+  resolveOvertimeFields,
 } from "@/lib/hooks/useCompanySettings";
+import { overtimeSettingsSchema } from "@/lib/validators/overtimeSettings";
 import type { SettingsTabId } from "@/lib/hooks/useSettingsTabs";
 import type { ExportSettings } from "@/lib/types";
 
@@ -34,6 +38,7 @@ type SettingsSnapshot = {
   businessClose: string;
   otThreshold: string;
   otMultiplier: string;
+  overtime: OvertimeFields;
   attendanceRules: AttendanceRules;
   alerts: Alerts;
   appSettings: AppSettings;
@@ -67,9 +72,14 @@ function computeDirtyTabs(
     dirty.add("general");
   }
 
+  // Overtime (Task 1): the weekly threshold + multiplier inputs moved from
+  // Alerts to Export Settings, so they dirty this tab now.
   if (
     current.exportSettings.roundDailyMinutes !== original.exportSettings.roundDailyMinutes ||
-    current.exportSettings.roundTotalMinutes !== original.exportSettings.roundTotalMinutes
+    current.exportSettings.roundTotalMinutes !== original.exportSettings.roundTotalMinutes ||
+    current.otThreshold !== original.otThreshold ||
+    current.otMultiplier !== original.otMultiplier ||
+    JSON.stringify(current.overtime) !== JSON.stringify(original.overtime)
   ) {
     dirty.add("export");
   }
@@ -85,8 +95,6 @@ function computeDirtyTabs(
 
   if (
     JSON.stringify(current.alerts) !== JSON.stringify(original.alerts) ||
-    current.otThreshold !== original.otThreshold ||
-    current.otMultiplier !== original.otMultiplier ||
     current.faceVerification.alertsEnabled !== original.faceVerification.alertsEnabled
   ) {
     dirty.add("alerts");
@@ -115,6 +123,7 @@ export function useSettingsPage() {
   const [businessClose, setBusinessClose] = useState("17:00");
   const [otThreshold, setOtThreshold] = useState("40");
   const [otMultiplier, setOtMultiplier] = useState("1.5");
+  const [overtime, setOvertime] = useState<OvertimeFields>(DEFAULT_OVERTIME_FIELDS);
   const [attendanceRules, setAttendanceRules] = useState<AttendanceRules>(
     DEFAULT_ATTENDANCE_RULES
   );
@@ -161,6 +170,7 @@ export function useSettingsPage() {
                 : "40",
             otMultiplier:
               data.overtimeMultiplier != null ? String(data.overtimeMultiplier) : "1.5",
+            overtime: resolveOvertimeFields(data),
             attendanceRules: {
               ...DEFAULT_ATTENDANCE_RULES,
               ...(data.attendanceRules ?? {}),
@@ -194,6 +204,7 @@ export function useSettingsPage() {
           setBusinessClose(resolved.businessClose);
           setOtThreshold(resolved.otThreshold);
           setOtMultiplier(resolved.otMultiplier);
+          setOvertime(resolved.overtime);
           setAttendanceRules(resolved.attendanceRules);
           setAlerts(resolved.alerts);
           setAppSettings(resolved.appSettings);
@@ -224,6 +235,23 @@ export function useSettingsPage() {
     if (!userData?.companyId) return;
     setError("");
     setSuccess("");
+
+    // Overtime (Task 1): same blank -> default fallbacks as before for the
+    // two existing fields, then one zod check over all six before writing.
+    const overtimeParsed = overtimeSettingsSchema.safeParse({
+      overtimeEnabled: overtime.overtimeEnabled,
+      weeklyOvertimeThreshold: otThreshold.trim() ? parseFloat(otThreshold.trim()) : 40,
+      dailyOvertimeThreshold: overtime.dailyOvertimeThreshold,
+      overtimeWeekStartsOn: overtime.overtimeWeekStartsOn,
+      overtimeMultiplier: otMultiplier.trim() ? parseFloat(otMultiplier.trim()) : 1.5,
+      overtimeRoundMinutes: overtime.overtimeRoundMinutes,
+    });
+    if (!overtimeParsed.success) {
+      setError(overtimeParsed.error.issues[0]?.message ?? "Check the Overtime settings.");
+      return;
+    }
+    const overtimeValues = overtimeParsed.data;
+
     setIsSaving(true);
 
     try {
@@ -247,10 +275,12 @@ export function useSettingsPage() {
           open: businessOpen,
           close: businessClose,
         },
-        weeklyOvertimeThreshold: otThreshold.trim()
-          ? parseFloat(otThreshold.trim())
-          : 40,
-        overtimeMultiplier: otMultiplier.trim() ? parseFloat(otMultiplier.trim()) : 1.5,
+        weeklyOvertimeThreshold: overtimeValues.weeklyOvertimeThreshold,
+        overtimeMultiplier: overtimeValues.overtimeMultiplier,
+        overtimeEnabled: overtimeValues.overtimeEnabled,
+        dailyOvertimeThreshold: overtimeValues.dailyOvertimeThreshold,
+        overtimeWeekStartsOn: overtimeValues.overtimeWeekStartsOn,
+        overtimeRoundMinutes: overtimeValues.overtimeRoundMinutes,
         attendanceRules,
         alerts,
         appSettings,
@@ -280,6 +310,7 @@ export function useSettingsPage() {
         businessClose,
         otThreshold,
         otMultiplier,
+        overtime,
         attendanceRules,
         alerts,
         appSettings,
@@ -302,6 +333,7 @@ export function useSettingsPage() {
       businessClose,
       otThreshold,
       otMultiplier,
+      overtime,
       attendanceRules,
       alerts,
       appSettings,
@@ -331,6 +363,8 @@ export function useSettingsPage() {
     setOtThreshold,
     otMultiplier,
     setOtMultiplier,
+    overtime,
+    setOvertime,
     attendanceRules,
     setAttendanceRules,
     alerts,

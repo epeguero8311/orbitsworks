@@ -715,3 +715,44 @@ test("invites: create, read and delete still work for own company only", async (
   await assertFails(deleteDoc(doc(crossCompanyContext().firestore(), "invites", "inv-crud")));
   await assertSucceeds(deleteDoc(ref));
 });
+
+// ---- Overtime (Task 1): company overtime field type checks ----
+// validCompanyOvertimeFields in firestore.rules. Only checked when the
+// write touches the field.
+
+test("overtime: admin can save valid overtime fields", async () => {
+  const db = adminContext().firestore();
+  await assertSucceeds(
+    updateDoc(doc(db, "companies", COMPANY_A), {
+      overtimeEnabled: true,
+      weeklyOvertimeThreshold: 40,
+      overtimeMultiplier: 1.5,
+      dailyOvertimeThreshold: 8.5,
+      overtimeWeekStartsOn: 0,
+      overtimeRoundMinutes: 15,
+    })
+  );
+});
+
+test("overtime: a save that doesn't touch the fields is unaffected", async () => {
+  const db = adminContext().firestore();
+  await assertSucceeds(updateDoc(doc(db, "companies", COMPANY_A), { name: "Renamed" }));
+});
+
+test("overtime: wrong types and out-of-range values are refused", async () => {
+  const db = adminContext().firestore();
+  const ref = doc(db, "companies", COMPANY_A);
+  await assertFails(updateDoc(ref, { overtimeEnabled: "yes" }));
+  await assertFails(updateDoc(ref, { dailyOvertimeThreshold: -1 }));
+  await assertFails(updateDoc(ref, { dailyOvertimeThreshold: 25 }));
+  await assertFails(updateDoc(ref, { dailyOvertimeThreshold: "8" }));
+  await assertFails(updateDoc(ref, { overtimeWeekStartsOn: 7 }));
+  await assertFails(updateDoc(ref, { overtimeWeekStartsOn: 1.5 }));
+  await assertFails(updateDoc(ref, { overtimeRoundMinutes: 10 }));
+  await assertFails(updateDoc(ref, { overtimeRoundMinutes: "15" }));
+});
+
+test("overtime: a cross-company admin still can't write them", async () => {
+  const db = crossCompanyContext().firestore();
+  await assertFails(updateDoc(doc(db, "companies", COMPANY_A), { overtimeEnabled: true }));
+});

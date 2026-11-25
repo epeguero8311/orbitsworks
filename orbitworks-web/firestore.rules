@@ -15,6 +15,25 @@ service cloud.firestore {
       return request.auth.token.role == 'admin' || request.auth.token.role == 'owner';
     }
 
+    // Overtime (Task 1): type checks for the top-level company fields
+    // added next to weeklyOvertimeThreshold / overtimeMultiplier. Only
+    // checked when a write actually touches the field, so a company that
+    // never saved them (or a save that leaves them alone) is unaffected.
+    // Mirrors lib/validators/overtimeSettings.ts.
+    function validCompanyOvertimeFields() {
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
+      return (!changed.hasAny(['overtimeEnabled']) || d.overtimeEnabled is bool) &&
+        (!changed.hasAny(['dailyOvertimeThreshold']) ||
+          (d.dailyOvertimeThreshold is number &&
+            d.dailyOvertimeThreshold >= 0 && d.dailyOvertimeThreshold <= 24)) &&
+        (!changed.hasAny(['overtimeWeekStartsOn']) ||
+          (d.overtimeWeekStartsOn is int &&
+            d.overtimeWeekStartsOn >= 0 && d.overtimeWeekStartsOn <= 6)) &&
+        (!changed.hasAny(['overtimeRoundMinutes']) ||
+          (d.overtimeRoundMinutes is int && d.overtimeRoundMinutes in [0, 5, 15, 30]));
+    }
+
     function underCap(companyId) {
       let c = companyOf(companyId);
       let cap = c.get('employeeCap', null);
@@ -341,7 +360,8 @@ service cloud.firestore {
         (
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['faceVerification']) ||
           resource.data.get('planTier', '').matches('^pro_.*')
-        );
+        ) &&
+        validCompanyOvertimeFields();
       allow delete: if false;
 
       // Employee App: the company settings the app needs, mirrored here

@@ -5,7 +5,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { isCoreOrProPlan, isProPlan } from "@/lib/stripe/tiers";
-import type { ExportSettings } from "@/lib/types";
+import type { ExportSettings, RoundingIncrement } from "@/lib/types";
 
 export type AttendanceRules = {
   gracePeriodMinutes: number;
@@ -69,6 +69,12 @@ export type CompanySettings = {
   businessHours: { open: string; close: string };
   weeklyOvertimeThreshold: number;
   overtimeMultiplier: number;
+  // Overtime (Task 1) - top-level, next to the two fields above (no
+  // migration). See OvertimeFields below.
+  overtimeEnabled: boolean;
+  dailyOvertimeThreshold: number;
+  overtimeWeekStartsOn: OvertimeWeekday;
+  overtimeRoundMinutes: RoundingIncrement;
   attendanceRules: AttendanceRules;
   alerts: Alerts;
   appSettings: AppSettings;
@@ -76,6 +82,58 @@ export type CompanySettings = {
   faceVerification: FaceVerificationSettings;
   autoClockOut: AutoClockOutSettings;
 };
+
+// Overtime (Task 1), Settings > Export Settings. Stored top-level on the
+// company doc next to weeklyOvertimeThreshold / overtimeMultiplier, which
+// keep their names and existing values (the inputs just moved from Alerts
+// to Export Settings). Overtime is OFF by default, so a company that has
+// never saved these fields sees no change anywhere. weeklyOvertimeThreshold
+// still drives the Overtime warning even while overtimeEnabled is false.
+// Firestore rules type-check these four on write; the client validates
+// them with lib/validators/overtimeSettings.ts before saving.
+export type OvertimeWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0 = Sunday
+
+export type OvertimeFields = {
+  overtimeEnabled: boolean;
+  // 0 = daily overtime off.
+  dailyOvertimeThreshold: number;
+  overtimeWeekStartsOn: OvertimeWeekday;
+  // Same 0/5/15/30 options as the other rounding settings, always rounds
+  // up, applied per day.
+  overtimeRoundMinutes: RoundingIncrement;
+};
+
+export const DEFAULT_OVERTIME_FIELDS: OvertimeFields = {
+  overtimeEnabled: false,
+  dailyOvertimeThreshold: 0,
+  overtimeWeekStartsOn: 1,
+  overtimeRoundMinutes: 0,
+};
+
+const ROUNDING_INCREMENTS: readonly number[] = [0, 5, 15, 30];
+
+// Reads the four Overtime fields off raw company doc data, falling back to
+// the defaults for anything missing or malformed.
+export function resolveOvertimeFields(data: Record<string, unknown>): OvertimeFields {
+  const weekday = data.overtimeWeekStartsOn;
+  const round = data.overtimeRoundMinutes;
+  const daily = data.dailyOvertimeThreshold;
+  return {
+    overtimeEnabled: data.overtimeEnabled === true,
+    dailyOvertimeThreshold:
+      typeof daily === "number" && Number.isFinite(daily) && daily >= 0
+        ? daily
+        : DEFAULT_OVERTIME_FIELDS.dailyOvertimeThreshold,
+    overtimeWeekStartsOn:
+      typeof weekday === "number" && Number.isInteger(weekday) && weekday >= 0 && weekday <= 6
+        ? (weekday as OvertimeWeekday)
+        : DEFAULT_OVERTIME_FIELDS.overtimeWeekStartsOn,
+    overtimeRoundMinutes:
+      typeof round === "number" && ROUNDING_INCREMENTS.includes(round)
+        ? (round as RoundingIncrement)
+        : DEFAULT_OVERTIME_FIELDS.overtimeRoundMinutes,
+  };
+}
 
 // Automations > Auto clock-out. Available on every plan, off by default.
 // Read server-side by the scheduled auto-clock-out sweep (functions/src/
@@ -149,6 +207,7 @@ const DEFAULT_SETTINGS: CompanySettings = {
   businessHours: { open: "08:00", close: "17:00" },
   weeklyOvertimeThreshold: 40,
   overtimeMultiplier: 1.5,
+  ...DEFAULT_OVERTIME_FIELDS,
   attendanceRules: DEFAULT_ATTENDANCE_RULES,
   alerts: DEFAULT_ALERTS,
   appSettings: DEFAULT_APP_SETTINGS,
@@ -191,6 +250,7 @@ export function useCompanySettings() {
         },
         weeklyOvertimeThreshold: data.weeklyOvertimeThreshold ?? 40,
         overtimeMultiplier: data.overtimeMultiplier ?? 1.5,
+        ...resolveOvertimeFields(data),
         attendanceRules: {
           ...DEFAULT_ATTENDANCE_RULES,
           ...(data.attendanceRules ?? {}),

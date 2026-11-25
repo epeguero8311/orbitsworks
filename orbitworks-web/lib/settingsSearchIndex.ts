@@ -58,6 +58,47 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["rounding", "payroll", "total"],
     helperText: "The final payroll total is rounded up. Shown in the summary at the top.",
   },
+  {
+    id: "round-overtime-minutes",
+    label: "Round overtime hours",
+    tab: "export",
+    keywords: ["rounding", "overtime", "ot", "daily"],
+    helperText: "Each day's overtime is rounded up.",
+  },
+  {
+    id: "overtime-enabled",
+    label: "Overtime",
+    tab: "export",
+    keywords: ["overtime", "ot", "payroll", "export"],
+    helperText: "Adds overtime hours and overtime pay to exports. Off by default.",
+  },
+  {
+    id: "weekly-overtime-after",
+    label: "Weekly overtime after",
+    tab: "export",
+    keywords: ["overtime", "ot", "weekly", "40", "hours", "threshold", "warning"],
+    helperText: "Hours per week before overtime starts. Also sets when the Overtime warning fires.",
+  },
+  {
+    id: "daily-overtime-after",
+    label: "Daily overtime after",
+    tab: "export",
+    keywords: ["overtime", "ot", "daily", "hours", "threshold"],
+    helperText: "Hours per day before overtime starts. 0 = off.",
+  },
+  {
+    id: "overtime-week-start",
+    label: "Week starts on",
+    tab: "export",
+    keywords: ["overtime", "week", "start", "monday", "sunday", "pay period"],
+  },
+  {
+    id: "overtime-multiplier",
+    label: "Overtime pay multiplier",
+    tab: "export",
+    keywords: ["overtime", "pay", "multiplier", "1.5", "time and a half", "rate", "analytics"],
+    helperText: "Overtime pay = job rate x multiplier, unless the job has its own Overtime rate.",
+  },
 
   // Automations
   {
@@ -105,7 +146,8 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     id: "overtime-warning",
     label: "Overtime warning",
     tab: "alerts",
-    keywords: ["overtime", "pay", "multiplier", "hourly rate", "analytics"],
+    keywords: ["overtime", "warning", "weekly", "alert"],
+    helperText: "Fires at Weekly overtime after (Export Settings).",
   },
   {
     id: "missed-clockout-alert",
