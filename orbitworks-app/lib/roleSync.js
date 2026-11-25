@@ -20,6 +20,8 @@ const STAFF_ROLES = ["owner", "admin", "supervisor"];
 
 function roleFamily(role) {
   if (role === "employee") return "employee";
+  // Task 5: a shared Kiosk iPad - its own screens and its own queue.
+  if (role === "kiosk") return "kiosk";
   if (STAFF_ROLES.includes(role)) return "staff";
   return null;
 }
@@ -84,10 +86,13 @@ function needsRoleRefresh({ claims, usersDoc, handledChangeMs = null }) {
 //   demotion    - staff -> employee: send the supervisor queue (punches
 //                 for others, new employees, edits) first - an employee
 //                 token can never send those
+//   kioskExit   - kiosk -> anything (Task 5): send the tablet's saved kiosk
+//                 punches first - only a kiosk token can send them
 function transitionPlan(fromRole, toRole) {
   const from = roleFamily(fromRole);
   const to = roleFamily(toRole);
   if (!from || !to || from === to) return { kind: "sameScreens", drain: null, drainMaxMs: 0 };
+  if (from === "kiosk") return { kind: "kioskExit", drain: "kioskPunches", drainMaxMs: 60000 };
   if (from === "employee") return { kind: "promotion", drain: "employeePunches", drainMaxMs: 20000 };
   return { kind: "demotion", drain: "staffQueues", drainMaxMs: 60000 };
 }
@@ -102,6 +107,9 @@ function leftoverNotice(kind, leftover) {
   const n = leftover === 1 ? "1 item" : `${leftover} items`;
   if (kind === "promotion") {
     return `${n} you saved as an employee ${leftover === 1 ? "is" : "are"} still sending. ${leftover === 1 ? "It keeps" : "They keep"} sending in the background - check Sync Queue.`;
+  }
+  if (kind === "kioskExit") {
+    return `${n} saved in Kiosk mode couldn't be sent. ${leftover === 1 ? "It stays" : "They stay"} on this iPad and ${leftover === 1 ? "sends" : "send"} the next time the kiosk login signs in here. Tell your admin.`;
   }
   if (kind === "demotion") {
     return `${n} saved in the supervisor app couldn't be sent yet. ${leftover === 1 ? "It stays" : "They stay"} on this phone and ${leftover === 1 ? "sends" : "send"} the next time a supervisor or admin signs in here. Tell your admin.`;

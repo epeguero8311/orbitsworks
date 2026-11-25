@@ -137,3 +137,12 @@ test("toMillis: Firestore Timestamp, plain {seconds}, admin {_seconds}, number",
   assert.equal(toMillis(7), 7);
   assert.equal(toMillis(null), null);
 });
+
+test("Task 5: kiosk is its own family; leaving it drains the kiosk queue; going to it drains the old role's", () => {
+  assert.equal(roleFamily("kiosk"), "kiosk");
+  assert.deepEqual(transitionPlan("kiosk", "supervisor"), { kind: "kioskExit", drain: "kioskPunches", drainMaxMs: 60000 });
+  assert.equal(transitionPlan("supervisor", "kiosk").drain, "staffQueues");
+  assert.equal(transitionPlan("employee", "kiosk").drain, "employeePunches");
+  assert.equal(transitionPlan("kiosk", "kiosk").kind, "sameScreens");
+  assert.match(leftoverNotice("kioskExit", 2), /2 items saved in Kiosk mode/);
+});

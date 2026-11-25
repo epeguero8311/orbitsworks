@@ -16,6 +16,8 @@ import { badgeCount } from "./punchQueueLogic";
 import { pendingSiteExitCount } from "./siteExitLogic";
 import { listAllComments } from "./commentQueue";
 import { listSiteExits } from "./siteExitStore";
+import { syncKioskQueue } from "./kioskQueueSync";
+import { kioskUnsentCount } from "./kioskQueue";
 
 // RC1 follow-up: the person's own other Employee App items still on the
 // phone - comments (incl. Not synced ones), leave tracking rows and
@@ -72,6 +74,12 @@ export async function drainForRole(drain, { companyId, employeeId }, maxMs) {
     );
     return;
   }
+  if (drain === "kioskPunches") {
+    // Task 5: only a kiosk token can send kiosk punches.
+    const uid = auth.currentUser?.uid;
+    if (uid) await capped(syncKioskQueue(uid), maxMs);
+    return;
+  }
   if (drain === "staffQueues") {
     // New employees first: their clock events wait for the create.
     await capped(
@@ -99,6 +107,10 @@ export async function countLeftover(drain, { companyId, employeeId }) {
   if (drain === "staffQueues") {
     const c = await countStaffUnsent(companyId);
     return c.punches + c.employees;
+  }
+  if (drain === "kioskPunches") {
+    const uid = auth.currentUser?.uid;
+    return uid ? kioskUnsentCount(uid).catch(() => 0) : 0;
   }
   return 0;
 }

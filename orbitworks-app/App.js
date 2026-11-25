@@ -62,6 +62,14 @@ import EmployeeHistoryDayScreen from "./screens/employee/EmployeeHistoryDayScree
 import ShiftCommentsScreen from "./screens/employee/ShiftCommentsScreen";
 import AlwaysLocationScreen from "./screens/employee/AlwaysLocationScreen";
 import JoinScanScreen from "./screens/JoinScanScreen";
+import KioskHomeScreen from "./screens/kiosk/KioskHomeScreen";
+import KioskActionScreen from "./screens/kiosk/KioskActionScreen";
+import KioskCameraScreen from "./screens/kiosk/KioskCameraScreen";
+import KioskBreakScreen from "./screens/kiosk/KioskBreakScreen";
+import KioskDoneScreen from "./screens/kiosk/KioskDoneScreen";
+import KioskUnlockScreen from "./screens/kiosk/KioskUnlockScreen";
+import KioskSettingsScreen from "./screens/kiosk/KioskSettingsScreen";
+import { KioskProvider } from "./lib/hooks/useKiosk";
 import JoinStartScreen from "./screens/JoinStartScreen";
 import { useJoinLink } from "./lib/hooks/useJoinLink";
 import { redactJoinTokens } from "./lib/joinLink";
@@ -206,6 +214,29 @@ function EmployeeTabs() {
   );
 }
 
+// Task 5 Kiosk mode (shared wall iPad): its own small stack - Home (PIN
+// pad), the punch steps, and Kiosk Settings behind an admin PIN / exit key.
+// No supervisor or employee screens, no Log out. KioskProvider keeps the
+// PIN table and the kiosk's saved punches going the whole time.
+const KioskStack = createNativeStackNavigator();
+
+function KioskRoot() {
+  const { colors } = useTheme();
+  return (
+    <KioskProvider>
+      <KioskStack.Navigator screenOptions={{ headerShown: false, gestureEnabled: false, contentStyle: { backgroundColor: colors.background } }}>
+        <KioskStack.Screen name="KioskHome" component={KioskHomeScreen} />
+        <KioskStack.Screen name="KioskAction" component={KioskActionScreen} />
+        <KioskStack.Screen name="KioskCamera" component={KioskCameraScreen} />
+        <KioskStack.Screen name="KioskBreak" component={KioskBreakScreen} />
+        <KioskStack.Screen name="KioskDone" component={KioskDoneScreen} options={{ animation: "fade" }} />
+        <KioskStack.Screen name="KioskUnlock" component={KioskUnlockScreen} />
+        <KioskStack.Screen name="KioskSettings" component={KioskSettingsScreen} />
+      </KioskStack.Navigator>
+    </KioskProvider>
+  );
+}
+
 // Supervisor/admin background work (PIN table, offline clock/employee
 // queues, push registration). Never mounted for an Employee App login -
 // those calls are supervisor-only server-side and would just fail, and an
@@ -233,7 +264,10 @@ function RootNavigator() {
   // AuthContext sets currentUser and userData in the same render, so an
   // Employee App login never mounts a supervisor screen even for one frame.
   const isEmployeeLogin = userData?.role === "employee";
-  const backgroundSync = isEmployeeLogin ? null : <SupervisorBackgroundSync />;
+  // Task 5: a kiosk login never runs the supervisor background work either
+  // (every one of those calls is staff-only on the server).
+  const isKioskLogin = userData?.role === "kiosk";
+  const backgroundSync = isEmployeeLogin || isKioskLogin ? null : <SupervisorBackgroundSync />;
   useJoinLink({ loggedIn: !!currentUser, navReady: navReady && splashAnimationDone });
 
   const onNativeSplashHandoff = useCallback(() => {
@@ -300,6 +334,8 @@ function RootNavigator() {
       <Stack.Navigator key={roleTreeKey} screenOptions={{ headerShown: false }}>
         {currentUser && accountDisabled ? (
           <Stack.Screen name="AccountDisabled" component={AccountDisabledScreen} />
+        ) : currentUser && isKioskLogin ? (
+          <Stack.Screen name="KioskRoot" component={KioskRoot} />
         ) : currentUser && isEmployeeLogin ? (
           // Employee App: Home + clock in/out only, no supervisor screens.
           <>
