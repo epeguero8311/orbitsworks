@@ -12,6 +12,7 @@ Planned: Nov 24, 2026.
   - (a) Approve Hours column widths never apply in Chrome: the <col> widths are calc(% - px), which browsers treat as auto in a table, so every column is drawn equal width. Pre-existing since Phase 10 (same on feature/overtime); Task 2 kept the same values.
   - (b) Overview (lib/hooks/useDashboardStatus.ts): "Weekly attendance error: Missing or insufficient permissions" in the console on account switch (log out + log in as another company), likely a listener/query not closed on logout. Check whether it also happens on prod.
   - (c) Employee app: record the phone model on employee-app punches (Task 2 D4 follow-up, next app release).
+  - (d) Supervisor app pin_cache: server sends salted hashes instead of plain PINs (Task 5 K13). AFTER the 1.1.6 release, ask Emilio first.
 - Task 2: CODE COMPLETE on feature/approve-columns (last commit 0d08f0b; feature commit e7d41b3; rules deployed to dev Nov 25).
 - Task 3 (Tips): CODE COMPLETE Nov 25 on feature/tips (off feature/approve-columns 0d08f0b): cb28495 (types/validators/rules/setShiftTip/toggle/column), 39a040f (Session review Tips + history, Tips column), f738d5b (Reports + every pay export). Decisions D1-D10 below. Rules + setShiftTip deployed to dev Nov 25. Dev seed: scripts/devSeedTips.js (existing OT Test Co) / devSeedOvertime.js (fresh seeds) - Tips ON + $45 on OT E's Foreman B shift Tue Nov 17. Read-only check on dev data through the report code: OT E Nov 17 Laborer $75 / Foreman B $183 / Day total $258 (Worked 10.00, OT 2.00, Tips $45.00); A $255, C $920, D $892.50 unchanged. Browser checks (modal, columns, downloads) go in the final combined sweep. Open shift (no clock-out) = tip not counted until clocked out (kept as built, Emilio Nov 25). DONE - last commit e29aeba, pushed to origin.
 - Task 4 (Admin Permissions): BUILT Nov 25 on feature/admin-permissions (ea2f7eb rules, 564999a server checks, 4c88b51 getShiftData, ff6fec1/f11efd0 hooks, b458ecf UI). Emulator suites pass (functions 789 incl. adminPermissions + rules G1/G2; web 193). Dev deployed Nov 25: firestore rules + 43 functions (5 new: setAdminAccess, setSiteAdmins, onJobSiteCreated, adminClockAction, getShiftData) + dev website (scripts/dev-site-deploy.ps1). NOT YET: browser checks (final sweep). Gaps fixed (D23): re-approve OT-changed warning + all-sites weekly hours for restricted admins (getShiftData), billing links by permission - deployed to dev Nov 25 (getShiftData + dev site). Push rule: each task branch is pushed to origin when done (never main).
@@ -408,6 +409,39 @@ End break:    PIN -> [End break] -> back to Home
 - Landscape uses the width: stacked cards become a 2x2 grid. Clock-in photo stays upright / best quality in both orientations. No rotation-lock setting. Needs a new store build (app.json orientation, not OTA).
 
 ---
+
+## Task 5-7 decisions (Nov 25, 2026 - Emilio, after recon)
+Release / branches
+- K1. Tasks 5-7 ship in ONE app store build: 1.1.6. 1.1.5 (build 38) stays as is and goes to Apple when RC1 closes; Kiosk is not added to it.
+- K2. Stacking: feature/kiosk (Task 5: web + functions + rules + app) -> feature/update-banner (Task 6) -> feature/tablet-landscape (Task 7). App code lives on the stack (identical to employee-app at fe8e6c6). Dev app builds from the stack tip. At release the stack merges into employee-app, then main.
+- K3. KIOSK_ENABLED flag (functions param + NEXT_PUBLIC_KIOSK_ENABLED on the web), default OFF. On for dev; stays OFF on prod until 1.1.6 is in the store. Off = no Kiosk toggle, server refuses the kiosk role.
+- K4. iPad-only for 1.1.6 (toggle text says iPad). Android later.
+Role / data model
+- K5. A kiosk = an employee record with server-only `kiosk: true` + a linked login: users.role 'kiosk', claims {role:'kiosk', companyId, employeeId}. loginRoleFor: kiosk wins over admin/supervisor. Linked record: the toggle flips the role; unlinked record: "Email for the kiosk login" sends an invite, accepting it makes a kiosk login.
+- K6. Who can turn Kiosk access on/off: same as the Supervisor/Admin toggles (Invites permission, D5 hierarchy when the record is an admin) + Pro + flag. A kiosk login never gets the dashboard.
+- K7. Exclusive: Kiosk ON clears Supervisor + Admin (and adminAccess). Refused for a record with an Employee App login (appAccess) or one that is clocked in.
+- K8. Kiosk records are excluded everywhere: active/total employee counts + caps, Overview, Time, Approve Hours, Reports + every export, Analytics, alerts, Temp Link/crew pickers, supervisor PIN table, Employee App invites, duplicate checks. The Team list shows it with a `Kiosk` tag. Its own PIN stays reserved (unique) but never works for a punch.
+Security
+- K9 (3a). Deny by default. firestore.rules notEmployee() -> isStaff() (owner/admin/supervisor) everywhere it gates company-wide access; storage.rules !isEmployeeRole() -> isStaff(). A kiosk reads only employeeAppConfig directly; may CREATE (never read) clock photos in Storage; everything else through callables (getKioskPinTable, kioskPunch, kiosk unlock/exit, device rename). Source 'kiosk' is server-written only. Prod role check before the change (listRoles.js, Nov 25): only owner/admin/supervisor/employee on prod and dev.
+- K10 (3b). The website treats a kiosk login like an employee login: redirected away from the dashboard, no company-doc listener.
+- K11 (3c A). Old app builds get nothing (rules + callables refuse role 'kiosk'). Prevented in practice by K3 + toggle text "Needs the OrbitsWorks app 1.1.6 or newer on the iPad"; Task 6 covers later versions.
+- K12 (3d). Kiosk PIN cache: per-kiosk salt from the server (new salt every sync), sha256(salt:pin) -> employee, stored in SecureStore (WHEN_UNLOCKED_THIS_DEVICE_ONLY). Refreshed on app open, PIN pad focus, every 20 min, reconnect, and after a server PIN rejection. No plain PINs ever leave the server for a kiosk.
+- K13. FOLLOW-UP AFTER THIS RELEASE (not built now): supervisor pin_cache gets the same fix (server sends salted hashes, not plain PINs).
+Behavior
+- K14. Wrong PIN: 45 s wait after 3 wrong in a row, on-screen countdown, survives restart. Server limit per kiosk: 5 tries / 60 s.
+- K15. Kiosk sees ALL active employees of the company (no site filter).
+- K16. Exit key: 4 digits, reserved in pins/{pin} while valid (never collides with an employee PIN), single use, 10-minute expiry, salted hash in companies/{c}/kioskExitKeys (no client access), made for one chosen kiosk, checked online. Created by owner / Full access / Settings permission.
+- K17. Kiosk Settings opens with the key OR a linked admin's own PIN (admin with Settings or Full access; hashes in the synced table flagged canUnlock, so it works offline). Owner uses a key. Supervisors can't. Exit Kiosk = a button inside Kiosk Settings; refused while punches are waiting ("Connect to send N punches first").
+- K18. Kiosk Settings: Logged in as | Device name (editable) | Dark mode | Location permission status | Last synced | App version. NO Notifications.
+- K19. New source 'kiosk': Clock-in/out Type "Kiosk", Device column = kiosk device name, Session review tag "Kiosk", same labels in exports; Devices list shows `Kiosk` / `Supervisor` tags.
+- K20. Pro downgrade (A): toggle locks with an upgrade label; tablet shows "Kiosk needs Pro - ask your admin" once it sees Core; server refuses kiosk punches made after the downgrade (planTierChangedAt from the Stripe webhook), accepts queued punches made before it. Login stays; re-upgrade restores.
+- K21. Required-geofence site, out of range: blocked, message "Ask your supervisor or admin" (no override on a kiosk).
+Task 6 (update banner)
+- U1. All 3 modes. Dismiss comes back the next day. Optional per-platform minimum version -> full-screen "Update to continue" (unset by default = never forced).
+- U2. appConfig/versions = {ios:{latest,min}, android:{latest,min}}; signed-in users read, only Emilio edits.
+- U3. Devices list: app version + `Outdated` tag; older builds show "Older than 1.1.6". Version sent with each punch + a small call on app open. Employees' own phones stay out of Devices.
+Task 7 (tablet landscape)
+- L1. orientation default + expo-screen-orientation locks phones to portrait at start; iPad allows all orientations (Split View). 2x2 grid on Kiosk Home + Supervisor Dashboard; other screens get a max width. Clock photo checked upright in both orientations on a real iPad (incl. server face check).
 
 ## Final combined test checklist (after Task 4, before prod)
 Things that could not be tested on dev for Task 2, and what each needs:
