@@ -11,7 +11,9 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
-import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
+import { useCompanySettings, overtimeSettingsFrom } from "@/lib/hooks/useCompanySettings";
+import { overtimeWeekKey } from "@/lib/overtime";
+import { computeAnalyticsWithOvertime, type CostJobInfoWithOvertime } from "@/lib/siteCostsOvertime";
 import { dateKey, startOfWeek, APPROVALS_CUTOVER_DATE } from "@/lib/reportUtils";
 import { approvalsQueryStart } from "@/lib/approvalsWindow";
 import { previousComparisonRange, percentChange, type DateRangePreset } from "@/lib/validators/dateRange";
@@ -51,7 +53,16 @@ export function useSiteCosts() {
       siteFilter: string | null,
       workerFilter: WorkerFilter
     ) => {
-      const bufferStart = dateKey(startOfWeek(new Date(rangeStart + "T00:00:00")));
+      // Overtime (Task 1) ON: the week follows "Week starts on" (company
+      // time zone) - load from a day before it. OFF: exactly as before.
+      const otSettings = settings.overtimeEnabled ? overtimeSettingsFrom(settings) : null;
+      let bufferStart = dateKey(startOfWeek(new Date(rangeStart + "T00:00:00")));
+      if (otSettings) {
+        const otStart = new Date(`${overtimeWeekKey(rangeStart, otSettings.weekStartsOn)}T00:00:00`);
+        otStart.setDate(otStart.getDate() - 1);
+        const otStartKey = dateKey(otStart);
+        if (otStartKey < bufferStart) bufferStart = otStartKey;
+      }
       const start = new Date(bufferStart + "T00:00:00");
       const end = new Date(rangeEnd + "T23:59:59");
 
@@ -80,9 +91,29 @@ export function useSiteCosts() {
         )
       );
       const approvalStatusByClockInId = new Map<string, "pending" | "approved">();
+      // Overtime ON only: Approve Hours job + frozen fields per session.
+      const jobIdByClockInId = new Map<string, string | null>();
+      const autoBreakByClockInId = new Map<string, { minutes: number; minShiftHours: number }>();
+      const frozenOvertimeMinutesByClockInId = new Map<string, number>();
       approvalsSnapshot.docs.forEach((d) => {
-        const data = d.data() as { status?: "pending" | "approved" };
+        const data = d.data() as {
+          status?: "pending" | "approved";
+          jobId?: string | null;
+          autoBreakMinutesApplied?: number;
+          autoBreakMinShiftHoursApplied?: number;
+          overtimeApplied?: { overtimeMinutes?: number };
+        };
         approvalStatusByClockInId.set(d.id, data.status ?? "pending");
+        if (data.jobId) jobIdByClockInId.set(d.id, data.jobId);
+        if (data.status === "approved") {
+          autoBreakByClockInId.set(d.id, {
+            minutes: data.autoBreakMinutesApplied ?? 0,
+            minShiftHours: data.autoBreakMinShiftHoursApplied ?? 0,
+          });
+          if (typeof data.overtimeApplied?.overtimeMinutes === "number") {
+            frozenOvertimeMinutesByClockInId.set(d.id, data.overtimeApplied.overtimeMinutes);
+          }
+        }
       });
       const unapprovedClockInIds = computeExcludedEventIds(eventsWithDate, approvalStatusByClockInId);
 
@@ -115,10 +146,40 @@ export function useSiteCosts() {
 
       const jobsSnapshot = await getDocs(collection(db, "companies", companyId, "jobs"));
       const jobsById = new Map<string, CostJobInfo>();
+      const jobsWithOvertime = new Map<string, CostJobInfoWithOvertime>();
       jobsSnapshot.docs.forEach((d) => {
-        const data = d.data() as { hourlyRate: number; rateHistory?: CostJobInfo["rateHistory"] };
+        const data = d.data() as {
+          hourlyRate: number;
+          rateHistory?: CostJobInfo["rateHistory"];
+          overtimeRate?: number | null;
+          overtimeRateHistory?: CostJobInfoWithOvertime["overtimeRateHistory"];
+        };
         jobsById.set(d.id, { hourlyRate: data.hourlyRate, rateHistory: data.rateHistory });
+        jobsWithOvertime.set(d.id, {
+          hourlyRate: data.hourlyRate,
+          rateHistory: data.rateHistory,
+          overtimeRate: data.overtimeRate ?? null,
+          overtimeRateHistory: data.overtimeRateHistory,
+        });
       });
+
+      if (otSettings) {
+        return computeAnalyticsWithOvertime({
+          events,
+          rangeStart,
+          rangeEnd,
+          employeesById,
+          jobsById: jobsWithOvertime,
+          unapprovedClockInIds,
+          jobIdByClockInId,
+          autoBreakByClockInId,
+          frozenOvertimeMinutesByClockInId,
+          settings: otSettings,
+          nowMs: Date.now(),
+          siteFilter,
+          workerFilter,
+        });
+      }
 
       return computeAnalytics({
         events,
@@ -134,7 +195,8 @@ export function useSiteCosts() {
         workerFilter,
       });
     },
-    [settings.weeklyOvertimeThreshold, settings.overtimeMultiplier]
+    // settings as a whole: the Overtime branch reads several of its fields.
+    [settings]
   );
 
   const runAnalytics = useCallback(

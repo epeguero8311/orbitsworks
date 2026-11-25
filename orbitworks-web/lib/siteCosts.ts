@@ -74,7 +74,8 @@ function resolveRateAsOf(
   return rateFromHistory(day, employee.rateHistory, employee.hourlyRate ?? null);
 }
 
-function rateFromHistory(
+// Exported for the Overtime ON analytics (lib/siteCostsOvertime.ts).
+export function rateFromHistory(
   day: string,
   history: RateHistoryEntry[] | undefined,
   currentRate: number | null

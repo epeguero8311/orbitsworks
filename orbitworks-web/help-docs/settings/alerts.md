@@ -19,7 +19,8 @@ Sidebar > Settings > "Alerts" section.
 1. Open Settings.
 2. Toggle each alert on/off and set its threshold:
    - Max hours warning - warn at N hours (default 8) worked in a day.
-   - Overtime warning - warn at N hours/week (shares the weekly overtime threshold field).
+   - Overtime warning - on/off only; it fires at "Weekly overtime after" in Settings > Export Settings > Overtime (also when Overtime itself is off). With Overtime on, it also fires when "Daily overtime after" is passed, once per day.
+   - With Overtime on, Max hours counts all of the day's shifts together.
    - Missed clock out alert - alert N minutes (default 30) after a shift should have ended.
    - Max break time warning - warn after N minutes (default 15) on break.
 3. Click Save changes.
