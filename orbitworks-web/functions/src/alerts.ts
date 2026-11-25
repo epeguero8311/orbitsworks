@@ -21,12 +21,15 @@ import {
   maxHoursText,
   openShiftStart,
   overtimeText,
+  maxHoursDayText,
   parseHHMM,
   shiftEndingDue,
   shiftEndingText,
   stillClockedInDue,
   stillClockedInText,
 } from "./employeeShiftAlerts";
+import { computeOvertime, overtimeDayKey, overtimeWeekKey, type OvertimeSettings } from "./overtime";
+import { companyOvertimeSettings, hoursOf, overtimeAlertMessage, shiftsFromClockEvents } from "./overtimeShifts";
 
 // lowStaffing was removed (not a concept this product tracks).
 // clockedInOutsideGeofence/siteMismatch both landed here under the exact
@@ -232,6 +235,10 @@ interface CompanyAlertContext {
   weeklyOvertimeThreshold: number;
   automaticBreakMinutes: number;
   minimumShiftHours: number;
+  // Overtime (Task 1): the shared overtime function's settings. Only used
+  // when overtime.enabled (the company's Overtime toggle) - OFF keeps every
+  // alert exactly as before.
+  overtime: OvertimeSettings;
   // Face Verification (Pro) - company.faceVerification.alertsEnabled,
   // default true when missing (see FACE_VERIFICATION_SPEC.md). Checks
   // themselves always run on Pro companies now (functions/src/
@@ -261,9 +268,12 @@ async function getCompanyAlertContext(companyId: string): Promise<CompanyAlertCo
     weeklyOvertimeThreshold: data.weeklyOvertimeThreshold ?? 40,
     automaticBreakMinutes: data.exportSettings?.automaticBreakMinutes ?? 0,
     minimumShiftHours: data.exportSettings?.minimumShiftHours ?? 0,
+    overtime: companyOvertimeSettings(data),
     faceAlertsEnabled: data.faceVerification?.alertsEnabled !== false,
   };
 }
+
+const NO_RATES = () => ({ rate: null, overtimeRate: null });
 
 const ALERT_ID_PREFIX: Record<AlertType, string> = {
   lateClockIn: "late",
@@ -1100,7 +1110,50 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
   // got it). dateKey = the shift start's day: for a day shift that is
   // today, so the alert id is exactly what it always was and nothing
   // re-fires. The employee also gets their own alert, once per shift.
-  if (alerts.maxHoursWarning) {
+  //
+  // Overtime ON (Task 1, decision 4): the COMBINED day total instead - the
+  // day's closed shifts (Automatic Break once per day) plus the open shift
+  // up to now, the day being the open shift's start day in the company
+  // time zone. Fires once per employee per day (company alert and the
+  // employee's own alert). Same "Warning at" number.
+  if (alerts.maxHoursWarning && ctx.overtime.enabled) {
+    for (const event of currentlyActive) {
+      const employeeEvents = recentEvents.filter((e) => e.employeeId === event.employeeId);
+      const shifts = shiftsFromClockEvents(employeeEvents, now.getTime());
+      const open = shifts.find((sh) => sh.endMs === null);
+      if (!open) continue;
+      const result = computeOvertime(shifts, ctx.overtime, NO_RATES, { nowMs: now.getTime() });
+      const openDay = overtimeDayKey(open.startMs, ctx.overtime.timeZone);
+      const day = result.days.find((dd) => dd.dayKey === openDay);
+      const workedHours = day ? hoursOf(day.workedMs) : 0;
+      if (workedHours < alerts.maxHoursThreshold) continue;
+      const employeeName = employeeNames.get(event.employeeId) ?? "An employee";
+      const site = employeeSites.get(event.employeeId);
+      await maybeCreateAndPush(
+        {
+          companyId,
+          alertType: "maxHours",
+          employeeId: event.employeeId,
+          employeeName,
+          siteId: site?.siteId ?? null,
+          siteName: site?.siteName ?? null,
+          message: "Worked too many hours today",
+          eventId: event.id,
+          employeeUpdateId: null,
+          dateKey: openDay,
+        },
+        admin.firestore.Timestamp.now()
+      );
+      await sendEmployeeAlert({
+        companyId,
+        employeeId: event.employeeId,
+        key: `${event.employeeId}-${openDay}`,
+        shiftId: open.id,
+        ...maxHoursDayText(workedHours, alerts.maxHoursThreshold),
+      });
+    }
+  }
+  if (alerts.maxHoursWarning && !ctx.overtime.enabled) {
     for (const event of currentlyActive) {
       const employeeEvents = recentEvents.filter((e) => e.employeeId === event.employeeId);
       const shiftStart = openShiftStart(employeeEvents);
@@ -1182,9 +1235,62 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
     }
   }
 
+  // Overtime ON (Task 1): same weekly threshold and the same once-per-
+  // employee-per-week alert + employee alert, but the week follows the
+  // company's "Week starts on" in the company time zone and hours come
+  // from the shared overtime function (Automatic Break once per day, open
+  // shift up to now). Weekly overtime after = 0 means weekly OT is off, so
+  // no warning.
+  if (alerts.overtimeWarning && ctx.overtime.enabled && ctx.overtime.weeklyThresholdHours > 0) {
+    const ot = ctx.overtime;
+    const weekKey = overtimeWeekKey(overtimeDayKey(now.getTime(), ot.timeZone), ot.weekStartsOn);
+    // A day of margin before the week start covers any US time zone.
+    const queryStart = admin.firestore.Timestamp.fromMillis(Date.parse(`${weekKey}T00:00:00Z`) - 24 * 60 * 60 * 1000);
+    const weekSnap = await eventsRef.where("timestamp", ">=", queryStart).orderBy("timestamp", "asc").get();
+    const weekEvents = weekSnap.docs.map(toMinimalEvent).filter((e): e is MinimalClockEvent => e !== null);
+    const byEmployee = new Map<string, MinimalClockEvent[]>();
+    for (const event of weekEvents) {
+      const list = byEmployee.get(event.employeeId) ?? [];
+      list.push(event);
+      byEmployee.set(event.employeeId, list);
+    }
+    for (const [employeeId, empEvents] of byEmployee) {
+      const result = computeOvertime(shiftsFromClockEvents(empEvents, now.getTime()), ot, NO_RATES, {
+        nowMs: now.getTime(),
+      });
+      const hours = hoursOf(result.days.filter((dd) => dd.weekKey === weekKey).reduce((sum, dd) => sum + dd.workedMs, 0));
+      if (hours <= ot.weeklyThresholdHours) continue;
+      const employeeName = employeeNames.get(employeeId) ?? "An employee";
+      await maybeCreateAndPush(
+        {
+          companyId,
+          alertType: "overtime",
+          employeeId,
+          employeeName,
+          siteId: null,
+          siteName: null,
+          message: overtimeAlertMessage(employeeName, hours),
+          eventId: null,
+          employeeUpdateId: null,
+          dateKey: weekKey,
+        },
+        admin.firestore.Timestamp.now()
+      );
+      await sendEmployeeAlert({
+        companyId,
+        employeeId,
+        key: `${employeeId}-${weekKey}`,
+        shiftId: null,
+        ...overtimeText(hours, ot.weeklyThresholdHours),
+      });
+    }
+  }
+
   // Overtime - separate weekly-scoped query, same accumulation logic as
-  // useDashboardStatus.ts's loadWeeklyHours.
-  if (alerts.overtimeWarning) {
+  // useDashboardStatus.ts's loadWeeklyHours. (Overtime toggle OFF: exactly
+  // as before; only the alert text is the new "{Name} has reached
+  // overtime ({X}h)".)
+  if (alerts.overtimeWarning && !ctx.overtime.enabled) {
     const weekStart = getWeekStart(now);
     const weekStartTs = admin.firestore.Timestamp.fromDate(weekStart);
     const weekSnap = await eventsRef.where("timestamp", ">=", weekStartTs).orderBy("timestamp", "asc").get();
@@ -1225,7 +1331,7 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
           employeeName,
           siteId: null,
           siteName: null,
-          message: "Over weekly hour limit",
+          message: overtimeAlertMessage(employeeName, hours),
           eventId: null,
           employeeUpdateId: null,
           dateKey: weekKey,

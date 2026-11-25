@@ -50,6 +50,7 @@ export function AlertsCard({
         <div id="max-hours-warning" className="py-1">
           <Toggle
             label="Max hours warning"
+            description="With Overtime on (Export Settings), counts all of the day's shifts together."
             checked={alerts.maxHoursWarning}
             onChange={(v) => setAlerts((prev) => ({ ...prev, maxHoursWarning: v }))}
           />

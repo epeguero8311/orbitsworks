@@ -112,6 +112,17 @@ export function stillClockedInText(closeMinutes: number, delayMinutes: number): 
   };
 }
 
+// Overtime (Task 1): with the company's Overtime toggle ON, Max hours
+// counts the day's shifts together, so the employee's text says "today".
+export function maxHoursDayText(workedHours: number, thresholdHours: number): EmployeeAlertText {
+  return {
+    alertType: "maxHours",
+    title: "Max hours",
+    message: `You have worked ${hoursLabel(workedHours)} hours today.`,
+    reason: `Your company warns after ${thresholdHours} hours in one day.`,
+  };
+}
+
 export function maxHoursText(workedHours: number, thresholdHours: number): EmployeeAlertText {
   return {
     alertType: "maxHours",

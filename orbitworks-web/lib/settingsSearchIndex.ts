@@ -141,6 +141,7 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     label: "Max hours warning",
     tab: "alerts",
     keywords: ["hours", "overtime", "max", "warning"],
+    helperText: "With Overtime on (Export Settings), counts all of the day's shifts together.",
   },
   {
     id: "overtime-warning",
