@@ -19,6 +19,7 @@ export type ShiftDataRequest = {
   employeeId?: string;
   clockInEventIds?: string[];
   overrideEventIds?: string[];
+  weekFromMs?: number;
   want: {
     clockEvents?: boolean;
     approvals?: boolean;
@@ -33,12 +34,18 @@ export type ShiftDataRequest = {
 // Same subset of a Firestore DocumentSnapshot the hooks use.
 export type DocLike = { id: string; data: () => Record<string, unknown> };
 
-// Rule 2 / D3: a visible shift's OT and its employee-day's FULL totals.
+// Rule 2 / D3: a visible shift's numbers computed from EVERY site
+// (functions/src/shiftReads.ts overtimeForShifts). The OT fields are only
+// there with Overtime ON.
 export type ServerShiftOvertime = {
-  overtimeMinutes: number;
-  dayKey: string;
-  dayWorkedMinutes: number;
-  dayOvertimeMinutes: number;
+  overtimeMinutes?: number;
+  dayKey?: string;
+  dayWorkedMinutes?: number;
+  dayOvertimeMinutes?: number;
+  // Re-approve warning: approved OT vs what it would be now (same settings).
+  overtimeChanged: { frozenMinutes: number; liveMinutes: number } | null;
+  // Net worked minutes from weekFromMs through this shift, all sites.
+  weekWorkedMinutesThrough: number;
 };
 
 export type ShiftDataResult = {

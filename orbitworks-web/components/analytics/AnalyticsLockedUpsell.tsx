@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { BarChart3 } from "lucide-react";
+import { BillingLink } from "@/components/BillingLink";
 
 export default function AnalyticsLockedUpsell() {
   return (
@@ -17,12 +17,11 @@ export default function AnalyticsLockedUpsell() {
         Analytics breaks down labor cost by job site, overtime, and
         in-house vs. subcontractor spend - upgrade to Pro to unlock it.
       </p>
-      <Link
-        href="/dashboard/billing"
+      <BillingLink fallback={<p className="mt-6 text-sm text-gray-600">Ask your account owner to upgrade to Pro.</p>}
         className="mt-6 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
       >
         Upgrade to Pro
-      </Link>
+      </BillingLink>
     </div>
   );
 }

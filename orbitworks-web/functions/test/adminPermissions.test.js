@@ -232,7 +232,14 @@ test("getShiftData shifts: a restricted admin gets only their sites' shifts + FU
   assert.ok(r.clockEvents[0].timestamp.__ts > 0, "timestamps travel as { __ts }");
   // Juan worked 5h on A + 9h on C = 14h that day, 6h OT (daily 8): the
   // restricted admin sees the full day numbers but no site C shift.
-  assert.deepEqual(r.overtime.sA, { overtimeMinutes: 0, dayKey: "2026-11-16", dayWorkedMinutes: 14 * 60, dayOvertimeMinutes: 6 * 60 });
+  assert.deepEqual(r.overtime.sA, {
+    overtimeChanged: null,
+    weekWorkedMinutesThrough: 5 * 60,
+    overtimeMinutes: 0,
+    dayKey: "2026-11-16",
+    dayWorkedMinutes: 14 * 60,
+    dayOvertimeMinutes: 6 * 60,
+  });
   assert.equal(Object.keys(r.overtime).length, 1);
   // An all-sites admin gets everything (and no server OT - their hook computes it).
   const all = await read({ purpose: "shifts", ...RANGE, want: { clockEvents: true, approvals: true, overtime: true } }, u.plain);
@@ -268,4 +275,37 @@ test("getShiftData overview: every site, but only the recent window (D13)", asyn
   // and nothing older than the window.
   assert.ok(now.clockEvents.some((e) => e.type === "in" && e.siteId === "siteC"));
   assert.ok(now.clockEvents.every((e) => e.timestamp.__ts >= Date.now() - 8 * 86400000));
+});
+
+test("getShiftData: re-approve 'OT changed' + weekly hours count every site for a restricted admin (gaps 1-2)", async () => {
+  const u = await seed();
+  await company().update({ overtimeEnabled: true, dailyOvertimeThreshold: 8, weeklyOvertimeThreshold: 40, overtimeMultiplier: 1.5 });
+  // An earlier shift on site C (Sun Nov 15, 2h) the restricted admin can't see.
+  const base = { employeeId: "juan", employeeName: "Juan", siteId: "siteC", siteName: "siteC", createdByUid: "seed" };
+  await company().collection("clockEvents").doc("sC0").set({ ...base, type: "in", timestamp: ct(15, "06:00") });
+  await company().collection("clockEvents").doc("sC0-out").set({ ...base, type: "out", timestamp: ct(15, "08:00") });
+  // sA was approved with 60 min frozen OT, but with the same settings it
+  // would have 0 now (an edit elsewhere moved it) -> re-approve warning.
+  const snapshot = { weeklyThresholdHours: 40, dailyThresholdHours: 8, weekStartsOn: 1, multiplier: 1.5, roundOvertimeMinutes: 0, timeZone: "America/Chicago" };
+  await company().collection("timesheetApprovals").doc("sA").update({
+    status: "approved",
+    autoBreakMinutesApplied: 0,
+    autoBreakMinShiftHoursApplied: 0,
+    overtimeApplied: { overtimeMinutes: 60, dailyOvertimeMinutes: 60, weeklyOvertimeMinutes: 0, workedMinutes: 300, settings: snapshot },
+  });
+  const weekFromMs = Date.parse("2026-11-15T00:00:00-06:00");
+  const req = { purpose: "shifts", ...RANGE, weekFromMs, want: { clockEvents: true, overtime: true } };
+  const r = await read(req, u.restricted);
+  assert.deepEqual(r.clockEvents.map((e) => e.id).sort(), ["sA", "sA-out"], "still only site A shifts");
+  assert.deepEqual(r.overtime.sA.overtimeChanged, { frozenMinutes: 60, liveMinutes: 0 });
+  assert.equal(r.overtime.sA.overtimeMinutes, 60, "the frozen OT is what's shown");
+  // Weekly hours through sA = site C's 2h (Nov 15) + sA's 5h, all sites.
+  assert.equal(r.overtime.sA.weekWorkedMinutesThrough, 7 * 60);
+
+  // Overtime OFF: no OT fields, weekly hours still all sites.
+  await company().update({ overtimeEnabled: false });
+  const off = await read(req, u.restricted);
+  assert.equal(off.overtime.sA.overtimeMinutes, undefined);
+  assert.equal(off.overtime.sA.overtimeChanged, null);
+  assert.equal(off.overtime.sA.weekWorkedMinutesThrough, 7 * 60);
 });

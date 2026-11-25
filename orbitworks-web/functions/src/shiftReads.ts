@@ -7,6 +7,7 @@ import { loadAdminCaller, requirePermission } from "./adminAccess";
 import type { MinimalClockEvent } from "./clockStatus";
 import { computeOvertime, overtimeDayKey, overtimeWeekKey, type OvertimeShiftInput } from "./overtime";
 import { companyOvertimeSettings, shiftsFromClockEvents } from "./overtimeShifts";
+import { applyAutoBreak } from "./autoBreak";
 
 // Admin Permissions (Task 4, D2-D4, D13): the server read path for admins
 // the rules block from reading shift data directly (an Admin limited to some
@@ -42,6 +43,9 @@ const schema = z.object({
   clockInEventIds: z.array(z.string().trim().min(1).max(200)).max(300).optional(),
   // Session review's override detail: these override records (by id).
   overrideEventIds: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+  // Weekly-hours window start for the per-shift numbers (Approve Hours'
+  // fetch start).
+  weekFromMs: z.number().int().optional(),
   want: z
     .object({
       clockEvents: z.boolean().optional(),
@@ -252,71 +256,169 @@ export const getShiftData = onCall(async (request) => {
 
   // ---- rule 2 / D3: OT + full day totals of the visible shifts ----
   if (want.overtime && !seesAll && visibleClockIns.length) {
-    out.overtime = await overtimeForShifts(caller.companyId, visibleClockIns);
+    out.overtime = await overtimeForShifts(caller.companyId, visibleClockIns, input.weekFromMs);
   }
 
   return out;
 });
 
-// Per visible clock-in: its OT and its employee-day's FULL worked + OT (all
-// sites), computed live from every shift of the employee's week with the
-// shared overtime function. Approved shifts keep their frozen OT (rule 11).
-// Only numbers come back - never another site's shift details.
-async function overtimeForShifts(
+// Per visible clock-in (rule 2 / D3), computed from EVERY site's shifts of
+// that employee with the shared overtime function - only numbers come back,
+// never another site's shift details:
+//  - overtimeMinutes / dayKey / dayWorkedMinutes / dayOvertimeMinutes
+//    (Overtime ON): the shift's OT (frozen if approved, rule 11) and its
+//    day's full worked + OT.
+//  - overtimeChanged (Overtime ON): on an approved shift with frozen OT, the
+//    OT it would have now with the SAME settings it was approved with - the
+//    re-approve warning, same rule as lib/approvalsOvertime.ts.
+//  - weekWorkedMinutesThrough: net worked minutes from weekFromMs through
+//    this shift (all sites) - the Overtime warning's weekly hours, same
+//    window and Automatic Break as Approve Hours.
+export type ServerShiftNumbers = {
+  overtimeMinutes?: number;
+  dayKey?: string;
+  dayWorkedMinutes?: number;
+  dayOvertimeMinutes?: number;
+  overtimeChanged: { frozenMinutes: number; liveMinutes: number } | null;
+  weekWorkedMinutesThrough: number;
+};
+
+type FrozenSettings = {
+  weeklyThresholdHours: number;
+  dailyThresholdHours: number;
+  weekStartsOn: number;
+  multiplier: number;
+  roundOvertimeMinutes: 0 | 5 | 15 | 30;
+  timeZone: string;
+};
+
+type ApprovalNumbers = {
+  status?: string;
+  autoBreakMinutesApplied?: number;
+  autoBreakMinShiftHoursApplied?: number;
+  overtimeApplied?: { overtimeMinutes?: number; settings?: FrozenSettings };
+};
+
+const NO_RATES = () => ({ rate: null, overtimeRate: null });
+
+export async function overtimeForShifts(
   companyId: string,
-  clockInIds: string[]
-): Promise<Record<string, { overtimeMinutes: number; dayKey: string; dayWorkedMinutes: number; dayOvertimeMinutes: number }>> {
+  clockInIds: string[],
+  weekFromMs?: number
+): Promise<Record<string, ServerShiftNumbers>> {
   const companyRef = db.collection("companies").doc(companyId);
   const ot = companyOvertimeSettings(((await companyRef.get()).data() ?? {}) as Record<string, unknown>);
-  const result: Record<string, { overtimeMinutes: number; dayKey: string; dayWorkedMinutes: number; dayOvertimeMinutes: number }> = {};
-  if (!ot.enabled) return result;
+  const result: Record<string, ServerShiftNumbers> = {};
   const eventsCol = companyRef.collection("clockEvents");
   const ins = await getAllDocs(clockInIds.map((id) => eventsCol.doc(id)));
-  const groups = new Map<string, { employeeId: string; weekKey: string; ids: string[] }>();
+
+  // employee -> visible clock-ins (with their effective start)
+  const byEmployee = new Map<string, { id: string; ms: number }[]>();
   for (const snap of ins) {
     const d = snap.data();
     if (!d || d.type !== "in" || typeof d.employeeId !== "string") continue;
-    const weekKey = overtimeWeekKey(overtimeDayKey(effectiveMs(d), ot.timeZone), ot.weekStartsOn);
-    const key = `${d.employeeId}|${weekKey}`;
-    const g = groups.get(key) ?? { employeeId: d.employeeId, weekKey, ids: [] };
-    g.ids.push(snap.id);
-    groups.set(key, g);
+    const list = byEmployee.get(d.employeeId) ?? [];
+    list.push({ id: snap.id, ms: effectiveMs(d) });
+    byEmployee.set(d.employeeId, list);
   }
-  for (const g of groups.values()) {
-    const weekStartMs = Date.parse(`${g.weekKey}T00:00:00Z`);
+
+  const weekStartOf = (ms: number) =>
+    Date.parse(`${overtimeWeekKey(overtimeDayKey(ms, ot.timeZone), ot.weekStartsOn)}T00:00:00Z`);
+
+  for (const [employeeId, visible] of byEmployee) {
+    const minMs = Math.min(...visible.map((v) => v.ms));
+    const maxMs = Math.max(...visible.map((v) => v.ms));
+    // Whole OT weeks of every visible shift + the weekly-hours window.
+    const fromMs = Math.min(weekStartOf(minMs), weekFromMs ?? minMs) - DAY_MS;
+    const toMs = weekStartOf(maxMs) + 8 * DAY_MS;
     const evSnap = await eventsCol
-      .where("employeeId", "==", g.employeeId)
-      .where("timestamp", ">=", admin.firestore.Timestamp.fromMillis(weekStartMs - DAY_MS))
-      .where("timestamp", "<=", admin.firestore.Timestamp.fromMillis(weekStartMs + 8 * DAY_MS))
+      .where("employeeId", "==", employeeId)
+      .where("timestamp", ">=", admin.firestore.Timestamp.fromMillis(fromMs))
+      .where("timestamp", "<=", admin.firestore.Timestamp.fromMillis(toMs))
       .orderBy("timestamp", "asc")
       .get();
     const events: MinimalClockEvent[] = evSnap.docs
       .map((d) => ({ id: d.id, ...(d.data() as Omit<MinimalClockEvent, "id">) }))
       .filter((e) => ["in", "out", "breakStart", "breakEnd"].includes(e.type));
     const shifts = shiftsFromClockEvents(events);
-    const approvals = await getAllDocs(shifts.map((s) => companyRef.collection("timesheetApprovals").doc(s.id)));
-    const inputs: OvertimeShiftInput[] = shifts.map((s, i) => {
-      const a = approvals[i]?.data() as
-        | { status?: string; autoBreakMinutesApplied?: number; autoBreakMinShiftHoursApplied?: number; overtimeApplied?: { overtimeMinutes?: number } }
-        | undefined;
-      if (a?.status !== "approved") return s;
-      return {
-        ...s,
-        autoBreak: { minutes: a.autoBreakMinutesApplied ?? 0, minimumShiftHours: a.autoBreakMinShiftHoursApplied ?? 0 },
-        ...(typeof a.overtimeApplied?.overtimeMinutes === "number" ? { frozenOvertimeMs: a.overtimeApplied.overtimeMinutes * MINUTE_MS } : {}),
-      };
+    const approvalSnaps = await getAllDocs(shifts.map((s) => companyRef.collection("timesheetApprovals").doc(s.id)));
+    const approvals = new Map(approvalSnaps.map((a, i) => [shifts[i].id, a.data() as ApprovalNumbers | undefined]));
+    const baseInputs: OvertimeShiftInput[] = shifts.map((s) => {
+      const a = approvals.get(s.id);
+      return a?.status === "approved"
+        ? { ...s, autoBreak: { minutes: a.autoBreakMinutesApplied ?? 0, minimumShiftHours: a.autoBreakMinShiftHoursApplied ?? 0 } }
+        : s;
     });
-    const r = computeOvertime(inputs, ot, () => ({ rate: null, overtimeRate: null }));
-    for (const id of g.ids) {
-      const s = r.shifts.find((x) => x.id === id);
-      if (!s) continue;
-      const day = r.days.find((x) => x.dayKey === s.dayKey);
-      result[id] = {
-        overtimeMinutes: Math.round(s.overtimeMs / MINUTE_MS),
-        dayKey: s.dayKey,
-        dayWorkedMinutes: Math.round((day?.workedMs ?? 0) / MINUTE_MS),
-        dayOvertimeMinutes: Math.round((day?.overtimeMs ?? 0) / MINUTE_MS),
-      };
+
+    // Net worked per shift: Overtime ON = the OT run's (Automatic Break once
+    // per day); OFF = per shift, frozen settings when approved (as Approve Hours).
+    const workedMsById = new Map<string, number>();
+    let otRun: ReturnType<typeof computeOvertime> | null = null;
+    if (ot.enabled) {
+      const withFrozen = baseInputs.map((input) => {
+        const a = approvals.get(input.id);
+        const m = a?.status === "approved" ? a.overtimeApplied?.overtimeMinutes : undefined;
+        return typeof m === "number" ? { ...input, frozenOvertimeMs: m * MINUTE_MS } : input;
+      });
+      otRun = computeOvertime(withFrozen, ot, NO_RATES);
+      for (const s of otRun.shifts) if (!s.incomplete) workedMsById.set(s.id, s.workedMs);
+    } else {
+      for (const s of shifts) {
+        if (s.endMs === null) continue;
+        const a = approvals.get(s.id);
+        const approved = a?.status === "approved";
+        const { netMs } = applyAutoBreak(
+          s.endMs - s.startMs,
+          s.breakMs,
+          true,
+          approved ? a?.autoBreakMinutesApplied ?? 0 : ot.automaticBreakMinutes,
+          approved ? a?.autoBreakMinShiftHoursApplied ?? 0 : ot.minimumShiftHours
+        );
+        workedMsById.set(s.id, netMs);
+      }
+    }
+
+    const liveBySnapshot = new Map<string, Map<string, number>>();
+    const liveOvertimeMs = (snapshot: FrozenSettings, id: string): number | null => {
+      const key = JSON.stringify(snapshot);
+      let byId = liveBySnapshot.get(key);
+      if (!byId) {
+        const live = computeOvertime(baseInputs, { ...ot, enabled: true, ...snapshot }, NO_RATES);
+        byId = new Map(live.shifts.map((x) => [x.id, x.overtimeMs]));
+        liveBySnapshot.set(key, byId);
+      }
+      return byId.get(id) ?? null;
+    };
+
+    for (const v of visible) {
+      const numbers: ServerShiftNumbers = { overtimeChanged: null, weekWorkedMinutesThrough: 0 };
+      // Weekly hours: every closed shift from weekFromMs through this one.
+      const from = weekFromMs ?? weekStartOf(v.ms);
+      let weekMs = 0;
+      for (const s of shifts) if (s.startMs >= from && s.startMs <= v.ms) weekMs += workedMsById.get(s.id) ?? 0;
+      numbers.weekWorkedMinutesThrough = Math.round(weekMs / MINUTE_MS);
+      if (otRun) {
+        const s = otRun.shifts.find((x) => x.id === v.id);
+        if (s) {
+          const day = otRun.days.find((x) => x.dayKey === s.dayKey);
+          numbers.overtimeMinutes = Math.round(s.overtimeMs / MINUTE_MS);
+          numbers.dayKey = s.dayKey;
+          numbers.dayWorkedMinutes = Math.round((day?.workedMs ?? 0) / MINUTE_MS);
+          numbers.dayOvertimeMinutes = Math.round((day?.overtimeMs ?? 0) / MINUTE_MS);
+        }
+        const a = approvals.get(v.id);
+        const frozen = a?.status === "approved" ? a.overtimeApplied : undefined;
+        if (frozen && typeof frozen.overtimeMinutes === "number" && frozen.settings) {
+          const live = liveOvertimeMs(frozen.settings, v.id);
+          if (live !== null) {
+            const liveMinutes = Math.round(live / MINUTE_MS);
+            if (Math.abs(liveMinutes - frozen.overtimeMinutes) >= 1) {
+              numbers.overtimeChanged = { frozenMinutes: frozen.overtimeMinutes, liveMinutes };
+            }
+          }
+        }
+      }
+      result[v.id] = numbers;
     }
   }
   return result;

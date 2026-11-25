@@ -432,12 +432,14 @@ export function useReports() {
           // Task 4 rule 2: a restricted admin only has their sites' shifts, so
           // each shift's OT comes from the server (computed from every site).
           if (serverData) {
-            for (const [id, o] of Object.entries(serverData.overtime)) frozenOvertimeMinutesByClockInId.set(id, o.overtimeMinutes);
+            for (const [id, o] of Object.entries(serverData.overtime)) {
+              if (typeof o.overtimeMinutes === "number") frozenOvertimeMinutesByClockInId.set(id, o.overtimeMinutes);
+            }
             const employeeOfClockIn = new Map(wideEvents.map((e) => [e.id, e.employeeId]));
             const totals = new Map<string, { workedMinutes: number; overtimeMinutes: number }>();
             for (const [id, o] of Object.entries(serverData.overtime)) {
               const emp = employeeOfClockIn.get(id);
-              if (emp) totals.set(`${emp}__${o.dayKey}`, { workedMinutes: o.dayWorkedMinutes, overtimeMinutes: o.dayOvertimeMinutes });
+              if (emp && o.dayKey) totals.set(`${emp}__${o.dayKey}`, { workedMinutes: o.dayWorkedMinutes ?? 0, overtimeMinutes: o.dayOvertimeMinutes ?? 0 });
             }
             out.allSitesDayTotals = totals;
           }

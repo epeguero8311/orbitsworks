@@ -2,15 +2,16 @@
 
 import Link from "next/link";
 import { KeyRound } from "lucide-react";
-import { useAuth } from "@/lib/AuthContext";
+import { useCanBill } from "@/components/BillingLink";
 
 // Core/free view of the whole Crew Access page: one card, no tabs, and no
-// temp link or crew code request is ever made. Billing is owner-only, so
+// temp link or crew code request is ever made. Billing is owner / Full access /
+// Billing permission only (Task 4), so
 // everyone else gets a plain hint instead of a link. The server still
 // returns 403 for non-Pro - this is UI only.
 export default function CrewAccessLocked() {
-  const { userData } = useAuth();
-  const isOwner = userData?.role === "owner";
+  // Task 4: owner, Full access, or the Billing permission.
+  const isOwner = useCanBill();
 
   return (
     <div className="mt-6 flex flex-col items-center rounded-xl border border-gray-200 bg-white px-6 py-16 text-center">

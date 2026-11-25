@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import Link from "next/link";
 import { Zap, X } from "lucide-react";
+import { BillingLink } from "@/components/BillingLink";
 
 export function UpgradeToast({
   visible,
@@ -31,12 +31,11 @@ export function UpgradeToast({
         </div>
         <div className="flex-1">
           <p className="text-sm font-medium text-gray-950">{message}</p>
-          <Link
-            href="/dashboard/billing"
+          <BillingLink
             className="mt-1.5 inline-block text-sm font-medium text-accent hover:text-accent-hover"
           >
             {actionLabel}
-          </Link>
+          </BillingLink>
         </div>
         <button
           onClick={onClose}

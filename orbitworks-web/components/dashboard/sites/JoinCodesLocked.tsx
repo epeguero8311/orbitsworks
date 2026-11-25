@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { QrCode } from "lucide-react";
-import { useAuth } from "@/lib/AuthContext";
+import { useCanBill } from "@/components/BillingLink";
 
 // Core/free view of the Crew onboarding section: no list, no button, no API call.
 // Billing is owner-only, so admins get a plain hint instead of a link.
 export function JoinCodesLocked() {
-  const { userData } = useAuth();
-  const isOwner = userData?.role === "owner";
+  // Task 4: owner, Full access, or the Billing permission.
+  const isOwner = useCanBill();
 
   return (
     <div className="mt-4 flex flex-col items-center rounded-lg border border-gray-200 bg-white px-6 py-10 text-center">

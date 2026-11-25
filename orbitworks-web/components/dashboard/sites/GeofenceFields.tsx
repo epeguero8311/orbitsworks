@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { BillingLink } from "@/components/BillingLink";
 
 // D1 (Phase 8): one toggle drives both flags - a clock-in outside the
 // radius, and (Employee App) leaving the radius while clocked in. It never
@@ -19,12 +19,11 @@ export function geofenceRadiusHint(value: string, unit: "ft" | "mi"): string {
 // and behave identically in both places.
 export function ProBadgeLink() {
   return (
-    <Link
-      href="/dashboard/billing"
+    <BillingLink fallback={<span className="inline-flex items-center rounded-full bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">PRO</span>}
       className="inline-flex items-center rounded-full bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent hover:bg-accent/20"
     >
       PRO
-    </Link>
+    </BillingLink>
   );
 }
 

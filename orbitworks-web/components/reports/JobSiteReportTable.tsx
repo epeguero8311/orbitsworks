@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   BarChart,
   Bar,
@@ -11,6 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { JobSiteReport } from "@/lib/types";
+import { BillingLink } from "@/components/BillingLink";
 
 function formatCurrency(value: number): string {
   return value.toLocaleString("en-US", {
@@ -112,12 +112,11 @@ export default function JobSiteReportTable({
           <p className="text-xs font-medium text-accent">
             See labor cost per job site with Pro.
           </p>
-          <Link
-            href="/dashboard/billing"
+          <BillingLink
             className="text-xs font-semibold text-accent hover:underline"
           >
             Upgrade to Pro
-          </Link>
+          </BillingLink>
         </div>
       )}
     </div>

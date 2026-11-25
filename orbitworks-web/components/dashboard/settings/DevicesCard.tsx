@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { collection, doc, getDocs, query, setDoc, updateDoc, serverTimestamp, Timestamp, where } from "firebase/firestore";
 import { Pencil, Lock, Unlock, Check, X } from "lucide-react";
 import { db } from "@/lib/firebase";
@@ -10,6 +9,7 @@ import { useDevices, type UnnamedDevice } from "@/lib/hooks/useDevices";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { deviceNameSchema, DEVICE_NAME_MAX_LENGTH } from "@/lib/validators/device";
 import type { Device } from "@/lib/types";
+import { BillingLink } from "@/components/BillingLink";
 
 interface DeviceRow {
   id: string;
@@ -105,12 +105,11 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
         <h2 className="text-base font-semibold text-gray-950">Devices</h2>
         <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-6 text-center">
           <p className="text-sm text-gray-600">Device recognition is a Pro feature.</p>
-          <Link
-            href="/dashboard/billing"
+          <BillingLink fallback={<p className="mt-3 text-xs text-gray-600">Ask your account owner to upgrade to Pro.</p>}
             className="mt-3 inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
           >
             Upgrade to Pro
-          </Link>
+          </BillingLink>
         </div>
       </div>
     );

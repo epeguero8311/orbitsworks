@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { AlertTriangle, X } from "lucide-react";
+import { BillingLink } from "@/components/BillingLink";
 
 export function PastDueBanner() {
   const [dismissed, setDismissed] = useState(false);
@@ -19,12 +19,11 @@ export function PastDueBanner() {
         </span>
       </div>
       <div className="flex flex-shrink-0 items-center gap-2">
-        <Link
-          href="/dashboard/billing"
+        <BillingLink fallback={null}
           className="rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
         >
           Fix billing
-        </Link>
+        </BillingLink>
         <button
           onClick={() => setDismissed(true)}
           className="rounded-md p-1 text-white/80 hover:bg-white/10 hover:text-white"

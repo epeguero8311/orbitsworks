@@ -174,6 +174,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
           endMs: end.getTime(),
           startDate: approvalsStartKey,
           endDate,
+          weekFromMs: start.getTime(),
           want: { clockEvents: true, approvals: true, overtime: true },
         })
           .then((res) => {
@@ -282,16 +283,15 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
         computeApprovalsOvertime(evs, approvals, otSettings).forEach((info, id) => otInfoById.set(id, info));
       });
       // Task 4 rule 2: a restricted admin only has their sites' shifts, so
-      // each shift's OT and its day's worked total come from the server
-      // (computed from every site). The re-approve "OT changed" check needs
-      // the whole week, so it's off for them.
+      // each shift's OT, its day's worked total and the re-approve "OT
+      // changed" check come from the server (computed from every site).
       if (serverReads) {
         otInfoById.forEach((info, id) => {
           const server = serverOvertime[id];
           if (!server) return;
-          info.overtimeMs = server.overtimeMinutes * 60 * 1000;
-          info.dayWorkedMs = server.dayWorkedMinutes * 60 * 1000;
-          info.overtimeChanged = null;
+          if (typeof server.overtimeMinutes === "number") info.overtimeMs = server.overtimeMinutes * 60 * 1000;
+          if (typeof server.dayWorkedMinutes === "number") info.dayWorkedMs = server.dayWorkedMinutes * 60 * 1000;
+          info.overtimeChanged = server.overtimeChanged;
         });
       }
     }
@@ -424,7 +424,12 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
                 hours,
                 breakHours,
                 realBreakHours: breakMs / (1000 * 60 * 60),
-                weekHoursThroughSession: cumulativeWeekHours,
+                // Task 4: a restricted admin's weekly hours come from the
+                // server (all sites), not just the shifts they can see.
+                weekHoursThroughSession:
+                  serverReads && serverOvertime[pendingIn.id]
+                    ? serverOvertime[pendingIn.id].weekWorkedMinutesThrough / 60
+                    : cumulativeWeekHours,
                 assignedSiteNames,
                 overrideEventId,
                 alerts: settings.alerts,
