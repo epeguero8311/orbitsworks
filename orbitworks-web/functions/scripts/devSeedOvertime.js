@@ -25,6 +25,10 @@
 //    (America/Chicago), every session approved on Approve Hours with its job.
 //  - an owner login per company (new Auth user, or an existing one that is
 //    not in any company yet).
+//  - Tips (Task 3): OT Test Co has Tips ON and a $45.00 tip on OT E's
+//    Foreman B shift (Tue Nov 17 12:30-17:30) + its tipEdits entry, so the
+//    plan check is repeatable: Laborer $75, Foreman B $183, Day total $258.
+//    (Already-seeded dev companies: scripts/devSeedTips.js adds it.)
 // Expected export numbers: docs/plans/overtime-dev-seed-expected.md.
 
 const fs = require("node:fs");
@@ -92,7 +96,7 @@ const JOBS = [
   { id: "foreman-b", name: "Foreman B", hourlyRate: 23 },
 ];
 
-// [day, in, out, jobId] - OT Test Co (daily 8).
+// [day, in, out, jobId, tipCents?] - OT Test Co (daily 8).
 const EMPLOYEES_A = [
   {
     id: "ot-a",
@@ -137,7 +141,7 @@ const EMPLOYEES_A = [
     jobId: "laborer",
     shifts: [
       [17, "07:00", "12:00", "laborer"],
-      [17, "12:30", "17:30", "foreman-b"],
+      [17, "12:30", "17:30", "foreman-b", 4500],
     ],
   },
 ];
@@ -159,8 +163,8 @@ const EMPLOYEES_B = [
 ];
 
 const COMPANIES = [
-  { id: "ot-test-company", name: "OT Test Co", daily: 8, employees: EMPLOYEES_A, emailArg: "adminEmail" },
-  { id: "ot-test-company-b", name: "OT Test Co B", daily: 12, employees: EMPLOYEES_B, emailArg: "adminEmailB" },
+  { id: "ot-test-company", name: "OT Test Co", daily: 8, employees: EMPLOYEES_A, emailArg: "adminEmail", tips: true },
+  { id: "ot-test-company-b", name: "OT Test Co B", daily: 12, employees: EMPLOYEES_B, emailArg: "adminEmailB", tips: false },
 ];
 
 function dateKeyOf(day) {
@@ -207,6 +211,7 @@ async function seedCompany(c, existingUser) {
     dailyOvertimeThreshold: c.daily,
     overtimeWeekStartsOn: 1,
     overtimeRoundMinutes: 0,
+    tipsEnabled: c.tips,
     exportSettings: { roundDailyMinutes: 0, roundTotalMinutes: 0, automaticBreakMinutes: 0, minimumShiftHours: 0 },
     alerts: { maxHoursWarning: true, maxHoursThreshold: 12, overtimeWarning: true, missedClockOutAlert: false, lateClockInAlert: false, earlyClockOutAlert: false },
     appSettings: { askJobSiteEachTime: true },
@@ -258,11 +263,11 @@ async function seedCompany(c, existingUser) {
       subcontractorName: null,
       createdAt: FieldValue.serverTimestamp(),
     });
-    for (const [day, inAt, outAt, jobId] of e.shifts) {
+    for (const [day, inAt, outAt, jobId, tipCents] of e.shifts) {
       const base = { employeeId: e.id, employeeName: e.name, siteId: null, siteName: "Not specified", source: "adminManual", createdByUid: user.uid };
       const inRef = await companyRef.collection("clockEvents").add({ ...base, type: "in", timestamp: Timestamp.fromMillis(ct(day, inAt)) });
       await companyRef.collection("clockEvents").add({ ...base, type: "out", timestamp: Timestamp.fromMillis(ct(day, outAt)) });
-      sessions.push({ id: inRef.id, employee: e, day, jobId });
+      sessions.push({ id: inRef.id, employee: e, day, jobId, tipCents: tipCents ?? 0 });
     }
   }
   console.log(`  ${c.name}: company, owner ${user.uid}, ${JOBS.length} jobs, ${sessions.length} sessions written. Waiting for the clock-event trigger...`);
@@ -294,9 +299,29 @@ async function seedCompany(c, existingUser) {
         jobName: job.name,
         autoBreakMinutesApplied: 0,
         autoBreakMinShiftHoursApplied: 0,
+        // Tips (Task 3): same shape setShiftTip writes.
+        ...(s.tipCents > 0
+          ? {
+              tipCents: s.tipCents,
+              tipUpdatedByUid: user.uid,
+              tipUpdatedByName: "OT seed script",
+              tipUpdatedAt: FieldValue.serverTimestamp(),
+            }
+          : {}),
       },
       { merge: true }
     );
+    if (s.tipCents > 0) {
+      await ref.collection("tipEdits").add({
+        companyId: c.id,
+        clockInEventId: s.id,
+        amountCents: s.tipCents,
+        previousAmountCents: 0,
+        editedByUid: user.uid,
+        editedByName: "OT seed script",
+        editedAt: FieldValue.serverTimestamp(),
+      });
+    }
   }
   console.log(`  ${c.name}: ${sessions.length} sessions approved${direct ? ` (${direct} written directly - trigger never created them)` : ""}.`);
 }
