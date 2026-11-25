@@ -32,6 +32,8 @@ export type EmployeeHistoryDayRow = {
   breakHours: number;
   note: string;
   adjusted: boolean;
+  // Tips (Task 3): this session's tip in dollars (0 while Tips is OFF).
+  tips: number;
 };
 
 export type EmployeeHistoryWeek = {
@@ -50,6 +52,9 @@ export type EmployeeTimesheet = {
   // Time History sheet then uses the shared overtime function. null = the
   // existing sheet, unchanged.
   overtime: EmployeeHistoryOvertimeExport | null;
+  // Tips (Task 3): the company's Tips toggle at run time - ON adds the Tips
+  // column to the Time History sheet.
+  tipsEnabled: boolean;
 };
 
 type EventWithDate = Omit<ClockEvent, "id"> & {
@@ -224,6 +229,9 @@ export function useEmployeeTimesheet() {
                 breakHours: effectiveBreakMs / (1000 * 60 * 60),
                 note: sessionNotes.join("; "),
                 adjusted: sessionAdjusted,
+                // Same rows as the hours, so the tip follows them (D6).
+                tips:
+                  settings.tipsEnabled && typeof approval?.tipCents === "number" ? approval.tipCents / 100 : 0,
               };
               if (otSettings) {
                 const approvedJobId = approval?.jobId && jobsMap.has(approval.jobId) ? approval.jobId : null;
@@ -339,6 +347,7 @@ export function useEmployeeTimesheet() {
           dayRows,
           weeklyTotals,
           overtime,
+          tipsEnabled: settings.tipsEnabled,
         };
       } catch (err) {
         console.error("Employee timesheet error:", err);

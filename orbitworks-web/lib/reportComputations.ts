@@ -204,11 +204,17 @@ export function computePayrollAndSessions(
   // automaticBreakMinutes/minimumShiftHours above - same rule the
   // Timesheet Approvals page already applies, so Reports/Excel can never
   // disagree with it over whether an approved session's hours moved.
-  autoBreakByClockInId: Map<string, { minutes: number; minShiftHours: number }> = new Map()
+  autoBreakByClockInId: Map<string, { minutes: number; minShiftHours: number }> = new Map(),
+  // Tips (Task 3): whole cents per clock-in event id (empty while the Tips
+  // toggle is OFF). A tip counts only on a closed session that counts here,
+  // so it follows its hours exactly (decision D6: pending = left out).
+  tipCentsByClockInId: Map<string, number> = new Map()
 ): {
   summaries: EmployeeSummary[];
   sessions: SessionRecord[];
   hoursByEmployeeDay: Map<string, number>;
+  // Tips in dollars per "employeeId__date", same keys as hoursByEmployeeDay.
+  tipsByEmployeeDay: Map<string, number>;
   breakHoursByEmployeeDay: Map<string, number>;
   avgHoursPerEmployee: number;
   hoursPerDay: TimeTrendsPoint[];
@@ -230,9 +236,11 @@ export function computePayrollAndSessions(
   const sessionsOut: SessionRecord[] = [];
   const hoursByDayOut = new Map<string, number>();
   const breakHoursByDayOut = new Map<string, number>();
+  const tipsByDayOut = new Map<string, number>();
 
   for (const [employeeId, employeeEvents] of byEmployee) {
     let totalMs = 0;
+    let tipCents = 0;
     let totalBreakMs = 0;
     let sessionCount = 0;
     let openSessions = 0;
@@ -338,6 +346,11 @@ export function computePayrollAndSessions(
           const hbdKey = `${employeeId}__${dayKey}`;
           hoursByDayOut.set(hbdKey, (hoursByDayOut.get(hbdKey) ?? 0) + hrs);
           breakHoursByDayOut.set(hbdKey, (breakHoursByDayOut.get(hbdKey) ?? 0) + breakHrs);
+          const sessionTipCents = tipCentsByClockInId.get(pendingIn.id) ?? 0;
+          if (sessionTipCents > 0) {
+            tipCents += sessionTipCents;
+            tipsByDayOut.set(hbdKey, (tipsByDayOut.get(hbdKey) ?? 0) + sessionTipCents / 100);
+          }
 
           if (pendingIn.siteId) {
             // Net of break (real + auto), not gross - a site's cost
@@ -390,6 +403,7 @@ export function computePayrollAndSessions(
       name: null,
     };
 
+    const tips = tipCents / 100;
     results.push({
       employeeId,
       employeeName: employeeEvents[0].employeeName,
@@ -398,9 +412,10 @@ export function computePayrollAndSessions(
       sessionCount,
       openSessions,
       hourlyRate,
-      estimatedPay: hourlyRate != null ? netHours * hourlyRate : null,
+      estimatedPay: hourlyRate != null ? netHours * hourlyRate + tips : null,
       subcontractorId: subcontractor.id,
       subcontractorName: subcontractor.name,
+      tips,
     });
   }
   results.sort((a, b) => b.totalHours - a.totalHours);
@@ -425,6 +440,7 @@ export function computePayrollAndSessions(
     summaries: results,
     sessions: sessionsOut,
     hoursByEmployeeDay: hoursByDayOut,
+    tipsByEmployeeDay: tipsByDayOut,
     breakHoursByEmployeeDay: breakHoursByDayOut,
     avgHoursPerEmployee,
     hoursPerDay,

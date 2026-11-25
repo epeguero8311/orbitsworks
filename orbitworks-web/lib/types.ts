@@ -869,9 +869,13 @@ export interface EmployeeSummary {
   sessionCount: number;
   openSessions: number;
   hourlyRate: number | null;
+  // Wages + tips (Tips, Task 3: tips are added into Est. Pay).
   estimatedPay: number | null;
   subcontractorId?: string | null;
   subcontractorName?: string | null;
+  // Tips (Task 3): the period's tips in dollars, only from sessions whose
+  // hours count (same approval gating). 0 while the Tips toggle is OFF.
+  tips?: number;
 }
 
 export interface AttendanceStats {

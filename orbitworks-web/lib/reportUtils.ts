@@ -99,6 +99,14 @@ export function downloadCsv(csv: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+// Tips (Task 3): with the Tips toggle ON, a Tips column goes right before
+// Est. Pay (always the last column of these payroll tables). OFF = the row
+// unchanged.
+function withTipsBeforePay(cells: string[], tips: string, tipsEnabled: boolean): string[] {
+  if (!tipsEnabled) return cells;
+  return [...cells.slice(0, -1), tips, cells[cells.length - 1]];
+}
+
 // ---- Payroll Hours ----
 // dailyRows/roundedTotalsByEmployee come from the same
 // lib/reportDailyBreakdown.ts builder that feeds the on-screen Daily
@@ -109,7 +117,8 @@ export function toPayrollCsv(
   startDate: string,
   endDate: string,
   dailyRows: DailyBreakdownRow[],
-  roundedTotalsByEmployee: Map<string, EmployeeRoundedTotal>
+  roundedTotalsByEmployee: Map<string, EmployeeRoundedTotal>,
+  tipsEnabled = false
 ) {
   // Hours column names (Nov 25): same numbers, new labels.
   const header = [
@@ -125,7 +134,8 @@ export function toPayrollCsv(
   const rows = summaries.map((s) => {
     const roundedTotal = roundedTotalsByEmployee.get(s.employeeId);
     const estimatedPay = roundedTotal?.totalPay ?? s.estimatedPay;
-    return [
+    const tips = roundedTotal?.totalTips ?? s.tips ?? 0;
+    return withTipsBeforePay([
       s.employeeName,
       s.totalHours.toFixed(2),
       formatHours(s.totalHours),
@@ -134,7 +144,7 @@ export function toPayrollCsv(
       String(s.openSessions),
       s.hourlyRate != null ? s.hourlyRate.toFixed(2) : "",
       estimatedPay != null ? estimatedPay.toFixed(2) : "",
-    ];
+    ], tips.toFixed(2), tipsEnabled);
   });
 
   const dailyHeader = [
@@ -147,24 +157,30 @@ export function toPayrollCsv(
     HOURS_COLUMNS.worked.label,
     "Estimated Pay",
   ];
-  const dailyRowsOut = dailyRows.map((d) => [
-    d.employeeName,
-    d.date,
-    d.jobLabel,
-    d.rate != null ? d.rate.toFixed(2) : "",
-    minutesToHoursDecimal(d.clockedMinutes),
-    minutesToHoursDecimal(d.breakMinutes),
-    minutesToHoursDecimal(d.workedMinutes),
-    d.pay != null ? d.pay.toFixed(2) : "",
-  ]);
+  const dailyRowsOut = dailyRows.map((d) =>
+    withTipsBeforePay(
+      [
+        d.employeeName,
+        d.date,
+        d.jobLabel,
+        d.rate != null ? d.rate.toFixed(2) : "",
+        minutesToHoursDecimal(d.clockedMinutes),
+        minutesToHoursDecimal(d.breakMinutes),
+        minutesToHoursDecimal(d.workedMinutes),
+        d.pay != null ? d.pay.toFixed(2) : "",
+      ],
+      (d.tips ?? 0).toFixed(2),
+      tipsEnabled
+    )
+  );
 
   return [
     `Report period: ${startDate} to ${endDate}`,
-    header.join(","),
+    withTipsBeforePay(header, "Tips", tipsEnabled).join(","),
     csvRows(rows),
     "",
     "Daily Breakdown",
-    dailyHeader.join(","),
+    withTipsBeforePay(dailyHeader, "Tips", tipsEnabled).join(","),
     csvRows(dailyRowsOut),
   ].join("\n");
 }
@@ -177,7 +193,8 @@ export function toPayrollCsvWithOvertime(
   startDate: string,
   endDate: string,
   overtimeRows: OvertimeReportRow[],
-  overtimeTotals: Map<string, OvertimeEmployeeTotal>
+  overtimeTotals: Map<string, OvertimeEmployeeTotal>,
+  tipsEnabled = false
 ) {
   // Hours columns (Nov 25): Shift Hours | Break | Regular Hours | Overtime |
   // Total Worked, Regular = Total Worked - Overtime. Hourly Rate = "Mixed"
@@ -208,7 +225,7 @@ export function toPayrollCsvWithOvertime(
     const ot = total?.totalOvertimeMinutes ?? 0;
     const mixed = (jobsByEmployee.get(s.employeeId)?.size ?? 0) >= 2;
     const shiftHours = (total?.totalShiftMinutes ?? 0) / 60;
-    return [
+    return withTipsBeforePay([
       s.employeeName,
       shiftHours.toFixed(2),
       formatHours(shiftHours),
@@ -220,7 +237,7 @@ export function toPayrollCsvWithOvertime(
       String(s.openSessions),
       mixed ? MIXED_RATE_LABEL : s.hourlyRate != null ? s.hourlyRate.toFixed(2) : "",
       total?.totalPay != null ? total.totalPay.toFixed(2) : "",
-    ];
+    ], (total?.totalTips ?? 0).toFixed(2), tipsEnabled);
   });
 
   const dailyHeader = [
@@ -235,26 +252,32 @@ export function toPayrollCsvWithOvertime(
     HOURS_COLUMNS.worked.label,
     "Estimated Pay",
   ];
-  const dailyRowsOut = overtimeRows.map((d) => [
-    d.employeeName,
-    d.date,
-    d.jobLabel,
-    d.rate != null ? d.rate.toFixed(2) : "",
-    minutesToHoursDecimal(d.clockedMinutes),
-    minutesToHoursDecimal(d.breakMinutes),
-    minutesToHoursDecimal(d.workedMinutes - d.overtimeMinutes),
-    minutesToHoursDecimal(d.overtimeMinutes),
-    minutesToHoursDecimal(d.workedMinutes),
-    d.pay != null ? d.pay.toFixed(2) : "",
-  ]);
+  const dailyRowsOut = overtimeRows.map((d) =>
+    withTipsBeforePay(
+      [
+        d.employeeName,
+        d.date,
+        d.jobLabel,
+        d.rate != null ? d.rate.toFixed(2) : "",
+        minutesToHoursDecimal(d.clockedMinutes),
+        minutesToHoursDecimal(d.breakMinutes),
+        minutesToHoursDecimal(d.workedMinutes - d.overtimeMinutes),
+        minutesToHoursDecimal(d.overtimeMinutes),
+        minutesToHoursDecimal(d.workedMinutes),
+        d.pay != null ? d.pay.toFixed(2) : "",
+      ],
+      (d.tips ?? 0).toFixed(2),
+      tipsEnabled
+    )
+  );
 
   return [
     `Report period: ${startDate} to ${endDate}`,
-    header.join(","),
+    withTipsBeforePay(header, "Tips", tipsEnabled).join(","),
     csvRows(rows),
     "",
     "Daily Breakdown",
-    dailyHeader.join(","),
+    withTipsBeforePay(dailyHeader, "Tips", tipsEnabled).join(","),
     csvRows(dailyRowsOut),
   ].join("\n");
 }

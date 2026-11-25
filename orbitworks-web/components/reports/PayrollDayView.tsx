@@ -20,6 +20,8 @@ export default function PayrollDayView({
   overrides,
   onOverrideChange,
   overtimeRows = null,
+  tipsByEmployeeDay,
+  tipsEnabled = false,
 }: {
   startDate: string;
   endDate: string;
@@ -34,6 +36,9 @@ export default function PayrollDayView({
   // already applied). Adds the Overtime column; a day with 2+ jobs splits
   // into locked job rows + a day total. null = today's table, unchanged.
   overtimeRows?: OvertimeReportRow[] | null;
+  // Tips (Task 3): adds the Tips column (Est. pay already includes tips).
+  tipsByEmployeeDay?: Map<string, number>;
+  tipsEnabled?: boolean;
 }) {
   const [currentDate, setCurrentDate] = useState(startDate);
 
@@ -62,7 +67,8 @@ export default function PayrollDayView({
     breakHoursByEmployeeDay,
     jobs,
     overrides,
-    roundDailyMinutes
+    roundDailyMinutes,
+    tipsByEmployeeDay
   );
   const rows = allRows.filter((r) => r.date === currentDate);
   const otRows = overtimeRows ? overtimeRows.filter((r) => r.date === currentDate) : null;
@@ -117,6 +123,7 @@ export default function PayrollDayView({
                   <th className="px-4 py-2 font-medium" title={H.regular.help}>{H.regular.label}</th>
                   <th className="px-4 py-2 font-medium" title={H.overtime.help}>{H.overtime.label}</th>
                   <th className="px-4 py-2 font-medium" title={H.worked.help}>{H.worked.label}</th>
+                  {tipsEnabled && <th className="px-4 py-2 font-medium">Tips</th>}
                   <th className="px-4 py-2 font-medium">Est. pay</th>
                 </tr>
               </thead>
@@ -165,6 +172,7 @@ export default function PayrollDayView({
                     <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.workedMinutes - r.overtimeMinutes)}</td>
                     <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.overtimeMinutes)}</td>
                     <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.workedMinutes)}</td>
+                    {tipsEnabled && <td className="px-4 py-2.5 font-mono text-gray-950">${r.tips.toFixed(2)}</td>}
                     <td className="px-4 py-2.5 font-mono text-gray-950">
                       {r.pay != null ? `$${r.pay.toFixed(2)}` : "-"}
                     </td>
@@ -189,6 +197,7 @@ export default function PayrollDayView({
                 <th className="px-4 py-2 font-medium" title={H.shift.help}>{H.shift.label}</th>
                 <th className="px-4 py-2 font-medium" title={H.break.help}>{H.break.label}</th>
                 <th className="px-4 py-2 font-medium" title={H.worked.help}>{H.worked.label}</th>
+                {tipsEnabled && <th className="px-4 py-2 font-medium">Tips</th>}
                 <th className="px-4 py-2 font-medium">Est. pay</th>
               </tr>
             </thead>
@@ -228,6 +237,9 @@ export default function PayrollDayView({
                   <td className="px-4 py-2.5 font-mono text-gray-950">
                     {minutesToHoursDecimal(r.workedMinutes)}
                   </td>
+                  {tipsEnabled && (
+                    <td className="px-4 py-2.5 font-mono text-gray-950">${r.tips.toFixed(2)}</td>
+                  )}
                   <td className="px-4 py-2.5 font-mono text-gray-950">
                     {r.pay != null ? `$${r.pay.toFixed(2)}` : "-"}
                   </td>

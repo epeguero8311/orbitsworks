@@ -35,6 +35,12 @@ import type { OvertimeReportRow } from "@/lib/reportOvertime";
 // existing sheet, unchanged.
 export type PayrollOvertimeExport = { rows: OvertimeReportRow[]; multiplier: number };
 
+// Tips (Task 3): passed only with the Tips toggle ON - the Payroll Hours
+// sheet then gets a Tips column (before Est. Pay) and Est. Pay adds it.
+// byEmployeeDay = dollars per "employeeId__date" (Overtime OFF); with
+// Overtime ON the tips ride on the overtime rows themselves.
+export type PayrollTipsExport = { byEmployeeDay: Map<string, number> };
+
 // Time History with Overtime ON (decision 11).
 export type EmployeeHistoryOvertimeExport = {
   rows: EmployeeHistoryOvertimeRow[];
@@ -76,7 +82,9 @@ export async function exportEmployeeHistoryExcel(
   companyName: string,
   startDate: string,
   endDate: string,
-  overtime: EmployeeHistoryOvertimeExport | null = null
+  overtime: EmployeeHistoryOvertimeExport | null = null,
+  // Tips (Task 3): the company's Tips toggle - rows carry their tips.
+  showTips = false
 ) {
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
@@ -93,7 +101,8 @@ export async function exportEmployeeHistoryExcel(
       overtime.rows,
       overtime.weekLabels,
       startDate,
-      endDate
+      endDate,
+      showTips
     );
   } else {
     addEmployeeHistorySheet(
@@ -106,7 +115,8 @@ export async function exportEmployeeHistoryExcel(
       weeklyTotals,
       overtimeThreshold,
       startDate,
-      endDate
+      endDate,
+      showTips
     );
   }
 
@@ -165,6 +175,52 @@ export async function exportEmployeesExcel(
   );
 }
 
+// Payroll Hours sheet for both the standalone Payroll export and the Full
+// Report (one place, so the two can't drift): Overtime ON/OFF x Tips ON/OFF.
+function addPayrollHoursSheet(
+  workbook: Parameters<typeof addPayrollSheet>[0],
+  summaries: EmployeeSummary[],
+  jobs: Job[],
+  hoursByEmployeeDay: Map<string, number>,
+  breakHoursByEmployeeDay: Map<string, number>,
+  employeeJobIdById: Map<string, string | null>,
+  approvedJobIdByEmployeeDay: Map<string, string | null>,
+  roundDailyMinutes: RoundingIncrement,
+  roundTotalMinutes: RoundingIncrement,
+  companyName: string,
+  startDate: string,
+  endDate: string,
+  overtime: PayrollOvertimeExport | null,
+  tips: PayrollTipsExport | null
+) {
+  if (overtime) {
+    addPayrollSheetWithOvertime(
+      workbook,
+      summaries,
+      jobs,
+      overtime.rows,
+      overtime.multiplier,
+      roundTotalMinutes,
+      companyName,
+      startDate,
+      endDate,
+      tips !== null
+    );
+    return;
+  }
+  const dayRows = buildDayRows(
+    summaries,
+    hoursByEmployeeDay,
+    breakHoursByEmployeeDay,
+    employeeJobIdById,
+    jobs,
+    roundDailyMinutes,
+    approvedJobIdByEmployeeDay,
+    tips?.byEmployeeDay ?? new Map()
+  );
+  addPayrollSheet(workbook, summaries, jobs, dayRows, roundTotalMinutes, companyName, startDate, endDate, tips !== null);
+}
+
 export async function exportPayrollExcel(
   summaries: EmployeeSummary[],
   jobs: Job[],
@@ -177,25 +233,28 @@ export async function exportPayrollExcel(
   companyName: string,
   startDate: string,
   endDate: string,
-  overtime: PayrollOvertimeExport | null = null
+  overtime: PayrollOvertimeExport | null = null,
+  tips: PayrollTipsExport | null = null
 ) {
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
 
-  if (overtime) {
-    addPayrollSheetWithOvertime(workbook, summaries, jobs, overtime.rows, overtime.multiplier, roundTotalMinutes, companyName, startDate, endDate);
-  } else {
-    const dayRows = buildDayRows(
-      summaries,
-      hoursByEmployeeDay,
-      breakHoursByEmployeeDay,
-      employeeJobIdById,
-      jobs,
-      roundDailyMinutes,
-      approvedJobIdByEmployeeDay
-    );
-    addPayrollSheet(workbook, summaries, jobs, dayRows, roundTotalMinutes, companyName, startDate, endDate);
-  }
+  addPayrollHoursSheet(
+    workbook,
+    summaries,
+    jobs,
+    hoursByEmployeeDay,
+    breakHoursByEmployeeDay,
+    employeeJobIdById,
+    approvedJobIdByEmployeeDay,
+    roundDailyMinutes,
+    roundTotalMinutes,
+    companyName,
+    startDate,
+    endDate,
+    overtime,
+    tips
+  );
 
   await downloadWorkbook(
     workbook,
@@ -240,7 +299,8 @@ export async function exportAllReportsExcel(
   endDate: string,
   // Phase 9 (H7 a): Detail's job site columns + the "Job site exits" sheet.
   siteExits: SiteExit[] = [],
-  overtime: PayrollOvertimeExport | null = null
+  overtime: PayrollOvertimeExport | null = null,
+  tips: PayrollTipsExport | null = null
 ) {
   const ExcelJS = await getExcelJS();
   const workbook = new ExcelJS.Workbook();
@@ -251,20 +311,22 @@ export async function exportAllReportsExcel(
   await addPhotosSheet(workbook, sessions, startDate, endDate);
   addEmployeesSheet(workbook, employeeRecords, companyName, startDate, endDate);
 
-  if (overtime) {
-    addPayrollSheetWithOvertime(workbook, summaries, jobs, overtime.rows, overtime.multiplier, roundTotalMinutes, companyName, startDate, endDate);
-  } else {
-    const dayRows = buildDayRows(
-      summaries,
-      hoursByEmployeeDay,
-      breakHoursByEmployeeDay,
-      employeeJobIdById,
-      jobs,
-      roundDailyMinutes,
-      approvedJobIdByEmployeeDay
-    );
-    addPayrollSheet(workbook, summaries, jobs, dayRows, roundTotalMinutes, companyName, startDate, endDate);
-  }
+  addPayrollHoursSheet(
+    workbook,
+    summaries,
+    jobs,
+    hoursByEmployeeDay,
+    breakHoursByEmployeeDay,
+    employeeJobIdById,
+    approvedJobIdByEmployeeDay,
+    roundDailyMinutes,
+    roundTotalMinutes,
+    companyName,
+    startDate,
+    endDate,
+    overtime,
+    tips
+  );
 
   addAttendanceSheet(workbook, attendanceRecords, companyName, startDate, endDate);
   addSiteExitsSheet(workbook, siteExits, startDate, endDate);

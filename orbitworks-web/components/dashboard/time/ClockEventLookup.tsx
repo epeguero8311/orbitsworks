@@ -136,7 +136,8 @@ export default function ClockEventLookup() {
         companyName,
         startDate,
         endDate,
-        result.overtime
+        result.overtime,
+        result.tipsEnabled
       );
     } catch (err) {
       console.error("Employee Excel export error:", err);

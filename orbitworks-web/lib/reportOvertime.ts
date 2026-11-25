@@ -109,6 +109,10 @@ export type OvertimeReportRow = {
   breakMinutes: number;
   workedMinutes: number;
   overtimeMinutes: number;
+  // Tips (Task 3): dollars from this row's own shifts (a 2-job day's tip
+  // stays on its shift's job row; the Day total row adds them up). 0 = none.
+  tips: number;
+  // Wages + tips (tips are added into Est. Pay). null = no rate.
   pay: number | null;
   // A shift that day has no clock-out (counted as 0, never assumed).
   incomplete: boolean;
@@ -131,9 +135,15 @@ export function effectiveOvertimeRate(
   return fixedOvertimeRate ?? rate * multiplier;
 }
 
-function rowPay(rate: number | null, overtimeRate: number | null, workedMinutes: number, overtimeMinutes: number): number | null {
+function rowPay(
+  rate: number | null,
+  overtimeRate: number | null,
+  workedMinutes: number,
+  overtimeMinutes: number,
+  tips: number
+): number | null {
   if (rate === null || overtimeRate === null) return null;
-  return ((workedMinutes - overtimeMinutes) / 60) * rate + (overtimeMinutes / 60) * overtimeRate;
+  return ((workedMinutes - overtimeMinutes) / 60) * rate + (overtimeMinutes / 60) * overtimeRate + tips;
 }
 
 export function buildOvertimeReportRows(params: {
@@ -150,10 +160,14 @@ export function buildOvertimeReportRows(params: {
   frozenOvertimeMinutesByClockInId?: Map<string, number>;
   // Decision 4B: rate + effective OT $/hr frozen on approved sessions.
   frozenRatesByClockInId?: Map<string, { rate: number; overtimeRate: number | null }>;
+  // Tips (Task 3): whole cents per clock-in id (empty while Tips is OFF).
+  // Only shifts that reach this function count (same approval gating).
+  tipCentsByClockInId?: Map<string, number>;
 }): OvertimeReportRow[] {
   const { shifts, employees, jobs, jobIdByClockInId, autoBreakByClockInId, settings, roundDailyMinutes, startDate, endDate } = params;
   const frozenOvertime = params.frozenOvertimeMinutesByClockInId ?? new Map<string, number>();
   const frozenRates = params.frozenRatesByClockInId ?? new Map<string, { rate: number; overtimeRate: number | null }>();
+  const tipCents = params.tipCentsByClockInId ?? new Map<string, number>();
 
   const shiftsByEmployee = new Map<string, ReportShift[]>();
   for (const s of shifts) {
@@ -216,6 +230,7 @@ export function buildOvertimeReportRows(params: {
         brk: number;
         worked: number;
         ot: number;
+        tipCents: number;
         rate: number | null;
         overtimeRate: number | null;
       };
@@ -224,12 +239,14 @@ export function buildOvertimeReportRows(params: {
         const partKey = `${s.jobId ?? ""}|${s.rate}|${s.overtimeRate}`;
         let part = parts.find((p) => p.key === partKey);
         if (!part) {
-          part = { key: partKey, ratesFrozen: frozenRates.has(s.id), jobId: s.jobId, clocked: 0, brk: 0, worked: 0, ot: 0, rate: s.rate, overtimeRate: s.overtimeRate };
+          part = { key: partKey, ratesFrozen: frozenRates.has(s.id), jobId: s.jobId, clocked: 0, brk: 0, worked: 0, ot: 0, tipCents: 0, rate: s.rate, overtimeRate: s.overtimeRate };
           parts.push(part);
         }
         part.clocked += s.grossMs;
         part.brk += s.breakMs;
         part.ot += s.overtimeMs;
+        // Only a closed shift (one with hours) carries its tip.
+        if (!s.incomplete && !s.open) part.tipCents += tipCents.get(s.id) ?? 0;
       }
       for (const p of parts) {
         p.clocked = Math.round(p.clocked / MINUTE_MS);
@@ -262,7 +279,7 @@ export function buildOvertimeReportRows(params: {
       };
 
       if (parts.length <= 1) {
-        const p = parts[0] ?? { key: "", ratesFrozen: false, jobId: defaultJob ? defaultJob.id : null, clocked: 0, brk: 0, worked: 0, ot: 0, rate: defaultRate, overtimeRate: defaultOvertimeRate };
+        const p = parts[0] ?? { key: "", ratesFrozen: false, jobId: defaultJob ? defaultJob.id : null, clocked: 0, brk: 0, worked: 0, ot: 0, tipCents: 0, rate: defaultRate, overtimeRate: defaultOvertimeRate };
         rows.push({
           ...base,
           key: `${employeeId}__${day.dayKey}`,
@@ -276,14 +293,15 @@ export function buildOvertimeReportRows(params: {
           breakMinutes: p.brk,
           workedMinutes: p.worked,
           overtimeMinutes: p.ot,
-          pay: rowPay(p.rate, p.overtimeRate, p.worked, p.ot),
+          tips: p.tipCents / 100,
+          pay: rowPay(p.rate, p.overtimeRate, p.worked, p.ot, p.tipCents / 100),
         });
         continue;
       }
 
       let totalPay: number | null = 0;
       parts.forEach((p, i) => {
-        const pay = rowPay(p.rate, p.overtimeRate, p.worked, p.ot);
+        const pay = rowPay(p.rate, p.overtimeRate, p.worked, p.ot, p.tipCents / 100);
         totalPay = totalPay === null || pay === null ? null : totalPay + pay;
         rows.push({
           ...base,
@@ -298,6 +316,7 @@ export function buildOvertimeReportRows(params: {
           breakMinutes: p.brk,
           workedMinutes: p.worked,
           overtimeMinutes: p.ot,
+          tips: p.tipCents / 100,
           pay,
         });
       });
@@ -314,6 +333,7 @@ export function buildOvertimeReportRows(params: {
         breakMinutes: parts.reduce((sum, p) => sum + p.brk, 0),
         workedMinutes: parts.reduce((sum, p) => sum + p.worked, 0),
         overtimeMinutes: parts.reduce((sum, p) => sum + p.ot, 0),
+        tips: parts.reduce((sum, p) => sum + p.tipCents, 0) / 100,
         pay: totalPay,
       });
     }
@@ -355,7 +375,7 @@ export function applyOvertimeOverrides(
       overtimeRate,
       ratesFrozen: false,
       overrideJobId: job.id,
-      pay: rowPay(rate, overtimeRate, row.workedMinutes, row.overtimeMinutes),
+      pay: rowPay(rate, overtimeRate, row.workedMinutes, row.overtimeMinutes, row.tips ?? 0),
     };
   });
 }
@@ -366,7 +386,9 @@ export type OvertimeEmployeeTotal = {
   totalBreakMinutes: number;
   totalWorkedMinutes: number;
   totalOvertimeMinutes: number;
+  // Includes tips (each row's pay already does).
   totalPay: number | null;
+  totalTips: number;
 };
 
 // Per employee: single rows + day total rows (never the job rows, which the
@@ -378,14 +400,15 @@ export function computeOvertimeTotals(
   rows: OvertimeReportRow[],
   roundTotalMinutes: RoundingIncrement
 ): Map<string, OvertimeEmployeeTotal> {
-  const acc = new Map<string, { shift: number; brk: number; worked: number; ot: number; pay: number | null; defaultRate: number | null }>();
+  const acc = new Map<string, { shift: number; brk: number; worked: number; ot: number; tips: number; pay: number | null; defaultRate: number | null }>();
   for (const row of rows) {
     if (row.kind === "job") continue;
-    const a = acc.get(row.employeeId) ?? { shift: 0, brk: 0, worked: 0, ot: 0, pay: null, defaultRate: row.defaultRate };
+    const a = acc.get(row.employeeId) ?? { shift: 0, brk: 0, worked: 0, ot: 0, tips: 0, pay: null, defaultRate: row.defaultRate };
     a.shift += row.clockedMinutes;
     a.brk += row.breakMinutes;
     a.worked += row.workedMinutes;
     a.ot += row.overtimeMinutes;
+    a.tips += row.tips ?? 0;
     if (row.pay !== null) a.pay = (a.pay ?? 0) + row.pay;
     acc.set(row.employeeId, a);
   }
@@ -399,6 +422,7 @@ export function computeOvertimeTotals(
       totalWorkedMinutes,
       totalOvertimeMinutes: a.ot,
       totalPay: a.pay !== null && a.defaultRate !== null ? a.pay + (extra / 60) * a.defaultRate : a.pay,
+      totalTips: a.tips,
     });
   }
   return totals;

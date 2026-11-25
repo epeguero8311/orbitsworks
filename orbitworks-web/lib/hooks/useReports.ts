@@ -76,6 +76,8 @@ export function useReports() {
   const [breakHoursByEmployeeDay, setBreakHoursByEmployeeDay] = useState<Map<string, number>>(
     new Map()
   );
+  // Tips (Task 3): dollars per "employeeId__date" (empty while Tips is OFF).
+  const [tipsByEmployeeDay, setTipsByEmployeeDay] = useState<Map<string, number>>(new Map());
   const [approvedJobIdByEmployeeDay, setApprovedJobIdByEmployeeDay] = useState<
     Map<string, string | null>
   >(new Map());
@@ -144,6 +146,12 @@ export function useReports() {
         // ambiguous at the day level so it falls back to the employee's
         // assigned job rather than guessing which session's pick wins.
         const approvedJobIdVotesByDay = new Map<string, Set<string>>();
+        // Tips (Task 3): only read while the Tips toggle is ON - OFF leaves
+        // every export exactly as before (saved tips are kept, D7).
+        const tipCentsByClockInId = new Map<string, number>();
+        const readTip = (id: string, raw: unknown) => {
+          if (settings.tipsEnabled && typeof raw === "number" && raw > 0) tipCentsByClockInId.set(id, raw);
+        };
         approvalsSnapshot.docs.forEach((d) => {
           const data = d.data() as {
             status?: "pending" | "approved";
@@ -152,8 +160,10 @@ export function useReports() {
             jobId?: string | null;
             autoBreakMinutesApplied?: number;
             autoBreakMinShiftHoursApplied?: number;
+            tipCents?: number;
           };
           approvalStatusByClockInId.set(d.id, data.status ?? "pending");
+          readTip(d.id, data.tipCents);
           if (data.status === "approved") {
             autoBreakByClockInId.set(d.id, {
               minutes: data.autoBreakMinutesApplied ?? 0,
@@ -261,11 +271,13 @@ export function useReports() {
           defaultRateByEmployeeId,
           settings.exportSettings.automaticBreakMinutes,
           settings.exportSettings.minimumShiftHours,
-          autoBreakByClockInId
+          autoBreakByClockInId,
+          tipCentsByClockInId
         );
         setSummaries(payroll.summaries);
         setHoursByEmployeeDay(payroll.hoursByEmployeeDay);
         setBreakHoursByEmployeeDay(payroll.breakHoursByEmployeeDay);
+        setTipsByEmployeeDay(payroll.tipsByEmployeeDay);
         setSessions(payroll.sessions);
         setAvgHoursPerEmployee(payroll.avgHoursPerEmployee);
         setHoursPerDay(payroll.hoursPerDay);
@@ -324,7 +336,9 @@ export function useReports() {
               autoBreakMinutesApplied?: number;
               autoBreakMinShiftHoursApplied?: number;
               overtimeApplied?: { overtimeMinutes?: number; rate?: number | null; overtimeRate?: number | null };
+              tipCents?: number;
             };
+            readTip(d.id, data.tipCents);
             if (data.status === "approved" && typeof data.overtimeApplied?.overtimeMinutes === "number") {
               frozenOvertimeMinutesByClockInId.set(d.id, data.overtimeApplied.overtimeMinutes);
               // Decision 4B: rates frozen with it (docs approved before 4B
@@ -381,6 +395,7 @@ export function useReports() {
               endDate,
               frozenOvertimeMinutesByClockInId,
               frozenRatesByClockInId,
+              tipCentsByClockInId,
             })
           );
         }
@@ -420,6 +435,7 @@ export function useReports() {
     employeeJobIdById,
     hoursByEmployeeDay,
     breakHoursByEmployeeDay,
+    tipsByEmployeeDay,
     approvedJobIdByEmployeeDay,
     overtimeRows,
     runReport,

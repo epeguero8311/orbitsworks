@@ -122,6 +122,8 @@ export default function ExportMenu({
   companyName,
   siteExits = [],
   overtime = null,
+  tipsByEmployeeDay = new Map(),
+  tipsEnabled = false,
 }: {
   summaries: EmployeeSummary[];
   sessions: SessionRecord[];
@@ -150,6 +152,10 @@ export default function ExportMenu({
     totals: Map<string, OvertimeEmployeeTotal>;
     multiplier: number;
   } | null;
+  // Tips (Task 3): dollars per "employeeId__date" + the toggle. OFF = no
+  // Tips column anywhere (and useReports read no tips).
+  tipsByEmployeeDay?: Map<string, number>;
+  tipsEnabled?: boolean;
 }) {
   const dailyRows = buildDailyBreakdownRows(
     summaries,
@@ -157,8 +163,10 @@ export default function ExportMenu({
     breakHoursByEmployeeDay,
     jobs,
     overrides,
-    roundDailyMinutes
+    roundDailyMinutes,
+    tipsByEmployeeDay
   );
+  const tipsExport = tipsEnabled ? { byEmployeeDay: tipsByEmployeeDay } : null;
   const roundedTotalsByEmployee = computeEmployeeRoundedTotals(dailyRows, roundTotalMinutes);
 
   const reports = [
@@ -204,13 +212,14 @@ export default function ExportMenu({
           companyName,
           startDate,
           endDate,
-          overtime ? { rows: overtime.baseRows, multiplier: overtime.multiplier } : null
+          overtime ? { rows: overtime.baseRows, multiplier: overtime.multiplier } : null,
+          tipsExport
         ),
       onCsv: () =>
         downloadCsv(
           overtime
-            ? toPayrollCsvWithOvertime(summaries, startDate, endDate, overtime.rows, overtime.totals)
-            : toPayrollCsv(summaries, startDate, endDate, dailyRows, roundedTotalsByEmployee),
+            ? toPayrollCsvWithOvertime(summaries, startDate, endDate, overtime.rows, overtime.totals, tipsEnabled)
+            : toPayrollCsv(summaries, startDate, endDate, dailyRows, roundedTotalsByEmployee, tipsEnabled),
           buildExportFilename(companyName, "Payroll", "csv", startDate, endDate)
         ),
     },

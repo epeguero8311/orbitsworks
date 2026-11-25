@@ -79,11 +79,15 @@ export default function ReportsPageView() {
     jobs,
     hoursByEmployeeDay,
     breakHoursByEmployeeDay,
+    tipsByEmployeeDay,
     employeeJobIdById,
     approvedJobIdByEmployeeDay,
     overtimeRows,
     runReport,
   } = useReports();
+  // Tips (Task 3): Tips columns everywhere only while the toggle is ON
+  // (OFF = useReports reads no tips, so every number is as before).
+  const tipsEnabled = settings.tipsEnabled;
 
   // Overtime (Task 1): only non-null with the Overtime toggle ON. Every
   // section and export below falls back to today's data when it's null.
@@ -141,10 +145,11 @@ export default function ReportsPageView() {
             breakHoursByEmployeeDay,
             jobs,
             overrides,
-            roundDailyMinutes
+            roundDailyMinutes,
+            tipsByEmployeeDay
           )
         : [],
-    [summaries, hoursByEmployeeDay, breakHoursByEmployeeDay, jobs, overrides, roundDailyMinutes]
+    [summaries, hoursByEmployeeDay, breakHoursByEmployeeDay, jobs, overrides, roundDailyMinutes, tipsByEmployeeDay]
   );
   const roundedTotalsByEmployee = useMemo(
     () => computeEmployeeRoundedTotals(dailyRows, roundTotalMinutes),
@@ -181,7 +186,8 @@ export default function ReportsPageView() {
                 startDate,
                 endDate,
                 siteExits,
-                overtimeView ? { rows: overtimeView.baseRows, multiplier: overtimeView.multiplier } : null
+                overtimeView ? { rows: overtimeView.baseRows, multiplier: overtimeView.multiplier } : null,
+                tipsEnabled ? { byEmployeeDay: tipsByEmployeeDay } : null
               )
             }
             onCsv={() =>
@@ -292,6 +298,8 @@ export default function ReportsPageView() {
             companyName={companyName}
             siteExits={siteExits}
             overtime={overtimeView}
+            tipsByEmployeeDay={tipsByEmployeeDay}
+            tipsEnabled={tipsEnabled}
           />
           <AttendanceCards attendance={attendance} />
           <TimeTrendsCharts
@@ -305,6 +313,7 @@ export default function ReportsPageView() {
             endDate={endDate}
             roundedTotalsByEmployee={roundedTotalsByEmployee}
             overtimeTotals={overtimeView?.totals ?? null}
+            tipsEnabled={tipsEnabled}
           />
           <PayrollDayView
             startDate={startDate}
@@ -317,6 +326,8 @@ export default function ReportsPageView() {
             overrides={overrides}
             onOverrideChange={handleOverrideChange}
             overtimeRows={overtimeView?.rows ?? null}
+            tipsByEmployeeDay={tipsByEmployeeDay}
+            tipsEnabled={tipsEnabled}
           />
           <ShiftNotesTable notes={shiftNotes} />
           <SiteExitsReportTable exits={siteExits} />

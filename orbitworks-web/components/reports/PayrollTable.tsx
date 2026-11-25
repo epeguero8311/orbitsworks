@@ -13,6 +13,7 @@ export default function PayrollTable({
   endDate,
   roundedTotalsByEmployee,
   overtimeTotals = null,
+  tipsEnabled = false,
 }: {
   summaries: EmployeeSummary[];
   startDate: string;
@@ -21,6 +22,8 @@ export default function PayrollTable({
   // Overtime (Task 1): only passed with the Overtime toggle ON - adds the
   // Overtime column and Est. pay includes OT pay. null = today's table.
   overtimeTotals?: Map<string, OvertimeEmployeeTotal> | null;
+  // Tips (Task 3): adds the Tips column (Est. pay already includes tips).
+  tipsEnabled?: boolean;
 }) {
   // roundedTotalsByEmployee is built from the same daily rows as the Daily
   // Breakdown, and is a mathematical no-op when both rounding settings are
@@ -30,6 +33,11 @@ export default function PayrollTable({
     if (overtimeTotals) return overtimeTotals.get(s.employeeId)?.totalPay ?? null;
     const total = roundedTotalsByEmployee.get(s.employeeId);
     return total?.totalPay ?? s.estimatedPay;
+  }
+
+  function tipsFor(s: EmployeeSummary): number {
+    if (overtimeTotals) return overtimeTotals.get(s.employeeId)?.totalTips ?? 0;
+    return roundedTotalsByEmployee.get(s.employeeId)?.totalTips ?? s.tips ?? 0;
   }
 
   const totalHoursAll = summaries.reduce((sum, s) => sum + s.totalHours, 0);
@@ -94,6 +102,7 @@ export default function PayrollTable({
                 )}
                 <th className="px-4 py-2 font-medium">Sessions</th>
                 <th className="px-4 py-2 font-medium">Missing clock-out</th>
+                {tipsEnabled && <th className="px-4 py-2 font-medium">Tips</th>}
                 <th className="px-4 py-2 font-medium">Est. pay (excl. break)</th>
               </tr>
             </thead>
@@ -132,6 +141,9 @@ export default function PayrollTable({
                       <span className="text-gray-600">-</span>
                     )}
                   </td>
+                  {tipsEnabled && (
+                    <td className="px-4 py-2.5 font-mono text-gray-950">${tipsFor(s).toFixed(2)}</td>
+                  )}
                   <td className="px-4 py-2.5 font-mono text-gray-950">
                     {payFor(s) != null ? `$${payFor(s)!.toFixed(2)}` : "-"}
                   </td>

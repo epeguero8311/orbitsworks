@@ -20,6 +20,9 @@ export type DailyBreakdownRow = {
   clockedMinutes: number; // "Hours" - gross clocked time, never rounded
   breakMinutes: number; // "Break" - never rounded
   workedMinutes: number; // "Total Worked" - break subtracted, then rounded
+  // Tips (Task 3): that day's tips in dollars (0 = none / Tips OFF).
+  tips: number;
+  // Wages + tips (tips are added into Est. Pay). null = no rate.
   pay: number | null;
 };
 
@@ -29,7 +32,8 @@ export function buildDailyBreakdownRows(
   breakHoursByEmployeeDay: Map<string, number>,
   jobs: Job[],
   overrides: Record<string, string>,
-  roundDailyMinutes: RoundingIncrement
+  roundDailyMinutes: RoundingIncrement,
+  tipsByEmployeeDay: Map<string, number> = new Map()
 ): DailyBreakdownRow[] {
   const summaryById = new Map(summaries.map((s) => [s.employeeId, s]));
 
@@ -55,7 +59,8 @@ export function buildDailyBreakdownRows(
     const overrideJobId = overrides[key] ?? "";
     const overrideJob = overrideJobId ? jobs.find((j) => j.id === overrideJobId) : null;
     const rate = overrideJob ? overrideJob.hourlyRate : summary.hourlyRate;
-    const pay = rate != null ? (workedMinutes / 60) * rate : null;
+    const tips = tipsByEmployeeDay.get(key) ?? 0;
+    const pay = rate != null ? (workedMinutes / 60) * rate + tips : null;
 
     rows.push({
       key,
@@ -68,6 +73,7 @@ export function buildDailyBreakdownRows(
       clockedMinutes,
       breakMinutes,
       workedMinutes,
+      tips,
       pay,
     });
   }
@@ -84,7 +90,9 @@ export function buildDailyBreakdownRows(
 
 export type EmployeeRoundedTotal = {
   totalWorkedMinutes: number;
+  // Includes tips (each day's pay already does).
   totalPay: number | null;
+  totalTips: number;
 };
 
 // Rolls the already daily-rounded rows up to one total per employee, then
@@ -101,8 +109,10 @@ export function computeEmployeeRoundedTotals(
   const minutesByEmployee = new Map<string, number>();
   const paySumByEmployee = new Map<string, number>();
   const rateByEmployee = new Map<string, number | null>();
+  const tipsByEmployee = new Map<string, number>();
 
   for (const row of rows) {
+    tipsByEmployee.set(row.employeeId, (tipsByEmployee.get(row.employeeId) ?? 0) + (row.tips ?? 0));
     minutesByEmployee.set(
       row.employeeId,
       (minutesByEmployee.get(row.employeeId) ?? 0) + row.workedMinutes
@@ -127,7 +137,7 @@ export function computeEmployeeRoundedTotals(
       paySum != null && defaultRate != null
         ? paySum + (extraMinutes / 60) * defaultRate
         : paySum;
-    totals.set(employeeId, { totalWorkedMinutes, totalPay });
+    totals.set(employeeId, { totalWorkedMinutes, totalPay, totalTips: tipsByEmployee.get(employeeId) ?? 0 });
   }
   return totals;
 }
