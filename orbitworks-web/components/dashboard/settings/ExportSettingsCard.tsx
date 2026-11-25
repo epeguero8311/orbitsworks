@@ -37,6 +37,8 @@ export function ExportSettingsCard({
   setOtMultiplier,
   overtime,
   setOvertime,
+  tipsEnabled,
+  setTipsEnabled,
 }: {
   exportSettings: ExportSettings;
   setExportSettings: Dispatch<SetStateAction<ExportSettings>>;
@@ -46,6 +48,8 @@ export function ExportSettingsCard({
   setOtMultiplier: (value: string) => void;
   overtime: OvertimeFields;
   setOvertime: Dispatch<SetStateAction<OvertimeFields>>;
+  tipsEnabled: boolean;
+  setTipsEnabled: (value: boolean) => void;
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -127,6 +131,20 @@ export function ExportSettingsCard({
         <p className="mt-3 text-xs text-gray-600">
           Note: paying OT at the job&apos;s rate requires the worker&apos;s agreement beforehand.
         </p>
+      </div>
+
+      {/* Tips (Task 3): default OFF. OFF hides the Tips field + column and
+          leaves tips out of every export; saved tips are kept. */}
+      <div className="rounded-xl border border-gray-200 bg-white p-6">
+        <h2 className="text-base font-semibold text-gray-950">Tips</h2>
+        <div id="tips-enabled" className="mt-2 py-1">
+          <Toggle
+            label="Tips"
+            description="Admins can add a tip to each shift in Approve Hours. Tips show in exports and are added into Est. Pay."
+            checked={tipsEnabled}
+            onChange={setTipsEnabled}
+          />
+        </div>
       </div>
 
     <div className="rounded-xl border border-gray-200 bg-white p-6">

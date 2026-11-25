@@ -60,7 +60,7 @@ service cloud.firestore {
         d.approvalsColumns.toSet().size() == d.approvalsColumns.size() &&
         d.approvalsColumns.hasOnly([
           'company', 'site', 'job', 'time', 'break', 'regularHours',
-          'overtimeHours', 'worked', 'clockInType', 'clockOutType',
+          'overtimeHours', 'worked', 'tips', 'clockInType', 'clockOutType',
           'clockInDevice', 'clockOutDevice'
         ]) &&
         (
@@ -68,6 +68,15 @@ service cloud.firestore {
           resource.data.get('planTier', '').matches('^pro_.*')
         )
       );
+    }
+
+    // Tips (Task 3): the Export Settings Tips toggle (top-level, default
+    // OFF) is a bool. Only checked when a write touches it. Mirrors
+    // lib/validators/shiftTip.ts (tipsEnabledSchema).
+    function validCompanyTipsFields() {
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
+      return !changed.hasAny(['tipsEnabled']) || d.tipsEnabled is bool;
     }
 
     function underCap(companyId) {
@@ -398,7 +407,8 @@ service cloud.firestore {
           resource.data.get('planTier', '').matches('^pro_.*')
         ) &&
         validCompanyOvertimeFields() &&
-        validCompanyApprovalsColumns();
+        validCompanyApprovalsColumns() &&
+        validCompanyTipsFields();
       allow delete: if false;
 
       // Employee App: the company settings the app needs, mirrored here
@@ -867,10 +877,24 @@ service cloud.firestore {
         // bypass rules entirely) - clients can read for the Approvals
         // page but never write status/approvedBy/approvedAt directly,
         // same lockdown pattern as adjustmentHistory on clockEvents.
+        // Tips (Task 3): tipCents / tipUpdatedBy* are written only by
+        // setShiftTip (Admin SDK) too.
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           isAdminOrOwner();
         allow write: if false;
+
+        // Tips (Task 3): the tip's full change history, append-only. Every
+        // entry is written by setShiftTip (Admin SDK) in the same
+        // transaction as the tip itself; clients can read (admin/owner of
+        // this company) but never create, edit or delete an entry. Kept
+        // when the shift is deleted (audit, decision D9).
+        match /tipEdits/{editId} {
+          allow read: if request.auth != null &&
+            request.auth.token.companyId == companyId &&
+            isAdminOrOwner();
+          allow write: if false;
+        }
       }
 
       match /overrideEvents/{overrideEventId} {

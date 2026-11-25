@@ -58,6 +58,8 @@ export {
   deleteTimesheetSession,
 } from "./timesheetApprovals";
 
+export { setShiftTip } from "./shiftTips";
+
 export {
   generateTempClockLink,
   listActiveTempClockLinks,

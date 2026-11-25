@@ -109,6 +109,7 @@ export default function TimesheetApprovalsPage() {
           selected={approvalsColumns.selected}
           isPro={approvalsColumns.isPro}
           overtimeEnabled={approvalsColumns.overtimeEnabled}
+          tipsEnabled={approvalsColumns.tipsEnabled}
           onClose={() => setColumnsOpen(false)}
           onSave={approvalsColumns.save}
         />

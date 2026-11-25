@@ -86,6 +86,8 @@ function SettingsPageContent() {
               setOtMultiplier={s.setOtMultiplier}
               overtime={s.overtime}
               setOvertime={s.setOvertime}
+              tipsEnabled={s.tipsEnabled}
+              setTipsEnabled={s.setTipsEnabled}
             />
           )}
 

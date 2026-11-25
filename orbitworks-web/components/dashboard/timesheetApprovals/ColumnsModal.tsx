@@ -9,6 +9,7 @@ import {
   MAX_APPROVALS_COLUMNS,
   PRO_APPROVALS_COLUMNS,
   OVERTIME_APPROVALS_COLUMNS,
+  TIPS_APPROVALS_COLUMNS,
   REQUIRED_APPROVALS_COLUMNS,
   approvalsColumnsUsed,
   isOptionalApprovalsColumn,
@@ -23,18 +24,21 @@ import {
 //   take a slot (dropped on save, D5/D6).
 // - Regular Hours / Overtime Hours: greyed out while Overtime is OFF - they
 //   can be turned off but not on (D2).
+// - Tips (Task 3): same, while the Tips toggle is OFF.
 // - Job off: note that approvals then use the shift's saved job or the
 //   employee's default job (D7).
 export default function ColumnsModal({
   selected: initialSelected,
   isPro,
   overtimeEnabled,
+  tipsEnabled,
   onClose,
   onSave,
 }: {
   selected: OptionalApprovalsColumnKey[];
   isPro: boolean;
   overtimeEnabled: boolean;
+  tipsEnabled: boolean;
   onClose: () => void;
   onSave: (keys: OptionalApprovalsColumnKey[]) => Promise<void>;
 }) {
@@ -99,14 +103,15 @@ export default function ColumnsModal({
 
             const proLocked = !isPro && PRO_APPROVALS_COLUMNS.includes(key);
             const overtimeOff = !overtimeEnabled && OVERTIME_APPROVALS_COLUMNS.includes(key);
+            const tipsOff = !tipsEnabled && TIPS_APPROVALS_COLUMNS.includes(key);
             const checked = !proLocked && selected.includes(key);
             // Turning a column OFF is always allowed; turning one ON needs
-            // a free slot, Pro for Type/Device, and Overtime for the OT ones.
-            const disabled = proLocked || (!checked && (full || overtimeOff));
+            // a free slot, Pro for Type/Device, Overtime for the OT ones, Tips for Tips.
+            const disabled = proLocked || (!checked && (full || overtimeOff || tipsOff));
             const id = `approvals-column-${key}`;
 
             return (
-              <li key={key} className={`py-3 ${overtimeOff || proLocked ? "opacity-60" : ""}`}>
+              <li key={key} className={`py-3 ${overtimeOff || tipsOff || proLocked ? "opacity-60" : ""}`}>
                 <div className="flex items-center justify-between gap-3">
                   <label
                     htmlFor={id}
@@ -127,6 +132,9 @@ export default function ColumnsModal({
                 </div>
                 {overtimeOff && (
                   <p className="mt-1 text-xs text-gray-500">Turn on Overtime in Export Settings to show this column.</p>
+                )}
+                {tipsOff && (
+                  <p className="mt-1 text-xs text-gray-500">Turn on Tips in Export Settings to show this column.</p>
                 )}
                 {key === "job" && !checked && (
                   <p className="mt-1 text-xs text-amber-700">

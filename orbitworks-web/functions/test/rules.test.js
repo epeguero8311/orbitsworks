@@ -791,7 +791,7 @@ test("approvals columns: wrong shape, unknown keys, Name/Status, duplicates and 
   await assertFails(updateDoc(ref, { approvalsColumns: { worked: true } }));
   await assertFails(updateDoc(ref, { approvalsColumns: ["name", "worked"] }));
   await assertFails(updateDoc(ref, { approvalsColumns: ["status"] }));
-  await assertFails(updateDoc(ref, { approvalsColumns: ["tips"] }));
+  await assertFails(updateDoc(ref, { approvalsColumns: ["bogus"] }));
   await assertFails(updateDoc(ref, { approvalsColumns: ["worked", "worked"] }));
   await assertFails(
     updateDoc(ref, { approvalsColumns: ["company", "site", "job", "time", "break", "worked", "regularHours"] })
@@ -849,4 +849,69 @@ test("job overtime rate: wrong types are refused, delete still works", async () 
 test("job overtime rate: a cross-company admin can't write a job", async () => {
   const db = crossCompanyContext().firestore();
   await assertFails(setDoc(doc(db, "companies", COMPANY_A, "jobs", "job9"), { name: "X", hourlyRate: 1, active: true, overtimeRate: 2 }));
+});
+
+// ---- Task 3: Tips ----
+// tipsEnabled type check (validCompanyTipsFields), the "tips" column key,
+// and the tip + tipEdits history being server-only (setShiftTip).
+
+test("tips: admin can toggle tipsEnabled with a bool, anything else refused", async () => {
+  const ref = doc(adminContext().firestore(), "companies", COMPANY_A);
+  await assertSucceeds(updateDoc(ref, { tipsEnabled: true }));
+  await assertSucceeds(updateDoc(ref, { tipsEnabled: false }));
+  await assertFails(updateDoc(ref, { tipsEnabled: "yes" }));
+  await assertFails(updateDoc(ref, { tipsEnabled: 1 }));
+  await assertFails(updateDoc(doc(crossCompanyContext().firestore(), "companies", COMPANY_A), { tipsEnabled: true }));
+});
+
+test("tips: the Tips column key can be saved (any plan)", async () => {
+  await setCompanyPlan("free");
+  const ref = doc(adminContext().firestore(), "companies", COMPANY_A);
+  await assertSucceeds(updateDoc(ref, { approvalsColumns: ["worked", "tips"] }));
+});
+
+async function seedTipHistory() {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, "companies", COMPANY_A, "timesheetApprovals", "evt1"), {
+      employeeId: "emp1",
+      status: "approved",
+      tipCents: 4500,
+    });
+    await setDoc(doc(db, "companies", COMPANY_A, "timesheetApprovals", "evt1", "tipEdits", "e1"), {
+      companyId: COMPANY_A,
+      clockInEventId: "evt1",
+      amountCents: 4500,
+      previousAmountCents: 4000,
+      editedByUid: "admin-uid",
+      editedByName: "Ana Lopez",
+    });
+  });
+}
+
+test("tips: admin can read the tip and its history; nobody can write either from a client", async () => {
+  await seedTipHistory();
+  const db = adminContext().firestore();
+  const approvalRef = doc(db, "companies", COMPANY_A, "timesheetApprovals", "evt1");
+  const editRef = doc(db, "companies", COMPANY_A, "timesheetApprovals", "evt1", "tipEdits", "e1");
+  await assertSucceeds(getDoc(approvalRef));
+  await assertSucceeds(getDocs(collection(db, "companies", COMPANY_A, "timesheetApprovals", "evt1", "tipEdits")));
+  await assertFails(updateDoc(approvalRef, { tipCents: 100 }));
+  // Append-only history: no new entries, edits or deletes from a client.
+  await assertFails(
+    setDoc(doc(db, "companies", COMPANY_A, "timesheetApprovals", "evt1", "tipEdits", "e2"), {
+      companyId: COMPANY_A,
+      amountCents: 1,
+    })
+  );
+  await assertFails(updateDoc(editRef, { amountCents: 1 }));
+  await assertFails(deleteDoc(editRef));
+});
+
+test("tips: supervisors and other companies can't read the tip history", async () => {
+  await seedTipHistory();
+  const path = ["companies", COMPANY_A, "timesheetApprovals", "evt1", "tipEdits"];
+  await assertFails(getDocs(collection(supervisorContext().firestore(), ...path)));
+  await assertFails(getDocs(collection(crossCompanyContext().firestore(), ...path)));
+  await assertFails(getDoc(doc(crossCompanyContext().firestore(), ...path, "e1")));
 });

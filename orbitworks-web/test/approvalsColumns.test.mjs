@@ -20,8 +20,8 @@ import {
 import { clockTypeLabel, clockDeviceLabel } from "../lib/approvalsClockInfo.ts";
 const { approvalsColumnsSchema } = await import("../lib/validators/approvalsColumns.ts");
 
-const CORE_OFF = { isPro: false, overtimeEnabled: false };
-const PRO_ON = { isPro: true, overtimeEnabled: true };
+const CORE_OFF = { isPro: false, overtimeEnabled: false, tipsEnabled: false };
+const PRO_ON = { isPro: true, overtimeEnabled: true, tipsEnabled: true };
 
 test("D1: never saved = today's 8 columns, in today's order", () => {
   assert.deepEqual(visibleApprovalsColumns(null, CORE_OFF), [
@@ -80,13 +80,13 @@ test("show/hide only: display order never follows the saved order", () => {
 
 test("D2: Regular/Overtime hidden while Overtime is OFF, drawn (before Worked) when ON", () => {
   const saved = ["time", "regularHours", "overtimeHours", "worked"];
-  assert.deepEqual(visibleApprovalsColumns(saved, { isPro: false, overtimeEnabled: false }), [
+  assert.deepEqual(visibleApprovalsColumns(saved, { isPro: false, overtimeEnabled: false, tipsEnabled: false }), [
     "name",
     "time",
     "worked",
     "status",
   ]);
-  assert.deepEqual(visibleApprovalsColumns(saved, { isPro: false, overtimeEnabled: true }), [
+  assert.deepEqual(visibleApprovalsColumns(saved, { isPro: false, overtimeEnabled: true, tipsEnabled: false }), [
     "name",
     "time",
     "regularHours",
@@ -143,7 +143,8 @@ test("validator: optional keys only, no duplicates, max 6", () => {
   assert.equal(approvalsColumnsSchema.safeParse([]).success, true);
   assert.equal(approvalsColumnsSchema.safeParse(["name"]).success, false);
   assert.equal(approvalsColumnsSchema.safeParse(["status"]).success, false);
-  assert.equal(approvalsColumnsSchema.safeParse(["tips"]).success, false);
+  assert.equal(approvalsColumnsSchema.safeParse(["tips"]).success, true);
+  assert.equal(approvalsColumnsSchema.safeParse(["bogus"]).success, false);
   assert.equal(approvalsColumnsSchema.safeParse(["worked", "worked"]).success, false);
   assert.equal(approvalsColumnsSchema.safeParse([...DEFAULT_APPROVALS_COLUMNS, "regularHours"]).success, false);
   assert.equal(approvalsColumnsSchema.safeParse("worked").success, false);
@@ -176,4 +177,20 @@ test("D4: Device - supervisor app name / Unnamed device, employee phone, else -"
   assert.equal(clockDeviceLabel({ source: "adminManual", deviceId: "d1" }), "-");
   assert.equal(clockDeviceLabel({ source: "autoClockOut" }), "-");
   assert.equal(clockDeviceLabel(null), "-");
+});
+
+test("Task 3: Tips column hidden while Tips is OFF (stays saved, counts), drawn after Worked when ON", () => {
+  const saved = ["time", "worked", "tips"];
+  assert.deepEqual(visibleApprovalsColumns(saved, CORE_OFF), ["name", "time", "worked", "status"]);
+  assert.deepEqual(visibleApprovalsColumns(saved, { ...CORE_OFF, tipsEnabled: true }), [
+    "name",
+    "time",
+    "worked",
+    "tips",
+    "status",
+  ]);
+  assert.equal(approvalsColumnHiddenReason("tips", CORE_OFF), "tips");
+  assert.equal(approvalsColumnHiddenReason("tips", PRO_ON), null);
+  assert.deepEqual(approvalsColumnsToSave(saved, { isPro: false }), ["time", "worked", "tips"]);
+  assert.equal(approvalsColumnsUsed(saved, { isPro: false }), 5);
 });

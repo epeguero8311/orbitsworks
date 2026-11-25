@@ -103,7 +103,7 @@ test("approvals read from one day before the range start, never before the cutov
 test("Timesheet Approvals: no Shift column; default layouts still add up to 100% (W6)", () => {
   // Task 2: widths come from per-column weights; the default columns keep
   // the Phase 10 weights (day 100, week 92 + Date 8).
-  const cols = visibleApprovalsColumns(null, { isPro: false, overtimeEnabled: false });
+  const cols = visibleApprovalsColumns(null, { isPro: false, overtimeEnabled: false, tipsEnabled: false });
   const weight = (mode) =>
     cols.reduce((a, k) => a + APPROVALS_COLUMNS.find((c) => c.key === k)[mode === "week" ? "weekWeight" : "dayWeight"], 0);
   assert.equal(weight("day"), 100);

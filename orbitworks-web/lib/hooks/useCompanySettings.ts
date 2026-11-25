@@ -91,6 +91,10 @@ export type CompanySettings = {
   // when the company never saved a choice (= today's default columns).
   // Top-level company field; see lib/approvalsColumns.ts.
   approvalsColumns: OptionalApprovalsColumnKey[] | null;
+  // Tips (Task 3): Export Settings toggle, top-level company field, default
+  // OFF. OFF = no Tips field in the shift modal, no Tips column anywhere,
+  // tips left out of every export; saved tips are kept (decision D7).
+  tipsEnabled: boolean;
 };
 
 // Overtime (Task 1), Settings > Export Settings. Stored top-level on the
@@ -241,6 +245,7 @@ const DEFAULT_SETTINGS: CompanySettings = {
   faceVerification: DEFAULT_FACE_VERIFICATION_SETTINGS,
   autoClockOut: DEFAULT_AUTO_CLOCK_OUT,
   approvalsColumns: null,
+  tipsEnabled: false,
 };
 
 export function useCompanySettings() {
@@ -305,6 +310,7 @@ export function useCompanySettings() {
           ...(data.autoClockOut ?? {}),
         },
         approvalsColumns: readSavedApprovalsColumns(data.approvalsColumns),
+        tipsEnabled: data.tipsEnabled === true,
       });
       setLoading(false);
     });

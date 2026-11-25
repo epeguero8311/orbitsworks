@@ -8,7 +8,7 @@ import { resolveOvertimeFreezeFields } from "./overtimeFreeze";
 // can cover.
 const MAX_BULK_APPROVALS = 500;
 
-async function resolveApprovedByName(uid: string): Promise<string> {
+export async function resolveApprovedByName(uid: string): Promise<string> {
   const callerSnap = await db.collection("users").doc(uid).get();
   if (callerSnap.exists) {
     const callerData = callerSnap.data() as { name?: string };
@@ -22,7 +22,7 @@ async function resolveApprovedByName(uid: string): Promise<string> {
 // behind a fast Approve click (or fail silently - it swallows its own
 // errors). eventId IS the clock-in event's id, so we can rebuild the
 // approval doc from that event directly instead of failing here.
-async function buildSelfHealData(
+export async function buildSelfHealData(
   callerCompanyId: string,
   eventId: string
 ): Promise<Record<string, unknown> | null> {

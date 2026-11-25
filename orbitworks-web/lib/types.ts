@@ -813,6 +813,29 @@ export interface TimesheetApproval {
       timeZone: string;
     };
   };
+  // Tips (Task 3): one dollar amount per shift, in whole cents, written only
+  // by the setShiftTip function (functions/src/shiftTips.ts). Never touches
+  // status / frozen OT / auto-break. Missing = no tip ($0.00). The full
+  // change history lives in the tipEdits subcollection (TipEdit below).
+  tipCents?: number;
+  tipUpdatedByUid?: string;
+  tipUpdatedByName?: string;
+  tipUpdatedAt?: Timestamp;
+}
+
+// Tips (Task 3): one entry per tip change, at
+// companies/{companyId}/timesheetApprovals/{clockInEventId}/tipEdits/{autoId}.
+// Append-only: written only by setShiftTip (Admin SDK), clients can read
+// (admin/owner) but never write. Kept when the shift is deleted (audit).
+export interface TipEdit {
+  id: string;
+  companyId: string;
+  clockInEventId: string;
+  amountCents: number;
+  previousAmountCents: number;
+  editedByUid: string;
+  editedByName: string;
+  editedAt: Timestamp | null;
 }
 
 // ---- Supervisor Overrides ----

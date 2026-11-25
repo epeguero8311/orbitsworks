@@ -73,6 +73,13 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     helperText: "Adds overtime hours and overtime pay to exports. Off by default.",
   },
   {
+    id: "tips-enabled",
+    label: "Tips",
+    tab: "export",
+    keywords: ["tips", "tip", "gratuity", "pay", "export", "est. pay"],
+    helperText: "Admins add a tip to each shift in Approve Hours. Added into Est. Pay. Off by default.",
+  },
+  {
     id: "weekly-overtime-after",
     label: "Weekly overtime after",
     tab: "export",

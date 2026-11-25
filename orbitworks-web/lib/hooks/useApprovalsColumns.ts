@@ -22,11 +22,12 @@ export function useApprovalsColumns() {
   const { userData } = useAuth();
   const { settings, isPro, loading } = useCompanySettings();
   const overtimeEnabled = settings.overtimeEnabled;
+  const tipsEnabled = settings.tipsEnabled;
   const saved = settings.approvalsColumns;
 
   const visible = useMemo(
-    () => visibleApprovalsColumns(saved, { isPro, overtimeEnabled }),
-    [saved, isPro, overtimeEnabled]
+    () => visibleApprovalsColumns(saved, { isPro, overtimeEnabled, tipsEnabled }),
+    [saved, isPro, overtimeEnabled, tipsEnabled]
   );
   const selected = useMemo(() => selectedApprovalsColumns(saved), [saved]);
 
@@ -40,5 +41,5 @@ export function useApprovalsColumns() {
     await updateDoc(doc(db, "companies", userData.companyId), { approvalsColumns: parsed.data });
   }
 
-  return { visible, selected, isPro, overtimeEnabled, loading, save };
+  return { visible, selected, isPro, overtimeEnabled, tipsEnabled, loading, save };
 }

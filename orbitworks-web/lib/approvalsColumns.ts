@@ -13,7 +13,8 @@
 // - Show/hide only: columns always draw in APPROVALS_COLUMNS order.
 // - Pro-only columns (Type, Device) are hidden while the company is not on
 //   Pro (D5/D6). Overtime-only columns (Regular Hours, Overtime) are hidden
-//   while the Overtime toggle is OFF (D2) - both stay in the saved list.
+//   while the Overtime toggle is OFF (D2), and Tips (Task 3) while the Tips
+//   toggle is OFF - all stay in the saved list.
 //   firestore.rules (validCompanyApprovalsColumns) mirrors the key list,
 //   the max and the Pro check; lib/validators/approvalsColumns.ts too.
 //
@@ -38,6 +39,7 @@ export const OPTIONAL_APPROVALS_COLUMNS = [
   "regularHours",
   "overtimeHours",
   "worked",
+  "tips",
   "clockInType",
   "clockOutType",
   "clockInDevice",
@@ -59,6 +61,10 @@ export const PRO_APPROVALS_COLUMNS: readonly OptionalApprovalsColumnKey[] = [
 ];
 
 export const OVERTIME_APPROVALS_COLUMNS: readonly OptionalApprovalsColumnKey[] = ["regularHours", "overtimeHours"];
+
+// Tips (Task 3): hidden while the Export Settings Tips toggle is OFF, same
+// as the Overtime columns (Task 2 D2) - stays saved, counts toward the 8.
+export const TIPS_APPROVALS_COLUMNS: readonly OptionalApprovalsColumnKey[] = ["tips"];
 
 // D1: today's table (Site included - the plan left it out by mistake).
 export const DEFAULT_APPROVALS_COLUMNS: readonly OptionalApprovalsColumnKey[] = [
@@ -114,6 +120,7 @@ export const APPROVALS_COLUMNS: readonly ApprovalsColumnDef[] = [
     weekWeight: 8,
   },
   { key: "worked", label: "Worked", pro: false, overtimeOnly: false, dayWeight: 7, weekWeight: 7 },
+  { key: "tips", label: "Tips", pro: false, overtimeOnly: false, dayWeight: 8, weekWeight: 8 },
   { key: "clockInType", label: "Clock-in Type", pro: true, overtimeOnly: false, dayWeight: 10, weekWeight: 10 },
   { key: "clockOutType", label: "Clock-out Type", pro: true, overtimeOnly: false, dayWeight: 10, weekWeight: 10 },
   { key: "clockInDevice", label: "Clock-in Device", pro: true, overtimeOnly: false, dayWeight: 11, weekWeight: 11 },
@@ -134,6 +141,7 @@ export const APPROVALS_COLUMN_MODAL_LABELS: Record<ApprovalsColumnKey, string> =
   regularHours: "Regular Hours",
   overtimeHours: "Overtime Hours",
   worked: "Worked",
+  tips: "Tips",
   clockInType: "Clock-in Type",
   clockOutType: "Clock-out Type",
   clockInDevice: "Clock-in Device",
@@ -168,20 +176,21 @@ export function selectedApprovalsColumns(
   return [...(saved ?? DEFAULT_APPROVALS_COLUMNS)];
 }
 
-export type ApprovalsColumnsContext = { isPro: boolean; overtimeEnabled: boolean };
+export type ApprovalsColumnsContext = { isPro: boolean; overtimeEnabled: boolean; tipsEnabled: boolean };
 
 // Why a selected column is not drawn right now (null = it is drawn).
 export function approvalsColumnHiddenReason(
   key: ApprovalsColumnKey,
   ctx: ApprovalsColumnsContext
-): "pro" | "overtime" | null {
+): "pro" | "overtime" | "tips" | null {
   if (!ctx.isPro && (PRO_APPROVALS_COLUMNS as readonly string[]).includes(key)) return "pro";
   if (!ctx.overtimeEnabled && (OVERTIME_APPROVALS_COLUMNS as readonly string[]).includes(key)) return "overtime";
+  if (!ctx.tipsEnabled && (TIPS_APPROVALS_COLUMNS as readonly string[]).includes(key)) return "tips";
   return null;
 }
 
 // The columns the table draws, in display order: Name + Status + the
-// selected optional ones that aren't hidden by the plan or Overtime.
+// selected optional ones that aren't hidden by the plan, Overtime or Tips.
 export function visibleApprovalsColumns(
   saved: readonly OptionalApprovalsColumnKey[] | null,
   ctx: ApprovalsColumnsContext
@@ -196,7 +205,7 @@ export function visibleApprovalsColumns(
 
 // What the Columns modal saves. Off a Pro plan, Pro keys are dropped
 // (firestore.rules refuses them there - D6: they stay saved only until the
-// next save). Overtime keys stay (D2: they come back when Overtime is on).
+// next save). Overtime + Tips keys stay (D2: they come back when the toggle is on).
 // Kept in display order.
 export function approvalsColumnsToSave(
   selected: readonly OptionalApprovalsColumnKey[],

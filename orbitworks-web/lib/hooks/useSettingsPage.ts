@@ -23,6 +23,7 @@ import {
   resolveOvertimeFields,
 } from "@/lib/hooks/useCompanySettings";
 import { overtimeSettingsSchema } from "@/lib/validators/overtimeSettings";
+import { tipsEnabledSchema } from "@/lib/validators/shiftTip";
 import type { SettingsTabId } from "@/lib/hooks/useSettingsTabs";
 import type { ExportSettings } from "@/lib/types";
 
@@ -39,6 +40,8 @@ type SettingsSnapshot = {
   otThreshold: string;
   otMultiplier: string;
   overtime: OvertimeFields;
+  // Tips (Task 3): Export Settings toggle, top-level company field.
+  tipsEnabled: boolean;
   attendanceRules: AttendanceRules;
   alerts: Alerts;
   appSettings: AppSettings;
@@ -79,7 +82,8 @@ function computeDirtyTabs(
     current.exportSettings.roundTotalMinutes !== original.exportSettings.roundTotalMinutes ||
     current.otThreshold !== original.otThreshold ||
     current.otMultiplier !== original.otMultiplier ||
-    JSON.stringify(current.overtime) !== JSON.stringify(original.overtime)
+    JSON.stringify(current.overtime) !== JSON.stringify(original.overtime) ||
+    current.tipsEnabled !== original.tipsEnabled
   ) {
     dirty.add("export");
   }
@@ -124,6 +128,7 @@ export function useSettingsPage() {
   const [otThreshold, setOtThreshold] = useState("40");
   const [otMultiplier, setOtMultiplier] = useState("1.5");
   const [overtime, setOvertime] = useState<OvertimeFields>(DEFAULT_OVERTIME_FIELDS);
+  const [tipsEnabled, setTipsEnabled] = useState(false);
   const [attendanceRules, setAttendanceRules] = useState<AttendanceRules>(
     DEFAULT_ATTENDANCE_RULES
   );
@@ -171,6 +176,7 @@ export function useSettingsPage() {
             otMultiplier:
               data.overtimeMultiplier != null ? String(data.overtimeMultiplier) : "1.5",
             overtime: resolveOvertimeFields(data),
+            tipsEnabled: data.tipsEnabled === true,
             attendanceRules: {
               ...DEFAULT_ATTENDANCE_RULES,
               ...(data.attendanceRules ?? {}),
@@ -205,6 +211,7 @@ export function useSettingsPage() {
           setOtThreshold(resolved.otThreshold);
           setOtMultiplier(resolved.otMultiplier);
           setOvertime(resolved.overtime);
+          setTipsEnabled(resolved.tipsEnabled);
           setAttendanceRules(resolved.attendanceRules);
           setAlerts(resolved.alerts);
           setAppSettings(resolved.appSettings);
@@ -251,6 +258,11 @@ export function useSettingsPage() {
       return;
     }
     const overtimeValues = overtimeParsed.data;
+    const tipsParsed = tipsEnabledSchema.safeParse(tipsEnabled);
+    if (!tipsParsed.success) {
+      setError("Check the Tips setting.");
+      return;
+    }
 
     setIsSaving(true);
 
@@ -281,6 +293,7 @@ export function useSettingsPage() {
         dailyOvertimeThreshold: overtimeValues.dailyOvertimeThreshold,
         overtimeWeekStartsOn: overtimeValues.overtimeWeekStartsOn,
         overtimeRoundMinutes: overtimeValues.overtimeRoundMinutes,
+        tipsEnabled: tipsParsed.data,
         attendanceRules,
         alerts,
         appSettings,
@@ -311,6 +324,7 @@ export function useSettingsPage() {
         otThreshold,
         otMultiplier,
         overtime,
+        tipsEnabled,
         attendanceRules,
         alerts,
         appSettings,
@@ -334,6 +348,7 @@ export function useSettingsPage() {
       otThreshold,
       otMultiplier,
       overtime,
+      tipsEnabled,
       attendanceRules,
       alerts,
       appSettings,
@@ -365,6 +380,8 @@ export function useSettingsPage() {
     setOtMultiplier,
     overtime,
     setOvertime,
+    tipsEnabled,
+    setTipsEnabled,
     attendanceRules,
     setAttendanceRules,
     alerts,
