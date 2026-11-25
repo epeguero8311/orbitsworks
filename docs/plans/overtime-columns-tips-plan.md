@@ -376,6 +376,39 @@ D23. Restricted-admin gaps fixed (Nov 25): (1) the re-approve "OT changed" warni
 
 ---
 
+## TASK 5 - Kiosk mode (shared wall tablet) - PRO
+Goal: a wall-mounted tablet employees walk up to and use themselves (clock in/out + breaks), with no supervisor powers. Replaces earlier ideas (company "individual breaks" toggle, per-device toggles, hiding quick actions), all DROPPED.
+- One app, 3 modes: Supervisor (existing), Employee (existing), Kiosk (NEW). Same store app. Kiosk LOOKS like the supervisor app with things removed + a few added; reuse supervisor screens/components.
+- Setup: a Kiosk is a company login (email + password) set to Kiosk with a website toggle, same as the Supervisor/Admin access toggles. Label: "Kiosk access - Shared tablet: employees clock in/out and take breaks with their own PIN." Technically also an employee record with its own PIN (OK). Signing in on the tablet opens Kiosk mode. The website shows a `Kiosk` tag + the device/account name. Remove = admin deactivates the account.
+- Flows (PIN ALWAYS required for every action):
+```
+Clock in/out: PIN -> photo -> confirmation (same as today, incl. Pro face check)
+Start break:  PIN -> [Start break] -> timer -> [End break] / [Back]
+End break:    PIN -> [End break] -> back to Home
+```
+- Break = PIN only, no photo. Not clocked in + tries a break -> BLOCKED "Please clock in first". Wrong PIN -> 45s wait with an on-screen countdown. PINs saved on the device for speed (refreshed when needed), stored safely: salted hash in SecureStore like the employee app, never plain. Offline: queue + sync later like supervisor punches, never blocked.
+- Job site: Pro, AUTO-DETECTED from location (same as Pro employee app).
+- Exit Kiosk: in website Settings the admin creates an exit "key" = a unique PIN valid for 10 minutes. Enter it on the tablet to leave Kiosk mode. No normal Log out button.
+- Kiosk Settings screen: opens with EITHER the 10-min temp key OR an admin's own PIN. Employees can't open it. Contains: Logged in as | Device name (editable) | Dark mode | Notifications | Location permission status | Last synced | App version.
+- Kiosk does NOT have: employee list, Reports, create/update employee, supervisor override, Alerts tab, normal Log out.
+- Plans: PRO only. Core sees Kiosk access LOCKED (upgrade label). Existing companies using a supervisor login on a wall tablet: leave as is.
+
+---
+
+## TASK 6 - Update banner (app version behind)
+- When the device's app version is behind the latest: banner "A new version is available (1.1.5) / You're on 1.1.3 [Update] [x]". [Update] opens the App Store / Play Store.
+- The website Devices list shows each device's app version (and the Kiosk/Supervisor tag).
+- "Latest version" = a number in Firestore that Emilio updates AFTER the store approves the build.
+- Open: which modes (lean: all 3)? Dismiss comes back next open or next day? Banner only, or a forced "Update to continue" below a minimum version? "Outdated" tag on the website Devices list?
+
+---
+
+## TASK 7 - Tablet landscape layout
+- For the Kiosk + supervisor app on tablets/big screens. PHONES stay portrait-locked; only tablets rotate.
+- Landscape uses the width: stacked cards become a 2x2 grid. Clock-in photo stays upright / best quality in both orientations. No rotation-lock setting. Needs a new store build (app.json orientation, not OTA).
+
+---
+
 ## Final combined test checklist (after Task 4, before prod)
 Things that could not be tested on dev for Task 2, and what each needs:
 - Re-approve warning with custom columns: an approved shift WITH frozen OT (approved after Task 1, Overtime ON), then an edit to an earlier unapproved day of the same week that moves its OT. The seeded approvals have no frozen OT (seed writes them directly) - approve/re-approve one in the UI first.
