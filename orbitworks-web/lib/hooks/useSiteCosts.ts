@@ -10,6 +10,8 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
+import { fetchShiftData } from "@/lib/shiftData";
 import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings, overtimeSettingsFrom } from "@/lib/hooks/useCompanySettings";
 import { overtimeWeekKey } from "@/lib/overtime";
@@ -38,6 +40,7 @@ export interface AnalyticsComparison {
 export function useSiteCosts() {
   const { userData } = useAuth();
   const { settings } = useCompanySettings();
+  const { serverReads } = useAdminAccess();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -66,8 +69,20 @@ export function useSiteCosts() {
       const start = new Date(bufferStart + "T00:00:00");
       const end = new Date(rangeEnd + "T23:59:59");
 
+      // Task 4 (rule 5): Analytics isn't filtered by site - a restricted
+      // admin (Analytics permission) gets every site from the server.
+      const serverData = serverReads
+        ? await fetchShiftData({
+            purpose: "analytics",
+            startMs: start.getTime(),
+            endMs: end.getTime(),
+            startDate: approvalsQueryStart(bufferStart, APPROVALS_CUTOVER_DATE),
+            endDate: rangeEnd,
+            want: { clockEvents: true, approvals: true },
+          })
+        : null;
       const eventsRef = collection(db, "companies", companyId, "clockEvents");
-      const eventsSnapshot = await getDocs(
+      const eventsSnapshot = serverData ? { docs: serverData.clockEvents } : await getDocs(
         query(
           eventsRef,
           where("timestamp", ">=", Timestamp.fromDate(start)),
@@ -81,7 +96,7 @@ export function useSiteCosts() {
         return { id: d.id, ...data, timestamp: effectiveTimestamp };
       });
 
-      const approvalsSnapshot = await getDocs(
+      const approvalsSnapshot = serverData ? { docs: serverData.approvals } : await getDocs(
         query(
           collection(db, "companies", companyId, "timesheetApprovals"),
           // Phase 10 (W8 a): from the events' own start (the week before
@@ -196,7 +211,7 @@ export function useSiteCosts() {
       });
     },
     // settings as a whole: the Overtime branch reads several of its fields.
-    [settings]
+    [settings, serverReads]
   );
 
   const runAnalytics = useCallback(

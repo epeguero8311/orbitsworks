@@ -12,6 +12,7 @@ import { faceResultText } from "@/lib/clockPhoto";
 import { alertsCapNote } from "@/lib/alertsWindow";
 import { CollapseButton } from "@/components/dashboard/CollapseButton";
 import { reviewCorrection, clockEventTypeLabel, type CorrectionNeighbours } from "@/lib/clockCorrection";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 import {
   ALERT_SEVERITY,
   AlertItem,
@@ -52,6 +53,7 @@ export default function AlertsPanel({
     submitEditTimeFromAlert,
     editClockInTimeFromAlert,
   } = useAlertActions();
+  const adminAccess = useAdminAccess();
 
   const [editingAlertKey, setEditingAlertKey] = useState<string | null>(null);
   const [editTimeValue, setEditTimeValue] = useState("");
@@ -112,6 +114,16 @@ export default function AlertsPanel({
   }));
   const visibleAlertItems = alertItems.filter((a) => !resolvedKeys.has(a.key));
   const isLoading = loading || alertsLoading;
+
+  // Task 4 (rule 4 / D18): every admin sees every alert, but the clock
+  // actions need Approve hours and the shift's site (the server checks too).
+  const shiftActionTypes = new Set(["breakTooLong", "maxHours", "missedClockOut", "clockedInOutsideGeofence", "faceMismatch", "faceNoFace"]);
+  function actionBlocked(alert: AlertItem): string | null {
+    if (!shiftActionTypes.has(alert.alertType)) return null;
+    if (!adminAccess.can("approveHours")) return "You don't have the Approve hours permission";
+    if (alert.event && !adminAccess.canSite(alert.event.siteId)) return "Not your site";
+    return null;
+  }
 
   async function handleIgnoreAll() {
     setIgnoringAll(true);
@@ -416,7 +428,10 @@ export default function AlertsPanel({
                       </div>
                     ) : (
                       <div className="mt-2 flex flex-wrap gap-3">
-                        {alert.alertType === "breakTooLong" && (
+                        {actionBlocked(alert) && (
+                          <span className="text-xs text-gray-500">{actionBlocked(alert)}</span>
+                        )}
+                        {alert.alertType === "breakTooLong" && !actionBlocked(alert) && (
                           <>
                             <button
                               type="button"
@@ -436,7 +451,7 @@ export default function AlertsPanel({
                             </button>
                           </>
                         )}
-                        {(alert.alertType === "maxHours" || alert.alertType === "missedClockOut") && (
+                        {(alert.alertType === "maxHours" || alert.alertType === "missedClockOut") && !actionBlocked(alert) && (
                           <>
                             <button
                               type="button"
@@ -456,7 +471,7 @@ export default function AlertsPanel({
                             </button>
                           </>
                         )}
-                        {alert.alertType === "clockedInOutsideGeofence" && (
+                        {alert.alertType === "clockedInOutsideGeofence" && !actionBlocked(alert) && (
                           <button
                             type="button"
                             disabled={isSubmitting}
@@ -466,7 +481,7 @@ export default function AlertsPanel({
                             Edit Time
                           </button>
                         )}
-                        {(alert.alertType === "faceMismatch" || alert.alertType === "faceNoFace") && (
+                        {(alert.alertType === "faceMismatch" || alert.alertType === "faceNoFace") && !actionBlocked(alert) && (
                           <button
                             type="button"
                             disabled={isSubmitting}

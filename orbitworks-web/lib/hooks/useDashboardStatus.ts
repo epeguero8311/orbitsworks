@@ -14,6 +14,8 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
+import { fetchShiftData, SERVER_REFRESH_MS } from "@/lib/shiftData";
 import { useAuth } from "@/lib/AuthContext";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { ClockEvent } from "@/lib/types";
@@ -39,6 +41,10 @@ export function useDashboardStatus() {
   const [deactivatedBackfills, setDeactivatedBackfills] = useState<DeactivatedBackfill[]>([]);
 
   const deactivatedClosedRef = useRef<Set<string>>(new Set());
+  // Task 4 (D13): Overview isn't filtered by site. A restricted admin can't
+  // read clock events directly, so theirs comes from the server ("overview":
+  // every site, last 8 days), refreshed every 30 s.
+  const { serverReads } = useAdminAccess();
 
   function dismissDeactivatedBackfill(key: string) {
     setDeactivatedBackfills((prev) => prev.filter((b) => b.key !== key));
@@ -46,6 +52,31 @@ export function useDashboardStatus() {
 
   useEffect(() => {
     if (!userData?.companyId) return;
+    if (serverReads) {
+      let cancelled = false;
+      const load = () =>
+        fetchShiftData({ purpose: "overview", startMs: Date.now() - 8 * 86400000, endMs: Date.now() + 60000, want: { clockEvents: true } })
+          .then((res) => {
+            if (cancelled) return;
+            setEvents(
+              res.clockEvents
+                .map((d) => ({ id: d.id, ...(d.data() as Omit<ClockEvent, "id">) }))
+                .sort((a, b) => (b.timestamp?.toMillis() ?? 0) - (a.timestamp?.toMillis() ?? 0))
+                .slice(0, 200)
+            );
+            setLoading(false);
+          })
+          .catch((err) => {
+            console.error("Overview server load error:", err);
+            if (!cancelled) setLoading(false);
+          });
+      load();
+      const timer = setInterval(load, SERVER_REFRESH_MS);
+      return () => {
+        cancelled = true;
+        clearInterval(timer);
+      };
+    }
     const eventsRef = collection(
       db,
       "companies",
@@ -72,7 +103,7 @@ export function useDashboardStatus() {
     );
 
     return unsubscribe;
-  }, [userData?.companyId]);
+  }, [userData?.companyId, serverReads]);
 
   useEffect(() => {
     if (!userData?.companyId) return;
@@ -96,7 +127,13 @@ export function useDashboardStatus() {
           where("type", "==", "in"),
           orderBy("timestamp", "asc")
         );
-        const snapshot = await getDocs(q);
+        const snapshot = serverReads
+          ? {
+              docs: (
+                await fetchShiftData({ purpose: "overview", startMs: sevenDaysAgo.getTime(), endMs: Date.now() + 60000, want: { clockEvents: true } })
+              ).clockEvents.filter((d) => d.data().type === "in"),
+            }
+          : await getDocs(q);
 
         const dayBuckets = new Map<string, Set<string>>();
         const dayLabels: string[] = [];
@@ -109,7 +146,7 @@ export function useDashboardStatus() {
         }
 
         snapshot.docs.forEach((docSnap) => {
-          const data = docSnap.data() as ClockEvent;
+          const data = docSnap.data() as unknown as ClockEvent;
           if (!data.timestamp) return;
           const key = data.timestamp.toDate().toDateString();
           if (dayBuckets.has(key)) {
@@ -134,7 +171,7 @@ export function useDashboardStatus() {
     }
 
     loadWeeklyAttendance();
-  }, [userData?.companyId]);
+  }, [userData?.companyId, serverReads]);
 
   // Determine each employee's latest event by EFFECTIVE time, not by the
   // order Firestore returned (which is raw-timestamp order). A back-dated
@@ -213,6 +250,9 @@ export function useDashboardStatus() {
   useEffect(() => {
     if (!userData?.companyId) return;
     if (inactiveEmployeeIds.size === 0) return;
+    // A restricted admin can't write clock events directly; the owner /
+    // an all-sites admin's Overview does this backfill.
+    if (serverReads) return;
 
     const orphaned = currentlyActive.filter((event) =>
       inactiveEmployeeIds.has(event.employeeId)
@@ -278,7 +318,7 @@ export function useDashboardStatus() {
         console.error("Deactivated-employee backfill clock-out error:", err);
       }
     });
-  }, [currentlyActive, employees, userData?.companyId]);
+  }, [currentlyActive, employees, userData?.companyId, serverReads]);
 
   return {
     loading,

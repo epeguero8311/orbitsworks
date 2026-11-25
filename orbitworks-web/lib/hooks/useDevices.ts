@@ -6,6 +6,7 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { deviceConverter } from "@/lib/firebase/converters";
 import type { Device } from "@/lib/types";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 
 export interface UnnamedDevice {
   deviceId: string;
@@ -21,6 +22,7 @@ const RECENT_EVENTS_SCAN_LIMIT = 300;
 
 export function useDevices() {
   const { userData } = useAuth();
+  const { serverReads } = useAdminAccess();
   const [devices, setDevices] = useState<Device[]>([]);
   const [devicesLoading, setDevicesLoading] = useState(true);
   const [devicesError, setDevicesError] = useState(false);
@@ -51,6 +53,9 @@ export function useDevices() {
 
   useEffect(() => {
     if (!userData?.companyId) return;
+    // Task 4 (D18 Devices B): a restricted admin can't scan clock events, so
+    // the unnamed-devices section is hidden for them (unnamedHidden below).
+    if (serverReads) return;
 
     const eventsRef = collection(db, "companies", userData.companyId, "clockEvents");
     const q = query(eventsRef, orderBy("timestamp", "desc"), limit(RECENT_EVENTS_SCAN_LIMIT));
@@ -77,7 +82,7 @@ export function useDevices() {
     );
 
     return unsubscribe;
-  }, [userData?.companyId]);
+  }, [userData?.companyId, serverReads]);
 
   const unnamedDevices: UnnamedDevice[] = useMemo(() => {
     const namedIds = new Set(devices.map((d) => d.id));
@@ -88,7 +93,8 @@ export function useDevices() {
 
   return {
     devices,
-    unnamedDevices,
+    unnamedDevices: serverReads ? [] : unnamedDevices,
+    unnamedHidden: serverReads,
     loading: devicesLoading,
     error: devicesError,
   };

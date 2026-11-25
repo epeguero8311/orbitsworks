@@ -21,6 +21,8 @@ import { applyAutoBreak } from "@/lib/autoBreak";
 import { computeOvertime, overtimeWeekKey, type OvertimeShiftInput } from "@/lib/overtime";
 import { effectiveOvertimeRate } from "@/lib/reportOvertime";
 import type { EmployeeHistoryOvertimeExport } from "@/lib/reportExcelUtils";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
+import { fetchShiftData } from "@/lib/shiftData";
 
 export type EmployeeHistoryDayRow = {
   dateLabel: string;
@@ -66,6 +68,7 @@ type EventWithDate = Omit<ClockEvent, "id"> & {
 export function useEmployeeTimesheet() {
   const { userData } = useAuth();
   const { settings } = useCompanySettings();
+  const { serverReads, can } = useAdminAccess();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -128,7 +131,28 @@ export function useEmployeeTimesheet() {
           where("timestamp", "<=", Timestamp.fromDate(end)),
           orderBy("timestamp", "asc")
         );
-        const snapshot = await getDocs(q);
+        // Task 4 (D2/D4): a restricted admin reads it through the server -
+        // every site with Export payroll (it's an export), else their sites.
+        const serverData = serverReads
+          ? await fetchShiftData({
+              purpose: can("exportPayroll") ? "export" : "shifts",
+              startMs: fetchStart.getTime(),
+              endMs: end.getTime(),
+              startDate: fetchStartKey,
+              endDate,
+              employeeId,
+              want: { clockEvents: true, approvals: true },
+            })
+          : null;
+        const snapshot = serverData
+          ? {
+              docs: [...serverData.clockEvents].sort(
+                (a, b) =>
+                  ((a.data().timestamp as Timestamp | undefined)?.toMillis() ?? 0) -
+                  ((b.data().timestamp as Timestamp | undefined)?.toMillis() ?? 0)
+              ),
+            }
+          : await getDocs(q);
         const events: EventWithDate[] = snapshot.docs.map((d) => {
           const data = d.data() as Omit<ClockEvent, "id">;
           const effective = (data.adjustedTimestamp ?? data.timestamp) as Timestamp;
@@ -146,7 +170,7 @@ export function useEmployeeTimesheet() {
           where("date", ">=", fetchStartKey),
           where("date", "<=", endDate)
         );
-        const approvalsSnapshot = await getDocs(approvalsQuery);
+        const approvalsSnapshot = serverData ? { docs: serverData.approvals } : await getDocs(approvalsQuery);
         const approvalByClockInId = new Map<string, TimesheetApproval>();
         approvalsSnapshot.docs.forEach((d) => {
           approvalByClockInId.set(d.id, { id: d.id, ...(d.data() as Omit<TimesheetApproval, "id">) });
@@ -371,7 +395,7 @@ export function useEmployeeTimesheet() {
       }
     },
     // settings as a whole: the Overtime branch reads several of its fields.
-    [userData, settings]
+    [userData, settings, serverReads, can]
   );
 
   return { runTimesheet, loading, error };

@@ -4,21 +4,22 @@ import { useEffect, useMemo, useState } from "react";
 import {
   collection,
   onSnapshot,
-  addDoc,
   getDocs,
   query,
   where,
   orderBy,
   limit,
-  serverTimestamp,
   Timestamp,
   QueryConstraint,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { db, functions } from "@/lib/firebase";
+import { httpsCallable } from "firebase/functions";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
+import { fetchShiftData, SERVER_REFRESH_MS } from "@/lib/shiftData";
 import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { deriveStatus, ClockStatus } from "@/lib/clockStatus";
-import { dateKey, isSameDay } from "@/lib/dashboardOverviewUtils";
+import { isSameDay } from "@/lib/dashboardOverviewUtils";
 import type { ClockEvent, Employee, JobSite } from "@/lib/types";
 
 export type ClockDirection = "in" | "out" | "breakStart" | "breakEnd";
@@ -35,9 +36,37 @@ export function useClockEvents() {
   const { settings } = useCompanySettings();
   const [recentEvents, setRecentEvents] = useState<ClockEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  // Task 4 (D2): a restricted admin gets the latest events of their sites'
+  // shifts from the server (last 8 days), refreshed every 30 s.
+  const { serverReads } = useAdminAccess();
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     if (!userData?.companyId) return;
+    if (serverReads) {
+      let cancelled = false;
+      const load = () =>
+        fetchShiftData({ purpose: "shifts", startMs: Date.now() - 8 * 86400000, endMs: Date.now() + 60000, want: { clockEvents: true } })
+          .then((res) => {
+            if (cancelled) return;
+            const evs = res.clockEvents
+              .map((d) => ({ id: d.id, ...(d.data() as Omit<ClockEvent, "id">) }))
+              .sort((a, b) => (b.timestamp?.toMillis() ?? 0) - (a.timestamp?.toMillis() ?? 0))
+              .slice(0, 50);
+            setRecentEvents(evs);
+            setLoading(false);
+          })
+          .catch((err) => {
+            console.error("Clock events server load error:", err);
+            if (!cancelled) setLoading(false);
+          });
+      load();
+      const timer = setInterval(load, SERVER_REFRESH_MS);
+      return () => {
+        cancelled = true;
+        clearInterval(timer);
+      };
+    }
 
     const eventsRef = collection(
       db,
@@ -65,7 +94,7 @@ export function useClockEvents() {
     );
 
     return unsubscribe;
-  }, [userData?.companyId]);
+  }, [userData?.companyId, serverReads, refreshTick]);
 
   // Determine each employee's LATEST event by effective time
   // (adjustedTimestamp ?? timestamp), not by the order Firestore returned
@@ -130,6 +159,12 @@ export function useClockEvents() {
     return status === "break"; // breakEnd
   }
 
+  // Task 4 (D18): the Time page's manual clock actions go through ONE
+  // server call for every admin (adminClockAction: Approve hours + the
+  // shift's site). A stale open session from a prior day is closed first at
+  // that day's business close (or end of day if they clocked in after
+  // close), backdated as before; on clock-out a running break is ended
+  // first (server side, source autoBreakEnd).
   async function recordManualClockEvent(
     employee: Employee,
     site: JobSite | undefined,
@@ -138,94 +173,55 @@ export function useClockEvents() {
   ) {
     if (!userData?.companyId || !currentUser) return;
 
-    const eventsRef = collection(
-      db,
-      "companies",
-      userData.companyId,
-      "clockEvents"
-    );
-
-    // Close out a stale open session from a prior day before starting
-    // today's, backdated to that day's business close (or end of day, if
-    // they clocked in after close) - otherwise the "in" written below
-    // would just extend a session that's actually days old instead of
-    // starting a fresh one.
+    let closeStaleAtMs: number | undefined;
     if (direction === "in" && isStaleOpenSession(employee.id)) {
       const staleEvent = latestEventFor(employee.id);
-      const staleTs = staleEvent
-        ? staleEvent.adjustedTimestamp ?? staleEvent.timestamp
-        : undefined;
-
-      if (staleEvent && staleTs) {
+      const staleTs = staleEvent ? staleEvent.adjustedTimestamp ?? staleEvent.timestamp : undefined;
+      if (staleTs) {
         const staleDate = staleTs.toDate();
-        const [closeH, closeM] = settings.businessHours.close
-          .split(":")
-          .map(Number);
+        const [closeH, closeM] = settings.businessHours.close.split(":").map(Number);
         const closeTime = new Date(staleDate);
         closeTime.setHours(closeH, closeM, 0, 0);
         if (closeTime.getTime() <= staleDate.getTime()) {
           closeTime.setHours(23, 59, 0, 0);
         }
-
-        await addDoc(eventsRef, {
-          employeeId: employee.id,
-          employeeName: employee.name,
-          siteId: staleEvent.siteId ?? null,
-          siteName: staleEvent.siteName ?? "Not specified",
-          subcontractorId: employee.subcontractorId ?? null,
-          subcontractorName: employee.subcontractorName ?? null,
-          type: "out",
-          source: "adminManual",
-          note: `Auto-closed stale session from ${dateKey(staleDate)} before clocking in today`,
-          createdByUid: currentUser.uid,
-          authorizedById: currentUser.uid,
-          authorizedByName: userData.name ?? currentUser.email ?? "Admin",
-          timestamp: Timestamp.fromDate(closeTime),
-          createdAt: serverTimestamp(),
-        });
+        closeStaleAtMs = closeTime.getTime();
       }
     }
 
-    if (direction === "out" && statusOf(employee.id) === "break") {
-      await addDoc(eventsRef, {
-        employeeId: employee.id,
-        employeeName: employee.name,
-        siteId: site?.id ?? null,
-        siteName: site?.name ?? "Not specified",
-        subcontractorId: employee.subcontractorId ?? null,
-        subcontractorName: employee.subcontractorName ?? null,
-        type: "breakEnd",
-        source: "autoBreakEnd",
-        createdByUid: currentUser.uid,
-        authorizedById: currentUser.uid,
-        authorizedByName: userData.name ?? currentUser.email ?? "Admin",
-        timestamp: serverTimestamp(),
-        createdAt: serverTimestamp(),
-      });
-    }
-
-    await addDoc(eventsRef, {
+    const fn = httpsCallable(functions, "adminClockAction");
+    await fn({
       employeeId: employee.id,
-      employeeName: employee.name,
-      siteId: site?.id ?? null,
-      siteName: site?.name ?? "Not specified",
-      subcontractorId: employee.subcontractorId ?? null,
-      subcontractorName: employee.subcontractorName ?? null,
-      type: direction,
-      source: "adminManual",
+      action: direction,
+      ...(direction === "in" ? { siteId: site?.id ?? null } : {}),
       note: note.trim(),
-      createdByUid: currentUser.uid,
-      authorizedById: currentUser.uid,
-      authorizedByName: userData.name ?? currentUser.email ?? "Admin",
-      timestamp: serverTimestamp(),
-      createdAt: serverTimestamp(),
+      ...(closeStaleAtMs ? { closeStaleAtMs } : {}),
     });
+    if (serverReads) setRefreshTick((t) => t + 1);
   }
 
   async function searchClockEvents(
     filters: ClockEventSearchFilters
   ): Promise<ClockEvent[]> {
     if (!userData?.companyId) return [];
+
+    // Task 4 (D2): restricted admins search their sites through the server.
+    if (serverReads) {
+      const fromMs = filters.fromDate ? new Date(`${filters.fromDate}T00:00:00`).getTime() : Date.now() - 90 * 86400000;
+      const toMs = filters.toDate ? new Date(`${filters.toDate}T23:59:59`).getTime() : Date.now() + 60000;
+      const res = await fetchShiftData({
+        purpose: "shifts",
+        startMs: fromMs,
+        endMs: toMs,
+        ...(filters.employeeId ? { employeeId: filters.employeeId } : {}),
+        want: { clockEvents: true },
+      });
+      return res.clockEvents
+        .map((d) => ({ id: d.id, ...(d.data() as Omit<ClockEvent, "id">) }))
+        .filter((e) => !filters.siteId || e.siteId === filters.siteId)
+        .sort((a, b) => (b.timestamp?.toMillis() ?? 0) - (a.timestamp?.toMillis() ?? 0))
+        .slice(0, 100);
+    }
 
     const eventsRef = collection(
       db,

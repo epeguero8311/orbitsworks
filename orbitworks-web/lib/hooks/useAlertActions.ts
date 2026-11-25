@@ -159,57 +159,25 @@ export function useAlertActions() {
     }
   }
 
+  // Task 4 (D18): the alert clock actions go through ONE server call for
+  // every admin (adminClockAction: Approve hours + the shift's site), not
+  // a direct clock-event write. Same events as before (adminManual, the
+  // same notes); the server finds the employee's open shift.
+  async function clockAction(alert: AlertItem, action: "out" | "breakEnd" | "outAt", note: string, atMs?: number) {
+    if (!alert.event || !userData?.companyId) return;
+    const fn = httpsCallable(functions, "adminClockAction");
+    await fn({ employeeId: alert.event.employeeId, action, note, ...(atMs !== undefined ? { atMs } : {}) });
+  }
+
   async function clockOutFromAlert(alert: AlertItem) {
     if (!alert.event || !userData?.companyId) return;
-    const eventsRef = collection(
-      db,
-      "companies",
-      userData.companyId,
-      "clockEvents"
-    );
-    await addDoc(eventsRef, {
-      employeeId: alert.event.employeeId,
-      employeeName: alert.event.employeeName,
-      siteId: alert.event.siteId,
-      siteName: alert.event.siteName,
-      subcontractorId: alert.event.subcontractorId ?? null,
-      subcontractorName: alert.event.subcontractorName ?? null,
-      type: "out",
-      source: "adminManual",
-      note: "Clocked out from alert",
-      createdByUid: currentUser?.uid,
-      authorizedById: currentUser?.uid,
-      authorizedByName: currentUser?.displayName || currentUser?.email || "Admin",
-      timestamp: Timestamp.fromDate(new Date()),
-      createdAt: serverTimestamp(),
-    });
+    await clockAction(alert, "out", "Clocked out from alert");
     await recordAlertAction(alert, "resolved", "clockOut");
   }
 
   async function endBreakFromAlert(alert: AlertItem) {
     if (!alert.event || !userData?.companyId) return;
-    const eventsRef = collection(
-      db,
-      "companies",
-      userData.companyId,
-      "clockEvents"
-    );
-    await addDoc(eventsRef, {
-      employeeId: alert.event.employeeId,
-      employeeName: alert.event.employeeName,
-      siteId: alert.event.siteId,
-      siteName: alert.event.siteName,
-      subcontractorId: alert.event.subcontractorId ?? null,
-      subcontractorName: alert.event.subcontractorName ?? null,
-      type: "breakEnd",
-      source: "adminManual",
-      note: "Break ended from alert",
-      createdByUid: currentUser?.uid,
-      authorizedById: currentUser?.uid,
-      authorizedByName: currentUser?.displayName || currentUser?.email || "Admin",
-      timestamp: Timestamp.fromDate(new Date()),
-      createdAt: serverTimestamp(),
-    });
+    await clockAction(alert, "breakEnd", "Break ended from alert");
     await recordAlertAction(alert, "resolved", "endBreak");
   }
 
@@ -218,28 +186,7 @@ export function useAlertActions() {
     if (!Number.isFinite(chosenMs)) {
       throw new Error("Invalid date/time.");
     }
-    const eventsRef = collection(
-      db,
-      "companies",
-      userData.companyId,
-      "clockEvents"
-    );
-    await addDoc(eventsRef, {
-      employeeId: alert.event.employeeId,
-      employeeName: alert.event.employeeName,
-      siteId: alert.event.siteId,
-      siteName: alert.event.siteName,
-      subcontractorId: alert.event.subcontractorId ?? null,
-      subcontractorName: alert.event.subcontractorName ?? null,
-      type: "out",
-      source: "adminManual",
-      note: "Clock-out time set from alert",
-      createdByUid: currentUser?.uid,
-      authorizedById: currentUser?.uid,
-      authorizedByName: currentUser?.displayName || currentUser?.email || "Admin",
-      timestamp: Timestamp.fromDate(new Date(chosenMs)),
-      createdAt: serverTimestamp(),
-    });
+    await clockAction(alert, "outAt", "Clock-out time set from alert", chosenMs);
     await recordAlertAction(alert, "resolved", "editTime");
   }
 

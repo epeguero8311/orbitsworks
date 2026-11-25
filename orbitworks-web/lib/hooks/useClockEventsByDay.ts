@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, orderBy, query, where, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
+import { fetchShiftData, SERVER_REFRESH_MS } from "@/lib/shiftData";
 import { ClockEvent } from "@/lib/types";
 
 // Live-listens to one calendar day's clock events (browser-local day, as
@@ -30,10 +32,35 @@ function dayBounds(dateStr: string) {
 export function useClockEventsByDay(companyId: string | undefined, dateStr: string) {
   const key = `${companyId ?? ""}|${dateStr}`;
   const [loaded, setLoaded] = useState<Loaded>({ key: "", all: [], error: "" });
+  // Task 4 (D2): a restricted admin loads their sites' shifts from the server.
+  const { serverReads } = useAdminAccess();
 
   useEffect(() => {
     if (!companyId || !dateStr) return;
     const { before, after } = dayBounds(dateStr);
+    if (serverReads) {
+      const myKey = `${companyId}|${dateStr}`;
+      let cancelled = false;
+      const load = () =>
+        fetchShiftData({ purpose: "shifts", startMs: before.getTime(), endMs: after.getTime(), want: { clockEvents: true } })
+          .then((res) => {
+            if (cancelled) return;
+            const all = res.clockEvents
+              .map((d) => ({ id: d.id, ...(d.data() as Omit<ClockEvent, "id">) }))
+              .sort((a, b) => (b.timestamp?.toMillis() ?? 0) - (a.timestamp?.toMillis() ?? 0));
+            setLoaded({ key: myKey, all, error: "" });
+          })
+          .catch((err) => {
+            console.error("Clock events by day server load error:", err);
+            if (!cancelled) setLoaded({ key: myKey, all: [], error: "Couldn't load clock events for this day." });
+          });
+      load();
+      const timer = setInterval(load, SERVER_REFRESH_MS);
+      return () => {
+        cancelled = true;
+        clearInterval(timer);
+      };
+    }
     const q = query(
       collection(db, "companies", companyId, "clockEvents"),
       where("timestamp", ">=", Timestamp.fromDate(before)),
@@ -52,7 +79,7 @@ export function useClockEventsByDay(companyId: string | undefined, dateStr: stri
         setLoaded({ key: myKey, all: [], error: "Couldn't load clock events for this day." });
       }
     );
-  }, [companyId, dateStr]);
+  }, [companyId, dateStr, serverReads]);
 
   return useMemo(() => {
     const current = loaded.key === key ? loaded : { key, all: [], error: "" };
