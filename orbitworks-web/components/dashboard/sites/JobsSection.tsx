@@ -6,6 +6,7 @@ import { useShowMore } from "@/lib/hooks/useShowMore";
 import { TITLES_PAGE_SIZE } from "@/lib/listPaging";
 import { ShowMoreButton } from "@/components/dashboard/ShowMoreButton";
 import { EditJobModal } from "@/components/dashboard/sites/EditJobModal";
+import { isBelowOvertimeFloor, overtimeRateFloor, parseOvertimeRateInput } from "@/lib/jobOvertimeRate";
 
 export default function JobsSection() {
   const {
@@ -23,6 +24,8 @@ export default function JobsSection() {
 
   const [jobName, setJobName] = useState("");
   const [jobRate, setJobRate] = useState("");
+  // Overtime (Task 1): optional fixed OT $/hr. Blank = rate x multiplier.
+  const [jobOtRate, setJobOtRate] = useState("");
   const [isSubmittingJob, setIsSubmittingJob] = useState(false);
   const [jobError, setJobError] = useState("");
 
@@ -31,6 +34,14 @@ export default function JobsSection() {
   const jobsPage = useShowMore(sortedJobs, TITLES_PAGE_SIZE);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const jobForModal = editingJobId ? jobs.find((j) => j.id === editingJobId) ?? null : null;
+
+  // Warn only (never blocks): a fixed OT rate below 1.5x the hourly rate.
+  const addFormRate = parseFloat(jobRate.trim());
+  const addFormOtRate = parseOvertimeRateInput(jobOtRate);
+  const addFormOtWarning =
+    !isNaN(addFormRate) && addFormOtRate != null && isBelowOvertimeFloor(addFormRate, addFormOtRate)
+      ? `Overtime rate is below 1.5x the hourly rate ($${overtimeRateFloor(addFormRate).toFixed(2)}). It will still save.`
+      : "";
 
   async function handleAddJob(e: FormEvent) {
     e.preventDefault();
@@ -44,9 +55,16 @@ export default function JobsSection() {
         setIsSubmittingJob(false);
         return;
       }
-      await addJob(jobName, rate);
+      const otRate = parseOvertimeRateInput(jobOtRate);
+      if (otRate === undefined) {
+        setJobError("Enter a valid overtime rate, or leave it blank.");
+        setIsSubmittingJob(false);
+        return;
+      }
+      await addJob(jobName, rate, otRate);
       setJobName("");
       setJobRate("");
+      setJobOtRate("");
     } catch (err) {
       console.error("Add job title error:", err);
       setJobError("Couldn't add the title. Try again.");
@@ -98,6 +116,21 @@ export default function JobsSection() {
             placeholder="25.00"
           />
         </div>
+        <div className="flex-1">
+          <label htmlFor="jobOtRate" className="mb-1.5 block text-sm font-medium text-gray-950">
+            Overtime rate <span className="font-normal text-gray-600">(optional)</span>
+          </label>
+          <input
+            id="jobOtRate"
+            type="number"
+            step="0.01"
+            min="0"
+            value={jobOtRate}
+            onChange={(e) => setJobOtRate(e.target.value)}
+            className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            placeholder="Rate x multiplier"
+          />
+        </div>
         <button
           type="submit"
           disabled={isSubmittingJob}
@@ -106,6 +139,7 @@ export default function JobsSection() {
           {isSubmittingJob ? "Adding..." : "Add title"}
         </button>
       </form>
+      {addFormOtWarning && <p className="mt-2 text-sm text-amber-700">{addFormOtWarning}</p>}
       {jobError && <p className="mt-2 text-sm text-red-600">{jobError}</p>}
 
       <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 bg-white">
@@ -121,6 +155,7 @@ export default function JobsSection() {
               <tr>
                 <th className="px-4 py-2 font-medium">Name</th>
                 <th className="px-4 py-2 font-medium">Hourly rate</th>
+                <th className="px-4 py-2 font-medium">Overtime rate</th>
                 <th className="px-4 py-2 font-medium">Status</th>
                 <th className="px-4 py-2 font-medium"></th>
               </tr>
@@ -130,6 +165,18 @@ export default function JobsSection() {
                 <tr key={job.id} className="border-b border-gray-200 last:border-0">
                   <td className="px-4 py-2.5 text-gray-950">{job.name}</td>
                   <td className="px-4 py-2.5 text-gray-600">${job.hourlyRate.toFixed(2)}/hr</td>
+                  <td className="px-4 py-2.5 text-gray-600">
+                    {job.overtimeRate != null ? (
+                      <>
+                        ${job.overtimeRate.toFixed(2)}/hr
+                        {isBelowOvertimeFloor(job.hourlyRate, job.overtimeRate) && (
+                          <span className="ml-2 text-xs text-amber-700">Below 1.5x</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-gray-400">Multiplier</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5">
                     <span
                       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${

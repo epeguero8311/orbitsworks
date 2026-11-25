@@ -20,6 +20,16 @@ service cloud.firestore {
     // checked when a write actually touches the field, so a company that
     // never saved them (or a save that leaves them alone) is unaffected.
     // Mirrors lib/validators/overtimeSettings.ts.
+    // Titles & Pay: overtimeRate is a non-negative number or null (blank =
+    // company multiplier); overtimeRateHistory is a list. Mirrors
+    // lib/validators/job.ts.
+    function validJobOvertimeFields() {
+      let d = request.resource.data;
+      return (!('overtimeRate' in d) || d.overtimeRate == null ||
+          (d.overtimeRate is number && d.overtimeRate >= 0)) &&
+        (!('overtimeRateHistory' in d) || d.overtimeRateHistory is list);
+    }
+
     function validCompanyOvertimeFields() {
       let d = request.resource.data;
       let changed = d.diff(resource.data).affectedKeys();
@@ -425,7 +435,13 @@ service cloud.firestore {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           notEmployee();
-        allow write: if request.auth != null &&
+        // Overtime (Task 1): create/update also type-check the optional
+        // fixed Overtime rate and its history (validJobOvertimeFields).
+        allow create, update: if request.auth != null &&
+          isAdminOrOwner() &&
+          request.auth.token.companyId == companyId &&
+          validJobOvertimeFields();
+        allow delete: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId;
       }

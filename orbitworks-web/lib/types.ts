@@ -52,6 +52,19 @@ export interface Job {
   // Analytics resolves a past date's rate from here instead of the live
   // hourlyRate, so a raise today can't rewrite yesterday's cost.
   rateHistory?: RateHistoryEntry[];
+  // Overtime (Task 1): optional fixed overtime $/hr for this title. When
+  // set it REPLACES the company multiplier for this job; null/undefined =
+  // hourlyRate x overtimeMultiplier. Has its own effective-dated history,
+  // same idea as rateHistory (see lib/jobOvertimeRate.ts).
+  overtimeRate?: number | null;
+  overtimeRateHistory?: OvertimeRateHistoryEntry[];
+}
+
+// One entry per Overtime rate change on a title. overtimeRate null = the
+// title had no fixed OT rate from that date (multiplier applied).
+export interface OvertimeRateHistoryEntry {
+  overtimeRate: number | null;
+  effectiveFrom: string;
 }
 
 export interface Subcontractor {

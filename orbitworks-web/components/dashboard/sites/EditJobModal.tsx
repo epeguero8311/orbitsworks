@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { dateKey } from "@/lib/reportUtils";
+import { isBelowOvertimeFloor, overtimeRateFloor, parseOvertimeRateInput } from "@/lib/jobOvertimeRate";
+import type { OvertimeRateChange } from "@/lib/hooks/useJobs";
 import type { Job } from "@/lib/types";
 
 type RateChange = { previousRate: number; previousHistory?: Job["rateHistory"]; effectiveFrom: string };
@@ -18,13 +20,20 @@ export function EditJobModal({
   onClose,
 }: {
   job: Job;
-  updateJob: (jobId: string, name: string, hourlyRate: number, rateChange?: RateChange) => Promise<void>;
+  updateJob: (
+    jobId: string,
+    name: string,
+    hourlyRate: number,
+    rateChange?: RateChange,
+    overtime?: { overtimeRate: number | null; change?: OvertimeRateChange }
+  ) => Promise<void>;
   toggleJobActive: (job: Job) => Promise<void>;
   deleteJob: (jobId: string) => Promise<void>;
   onClose: () => void;
 }) {
   const [name, setName] = useState(job.name);
   const [rate, setRate] = useState(String(job.hourlyRate));
+  const [otRate, setOtRate] = useState(job.overtimeRate != null ? String(job.overtimeRate) : "");
   const [confirmingRate, setConfirmingRate] = useState(false);
   const [effectiveFrom, setEffectiveFrom] = useState(dateKey(new Date()));
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -32,8 +41,14 @@ export function EditJobModal({
   const [error, setError] = useState("");
 
   const newRate = parseFloat(rate.trim());
-  const isValid = name.trim() !== "" && !isNaN(newRate) && newRate >= 0;
+  // Overtime (Task 1): blank = no fixed OT rate (multiplier applies).
+  const newOtRate = parseOvertimeRateInput(otRate);
+  const isValid = name.trim() !== "" && !isNaN(newRate) && newRate >= 0 && newOtRate !== undefined;
   const rateChanged = isValid && newRate !== job.hourlyRate;
+  const previousOtRate = job.overtimeRate ?? null;
+  const otRateChanged = isValid && newOtRate !== previousOtRate;
+  // Warn only, never blocks the save.
+  const showOtFloorWarning = !isNaN(newRate) && newOtRate != null && isBelowOvertimeFloor(newRate, newOtRate);
 
   async function run(action: () => Promise<void>, failText: string) {
     setBusy(true);
@@ -51,12 +66,20 @@ export function EditJobModal({
 
   function save() {
     if (!isValid) return;
-    if (rateChanged && !confirmingRate) {
+    if ((rateChanged || otRateChanged) && !confirmingRate) {
       setConfirmingRate(true);
       return;
     }
     const change = rateChanged ? { previousRate: job.hourlyRate, previousHistory: job.rateHistory, effectiveFrom } : undefined;
-    run(() => updateJob(job.id, name, newRate, change), "Couldn't save the title. Try again.");
+    // Only sent when the OT rate actually changed, so saving a rename never
+    // adds an overtimeRate key to a title that never had one.
+    const overtime = otRateChanged
+      ? {
+          overtimeRate: newOtRate ?? null,
+          change: { previousOvertimeRate: previousOtRate, previousHistory: job.overtimeRateHistory, effectiveFrom },
+        }
+      : undefined;
+    run(() => updateJob(job.id, name, newRate, change, overtime), "Couldn't save the title. Try again.");
   }
 
   const btn = "rounded-lg px-5 py-2.5 text-sm font-medium disabled:opacity-60";
@@ -102,6 +125,32 @@ export function EditJobModal({
               }}
               className="w-40 rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
+          </div>
+          <div>
+            <label htmlFor="editJobOtRate" className="mb-1.5 block text-sm font-medium text-gray-950">
+              Overtime rate <span className="font-normal text-gray-600">(optional)</span>
+            </label>
+            <input
+              id="editJobOtRate"
+              type="number"
+              step="0.01"
+              min="0"
+              value={otRate}
+              placeholder="Rate x multiplier"
+              onChange={(e) => {
+                setOtRate(e.target.value);
+                setConfirmingRate(false);
+              }}
+              className="w-40 rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            />
+            <p className="mt-1 text-xs text-gray-600">
+              If set, replaces the Overtime Pay multiplier for this title. Blank = hourly rate x multiplier.
+            </p>
+            {showOtFloorWarning && (
+              <p className="mt-1 text-xs text-amber-700">
+                Below 1.5x the hourly rate (${overtimeRateFloor(newRate).toFixed(2)}). It will still save.
+              </p>
+            )}
           </div>
 
           {confirmingRate && (

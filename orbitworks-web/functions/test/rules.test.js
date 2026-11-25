@@ -756,3 +756,31 @@ test("overtime: a cross-company admin still can't write them", async () => {
   const db = crossCompanyContext().firestore();
   await assertFails(updateDoc(doc(db, "companies", COMPANY_A), { overtimeEnabled: true }));
 });
+
+// ---- Overtime (Task 1): Titles & Pay overtimeRate type checks ----
+
+test("job overtime rate: admin can create/update with a number, null, or none", async () => {
+  const db = adminContext().firestore();
+  const ref = doc(db, "companies", COMPANY_A, "jobs", "job1");
+  await assertSucceeds(setDoc(ref, { name: "Laborer", hourlyRate: 15, active: true }));
+  await assertSucceeds(updateDoc(ref, { overtimeRate: 40 }));
+  await assertSucceeds(
+    updateDoc(ref, { overtimeRate: null, overtimeRateHistory: [{ overtimeRate: 40, effectiveFrom: "2026-11-01" }] })
+  );
+  await assertSucceeds(setDoc(doc(db, "companies", COMPANY_A, "jobs", "job2"), { name: "Foreman", hourlyRate: 23, active: true, overtimeRate: 30 }));
+});
+
+test("job overtime rate: wrong types are refused, delete still works", async () => {
+  const db = adminContext().firestore();
+  const ref = doc(db, "companies", COMPANY_A, "jobs", "job1");
+  await assertSucceeds(setDoc(ref, { name: "Laborer", hourlyRate: 15, active: true }));
+  await assertFails(updateDoc(ref, { overtimeRate: -1 }));
+  await assertFails(updateDoc(ref, { overtimeRate: "40" }));
+  await assertFails(updateDoc(ref, { overtimeRateHistory: "x" }));
+  await assertSucceeds(deleteDoc(ref));
+});
+
+test("job overtime rate: a cross-company admin can't write a job", async () => {
+  const db = crossCompanyContext().firestore();
+  await assertFails(setDoc(doc(db, "companies", COMPANY_A, "jobs", "job9"), { name: "X", hourlyRate: 1, active: true, overtimeRate: 2 }));
+});
