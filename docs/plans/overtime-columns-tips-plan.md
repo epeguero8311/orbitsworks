@@ -205,3 +205,11 @@ OT calculation edge rules (Nov 24, 2026, after step 4):
 17. OT rounding moves minutes from regular to OT; total worked hours never change.
 18. Missing clock-out = 0h + flagged incomplete. Only alerts and auto clock-out count an open shift up to "now".
 19. Job title names are limited to 120 characters (zod validator).
+
+Answers after steps 5-6 (Nov 24, 2026):
+20. Overtime OFF = no Overtime column at all in any report/export (overrides "OFF -> column blank" in the plan).
+21. Employee-app texts stay: Overtime = "You have worked X hours this week."; Max hours with Overtime ON = "... hours today" / "in one day".
+22. With Overtime ON, the Overtime warning also fires when daily OT starts (daily overtime after > 0), max once per employee per day, plus the weekly one.
+23. Approve Hours per-shift Max hours flag -> combined day with Overtime ON, fixed in step 8.
+24. Daily worked rounding on a 2+ job day: the extra rounded minutes go to the last-worked job as regular time.
+25. Reports' UTC day grouping (evening shifts on the next day, Overtime OFF paths): left alone on this branch; separate fix after Task 1 (docs/plans/reports-utc-day-grouping-fix.md).
