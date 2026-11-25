@@ -19,7 +19,7 @@ export type DailyBreakdownRow = {
   rate: number | null;
   clockedMinutes: number; // "Hours" - gross clocked time, never rounded
   breakMinutes: number; // "Break" - never rounded
-  workedMinutes: number; // "Worked Hours" - break subtracted, then rounded
+  workedMinutes: number; // "Total Worked" - break subtracted, then rounded
   pay: number | null;
 };
 

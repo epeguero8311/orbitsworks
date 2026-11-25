@@ -7,6 +7,7 @@ import { dateKey } from "@/lib/reportUtils";
 import { minutesToHoursDecimal } from "@/lib/utils/rounding";
 import { buildDailyBreakdownRows } from "@/lib/reportDailyBreakdown";
 import type { OvertimeReportRow } from "@/lib/reportOvertime";
+import { HOURS_COLUMNS as H } from "@/lib/hoursColumns";
 
 export default function PayrollDayView({
   startDate,
@@ -111,10 +112,11 @@ export default function PayrollDayView({
                 <tr>
                   <th className="px-4 py-2 font-medium">Employee</th>
                   <th className="px-4 py-2 font-medium">Job / hourly rate</th>
-                  <th className="px-4 py-2 font-medium">Hours</th>
-                  <th className="px-4 py-2 font-medium">Break</th>
-                  <th className="px-4 py-2 font-medium">Worked Hours</th>
-                  <th className="px-4 py-2 font-medium">Overtime</th>
+                  <th className="px-4 py-2 font-medium" title={H.shift.help}>{H.shift.label}</th>
+                  <th className="px-4 py-2 font-medium" title={H.break.help}>{H.break.label}</th>
+                  <th className="px-4 py-2 font-medium" title={H.regular.help}>{H.regular.label}</th>
+                  <th className="px-4 py-2 font-medium" title={H.overtime.help}>{H.overtime.label}</th>
+                  <th className="px-4 py-2 font-medium" title={H.worked.help}>{H.worked.label}</th>
                   <th className="px-4 py-2 font-medium">Est. pay</th>
                 </tr>
               </thead>
@@ -160,8 +162,9 @@ export default function PayrollDayView({
                     </td>
                     <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.clockedMinutes)}</td>
                     <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.breakMinutes)}</td>
-                    <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.workedMinutes)}</td>
+                    <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.workedMinutes - r.overtimeMinutes)}</td>
                     <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.overtimeMinutes)}</td>
+                    <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.workedMinutes)}</td>
                     <td className="px-4 py-2.5 font-mono text-gray-950">
                       {r.pay != null ? `$${r.pay.toFixed(2)}` : "-"}
                     </td>
@@ -183,9 +186,9 @@ export default function PayrollDayView({
               <tr>
                 <th className="px-4 py-2 font-medium">Employee</th>
                 <th className="px-4 py-2 font-medium">Job / hourly rate</th>
-                <th className="px-4 py-2 font-medium">Hours</th>
-                <th className="px-4 py-2 font-medium">Break</th>
-                <th className="px-4 py-2 font-medium">Worked Hours</th>
+                <th className="px-4 py-2 font-medium" title={H.shift.help}>{H.shift.label}</th>
+                <th className="px-4 py-2 font-medium" title={H.break.help}>{H.break.label}</th>
+                <th className="px-4 py-2 font-medium" title={H.worked.help}>{H.worked.label}</th>
                 <th className="px-4 py-2 font-medium">Est. pay</th>
               </tr>
             </thead>

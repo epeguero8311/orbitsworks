@@ -1,3 +1,4 @@
+import { applyIgnoredErrors, ignoredFormulaErrorsOf } from "@/lib/xlsxIgnoredErrors";
 const HEADER_FILL = "FF3B6FE0";
 const HEADER_FONT_COLOR = "FFFFFFFF";
 
@@ -135,8 +136,10 @@ export function styleDataRows(worksheet: any, headerRowNumber = 1) {
 }
 
 export async function downloadWorkbook(workbook: any, filename: string) {
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
+  // Day total rows etc. registered with markIgnoredFormulaErrors get
+  // Excel's "inconsistent formula" warning switched off (lib/xlsxIgnoredErrors.ts).
+  const buffer = await applyIgnoredErrors(await workbook.xlsx.writeBuffer(), ignoredFormulaErrorsOf(workbook));
+  const blob = new Blob([buffer as BlobPart], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   });
   const url = URL.createObjectURL(blob);

@@ -34,12 +34,13 @@ Expected numbers: docs/plans/overtime-dev-seed-expected.md. Mark each line OK / 
 ## 3. Reports (2026-11-16 to 2026-11-22) - compare with the expected doc
 - [ ] OT Test Co: Payroll table has an Overtime column; A 6.00 / $255.00, C 5.00 / $920.00, D 5.00 / $892.50, E 2.00 / $213.00.
 - [ ] OT Test Co B: B 6.00 / $735.00; Daily breakdown Mon Nov 16 = 14.00 worked / 2.00 OT / $225.00, Fri Nov 20 = 8.00 / 4.00 / $150.00.
-- [ ] Daily breakdown has an Overtime column right after Worked Hours.
+- [ ] Hours columns everywhere: Shift Hours | Break | Regular Hours | Overtime | Total Worked (Regular + Overtime only with Overtime ON); hover tooltips on the Reports headers.
 - [ ] Nov 17: E splits into Laborer 5.00 / 0.00 / $75.00, Foreman B 5.00 / 2.00 / $138.00, Day total 10.00 / 2.00 / $213.00. Job rows have no dropdown.
 - [ ] Nov 19: C and D split into Laborer 1h + Foreman(B) 7h + Day total 8h.
 - [ ] Single-job day dropdown still works: Nov 16 for A, pick Foreman: pay becomes 8 x $23 + 6 x $40 = $424.00 (OT hours unchanged). Refresh resets it.
 - [ ] Payroll CSV: Overtime columns in both tables, Day total rows, same numbers.
-- [ ] Payroll Hours Excel (and Full Report): Overtime column after Worked Hours in both blocks; Day total rows; summary totals match.
+- [ ] Payroll Hours Excel (and Full Report): Shift Hours | Break | Regular Hours | Overtime | Total Worked in both blocks, header notes,
+      Regular = live formula; Day total rows with no green triangles; Hourly Rate "Mixed" for C, D and E; pay header fully visible.
       In Excel, change the Job on a single-job day (e.g. A Nov 16 -> Foreman): Est. Pay and the summary update (OT at $40).
 - [ ] Time History Excel (Clock events > pick "OT C Two Jobs Fixed OT", dates Nov 16-22 > Excel): Overtime column; week row Overtime 5.00, Est. Pay $920.00.
 - [ ] Turn Overtime OFF and Refresh: no Overtime column anywhere, Daily breakdown/Excel/CSV look exactly like before. Turn it back ON.

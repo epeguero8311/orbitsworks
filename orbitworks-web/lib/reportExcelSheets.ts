@@ -1,3 +1,4 @@
+import { HOURS_COLUMNS, addHoursHeaderNotes } from "@/lib/hoursColumns";
 import type {
   EmployeeSummary,
   SessionRecord,
@@ -231,10 +232,12 @@ export function addSummarySheet(
 
     const headerRow = summarySheet.getRow(r);
     headerRow.getCell(1).value = "Employee";
-    headerRow.getCell(2).value = "Total Hours (Including Break)";
-    headerRow.getCell(3).value = "Total Break Hrs";
+    // Hours column names (Nov 25): same numbers, new labels.
+    headerRow.getCell(2).value = HOURS_COLUMNS.shift.label;
+    headerRow.getCell(3).value = HOURS_COLUMNS.break.label;
     headerRow.getCell(4).value = "Company";
     styleHeaderRow(headerRow);
+    addHoursHeaderNotes(headerRow, { shift: 2, break: 3 });
     r += 1;
 
     groupSummaries.forEach((s) => {

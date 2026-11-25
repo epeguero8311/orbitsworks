@@ -361,6 +361,9 @@ export function applyOvertimeOverrides(
 }
 
 export type OvertimeEmployeeTotal = {
+  // Shift Hours / Break for the period, from the same day rows.
+  totalShiftMinutes: number;
+  totalBreakMinutes: number;
   totalWorkedMinutes: number;
   totalOvertimeMinutes: number;
   totalPay: number | null;
@@ -375,10 +378,12 @@ export function computeOvertimeTotals(
   rows: OvertimeReportRow[],
   roundTotalMinutes: RoundingIncrement
 ): Map<string, OvertimeEmployeeTotal> {
-  const acc = new Map<string, { worked: number; ot: number; pay: number | null; defaultRate: number | null }>();
+  const acc = new Map<string, { shift: number; brk: number; worked: number; ot: number; pay: number | null; defaultRate: number | null }>();
   for (const row of rows) {
     if (row.kind === "job") continue;
-    const a = acc.get(row.employeeId) ?? { worked: 0, ot: 0, pay: null, defaultRate: row.defaultRate };
+    const a = acc.get(row.employeeId) ?? { shift: 0, brk: 0, worked: 0, ot: 0, pay: null, defaultRate: row.defaultRate };
+    a.shift += row.clockedMinutes;
+    a.brk += row.breakMinutes;
     a.worked += row.workedMinutes;
     a.ot += row.overtimeMinutes;
     if (row.pay !== null) a.pay = (a.pay ?? 0) + row.pay;
@@ -389,6 +394,8 @@ export function computeOvertimeTotals(
     const totalWorkedMinutes = ceilTo(a.worked, roundTotalMinutes);
     const extra = totalWorkedMinutes - a.worked;
     totals.set(employeeId, {
+      totalShiftMinutes: a.shift,
+      totalBreakMinutes: a.brk,
       totalWorkedMinutes,
       totalOvertimeMinutes: a.ot,
       totalPay: a.pay !== null && a.defaultRate !== null ? a.pay + (extra / 60) * a.defaultRate : a.pay,

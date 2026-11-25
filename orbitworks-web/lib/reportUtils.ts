@@ -7,6 +7,7 @@ import type {
 import type { DailyBreakdownRow, EmployeeRoundedTotal } from "@/lib/reportDailyBreakdown";
 import type { OvertimeReportRow, OvertimeEmployeeTotal } from "@/lib/reportOvertime";
 import { minutesToHoursDecimal } from "@/lib/utils/rounding";
+import { HOURS_COLUMNS, MIXED_RATE_LABEL } from "@/lib/hoursColumns";
 
 export const APPROVALS_CUTOVER_DATE = "2026-09-06";
 
@@ -110,11 +111,12 @@ export function toPayrollCsv(
   dailyRows: DailyBreakdownRow[],
   roundedTotalsByEmployee: Map<string, EmployeeRoundedTotal>
 ) {
+  // Hours column names (Nov 25): same numbers, new labels.
   const header = [
     "Employee",
-    "Total Hours (Including Break, decimal)",
-    "Total Hours (Including Break, h:m)",
-    "Total Break Hrs (decimal)",
+    `${HOURS_COLUMNS.shift.label} (decimal)`,
+    `${HOURS_COLUMNS.shift.label} (h:m)`,
+    `${HOURS_COLUMNS.break.label} (decimal)`,
     "Completed Sessions",
     "Missing Clock-Outs",
     "Hourly Rate",
@@ -135,7 +137,16 @@ export function toPayrollCsv(
     ];
   });
 
-  const dailyHeader = ["Employee", "Date", "Job", "Hourly Rate", "Hours", "Break", "Worked Hours", "Estimated Pay"];
+  const dailyHeader = [
+    "Employee",
+    "Date",
+    "Job",
+    "Hourly Rate",
+    HOURS_COLUMNS.shift.label,
+    HOURS_COLUMNS.break.label,
+    HOURS_COLUMNS.worked.label,
+    "Estimated Pay",
+  ];
   const dailyRowsOut = dailyRows.map((d) => [
     d.employeeName,
     d.date,
@@ -168,12 +179,24 @@ export function toPayrollCsvWithOvertime(
   overtimeRows: OvertimeReportRow[],
   overtimeTotals: Map<string, OvertimeEmployeeTotal>
 ) {
+  // Hours columns (Nov 25): Shift Hours | Break | Regular Hours | Overtime |
+  // Total Worked, Regular = Total Worked - Overtime. Hourly Rate = "Mixed"
+  // for an employee who worked 2+ jobs in the period.
+  const jobsByEmployee = new Map<string, Set<string>>();
+  for (const d of overtimeRows) {
+    if (d.kind === "total") continue;
+    const set = jobsByEmployee.get(d.employeeId) ?? new Set<string>();
+    set.add(d.jobId ?? "(default)");
+    jobsByEmployee.set(d.employeeId, set);
+  }
   const header = [
     "Employee",
-    "Total Hours (Including Break, decimal)",
-    "Total Hours (Including Break, h:m)",
-    "Total Break Hrs (decimal)",
-    "Overtime Hours (decimal)",
+    `${HOURS_COLUMNS.shift.label} (decimal)`,
+    `${HOURS_COLUMNS.shift.label} (h:m)`,
+    `${HOURS_COLUMNS.break.label} (decimal)`,
+    `${HOURS_COLUMNS.regular.label} (decimal)`,
+    `${HOURS_COLUMNS.overtime.label} (decimal)`,
+    `${HOURS_COLUMNS.worked.label} (decimal)`,
     "Completed Sessions",
     "Missing Clock-Outs",
     "Hourly Rate",
@@ -181,20 +204,37 @@ export function toPayrollCsvWithOvertime(
   ];
   const rows = summaries.map((s) => {
     const total = overtimeTotals.get(s.employeeId);
+    const worked = total?.totalWorkedMinutes ?? 0;
+    const ot = total?.totalOvertimeMinutes ?? 0;
+    const mixed = (jobsByEmployee.get(s.employeeId)?.size ?? 0) >= 2;
+    const shiftHours = (total?.totalShiftMinutes ?? 0) / 60;
     return [
       s.employeeName,
-      s.totalHours.toFixed(2),
-      formatHours(s.totalHours),
-      s.totalBreakHours.toFixed(2),
-      minutesToHoursDecimal(total?.totalOvertimeMinutes ?? 0),
+      shiftHours.toFixed(2),
+      formatHours(shiftHours),
+      minutesToHoursDecimal(total?.totalBreakMinutes ?? 0),
+      minutesToHoursDecimal(worked - ot),
+      minutesToHoursDecimal(ot),
+      minutesToHoursDecimal(worked),
       String(s.sessionCount),
       String(s.openSessions),
-      s.hourlyRate != null ? s.hourlyRate.toFixed(2) : "",
+      mixed ? MIXED_RATE_LABEL : s.hourlyRate != null ? s.hourlyRate.toFixed(2) : "",
       total?.totalPay != null ? total.totalPay.toFixed(2) : "",
     ];
   });
 
-  const dailyHeader = ["Employee", "Date", "Job", "Hourly Rate", "Hours", "Break", "Worked Hours", "Overtime Hours", "Estimated Pay"];
+  const dailyHeader = [
+    "Employee",
+    "Date",
+    "Job",
+    "Hourly Rate",
+    HOURS_COLUMNS.shift.label,
+    HOURS_COLUMNS.break.label,
+    HOURS_COLUMNS.regular.label,
+    HOURS_COLUMNS.overtime.label,
+    HOURS_COLUMNS.worked.label,
+    "Estimated Pay",
+  ];
   const dailyRowsOut = overtimeRows.map((d) => [
     d.employeeName,
     d.date,
@@ -202,8 +242,9 @@ export function toPayrollCsvWithOvertime(
     d.rate != null ? d.rate.toFixed(2) : "",
     minutesToHoursDecimal(d.clockedMinutes),
     minutesToHoursDecimal(d.breakMinutes),
-    minutesToHoursDecimal(d.workedMinutes),
+    minutesToHoursDecimal(d.workedMinutes - d.overtimeMinutes),
     minutesToHoursDecimal(d.overtimeMinutes),
+    minutesToHoursDecimal(d.workedMinutes),
     d.pay != null ? d.pay.toFixed(2) : "",
   ]);
 

@@ -223,3 +223,14 @@ Answers after steps 7-9 (Nov 25, 2026):
 31. Employee app My Hours still applies Automatic Break per shift - left as is. FOLLOW-UP (own task, needs an app release): employee app My Hours - Automatic Break once per day when Overtime is ON.
 
 Seed fix (Nov 25): example B was seeded wrong (an extra Saturday 8h, 54h -> 14 OT / $915). The function was right: plan B hours give 6 OT with daily 8 (6 daily + 0 weekly) and with daily 12 (2 daily + 4 weekly). B now lives in its own dev company "OT Test Co B" (daily 12, weekly 40, 1.5x, Monday) and matches the plan exactly: 12 regular + 2 daily OT Mon, 4 weekly OT Fri, total 6, $735. Test added for B hours with daily 8.
+
+After step 10 passed (Nov 25, 2026) - hours columns change + fixes:
+32. Hours columns, everywhere hours show (Reports Summary + Daily Breakdown, Payroll CSV, Payroll Hours Excel incl. Full Report, Time History Excel; also the Timesheets/Full Report "Summary" sheet): Shift Hours | Break | Regular Hours | Overtime | Total Worked.
+    Shift Hours = old Total Hours / Hours; Break = old Break / Total Break Hrs; Regular Hours = NEW = Total Worked - Overtime; Overtime unchanged; Total Worked = old Worked Hours / Total Hours Worked.
+    (1A) Renames everywhere; Regular Hours + Overtime only with Overtime ON. Overtime OFF = same numbers and positions as before, only labels (the legacy OFF Time History Overtime column keeps its place: Shift Hours | Total Worked | Overtime).
+    Excel: Regular Hours is a live formula (Total Worked - Overtime) on every row incl. Day total rows and summaries.
+    (3A) Descriptions as Reports header hover tooltips and Excel header notes: Shift Hours "Total shift duration", Break "Unpaid break", Regular Hours "Hours up to the OT threshold", Overtime "Hours over the OT threshold", Total Worked "Regular + OT". Names/notes live in lib/hoursColumns.ts.
+    With Overtime ON, the Summary's Shift Hours and Break come from the same day rows as the other hours columns (Shift - Break = Total Worked, Regular + Overtime = Total Worked).
+33. (2A) Summary Hourly Rate = "Mixed" when the employee worked 2+ jobs in the period (Overtime ON: Payroll Hours Excel + Payroll CSV).
+34. Excel: the "Estimated Pay (Excluding Break)" column is wide enough for the full header (Payroll Hours, ON and OFF).
+35. Excel: Day total rows carry <ignoredErrors formula/formulaRange> so Excel shows no green "inconsistent formula" triangles (exceljs can't write it; lib/xlsxIgnoredErrors.ts adds it to the saved file; jszip added as a direct dependency - it was already installed via exceljs).

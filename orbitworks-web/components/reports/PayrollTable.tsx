@@ -5,6 +5,7 @@ import { formatHours } from "@/lib/reportUtils";
 import type { EmployeeRoundedTotal } from "@/lib/reportDailyBreakdown";
 import type { OvertimeEmployeeTotal } from "@/lib/reportOvertime";
 import { minutesToHoursDecimal } from "@/lib/utils/rounding";
+import { HOURS_COLUMNS as H } from "@/lib/hoursColumns";
 
 export default function PayrollTable({
   summaries,
@@ -42,8 +43,8 @@ export default function PayrollTable({
 
       <div className="mt-3 grid gap-4 sm:grid-cols-3">
         <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <p className="text-xs font-medium text-gray-600">
-            Total hours - including break ({startDate} to {endDate})
+          <p className="text-xs font-medium text-gray-600" title={H.shift.help}>
+            {H.shift.label} ({startDate} to {endDate})
           </p>
           <p className="mt-1 text-2xl font-semibold text-gray-950">
             {formatHours(totalHoursAll)}
@@ -82,8 +83,15 @@ export default function PayrollTable({
             <thead className="border-b border-gray-200 text-gray-600">
               <tr>
                 <th className="px-4 py-2 font-medium">Employee</th>
-                <th className="px-4 py-2 font-medium">Total hours (incl. break)</th>
-                {overtimeTotals && <th className="px-4 py-2 font-medium">Overtime</th>}
+                <th className="px-4 py-2 font-medium" title={H.shift.help}>{H.shift.label}</th>
+                {overtimeTotals && (
+                  <>
+                    <th className="px-4 py-2 font-medium" title={H.break.help}>{H.break.label}</th>
+                    <th className="px-4 py-2 font-medium" title={H.regular.help}>{H.regular.label}</th>
+                    <th className="px-4 py-2 font-medium" title={H.overtime.help}>{H.overtime.label}</th>
+                    <th className="px-4 py-2 font-medium" title={H.worked.help}>{H.worked.label}</th>
+                  </>
+                )}
                 <th className="px-4 py-2 font-medium">Sessions</th>
                 <th className="px-4 py-2 font-medium">Missing clock-out</th>
                 <th className="px-4 py-2 font-medium">Est. pay (excl. break)</th>
@@ -93,14 +101,27 @@ export default function PayrollTable({
               {summaries.map((s) => (
                 <tr key={s.employeeId} className="border-b border-gray-200 last:border-0">
                   <td className="px-4 py-2.5 text-gray-950">{s.employeeName}</td>
+                  {/* Overtime ON: all five hours columns in decimal hours from
+                      the same day rows, so Shift - Break = Total Worked and
+                      Regular + Overtime = Total Worked. OFF: as before. */}
                   <td className="px-4 py-2.5 font-mono text-gray-950">
-                    {formatHours(s.totalHours)}
+                    {overtimeTotals
+                      ? minutesToHoursDecimal(overtimeTotals.get(s.employeeId)?.totalShiftMinutes ?? 0)
+                      : formatHours(s.totalHours)}
                   </td>
-                  {overtimeTotals && (
-                    <td className="px-4 py-2.5 font-mono text-gray-950">
-                      {minutesToHoursDecimal(overtimeTotals.get(s.employeeId)?.totalOvertimeMinutes ?? 0)}
-                    </td>
-                  )}
+                  {overtimeTotals && (() => {
+                    const t = overtimeTotals.get(s.employeeId);
+                    const worked = t?.totalWorkedMinutes ?? 0;
+                    const ot = t?.totalOvertimeMinutes ?? 0;
+                    return (
+                      <>
+                        <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(t?.totalBreakMinutes ?? 0)}</td>
+                        <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(worked - ot)}</td>
+                        <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(ot)}</td>
+                        <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(worked)}</td>
+                      </>
+                    );
+                  })()}
                   <td className="px-4 py-2.5 text-gray-600">{s.sessionCount}</td>
                   <td className="px-4 py-2.5">
                     {s.openSessions > 0 ? (
