@@ -218,3 +218,54 @@ test("setSiteAdmins (owner / Full only) + a restricted creator gets their new si
   assert.deepEqual((await user("restricted")).adminAccess.sites, ["siteA", "siteD", "siteE"]);
   assert.deepEqual((await claims("restricted")).perms.sort(), ["ah", "inv", "pay"]);
 });
+
+// ---- getShiftData (server read path, D2-D4, D13) ----
+const read = (data, auth) => funcs.getShiftData.run({ data, auth, rawRequest: {} });
+const RANGE = { startMs: Date.parse("2026-11-16T00:00:00-06:00"), endMs: Date.parse("2026-11-16T23:59:59-06:00"), startDate: "2026-11-16", endDate: "2026-11-16" };
+
+test("getShiftData shifts: a restricted admin gets only their sites' shifts + FULL day totals (rule 2)", async () => {
+  const u = await seed();
+  await company().update({ overtimeEnabled: true, dailyOvertimeThreshold: 8, weeklyOvertimeThreshold: 40, overtimeMultiplier: 1.5 });
+  const r = await read({ purpose: "shifts", ...RANGE, want: { clockEvents: true, approvals: true, overtime: true } }, u.restricted);
+  assert.deepEqual(r.clockEvents.map((e) => e.id).sort(), ["sA", "sA-out"]);
+  assert.deepEqual(r.approvals.map((a) => a.id), ["sA"]);
+  assert.ok(r.clockEvents[0].timestamp.__ts > 0, "timestamps travel as { __ts }");
+  // Juan worked 5h on A + 9h on C = 14h that day, 6h OT (daily 8): the
+  // restricted admin sees the full day numbers but no site C shift.
+  assert.deepEqual(r.overtime.sA, { overtimeMinutes: 0, dayKey: "2026-11-16", dayWorkedMinutes: 14 * 60, dayOvertimeMinutes: 6 * 60 });
+  assert.equal(Object.keys(r.overtime).length, 1);
+  // An all-sites admin gets everything (and no server OT - their hook computes it).
+  const all = await read({ purpose: "shifts", ...RANGE, want: { clockEvents: true, approvals: true, overtime: true } }, u.plain);
+  assert.equal(all.clockEvents.length, 4);
+  assert.equal(all.overtime, undefined);
+  // No access yet = nothing.
+  const none = await read({ purpose: "shifts", ...RANGE, want: { clockEvents: true, approvals: true } }, u.nothing);
+  assert.deepEqual([none.clockEvents.length, none.approvals.length], [0, 0]);
+});
+
+test("getShiftData export / analytics need their permission and return every site (rules 3 + 5)", async () => {
+  const u = await seed();
+  await assert.rejects(read({ purpose: "export", ...RANGE, want: { clockEvents: true } }, u.restricted), denied);
+  await assert.rejects(read({ purpose: "analytics", ...RANGE, want: { clockEvents: true } }, u.restricted), denied);
+  await run("setAdminAccess", accessBody("restricted", { permissions: { ...NONE, exportPayroll: true, analytics: true } }), u.owner);
+  const e = await read({ purpose: "export", ...RANGE, want: { clockEvents: true, approvals: true } }, u.restricted);
+  assert.equal(e.clockEvents.length, 4);
+  assert.equal(e.approvals.length, 2);
+  const a = await read({ purpose: "analytics", ...RANGE, want: { clockEvents: true } }, u.restricted);
+  assert.equal(a.clockEvents.length, 4);
+  // By-shift lookups stay site-filtered.
+  const byShift = await read({ purpose: "shifts", clockInEventIds: ["sA", "sC"], want: { approvals: true, tipEdits: false } }, u.restricted);
+  assert.deepEqual(byShift.approvals.map((x) => x.id), ["sA"]);
+});
+
+test("getShiftData overview: every site, but only the recent window (D13)", async () => {
+  const u = await seed();
+  const old = await read({ purpose: "overview", ...RANGE, want: { clockEvents: true } }, u.nothing);
+  assert.equal(old.clockEvents.length, 0, "Nov 16 is outside the last 8 days of the real clock");
+  await run("adminClockAction", { employeeId: "juan", action: "in", siteId: "siteC" }, u.owner);
+  const now = await read({ purpose: "overview", startMs: Date.now() - 86400000, endMs: Date.now() + 60000, want: { clockEvents: true } }, u.nothing);
+  // (Earlier tests' "now" punches can still be in the emulator.) Every site,
+  // and nothing older than the window.
+  assert.ok(now.clockEvents.some((e) => e.type === "in" && e.siteId === "siteC"));
+  assert.ok(now.clockEvents.every((e) => e.timestamp.__ts >= Date.now() - 8 * 86400000));
+});
