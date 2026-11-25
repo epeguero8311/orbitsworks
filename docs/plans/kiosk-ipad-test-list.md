@@ -9,6 +9,8 @@ Logins (functions/scripts/.dev-seed-logins.local, gitignored):
 PINs: Kiosk Ava 2581, Kiosk Ben 3692, Kiosk Cal 4703. (OT A/C/D/E have no PIN - they hold the Overtime test data.)
 Job site auto-detect: OT Test Co has no job sites. For a site on the punch, add one on the website (Sites) at the iPad's address first; without it punches show "Not specified".
 
+iPad rotation: the build lets the iPad rotate (iOS requires all 4 orientations for an iPad app with Split View; phones stay portrait). Screens are not laid out for landscape yet - that is Task 7. Test in portrait; a stretched landscape view is expected, not a bug.
+
 Exit key: website as owner or Kiosk Admin -> Settings -> Mobile app tab -> Kiosks card -> Front iPad -> Make exit key. The 4 digits show once with a 10:00 countdown; single use.
 
 ## On the iPad, in order
