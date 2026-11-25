@@ -5,7 +5,7 @@
 //
 // K9: deny by default. A kiosk token reads only employeeAppConfig and its own
 // users doc, writes nothing in Firestore, and in Storage may only CREATE
-// clock photos (never read one). It never sees pay, PII, PINs or another
+// clock photos where none exists yet (never read or overwrite one). It never sees pay, PII, PINs or another
 // company. Also: nobody else can forge source "kiosk", set the kiosk field,
 // or touch planTierChangedAt; a kiosk invite must link a record + needs Pro.
 // Staff and employee access is covered (unchanged) by rules.test.js,
@@ -164,26 +164,21 @@ test("kiosk invites: must link a record and need Pro", async () => {
 // ===================== Storage =====================
 
 const JPEG = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=";
-const put = (ctx, p, customMetadata) =>
-  uploadString(ref(ctx.storage(), p), JPEG, "data_url", { contentType: "image/jpeg", ...(customMetadata ? { customMetadata } : {}) });
+const put = (ctx, p) => uploadString(ref(ctx.storage(), p), JPEG, "data_url", { contentType: "image/jpeg" });
 
-test("STORAGE kiosk: creates clock photos (stamped with its uid), never reads any", async () => {
+test("STORAGE kiosk: creates new clock photos, never reads or overwrites any", async () => {
   const ctx = kioskCtx();
   const p = `companies/${A}/clockEvents/emp1/11111111-1111-4111-8111-111111111111.jpg`;
-  await assertSucceeds(put(ctx, p, { kioskUid: "kioskUidA" }));
-  // a retry of its own upload is fine
-  await assertSucceeds(put(ctx, p, { kioskUid: "kioskUidA" }));
+  await assertSucceeds(put(ctx, p));
   await assertFails(getBytes(ref(ctx.storage(), p)));
-  // no stamp / someone else's stamp
-  await assertFails(put(ctx, `companies/${A}/clockEvents/emp1/b.jpg`));
-  await assertFails(put(ctx, `companies/${A}/clockEvents/emp1/c.jpg`, { kioskUid: "other" }));
-  // never overwrite a photo it didn't upload
+  // a second upload to the same path (retry, or someone else's photo) is refused
+  await assertFails(put(ctx, p));
   await env.withSecurityRulesDisabled(async (admin) => {
     await uploadString(ref(admin.storage(), `companies/${A}/clockEvents/emp1/sup.jpg`), JPEG, "data_url", { contentType: "image/jpeg" });
   });
-  await assertFails(put(ctx, `companies/${A}/clockEvents/emp1/sup.jpg`, { kioskUid: "kioskUidA" }));
+  await assertFails(put(ctx, `companies/${A}/clockEvents/emp1/sup.jpg`));
   // not an image
-  await assertFails(uploadString(ref(ctx.storage(), `companies/${A}/clockEvents/emp1/d.jpg`), "hello", "raw", { contentType: "text/plain", customMetadata: { kioskUid: "kioskUidA" } }));
+  await assertFails(uploadString(ref(ctx.storage(), `companies/${A}/clockEvents/emp1/d.jpg`), "hello", "raw", { contentType: "text/plain" }));
 });
 
 test("STORAGE kiosk: nothing else company-wide, nothing of another company", async () => {
@@ -194,9 +189,9 @@ test("STORAGE kiosk: nothing else company-wide, nothing of another company", asy
   });
   await assertFails(getBytes(ref(ctx.storage(), `companies/${A}/employees/emp1/reference.jpg`)));
   await assertFails(getBytes(ref(ctx.storage(), `companies/${A}/logo.jpg`)));
-  await assertFails(put(ctx, `companies/${A}/employees/emp1/reference.jpg`, { kioskUid: "kioskUidA" }));
-  await assertFails(put(ctx, `companies/${A}/logo.jpg`, { kioskUid: "kioskUidA" }));
-  await assertFails(put(ctx, `companies/${B}/clockEvents/emp1/x.jpg`, { kioskUid: "kioskUidA" }));
+  await assertFails(put(ctx, `companies/${A}/employees/emp1/reference.jpg`));
+  await assertFails(put(ctx, `companies/${A}/logo.jpg`));
+  await assertFails(put(ctx, `companies/${B}/clockEvents/emp1/x.jpg`));
   // staff unchanged
   const sup = supervisor();
   await assertSucceeds(getBytes(ref(sup.storage(), `companies/${A}/logo.jpg`)));

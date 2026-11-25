@@ -44,15 +44,15 @@ service firebase.storage {
       allow read: if isSelfEmployee(companyId, employeeId);
       allow create, update: if isSelfEmployee(companyId, employeeId) && isImageUnder10Mb();
       // Task 5 (K9): a kiosk uploads clock photos for any employee of its
-      // company but can NEVER read one. Create stamps the kiosk's uid in the
-      // file's metadata; only that same kiosk may re-upload (a retry after
-      // the upload landed but the punch call didn't). kioskPunch checks the
-      // file (path = this punch's requestId, image, age) on the server.
-      // (resource == null || ...) on both: never over a file someone else
-      // uploaded, whichever of create/update an overwrite is checked as.
-      allow create, update: if isKioskOf(companyId) && isImageUnder10Mb() &&
-        request.resource.metadata.get('kioskUid', '') == request.auth.uid &&
-        (resource == null || resource.metadata.get('kioskUid', '') == request.auth.uid);
+      // company but can NEVER read one, and only where no file exists yet
+      // (resource == null, whichever of create/update an upload is checked
+      // as) - never over a photo someone else took. The app uploads through
+      // the Storage REST "media" upload (lib/storageUpload.js), which can't
+      // carry custom metadata, so there is no per-kiosk stamp: a retry after
+      // the upload already landed is refused here and the app goes on to
+      // kioskPunch, which checks the file (path = this punch's requestId,
+      // an image, made in the last 10 minutes) on the server.
+      allow create, update: if isKioskOf(companyId) && isImageUnder10Mb() && resource == null;
     }
 
     // Employee App: the employee's own selfie. Deliberately NOT
