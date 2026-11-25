@@ -23,6 +23,8 @@ import { evaluateSessionWarnings, type SessionWarning } from "@/lib/sessionWarni
 import { useSiteExitsByClockIn } from "@/lib/hooks/useSiteExitsByClockIn";
 import { useShiftCommentsByClockIn } from "@/lib/hooks/useShiftCommentsByClockIn";
 import { clockInIds } from "@/lib/shiftComments";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
+import { fetchShiftData, SERVER_REFRESH_MS, type ServerShiftOvertime } from "@/lib/shiftData";
 import { sessionComments, type EventComment } from "@/lib/clockEventComments";
 import type { ClockEvent, Flag, ShiftNote, SiteExit, TimesheetApproval } from "@/lib/types";
 
@@ -106,6 +108,12 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
   const { sites } = useSites();
   const [events, setEvents] = useState<EventWithId[]>([]);
   const [approvals, setApprovals] = useState<Map<string, TimesheetApproval>>(new Map());
+  // Task 4 (D2/D3): an Admin limited to some sites loads from the server
+  // (their sites' shifts only) and gets each shift's OT + FULL day totals
+  // from it; refreshes every 30 s and after each action instead of live.
+  const { serverReads } = useAdminAccess();
+  const [serverOvertime, setServerOvertime] = useState<Record<string, ServerShiftOvertime>>({});
+  const [refreshTick, setRefreshTick] = useState(0);
   // The range whose events have loaded (or failed); loading = not this
   // range yet. Set only in the listener callbacks (no setState in the
   // effect body).
@@ -156,6 +164,40 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     const end = new Date(`${fetchEndKey}T23:59:59`);
     end.setDate(end.getDate() + 1);
 
+    const approvalsStartKey = overtimeEnabled && fetchStartKey < startDate ? fetchStartKey : startDate;
+    if (serverReads) {
+      let cancelled = false;
+      const load = () =>
+        fetchShiftData({
+          purpose: "shifts",
+          startMs: start.getTime(),
+          endMs: end.getTime(),
+          startDate: approvalsStartKey,
+          endDate,
+          want: { clockEvents: true, approvals: true, overtime: true },
+        })
+          .then((res) => {
+            if (cancelled) return;
+            setEvents(res.clockEvents.map((d) => ({ id: d.id, ...(d.data() as Omit<ClockEvent, "id">) })));
+            setApprovals(new Map(res.approvals.map((d) => [d.id, { id: d.id, ...(d.data() as Omit<TimesheetApproval, "id">) }])));
+            setServerOvertime(res.overtime);
+            setError("");
+            setLoadedKey(key);
+          })
+          .catch((err) => {
+            if (cancelled) return;
+            console.error("Timesheet approvals server load error:", err);
+            setError("Couldn't load clock events for this range.");
+            setLoadedKey(key);
+          });
+      load();
+      const timer = setInterval(load, SERVER_REFRESH_MS);
+      return () => {
+        cancelled = true;
+        clearInterval(timer);
+      };
+    }
+
     const eventsRef = collection(db, "companies", userData.companyId, "clockEvents");
     const eventsQuery = query(
       eventsRef,
@@ -186,7 +228,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     // (their frozen Automatic Break / OT). OFF: exactly the range, as before.
     const approvalsQuery = query(
       approvalsRef,
-      where("date", ">=", overtimeEnabled && fetchStartKey < startDate ? fetchStartKey : startDate),
+      where("date", ">=", approvalsStartKey),
       where("date", "<=", endDate)
     );
 
@@ -208,7 +250,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
       unsubEvents();
       unsubApprovals();
     };
-  }, [userData?.companyId, startDate, endDate, overtimeEnabled, overtimeWeekStartsOn]);
+  }, [userData?.companyId, startDate, endDate, overtimeEnabled, overtimeWeekStartsOn, serverReads, refreshTick]);
 
   const rows = useMemo<ApprovalRow[]>(() => {
     const mainCompanyName = settings?.name || "Main company";
@@ -239,6 +281,19 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
           .filter((e) => e.ms > 0);
         computeApprovalsOvertime(evs, approvals, otSettings).forEach((info, id) => otInfoById.set(id, info));
       });
+      // Task 4 rule 2: a restricted admin only has their sites' shifts, so
+      // each shift's OT and its day's worked total come from the server
+      // (computed from every site). The re-approve "OT changed" check needs
+      // the whole week, so it's off for them.
+      if (serverReads) {
+        otInfoById.forEach((info, id) => {
+          const server = serverOvertime[id];
+          if (!server) return;
+          info.overtimeMs = server.overtimeMinutes * 60 * 1000;
+          info.dayWorkedMs = server.dayWorkedMinutes * 60 * 1000;
+          info.overtimeChanged = null;
+        });
+      }
     }
 
     const allRows: ApprovalRow[] = [];
@@ -440,6 +495,8 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     isPro,
     exitsByClockIn,
     commentsByClockIn,
+    serverReads,
+    serverOvertime,
   ]);
 
   const pendingCount = useMemo(
@@ -447,9 +504,15 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     [rows]
   );
 
+  // Server-loaded (restricted admin): reload right after our own writes.
+  const afterWrite = () => {
+    if (serverReads) setRefreshTick((t) => t + 1);
+  };
+
   const addManualTimestamp = async (params: ManualTimestampParams) => {
     const fn = httpsCallable(functions, "addManualTimestamp");
     await fn(params);
+    afterWrite();
   };
 
   const setApprovalStatus = async (
@@ -459,6 +522,7 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
   ) => {
     const fn = httpsCallable(functions, "setApprovalStatus");
     await fn({ eventId, status, jobId });
+    afterWrite();
   };
 
   const setApprovalStatusBulk = async (
@@ -468,11 +532,13 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
   ) => {
     const fn = httpsCallable(functions, "setApprovalStatusBulk");
     await fn({ eventIds, status, jobIdByEventId });
+    afterWrite();
   };
 
   const deleteTimesheetSession = async (approvalId: string, eventIds: string[]) => {
     const fn = httpsCallable(functions, "deleteTimesheetSession");
     await fn({ approvalId, eventIds });
+    afterWrite();
   };
 
   // Tips (Task 3): saves one shift's tip (whole cents) + a history entry.
@@ -481,11 +547,13 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
     const parsed = setShiftTipSchema.parse({ eventId, amountCents });
     const fn = httpsCallable(functions, "setShiftTip");
     await fn(parsed);
+    afterWrite();
   };
 
   const assignSessionSite = async (approvalId: string, eventIds: string[], siteId: string) => {
     const fn = httpsCallable(functions, "assignSessionSite");
     await fn({ approvalId, eventIds, siteId });
+    afterWrite();
   };
 
   return {

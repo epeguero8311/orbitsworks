@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   collection,
   query,
@@ -10,6 +10,8 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
+import { fetchShiftData, type DocLike, type ShiftDataResult } from "@/lib/shiftData";
 import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings, overtimeSettingsFrom } from "@/lib/hooks/useCompanySettings";
 import { overtimeWeekKey } from "@/lib/overtime";
@@ -45,10 +47,68 @@ import {
   computeAttendanceAndSiteReports,
 } from "@/lib/reportComputations";
 
+// Everything one report run produces (Task 4: computed once per source).
+export type ReportData = {
+  summaries: EmployeeSummary[];
+  attendance: AttendanceStats | null;
+  hoursPerDay: TimeTrendsPoint[];
+  employeesPerDay: EmployeesPerDayPoint[];
+  avgHoursPerEmployee: number;
+  jobSiteReports: JobSiteReport[];
+  activeJobSiteCount: number;
+  sessions: SessionRecord[];
+  employeeRecords: EmployeeExportRecord[];
+  attendanceRecords: AttendanceRecord[];
+  shiftNotes: ShiftNote[];
+  siteExits: SiteExit[];
+  jobs: Job[];
+  employeeJobIdById: Map<string, string | null>;
+  hoursByEmployeeDay: Map<string, number>;
+  breakHoursByEmployeeDay: Map<string, number>;
+  tipsByEmployeeDay: Map<string, number>;
+  approvedJobIdByEmployeeDay: Map<string, string | null>;
+  overtimeRows: OvertimeReportRow[] | null;
+  // Task 4 rule 2: a restricted admin's employee-days' FULL (all sites)
+  // worked + OT minutes, "employeeId__date" -> totals. null otherwise.
+  allSitesDayTotals: Map<string, { workedMinutes: number; overtimeMinutes: number }> | null;
+};
+
 export function useReports() {
   const { userData } = useAuth();
   const { settings } = useCompanySettings();
   const companyId = userData?.companyId;
+  const { serverReads } = useAdminAccess();
+
+  // Task 4: the server data for a restricted admin's report - the widest
+  // window any part of the report reads (the OT week before startDate).
+  const overtimeWeekStartsOn = settings.overtimeWeekStartsOn;
+  const loadServerReportData = useCallback(async (
+    purpose: "shifts" | "export",
+    startDate: string,
+    endDate: string,
+    start: Date,
+    end: Date
+  ): Promise<ShiftDataResult> => {
+    const wideStart = new Date(`${overtimeWeekKey(startDate, overtimeWeekStartsOn)}T00:00:00`);
+    wideStart.setDate(wideStart.getDate() - 1);
+    if (wideStart > start) wideStart.setTime(start.getTime());
+    const wideEnd = new Date(end);
+    wideEnd.setDate(wideEnd.getDate() + 1);
+    const wideStartKey = `${wideStart.getFullYear()}-${String(wideStart.getMonth() + 1).padStart(2, "0")}-${String(wideStart.getDate()).padStart(2, "0")}`;
+    const approvalsStart = approvalsQueryStart(wideStartKey < startDate ? wideStartKey : startDate, APPROVALS_CUTOVER_DATE);
+    const [shiftsPart, notesPart] = await Promise.all([
+      fetchShiftData({
+        purpose,
+        startMs: wideStart.getTime(),
+        endMs: wideEnd.getTime(),
+        startDate: approvalsStart,
+        endDate,
+        want: { clockEvents: true, approvals: true, overtime: purpose === "shifts" },
+      }),
+      fetchShiftData({ purpose, startMs: start.getTime(), endMs: end.getTime(), want: { shiftNotes: true, siteExits: true } }),
+    ]);
+    return { ...shiftsPart, shiftNotes: notesPart.shiftNotes, siteExits: notesPart.siteExits };
+  }, [overtimeWeekStartsOn]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -86,19 +146,19 @@ export function useReports() {
   // the existing (unchanged) data above.
   const [overtimeRows, setOvertimeRows] = useState<OvertimeReportRow[] | null>(null);
 
-  const runReport = useCallback(
-    // Phase 9 (H9 a/a): companyFilter narrows EVERY section and export to
-    // one company, by the employee's current company (same as the reports
-    // already show). Supervisor site notes (no employee) only show under
-    // "All companies".
-    async (startDate: string, endDate: string, companyFilter: CompanyFilter = ALL_COMPANIES) => {
-      if (!companyId) return;
-      setError("");
-      setLoading(true);
-      setSummaries(null);
-      setOvertimeRows(null);
-
-      try {
+  // Task 4 (D2/D4): one report computation, from a source - Firestore
+  // directly ("direct"), or the server for an Admin limited to some sites:
+  // their sites only ("shifts", the on-screen report, D12) or every site
+  // ("export", the downloads - needs Export payroll, D4).
+  const computeReport = useCallback(
+    async (
+      startDate: string,
+      endDate: string,
+      companyFilter: CompanyFilter,
+      source: "direct" | "shifts" | "export"
+    ): Promise<ReportData> => {
+      if (!companyId) throw new Error("No company loaded.");
+      const out = { allSitesDayTotals: null } as unknown as ReportData;
         const start = new Date(startDate + "T00:00:00");
         const end = new Date(endDate + "T23:59:59");
 
@@ -109,7 +169,14 @@ export function useReports() {
           where("timestamp", "<=", Timestamp.fromDate(end)),
           orderBy("timestamp", "asc")
         );
-        const snapshot = await getDocs(q);
+        // Task 4 (D2/D4): a restricted admin's data comes from the server -
+        // their sites only ("shifts") or every site for the export ("export").
+        const serverData = source === "direct" ? null : await loadServerReportData(source, startDate, endDate, start, end);
+        const inNarrowRange = (d: DocLike) => {
+          const ms = (d.data().timestamp as Timestamp | undefined)?.toMillis() ?? 0;
+          return ms >= start.getTime() && ms <= end.getTime();
+        };
+        const snapshot = serverData ? { docs: serverData.clockEvents.filter(inNarrowRange) } : await getDocs(q);
         const events = snapshot.docs.map((d) => {
           const data = d.data() as Omit<EventWithDate, "id">;
           // Reports use the corrected time when a clock event has been
@@ -129,7 +196,10 @@ export function useReports() {
           where("date", ">=", approvalsQueryStart(startDate, APPROVALS_CUTOVER_DATE)),
           where("date", "<=", endDate)
         );
-        const approvalsSnapshot = await getDocs(approvalsQuery);
+        const narrowApprovalsStart = approvalsQueryStart(startDate, APPROVALS_CUTOVER_DATE);
+        const approvalsSnapshot = serverData
+          ? { docs: serverData.approvals.filter((d) => String(d.data().date ?? "") >= narrowApprovalsStart) }
+          : await getDocs(approvalsQuery);
         const approvalStatusByClockInId = new Map<string, "pending" | "approved">();
         // Auto Break settings frozen on an approved session at the moment
         // it was approved - same frozen-vs-live split the Timesheet
@@ -181,7 +251,7 @@ export function useReports() {
         approvedJobIdVotesByDay.forEach((votes, key) => {
           approvedJobIdByEmployeeDayOut.set(key, votes.size === 1 ? Array.from(votes)[0] : null);
         });
-        setApprovedJobIdByEmployeeDay(approvedJobIdByEmployeeDayOut);
+        out.approvedJobIdByEmployeeDay = (approvedJobIdByEmployeeDayOut);
 
         const excludedEventIds = computeExcludedEventIds(events, approvalStatusByClockInId);
 
@@ -201,11 +271,11 @@ export function useReports() {
           const data = d.data() as Omit<Job, "id">;
           jobsMap.set(d.id, { id: d.id, ...data });
         });
-        setJobs(Array.from(jobsMap.values()));
+        out.jobs = (Array.from(jobsMap.values()));
 
         const { employeeJobIdById: employeeJobIdByIdOut, defaultRateByEmployeeId, subcontractorByEmployeeId } =
           buildEmployeeDerivedMaps(employeeDocs, jobsMap);
-        setEmployeeJobIdById(employeeJobIdByIdOut);
+        out.employeeJobIdById = (employeeJobIdByIdOut);
 
         const sitesRef = collection(db, "companies", companyId, "jobSites");
         const sitesSnapshot = await getDocs(sitesRef);
@@ -216,9 +286,9 @@ export function useReports() {
           siteNameByIdAll.set(d.id, data.name ?? "Unknown site");
           if (data.active) activeSites += 1;
         });
-        setActiveJobSiteCount(activeSites);
+        out.activeJobSiteCount = (activeSites);
 
-        setEmployeeRecords(
+        out.employeeRecords = (
           buildEmployeeExportRecords(
             employeeDocs,
             jobsMap,
@@ -244,14 +314,14 @@ export function useReports() {
           where("timestamp", "<=", Timestamp.fromDate(end)),
           orderBy("timestamp", "asc")
         );
-        const notesSnapshot = await getDocs(notesQuery);
-        setShiftNotes(
-          buildShiftNotes(notesSnapshot.docs, nameByUid).filter((n) =>
+        const notesSnapshot = serverData ? { docs: serverData.shiftNotes } : await getDocs(notesQuery);
+        out.shiftNotes = (
+          buildShiftNotes(notesSnapshot.docs as unknown as Parameters<typeof buildShiftNotes>[0], nameByUid).filter((n) =>
             n.employeeId ? inCompany(n.employeeId) : companyFilter === ALL_COMPANIES
           )
         );
 
-        const exitsSnapshot = await getDocs(
+        const exitsSnapshot = serverData ? { docs: serverData.siteExits } : await getDocs(
           query(
             collection(db, "companies", companyId, "siteExits"),
             where("startMs", ">=", start.getTime()),
@@ -259,7 +329,7 @@ export function useReports() {
             orderBy("startMs", "asc")
           )
         );
-        setSiteExits(
+        out.siteExits = (
           exitsSnapshot.docs
             .map((d) => ({ id: d.id, ...(d.data() as Omit<SiteExit, "id">) }))
             .filter((x) => inCompany(x.employeeId))
@@ -274,13 +344,13 @@ export function useReports() {
           autoBreakByClockInId,
           tipCentsByClockInId
         );
-        setSummaries(payroll.summaries);
-        setHoursByEmployeeDay(payroll.hoursByEmployeeDay);
-        setBreakHoursByEmployeeDay(payroll.breakHoursByEmployeeDay);
-        setTipsByEmployeeDay(payroll.tipsByEmployeeDay);
-        setSessions(payroll.sessions);
-        setAvgHoursPerEmployee(payroll.avgHoursPerEmployee);
-        setHoursPerDay(payroll.hoursPerDay);
+        out.summaries = (payroll.summaries);
+        out.hoursByEmployeeDay = (payroll.hoursByEmployeeDay);
+        out.breakHoursByEmployeeDay = (payroll.breakHoursByEmployeeDay);
+        out.tipsByEmployeeDay = (payroll.tipsByEmployeeDay);
+        out.sessions = (payroll.sessions);
+        out.avgHoursPerEmployee = (payroll.avgHoursPerEmployee);
+        out.hoursPerDay = (payroll.hoursPerDay);
 
         const attendanceResult = computeAttendanceAndSiteReports(
           gatedEvents,
@@ -304,7 +374,7 @@ export function useReports() {
           wideStart.setDate(wideStart.getDate() - 1);
           const wideEnd = new Date(end);
           wideEnd.setDate(wideEnd.getDate() + 1);
-          const wideSnapshot = await getDocs(
+          const wideSnapshot = serverData ? { docs: serverData.clockEvents } : await getDocs(
             query(
               eventsRef,
               where("timestamp", ">=", Timestamp.fromDate(wideStart)),
@@ -317,7 +387,7 @@ export function useReports() {
             return { id: d.id, ...data, timestamp: data.adjustedTimestamp ?? data.timestamp };
           });
           const wideStartKey = `${wideStart.getFullYear()}-${String(wideStart.getMonth() + 1).padStart(2, "0")}-${String(wideStart.getDate()).padStart(2, "0")}`;
-          const wideApprovals = await getDocs(
+          const wideApprovals = serverData ? { docs: serverData.approvals } : await getDocs(
             query(
               approvalsRef,
               where("date", ">=", approvalsQueryStart(wideStartKey < startDate ? wideStartKey : startDate, APPROVALS_CUTOVER_DATE)),
@@ -359,6 +429,18 @@ export function useReports() {
             }
             if (data.jobId) jobIdByClockInId.set(d.id, data.jobId);
           });
+          // Task 4 rule 2: a restricted admin only has their sites' shifts, so
+          // each shift's OT comes from the server (computed from every site).
+          if (serverData) {
+            for (const [id, o] of Object.entries(serverData.overtime)) frozenOvertimeMinutesByClockInId.set(id, o.overtimeMinutes);
+            const employeeOfClockIn = new Map(wideEvents.map((e) => [e.id, e.employeeId]));
+            const totals = new Map<string, { workedMinutes: number; overtimeMinutes: number }>();
+            for (const [id, o] of Object.entries(serverData.overtime)) {
+              const emp = employeeOfClockIn.get(id);
+              if (emp) totals.set(`${emp}__${o.dayKey}`, { workedMinutes: o.dayWorkedMinutes, overtimeMinutes: o.dayOvertimeMinutes });
+            }
+            out.allSitesDayTotals = totals;
+          }
           const wideExcluded = computeExcludedEventIds(wideEvents, wideStatus);
           const otShifts = pairReportShifts(
             wideEvents
@@ -382,7 +464,7 @@ export function useReports() {
               subcontractorName: data.subcontractorName ?? null,
             });
           });
-          setOvertimeRows(
+          out.overtimeRows = (
             buildOvertimeReportRows({
               shifts: otShifts,
               employees: otEmployees,
@@ -400,10 +482,54 @@ export function useReports() {
           );
         }
 
-        setAttendanceRecords(attendanceResult.attendanceRecords);
-        setAttendance(attendanceResult.attendance);
-        setEmployeesPerDay(attendanceResult.employeesPerDay);
-        setJobSiteReports(attendanceResult.jobSiteReports);
+        out.attendanceRecords = (attendanceResult.attendanceRecords);
+        out.attendance = (attendanceResult.attendance);
+        out.employeesPerDay = (attendanceResult.employeesPerDay);
+        out.jobSiteReports = (attendanceResult.jobSiteReports);
+      return out;
+    },
+    // settings as a whole: the Overtime branch reads several of its fields
+    // (toggle, thresholds, multiplier, rounding, time zone).
+    [companyId, settings, loadServerReportData]
+  );
+
+  const lastRun = useRef<{ startDate: string; endDate: string; companyFilter: CompanyFilter } | null>(null);
+  const [allSitesDayTotals, setAllSitesDayTotals] = useState<ReportData["allSitesDayTotals"]>(null);
+
+  const runReport = useCallback(
+    // Phase 9 (H9 a/a): companyFilter narrows EVERY section and export to
+    // one company, by the employee's current company (same as the reports
+    // already show). Supervisor site notes (no employee) only show under
+    // "All companies".
+    async (startDate: string, endDate: string, companyFilter: CompanyFilter = ALL_COMPANIES) => {
+      if (!companyId) return;
+      setError("");
+      setLoading(true);
+      setSummaries(null);
+      setOvertimeRows(null);
+      try {
+        const d = await computeReport(startDate, endDate, companyFilter, serverReads ? "shifts" : "direct");
+        lastRun.current = { startDate, endDate, companyFilter };
+        setSummaries(d.summaries);
+        setHoursByEmployeeDay(d.hoursByEmployeeDay);
+        setBreakHoursByEmployeeDay(d.breakHoursByEmployeeDay);
+        setTipsByEmployeeDay(d.tipsByEmployeeDay);
+        setSessions(d.sessions);
+        setAvgHoursPerEmployee(d.avgHoursPerEmployee);
+        setHoursPerDay(d.hoursPerDay);
+        setJobs(d.jobs);
+        setEmployeeJobIdById(d.employeeJobIdById);
+        setActiveJobSiteCount(d.activeJobSiteCount);
+        setEmployeeRecords(d.employeeRecords);
+        setShiftNotes(d.shiftNotes);
+        setSiteExits(d.siteExits);
+        setApprovedJobIdByEmployeeDay(d.approvedJobIdByEmployeeDay);
+        setOvertimeRows(d.overtimeRows ?? null);
+        setAttendanceRecords(d.attendanceRecords);
+        setAttendance(d.attendance);
+        setEmployeesPerDay(d.employeesPerDay);
+        setJobSiteReports(d.jobSiteReports);
+        setAllSitesDayTotals(d.allSitesDayTotals ?? null);
       } catch (err) {
         console.error("Report generation error:", err);
         setError("Couldn't generate the report. Try again.");
@@ -411,10 +537,17 @@ export function useReports() {
         setLoading(false);
       }
     },
-    // settings as a whole: the Overtime branch reads several of its fields
-    // (toggle, thresholds, multiplier, rounding, time zone).
-    [companyId, settings]
+    [companyId, computeReport, serverReads]
   );
+
+  // Task 4 (D4/D12): what the downloads use. Everyone except a restricted
+  // admin: the report on screen. A restricted admin: the same report for
+  // EVERY site, fetched now (needs Export payroll - the server checks).
+  const loadExportData = useCallback(async (): Promise<ReportData | null> => {
+    if (!serverReads || !lastRun.current) return null;
+    const { startDate, endDate, companyFilter } = lastRun.current;
+    return computeReport(startDate, endDate, companyFilter, "export");
+  }, [computeReport, serverReads]);
 
   return {
     loading,
@@ -438,6 +571,8 @@ export function useReports() {
     tipsByEmployeeDay,
     approvedJobIdByEmployeeDay,
     overtimeRows,
+    allSitesDayTotals,
     runReport,
+    loadExportData,
   };
 }

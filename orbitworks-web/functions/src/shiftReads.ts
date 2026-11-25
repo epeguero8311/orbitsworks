@@ -40,6 +40,8 @@ const schema = z.object({
   // By-shift lookups (Session review): these clock-ins' approvals, site
   // exits, notes and tip history.
   clockInEventIds: z.array(z.string().trim().min(1).max(200)).max(300).optional(),
+  // Session review's override detail: these override records (by id).
+  overrideEventIds: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
   want: z
     .object({
       clockEvents: z.boolean().optional(),
@@ -227,7 +229,10 @@ export const getShiftData = onCall(async (request) => {
   }
 
   // ---- override events (Session review's override detail) ----
-  if (want.overrideEvents && input.clockInEventIds) {
+  if (want.overrideEvents && input.overrideEventIds) {
+    const docs = await getAllDocs(input.overrideEventIds.map((id) => companyRef.collection("overrideEvents").doc(id)));
+    out.overrideEvents = docs.filter((d) => d.exists && canSee(null, (d.data()?.siteId as string | null | undefined) ?? null)).map(docOut);
+  } else if (want.overrideEvents && input.clockInEventIds) {
     const approvals = await getAllDocs(input.clockInEventIds.map((id) => approvalsCol.doc(id)));
     const ids = new Set<string>();
     approvals.forEach((a) => {

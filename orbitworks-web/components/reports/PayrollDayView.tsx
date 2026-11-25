@@ -22,6 +22,7 @@ export default function PayrollDayView({
   overtimeRows = null,
   tipsByEmployeeDay,
   tipsEnabled = false,
+  allSitesDayTotals = null,
 }: {
   startDate: string;
   endDate: string;
@@ -39,6 +40,9 @@ export default function PayrollDayView({
   // Tips (Task 3): adds the Tips column (Est. pay already includes tips).
   tipsByEmployeeDay?: Map<string, number>;
   tipsEnabled?: boolean;
+  // Task 4 rule 2: a restricted admin's employee-days' FULL (all sites)
+  // worked + OT minutes - shown under the name when other sites add to it.
+  allSitesDayTotals?: Map<string, { workedMinutes: number; overtimeMinutes: number }> | null;
 }) {
   const [currentDate, setCurrentDate] = useState(startDate);
 
@@ -135,6 +139,15 @@ export default function PayrollDayView({
                   >
                     <td className="px-4 py-2.5 text-gray-950">
                       {r.kind === "job" ? <span className="text-gray-600">{r.employeeName}</span> : r.employeeName}
+                      {r.kind !== "job" && (() => {
+                        const t = allSitesDayTotals?.get(`${r.employeeId}__${r.date}`);
+                        if (!t || t.workedMinutes <= r.workedMinutes) return null;
+                        return (
+                          <span className="block text-xs text-gray-500">
+                            All sites that day: {minutesToHoursDecimal(t.workedMinutes)} worked, {minutesToHoursDecimal(t.overtimeMinutes)} OT
+                          </span>
+                        );
+                      })()}
                       {r.incomplete && r.kind !== "job" && (
                         <span className="ml-2 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
                           Missing clock-out

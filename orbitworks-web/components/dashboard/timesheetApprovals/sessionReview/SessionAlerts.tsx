@@ -13,6 +13,8 @@ import { formatMinutesAsTime } from "@/lib/reportUtils";
 import { faceResultText } from "@/lib/clockPhoto";
 import { sortWarningsBySeverity, type SessionWarning, type WarningSeverity } from "@/lib/sessionWarnings";
 import type { ClockEvent, JobSite, OverrideEvent, SiteExit } from "@/lib/types";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
+import { fetchShiftData } from "@/lib/shiftData";
 
 // Session review's right column. One card per warning (red first, then
 // yellow): a title and one short detail line. The evidence the old
@@ -56,15 +58,24 @@ const dir = (d: "in" | "out") => (d === "in" ? "Clock in" : "Clock out");
 
 function OverrideDetail({ overrideEventId }: { overrideEventId: string }) {
   const { userData } = useAuth();
+  const { serverReads } = useAdminAccess();
   const [state, setState] = useState<{ ev: OverrideEvent | null; error: string } | null>(null);
   useEffect(() => {
     if (!userData?.companyId) return;
     let cancelled = false;
-    getDoc(doc(db, "companies", userData.companyId, "overrideEvents", overrideEventId))
+    // Task 4 (D2): a restricted admin reads it through the server.
+    const load: Promise<{ id: string; data: () => unknown } | null> = serverReads
+      ? fetchShiftData({ purpose: "shifts", overrideEventIds: [overrideEventId], want: { overrideEvents: true } }).then(
+          (r) => r.overrideEvents[0] ?? null
+        )
+      : getDoc(doc(db, "companies", userData.companyId, "overrideEvents", overrideEventId)).then((snap) =>
+          snap.exists() ? { id: snap.id, data: () => snap.data() } : null
+        );
+    load
       .then((snap) => {
         if (cancelled) return;
         setState(
-          snap.exists()
+          snap
             ? { ev: { id: snap.id, ...(snap.data() as Omit<OverrideEvent, "id">) }, error: "" }
             : { ev: null, error: "This override record couldn't be found." }
         );
@@ -76,7 +87,7 @@ function OverrideDetail({ overrideEventId }: { overrideEventId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [userData?.companyId, overrideEventId]);
+  }, [userData?.companyId, overrideEventId, serverReads]);
 
   if (!state) return <Detail>Loading...</Detail>;
   if (!state.ev) return <Detail>{state.error}</Detail>;

@@ -28,6 +28,9 @@ type UserData = {
   roleChangedAt?: { toMillis(): number };
   // Set when this login is deactivated (server only). See lib/roleRefresh.ts.
   accessRevokedAt?: { toMillis(): number };
+  // Admin Permissions (Task 4): server-written only (setAdminAccess). Read
+  // through useAdminAccess() / lib/adminAccess.ts resolveAdminAccess.
+  adminAccess?: unknown;
 };
 
 // Owner is a superset of admin - the single original-signup account per

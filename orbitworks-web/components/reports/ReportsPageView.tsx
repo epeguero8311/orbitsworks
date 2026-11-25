@@ -6,7 +6,8 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
-import { useReports } from "@/lib/hooks/useReports";
+import { useReports, type ReportData } from "@/lib/hooks/useReports";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 import { useSubcontractors } from "@/lib/hooks/useSubcontractors";
 import { ALL_COMPANIES, type CompanyFilter } from "@/lib/reportCompanyFilter";
 import { dateKey, startOfWeek } from "@/lib/reportUtils";
@@ -83,8 +84,54 @@ export default function ReportsPageView() {
     employeeJobIdById,
     approvedJobIdByEmployeeDay,
     overtimeRows,
+    allSitesDayTotals,
     runReport,
+    loadExportData,
   } = useReports();
+  // Task 4: downloads need Export payroll (D4). A restricted admin's screen
+  // shows only their sites (D12) while the downloads show EVERY site, so
+  // their export data set is loaded from the server after each run.
+  const { can, serverReads } = useAdminAccess();
+  const canExport = can("exportPayroll");
+  const [serverExport, setServerExport] = useState<{ forSummaries: unknown; data: ReportData } | null>(null);
+  useEffect(() => {
+    if (!serverReads || !canExport || !summaries) return;
+    let cancelled = false;
+    loadExportData()
+      .then((data) => {
+        if (!cancelled && data) setServerExport({ forSummaries: summaries, data });
+      })
+      .catch((err) => console.error("Export data load error:", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [serverReads, canExport, summaries, loadExportData]);
+  const exportReady = canExport && (!serverReads || serverExport?.forSummaries === summaries);
+  // What the downloads use: the all-sites set (restricted) or the screen's.
+  const ex: Omit<ReportData, "allSitesDayTotals"> =
+    serverReads && serverExport
+      ? serverExport.data
+      : {
+          summaries: summaries ?? [],
+          attendance,
+          hoursPerDay,
+          employeesPerDay,
+          avgHoursPerEmployee,
+          jobSiteReports: [],
+          activeJobSiteCount: 0,
+          sessions,
+          employeeRecords,
+          attendanceRecords,
+          shiftNotes,
+          siteExits,
+          jobs,
+          employeeJobIdById,
+          hoursByEmployeeDay,
+          breakHoursByEmployeeDay,
+          tipsByEmployeeDay,
+          approvedJobIdByEmployeeDay,
+          overtimeRows,
+        };
   // Tips (Task 3): Tips columns everywhere only while the toggle is ON
   // (OFF = useReports reads no tips, so every number is as before).
   const tipsEnabled = settings.tipsEnabled;
@@ -92,6 +139,18 @@ export default function ReportsPageView() {
   // Overtime (Task 1): only non-null with the Overtime toggle ON. Every
   // section and export below falls back to today's data when it's null.
   const overtimeMultiplier = settings.overtimeMultiplier;
+  // The downloads' overtime view (same overrides) - from `ex`.
+  const exportOvertimeView = useMemo(() => {
+    if (!ex.overtimeRows) return null;
+    const rows = applyOvertimeOverrides(ex.overtimeRows, overrides, ex.jobs, settings.overtimeMultiplier);
+    return {
+      baseRows: ex.overtimeRows,
+      rows,
+      totals: computeOvertimeTotals(rows, roundTotalMinutes),
+      multiplier: settings.overtimeMultiplier,
+    };
+  }, [ex.overtimeRows, ex.jobs, overrides, settings.overtimeMultiplier, roundTotalMinutes]);
+
   const overtimeView = useMemo(() => {
     if (!overtimeRows) return null;
     const rows = applyOvertimeOverrides(overtimeRows, overrides, jobs, overtimeMultiplier);
@@ -165,34 +224,34 @@ export default function ReportsPageView() {
             Attendance, time trends, and payroll.
           </p>
         </div>
-        {summaries && (
+        {summaries && exportReady && (
           <ExportDropdown
             label="Export"
             onExcel={() =>
               exportAllReportsExcel(
-                sessions,
-                summaries,
-                employeeRecords,
-                attendanceRecords,
-                shiftNotes,
-                jobs,
-                hoursByEmployeeDay,
-                breakHoursByEmployeeDay,
-                employeeJobIdById,
-                approvedJobIdByEmployeeDay,
+                ex.sessions,
+                ex.summaries,
+                ex.employeeRecords,
+                ex.attendanceRecords,
+                ex.shiftNotes,
+                ex.jobs,
+                ex.hoursByEmployeeDay,
+                ex.breakHoursByEmployeeDay,
+                ex.employeeJobIdById,
+                ex.approvedJobIdByEmployeeDay,
                 roundDailyMinutes,
                 roundTotalMinutes,
                 companyName,
                 startDate,
                 endDate,
-                siteExits,
-                overtimeView ? { rows: overtimeView.baseRows, multiplier: overtimeView.multiplier } : null,
-                tipsEnabled ? { byEmployeeDay: tipsByEmployeeDay } : null
+                ex.siteExits,
+                exportOvertimeView ? { rows: exportOvertimeView.baseRows, multiplier: exportOvertimeView.multiplier } : null,
+                tipsEnabled ? { byEmployeeDay: ex.tipsByEmployeeDay } : null
               )
             }
             onCsv={() =>
               downloadCsv(
-                toTimesheetsCsv(sessions, startDate, endDate),
+                toTimesheetsCsv(ex.sessions, startDate, endDate),
                 buildExportFilename(companyName, "Timesheets", "csv", startDate, endDate)
               )
             }
@@ -279,28 +338,36 @@ export default function ReportsPageView() {
 
       {summaries && (
         <div className="mt-6 space-y-8">
-          <ExportMenu
-            summaries={summaries}
-            sessions={sessions}
-            employeeRecords={employeeRecords}
-            attendanceRecords={attendanceRecords}
-            shiftNotes={shiftNotes}
-            jobs={jobs}
-            hoursByEmployeeDay={hoursByEmployeeDay}
-            breakHoursByEmployeeDay={breakHoursByEmployeeDay}
-            employeeJobIdById={employeeJobIdById}
-            approvedJobIdByEmployeeDay={approvedJobIdByEmployeeDay}
-            overrides={overrides}
-            roundDailyMinutes={roundDailyMinutes}
-            roundTotalMinutes={roundTotalMinutes}
-            startDate={startDate}
-            endDate={endDate}
-            companyName={companyName}
-            siteExits={siteExits}
-            overtime={overtimeView}
-            tipsByEmployeeDay={tipsByEmployeeDay}
-            tipsEnabled={tipsEnabled}
-          />
+          {exportReady && (
+            <ExportMenu
+              summaries={ex.summaries}
+              sessions={ex.sessions}
+              employeeRecords={ex.employeeRecords}
+              attendanceRecords={ex.attendanceRecords}
+              shiftNotes={ex.shiftNotes}
+              jobs={ex.jobs}
+              hoursByEmployeeDay={ex.hoursByEmployeeDay}
+              breakHoursByEmployeeDay={ex.breakHoursByEmployeeDay}
+              employeeJobIdById={ex.employeeJobIdById}
+              approvedJobIdByEmployeeDay={ex.approvedJobIdByEmployeeDay}
+              overrides={overrides}
+              roundDailyMinutes={roundDailyMinutes}
+              roundTotalMinutes={roundTotalMinutes}
+              startDate={startDate}
+              endDate={endDate}
+              companyName={companyName}
+              siteExits={ex.siteExits}
+              overtime={exportOvertimeView}
+              tipsByEmployeeDay={ex.tipsByEmployeeDay}
+              tipsEnabled={tipsEnabled}
+            />
+          )}
+          {serverReads && (
+            <p className="text-xs text-gray-600">
+              This report shows the job sites you have access to. Day totals and overtime count every site.
+              {canExport && " Downloads include every site."}
+            </p>
+          )}
           <AttendanceCards attendance={attendance} />
           <TimeTrendsCharts
             hoursPerDay={hoursPerDay}
@@ -328,6 +395,7 @@ export default function ReportsPageView() {
             overtimeRows={overtimeView?.rows ?? null}
             tipsByEmployeeDay={tipsByEmployeeDay}
             tipsEnabled={tipsEnabled}
+            allSitesDayTotals={allSitesDayTotals}
           />
           <ShiftNotesTable notes={shiftNotes} />
           <SiteExitsReportTable exits={siteExits} />

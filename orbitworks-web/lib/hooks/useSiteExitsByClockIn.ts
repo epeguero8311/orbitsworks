@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
+import { fetchShiftData } from "@/lib/shiftData";
 import type { SiteExit } from "@/lib/types";
 import { chunkIds } from "@/lib/shiftComments";
 import { groupSiteExitsByClockIn } from "@/lib/siteExits";
@@ -19,9 +21,31 @@ type Batch = { exits: SiteExit[]; ok: boolean };
 export function useSiteExitsByClockIn(companyId: string | undefined, clockInEventIds: string[]) {
   const idsKey = clockInEventIds.join(",");
   const [batches, setBatches] = useState<Record<string, Batch>>({});
+  // Task 4 (D2): a restricted admin loads these from the server (their
+  // sites' shifts only) - same batches, same output.
+  const { serverReads } = useAdminAccess();
 
   useEffect(() => {
     if (!companyId || !idsKey) return;
+    if (serverReads) {
+      let cancelled = false;
+      chunkIds(idsKey.split(",")).forEach((ids) => {
+        const batchKey = `${companyId}|${ids.join(",")}`;
+        fetchShiftData({ purpose: "shifts", clockInEventIds: ids, want: { siteExits: true } })
+          .then((res) => {
+            if (cancelled) return;
+            const exits = res.siteExits.map((d) => ({ id: d.id, ...(d.data() as Omit<SiteExit, "id">) }));
+            setBatches((prev) => ({ ...prev, [batchKey]: { exits, ok: true } }));
+          })
+          .catch((err) => {
+            console.error("Server load error (siteExits):", err);
+            if (!cancelled) setBatches((prev) => ({ ...prev, [batchKey]: { exits: [], ok: false } }));
+          });
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
     const exitsRef = collection(db, "companies", companyId, "siteExits");
     const unsubscribes = chunkIds(idsKey.split(",")).map((ids) => {
       const batchKey = `${companyId}|${ids.join(",")}`;
@@ -38,7 +62,7 @@ export function useSiteExitsByClockIn(companyId: string | undefined, clockInEven
       );
     });
     return () => unsubscribes.forEach((u) => u());
-  }, [companyId, idsKey]);
+  }, [companyId, idsKey, serverReads]);
 
   return useMemo(() => {
     const current = companyId && idsKey ? chunkIds(idsKey.split(",")).map((ids) => batches[`${companyId}|${ids.join(",")}`]) : [];
