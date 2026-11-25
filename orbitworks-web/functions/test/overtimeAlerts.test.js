@@ -244,3 +244,40 @@ test("ON: Monday-start week leaves Sunday out; weekly 0 = no warning", async (t)
   await funcs.checkPeriodicAlerts.run({});
   assert.equal((await alertsOf("c-ot-zero", "overtime")).length, 0);
 });
+
+test("ON: daily overtime warning when the day passes Daily overtime after, once per day, separate from weekly", async (t) => {
+  // Mon Oct 19 is the Monday week start: daily and weekly ids must not collide.
+  await seedCompany("c-ot-day", { overtimeWarning: true, maxHoursWarning: false }, {
+    overtimeEnabled: true,
+    dailyOvertimeThreshold: 8,
+    weeklyOvertimeThreshold: 8.5,
+  });
+  const inId = await addEvent("c-ot-day", "in", at("06:00", "2026-10-19"));
+  await sweepAt(t, at("13:30", "2026-10-19")); // 7.5h: nothing yet
+  assert.equal((await alertsOf("c-ot-day", "overtime")).length, 0);
+  t.mock.timers.setTime(at("14:10", "2026-10-19")); // 8h10: daily only
+  await funcs.checkPeriodicAlerts.run({});
+  t.mock.timers.setTime(at("15:00", "2026-10-19")); // 9h: + weekly, daily not again
+  await funcs.checkPeriodicAlerts.run({});
+  const sup = (await alertsOf("c-ot-day", "overtime")).sort((a, b) => (a.id < b.id ? -1 : 1));
+  assert.deepEqual(sup.map((a) => a.id), ["ot-e1-2026-10-19", "ot-e1-day-2026-10-19"]);
+  const daily = sup.find((a) => a.id === "ot-e1-day-2026-10-19");
+  assert.equal(daily.message, "Juan has reached overtime (8.1h)");
+  assert.equal(daily.eventId, inId);
+  const mine = await employeeAlertsOf("c-ot-day", "overtime");
+  assert.deepEqual(mine.map((a) => a.id).sort(), ["overtime-e1-2026-10-19", "overtime-e1-day-2026-10-19"]);
+  assert.match(mine.find((a) => a.id === "overtime-e1-day-2026-10-19").message, /hours today/);
+});
+
+test("ON: daily 0 = no daily warning; OFF never sends a daily one", async (t) => {
+  await seedCompany("c-ot-d0", { overtimeWarning: true, maxHoursWarning: false }, { overtimeEnabled: true, dailyOvertimeThreshold: 0 });
+  await addEvent("c-ot-d0", "in", at("06:00"));
+  await sweepAt(t, at("16:00"));
+  assert.equal((await alertsOf("c-ot-d0", "overtime")).length, 0);
+
+  await seedCompany("c-ot-doff", { overtimeWarning: true, maxHoursWarning: false }, { dailyOvertimeThreshold: 8 });
+  await addEvent("c-ot-doff", "in", at("06:00"));
+  t.mock.timers.setTime(at("16:00"));
+  await funcs.checkPeriodicAlerts.run({});
+  assert.equal((await alertsOf("c-ot-doff", "overtime")).filter((a) => a.id.includes("-day-")).length, 0);
+});

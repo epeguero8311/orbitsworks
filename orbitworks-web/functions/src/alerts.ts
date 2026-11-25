@@ -21,6 +21,7 @@ import {
   maxHoursText,
   openShiftStart,
   overtimeText,
+  overtimeDayText,
   maxHoursDayText,
   parseHHMM,
   shiftEndingDue,
@@ -356,7 +357,13 @@ export async function createAlertIfNew(input: AlertInput, occurredAt: Timestamp)
     data.alertType === "punchSyncedVeryLate" ||
     data.alertType === "punchFlagged"
       ? data.eventId ?? data.employeeId ?? "company"
-      : data.employeeId ?? data.siteId ?? "company";
+      : // Overtime (Task 1, decision 22): the DAILY overtime alert carries
+        // the day's first clock-in as eventId and is keyed
+        // "ot-<employee>-day-<day>", so it never collides with the weekly
+        // "ot-<employee>-<weekStart>" on the week's first day.
+        data.alertType === "overtime" && data.eventId && data.employeeId
+        ? `${data.employeeId}-day`
+        : data.employeeId ?? data.siteId ?? "company";
   const alertId = buildAlertId(data.alertType, subjectId, data.dateKey);
   const ref = db.collection("companies").doc(data.companyId).collection("alerts").doc(alertId);
 
@@ -1240,10 +1247,17 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
   // company's "Week starts on" in the company time zone and hours come
   // from the shared overtime function (Automatic Break once per day, open
   // shift up to now). Weekly overtime after = 0 means weekly OT is off, so
-  // no warning.
-  if (alerts.overtimeWarning && ctx.overtime.enabled && ctx.overtime.weeklyThresholdHours > 0) {
+  // no weekly warning. Decision 22: also a DAILY warning when the day's
+  // worked hours pass "Daily overtime after" (> 0), max once per employee
+  // per day - only for today and for the day of a still-open shift.
+  if (
+    alerts.overtimeWarning &&
+    ctx.overtime.enabled &&
+    (ctx.overtime.weeklyThresholdHours > 0 || ctx.overtime.dailyThresholdHours > 0)
+  ) {
     const ot = ctx.overtime;
-    const weekKey = overtimeWeekKey(overtimeDayKey(now.getTime(), ot.timeZone), ot.weekStartsOn);
+    const todayKey = overtimeDayKey(now.getTime(), ot.timeZone);
+    const weekKey = overtimeWeekKey(todayKey, ot.weekStartsOn);
     // A day of margin before the week start covers any US time zone.
     const queryStart = admin.firestore.Timestamp.fromMillis(Date.parse(`${weekKey}T00:00:00Z`) - 24 * 60 * 60 * 1000);
     const weekSnap = await eventsRef.where("timestamp", ">=", queryStart).orderBy("timestamp", "asc").get();
@@ -1255,12 +1269,45 @@ async function sweepCompany(companyDoc: FirebaseFirestore.QueryDocumentSnapshot)
       byEmployee.set(event.employeeId, list);
     }
     for (const [employeeId, empEvents] of byEmployee) {
-      const result = computeOvertime(shiftsFromClockEvents(empEvents, now.getTime()), ot, NO_RATES, {
-        nowMs: now.getTime(),
-      });
+      const shifts = shiftsFromClockEvents(empEvents, now.getTime());
+      const result = computeOvertime(shifts, ot, NO_RATES, { nowMs: now.getTime() });
+      const employeeName = employeeNames.get(employeeId) ?? "An employee";
+
+      if (ot.dailyThresholdHours > 0) {
+        const open = shifts.find((sh) => sh.endMs === null);
+        const openDay = open ? overtimeDayKey(open.startMs, ot.timeZone) : null;
+        for (const day of result.days) {
+          if (day.dayKey !== todayKey && day.dayKey !== openDay) continue;
+          const dayHours = hoursOf(day.workedMs);
+          if (dayHours <= ot.dailyThresholdHours || day.shiftIds.length === 0) continue;
+          await maybeCreateAndPush(
+            {
+              companyId,
+              alertType: "overtime",
+              employeeId,
+              employeeName,
+              siteId: null,
+              siteName: null,
+              message: overtimeAlertMessage(employeeName, dayHours),
+              eventId: day.shiftIds[0],
+              employeeUpdateId: null,
+              dateKey: day.dayKey,
+            },
+            admin.firestore.Timestamp.now()
+          );
+          await sendEmployeeAlert({
+            companyId,
+            employeeId,
+            key: `${employeeId}-day-${day.dayKey}`,
+            shiftId: null,
+            ...overtimeDayText(dayHours, ot.dailyThresholdHours),
+          });
+        }
+      }
+
+      if (ot.weeklyThresholdHours <= 0) continue;
       const hours = hoursOf(result.days.filter((dd) => dd.weekKey === weekKey).reduce((sum, dd) => sum + dd.workedMs, 0));
       if (hours <= ot.weeklyThresholdHours) continue;
-      const employeeName = employeeNames.get(employeeId) ?? "An employee";
       await maybeCreateAndPush(
         {
           companyId,

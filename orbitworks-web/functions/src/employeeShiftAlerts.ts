@@ -161,6 +161,17 @@ export function faceNoFaceText(eventType: string | undefined, atMs: number): Emp
   };
 }
 
+// Overtime (Task 1, decision 22): with Overtime ON and a daily threshold,
+// the employee's own alert when their day passes it (once per day).
+export function overtimeDayText(dayHours: number, thresholdHours: number): EmployeeAlertText {
+  return {
+    alertType: "overtime",
+    title: "Overtime",
+    message: `You have worked ${hoursLabel(dayHours)} hours today.`,
+    reason: `Your company's daily overtime starts after ${thresholdHours} hours.`,
+  };
+}
+
 export function overtimeText(weekHours: number, thresholdHours: number): EmployeeAlertText {
   return {
     alertType: "overtime",
