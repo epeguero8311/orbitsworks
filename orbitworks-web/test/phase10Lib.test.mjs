@@ -18,7 +18,12 @@ import {
 import { ALERTS_WINDOW_DAYS, ALERTS_MAX, alertsSince, alertsCapNote } from "../lib/alertsWindow.ts";
 import { ALERT_ACTION_LOOKBACK_DAYS } from "../lib/dashboardOverviewUtils.ts";
 import { approvalsQueryStart } from "../lib/approvalsWindow.ts";
-import { DAY_PERCENTAGES, WEEK_PERCENTAGES, buildColumnWidths, approvalsColumnCount } from "../lib/approvalsColumns.ts";
+import {
+  APPROVALS_COLUMNS,
+  buildColumnWidths,
+  approvalsColumnCount,
+  visibleApprovalsColumns,
+} from "../lib/approvalsColumns.ts";
 
 const range = (n) => Array.from({ length: n }, (_, i) => i + 1);
 
@@ -95,15 +100,18 @@ test("approvals read from one day before the range start, never before the cutov
   assert.equal(approvalsQueryStart("2026-08-01", CUT), CUT);
 });
 
-test("Timesheet Approvals: no Shift column; both layouts still add up to 100% (W6)", () => {
-  const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
-  assert.equal(sum(DAY_PERCENTAGES), 100);
-  assert.equal(sum(WEEK_PERCENTAGES), 100);
-  assert.equal("shift" in DAY_PERCENTAGES, false);
-  assert.equal("shift" in WEEK_PERCENTAGES, false);
-  assert.equal(buildColumnWidths("day").length, approvalsColumnCount("day"));
-  assert.equal(buildColumnWidths("week").length, approvalsColumnCount("week"));
-  assert.equal(approvalsColumnCount("day"), 9);
-  assert.equal(approvalsColumnCount("week"), 10);
-  assert.equal(buildColumnWidths("day")[0], "40px");
+test("Timesheet Approvals: no Shift column; default layouts still add up to 100% (W6)", () => {
+  // Task 2: widths come from per-column weights; the default columns keep
+  // the Phase 10 weights (day 100, week 92 + Date 8).
+  const cols = visibleApprovalsColumns(null, { isPro: false, overtimeEnabled: false });
+  const weight = (mode) =>
+    cols.reduce((a, k) => a + APPROVALS_COLUMNS.find((c) => c.key === k)[mode === "week" ? "weekWeight" : "dayWeight"], 0);
+  assert.equal(weight("day"), 100);
+  assert.equal(weight("week") + 8, 100);
+  assert.equal(APPROVALS_COLUMNS.some((c) => c.key === "shift"), false);
+  assert.equal(buildColumnWidths("day", cols).length, approvalsColumnCount("day", cols));
+  assert.equal(buildColumnWidths("week", cols).length, approvalsColumnCount("week", cols));
+  assert.equal(approvalsColumnCount("day", cols), 9);
+  assert.equal(approvalsColumnCount("week", cols), 10);
+  assert.equal(buildColumnWidths("day", cols)[0], "40px");
 });

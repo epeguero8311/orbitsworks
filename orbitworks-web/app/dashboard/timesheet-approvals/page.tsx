@@ -6,6 +6,8 @@ import { useJobs } from "@/lib/hooks/useJobs";
 import { ApprovalsTable } from "@/components/dashboard/timesheetApprovals/ApprovalsTable";
 import { ApprovalsHeader } from "@/components/dashboard/timesheetApprovals/ApprovalsHeader";
 import AddTimestampModal from "@/components/dashboard/timesheetApprovals/AddTimestampModal";
+import ColumnsModal from "@/components/dashboard/timesheetApprovals/ColumnsModal";
+import { useApprovalsColumns } from "@/lib/hooks/useApprovalsColumns";
 import { dateKey, startOfWeek, APPROVALS_CUTOVER_DATE } from "@/lib/reportUtils";
 
 function clampToCutover(d: string) {
@@ -46,6 +48,9 @@ export default function TimesheetApprovalsPage() {
   } = useTimesheetApprovals(rangeStart, rangeEnd);
   const { jobs } = useJobs();
   const [addingOpen, setAddingOpen] = useState(false);
+  // Task 2: the company's Approve Hours columns (Columns modal).
+  const approvalsColumns = useApprovalsColumns();
+  const [columnsOpen, setColumnsOpen] = useState(false);
 
   function applyDate(next: string) {
     setDate(clampToCutover(next));
@@ -75,7 +80,9 @@ export default function TimesheetApprovalsPage() {
       <ApprovalsTable
         key={`${mode}-${rangeStart}-${rangeEnd}`}
         rows={rows}
-        loading={loading}
+        // Also wait for the company's columns, so a custom set never
+        // flashes the default columns first.
+        loading={loading || approvalsColumns.loading}
         mode={mode}
         weekDays={mode === "week" ? weekDays : undefined}
         jobs={jobs}
@@ -84,6 +91,8 @@ export default function TimesheetApprovalsPage() {
         onDeleteSession={deleteTimesheetSession}
         onAssignSite={assignSessionSite}
         onAddTimestamp={() => setAddingOpen(true)}
+        columns={approvalsColumns.visible}
+        onOpenColumns={() => setColumnsOpen(true)}
       />
 
       {addingOpen && (
@@ -92,6 +101,16 @@ export default function TimesheetApprovalsPage() {
           minDate={APPROVALS_CUTOVER_DATE}
           onClose={() => setAddingOpen(false)}
           onSubmit={addManualTimestamp}
+        />
+      )}
+
+      {columnsOpen && (
+        <ColumnsModal
+          selected={approvalsColumns.selected}
+          isPro={approvalsColumns.isPro}
+          overtimeEnabled={approvalsColumns.overtimeEnabled}
+          onClose={() => setColumnsOpen(false)}
+          onSave={approvalsColumns.save}
         />
       )}
     </div>

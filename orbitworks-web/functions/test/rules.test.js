@@ -757,6 +757,72 @@ test("overtime: a cross-company admin still can't write them", async () => {
   await assertFails(updateDoc(doc(db, "companies", COMPANY_A), { overtimeEnabled: true }));
 });
 
+// ---- Task 2: Approve Hours Columns (approvalsColumns) ----
+// validCompanyApprovalsColumns in firestore.rules. Optional keys only, max
+// 6, no duplicates, Type/Device keys only on a Pro planTier.
+
+async function setCompanyPlan(planTier) {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "companies", COMPANY_A), { name: "Company A", planTier });
+  });
+}
+
+test("approvals columns: admin can save the default set, a custom set, or none", async () => {
+  const ref = doc(adminContext().firestore(), "companies", COMPANY_A);
+  await assertSucceeds(updateDoc(ref, { approvalsColumns: ["company", "site", "job", "time", "break", "worked"] }));
+  await assertSucceeds(updateDoc(ref, { approvalsColumns: ["worked", "regularHours", "overtimeHours"] }));
+  await assertSucceeds(updateDoc(ref, { approvalsColumns: [] }));
+});
+
+test("approvals columns: a save that doesn't touch the field is unaffected (even if it already holds Pro keys)", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "companies", COMPANY_A), {
+      name: "Company A",
+      planTier: "tier1",
+      approvalsColumns: ["clockInType", "worked"],
+    });
+  });
+  await assertSucceeds(updateDoc(doc(adminContext().firestore(), "companies", COMPANY_A), { name: "Renamed" }));
+});
+
+test("approvals columns: wrong shape, unknown keys, Name/Status, duplicates and more than 6 are refused", async () => {
+  const ref = doc(adminContext().firestore(), "companies", COMPANY_A);
+  await assertFails(updateDoc(ref, { approvalsColumns: "worked" }));
+  await assertFails(updateDoc(ref, { approvalsColumns: { worked: true } }));
+  await assertFails(updateDoc(ref, { approvalsColumns: ["name", "worked"] }));
+  await assertFails(updateDoc(ref, { approvalsColumns: ["status"] }));
+  await assertFails(updateDoc(ref, { approvalsColumns: ["tips"] }));
+  await assertFails(updateDoc(ref, { approvalsColumns: ["worked", "worked"] }));
+  await assertFails(
+    updateDoc(ref, { approvalsColumns: ["company", "site", "job", "time", "break", "worked", "regularHours"] })
+  );
+});
+
+test("approvals columns: Type/Device keys need a Pro plan (Core and Free refused)", async () => {
+  const ref = () => doc(adminContext().firestore(), "companies", COMPANY_A);
+  await setCompanyPlan("free");
+  await assertFails(updateDoc(ref(), { approvalsColumns: ["clockInType"] }));
+  await setCompanyPlan("core2_tier1");
+  await assertFails(updateDoc(ref(), { approvalsColumns: ["clockOutDevice", "worked"] }));
+  await setCompanyPlan("pro_tier1");
+  await assertSucceeds(
+    updateDoc(ref(), { approvalsColumns: ["worked", "clockInType", "clockOutType", "clockInDevice", "clockOutDevice"] })
+  );
+});
+
+test("approvals columns: can't unlock Pro keys by changing planTier in the same write", async () => {
+  await assertFails(
+    updateDoc(doc(adminContext().firestore(), "companies", COMPANY_A), {
+      planTier: "pro_tier1",
+      approvalsColumns: ["clockInType"],
+    })
+  );
+});
+
+test("approvals columns: a cross-company admin can't write them", async () => {
+  await assertFails(updateDoc(doc(crossCompanyContext().firestore(), "companies", COMPANY_A), { approvalsColumns: [] }));
+});
+
 // ---- Overtime (Task 1): Titles & Pay overtimeRate type checks ----
 
 test("job overtime rate: admin can create/update with a number, null, or none", async () => {

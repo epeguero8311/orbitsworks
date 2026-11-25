@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Pencil, Trash2, Plus, ShieldAlert, MessageSquare } from "lucide-react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { Pencil, Trash2, Plus, ShieldAlert, MessageSquare, Settings2 } from "lucide-react";
 import type { ApprovalRow } from "@/lib/hooks/useTimesheetApprovals";
 import type { ClockEvent, Job } from "@/lib/types";
 import { useSites } from "@/lib/hooks/useSites";
@@ -10,14 +10,21 @@ import ClockEventDetailModal from "@/components/dashboard/ClockEventDetailModal"
 import ConfirmDeleteSessionModal from "@/components/dashboard/timesheetApprovals/ConfirmDeleteSessionModal";
 import SessionReviewModal from "@/components/dashboard/timesheetApprovals/sessionReview/SessionReviewModal";
 import { sessionStartMs } from "@/lib/sessionReview";
-import { approvalsColumnCount, buildColumnWidths } from "@/lib/approvalsColumns";
+import {
+  APPROVALS_COLUMNS,
+  approvalsColumnCount,
+  buildColumnWidths,
+  type ApprovalsColumnKey,
+} from "@/lib/approvalsColumns";
+import { clockDeviceLabel, clockTypeLabel } from "@/lib/approvalsClockInfo";
 import { clockOutSiteNote } from "@/lib/clockOutSite";
 
+// Rounds to whole minutes first, so a value a hair under the hour
+// (4.99999h from subtracting hours) shows "5h 0m", never "4h 60m".
 function formatHours(hours: number | null) {
   if (hours == null) return "-";
-  const h = Math.floor(hours);
-  const m = Math.round((hours - h) * 60);
-  return `${h}h ${m}m`;
+  const totalMinutes = Math.round(hours * 60);
+  return `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`;
 }
 
 function formatWorked(shiftHours: number | null, breakHours: number | null) {
@@ -39,8 +46,10 @@ function formatDayLabel(dateKeyStr: string) {
   });
 }
 
-// Column widths (no Shift column since Phase 10 W6) live in
-// lib/approvalsColumns.ts - the table is always exactly 100% of its card,
+// Columns (Task 2: picked per company in the Columns modal - only the
+// visible ones arrive in `columns`) and their widths (no Shift column since
+// Phase 10 W6) live in lib/approvalsColumns.ts - the table is always
+// exactly 100% of its card,
 // so it never needs a horizontal scrollbar on a desktop window. The
 // overflow-x-auto wrapper stays only as a fallback for phone-width windows.
 // Phase 10 (W6, D13 a): cells use tighter padding below 1280 px wide
@@ -57,6 +66,8 @@ export function ApprovalsTable({
   onDeleteSession,
   onAssignSite,
   onAddTimestamp,
+  columns,
+  onOpenColumns,
 }: {
   rows: ApprovalRow[];
   loading: boolean;
@@ -76,6 +87,8 @@ export function ApprovalsTable({
   onDeleteSession: (approvalId: string, eventIds: string[]) => Promise<void>;
   onAssignSite: (approvalId: string, eventIds: string[], siteId: string) => Promise<void>;
   onAddTimestamp: () => void;
+  columns: ApprovalsColumnKey[];
+  onOpenColumns: () => void;
 }) {
   const { sites } = useSites();
   const [editingRow, setEditingRow] = useState<ApprovalRow | null>(null);
@@ -256,12 +269,172 @@ export function ApprovalsTable({
     ? [editingRow.clockInEvent, editingRow.clockOutEvent]
     : [];
 
-  // checkbox + (Date in week mode) + Name/Company/Site/Job/Time/Break/
-  // Worked/Status - the pencil/trash actions live inside the Status cell,
-  // not a column of their own, so there is no separate actions column here.
-  const columnCount = approvalsColumnCount(mode);
+  // checkbox + (Date in week mode) + the visible columns - the pencil/trash
+  // actions live inside the Status cell, not a column of their own, so
+  // there is no separate actions column here.
+  const columnCount = approvalsColumnCount(mode, columns);
   const activeJobs = jobs.filter((j) => j.active);
-  const columnWidths = buildColumnWidths(mode);
+  const columnWidths = buildColumnWidths(mode, columns);
+  const columnDefs = columns
+    .map((key) => APPROVALS_COLUMNS.find((c) => c.key === key))
+    .filter((c): c is (typeof APPROVALS_COLUMNS)[number] => !!c);
+
+  function renderCell(
+    key: ApprovalsColumnKey,
+    row: ApprovalRow,
+    displayStatus: "pending" | "approved",
+    worst: ReturnType<typeof worstSeverity>
+  ) {
+    switch (key) {
+      case "name":
+        return (
+          <td className="px-3 py-4 xl:px-6 xl:py-5 font-medium text-gray-950">
+            <span className="flex flex-wrap items-center gap-2">
+              {row.employeeName}
+              {row.isClockedInNow && (
+                <span className="inline-flex items-center rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
+                  Clocked In
+                </span>
+              )}
+              {/* Employee comments - shift comments (Phase 9 H6 a) and
+                  camera-screen punch comments. An icon, not a warning; opens
+                  the same window, which shows warnings and comments together. */}
+              {row.comments.length + row.punchComments.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setReviewKey(row.key)}
+                  className="inline-flex items-center justify-center rounded-full bg-blue-50 p-1 text-accent transition-transform hover:scale-110 hover:bg-blue-100"
+                  title={`${row.comments.length + row.punchComments.length} employee comment${row.comments.length + row.punchComments.length === 1 ? "" : "s"}`}
+                  aria-label="See employee comments"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {worst != null && (
+                <button
+                  type="button"
+                  onClick={() => setReviewKey(row.key)}
+                  className={`inline-flex items-center justify-center rounded-full p-1 transition-transform hover:scale-110 ${
+                    worst === "red"
+                      ? "bg-red-100 text-red-700 hover:bg-red-200"
+                      : "bg-amber-100 text-amber-700 hover:bg-amber-200"
+                  }`}
+                  title="Review session"
+                  aria-label="Review session and warnings"
+                >
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </span>
+          </td>
+        );
+      case "company":
+        return (
+          <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">
+            {row.isSubcontractor ? (
+              <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
+                {row.companyName}
+              </span>
+            ) : (
+              row.companyName
+            )}
+          </td>
+        );
+      case "site":
+        return (
+          <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">
+            {row.siteName}
+            {/* Fix round 2 (B b): the hours count under the clock-in site;
+                this says where the clock-out was detected. Info only. */}
+            {!row.isClockedInNow && clockOutSiteNote(row.clockInEvent, row.clockOutEvent) && (
+              <span className="mt-1 block text-xs text-gray-500">{clockOutSiteNote(row.clockInEvent, row.clockOutEvent)}</span>
+            )}
+          </td>
+        );
+      case "job":
+        return (
+          <td className="px-3 py-4 xl:px-6 xl:py-5">
+            <select
+              value={effectiveJobId(row)}
+              onChange={(e) => handleJobChange(row, e.target.value)}
+              className="w-full max-w-[160px] rounded-md border border-gray-200 px-2 py-1.5 text-xs text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+            >
+              <option value="">{defaultJobLabel(row)}</option>
+              {activeJobs.map((j) => (
+                <option key={j.id} value={j.id}>
+                  {j.name}
+                </option>
+              ))}
+            </select>
+          </td>
+        );
+      case "time":
+        return (
+          <td className="px-3 py-4 xl:px-6 xl:py-5 font-mono text-xs text-gray-600">
+            {formatTime(row.clockInEvent)} - {formatTime(row.clockOutEvent)}
+          </td>
+        );
+      case "break":
+        return (
+          <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{formatHours(row.breakHours)}</td>
+        );
+      case "worked":
+        return (
+          <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{formatWorked(row.hours, row.breakHours)}</td>
+        );
+      case "status":
+        return (
+          <td className="px-3 py-4 xl:px-4 xl:py-5">
+            <div className="flex items-center gap-2">
+              <select
+                value={displayStatus}
+                onChange={(e) => handleStatusChange(row, e.target.value as "pending" | "approved")}
+                className={`min-w-[88px] shrink-0 rounded-full border-0 px-2.5 py-1 text-xs font-medium outline-none ${
+                  displayStatus === "approved"
+                    ? "bg-green-50 text-green-700"
+                    : "bg-amber-50 text-amber-700"
+                }`}
+              >
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+              </select>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => displayStatus !== "approved" && setEditingRow(row)}
+                  disabled={displayStatus === "approved"}
+                  className="rounded-md p-1 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent"
+                  aria-label={displayStatus === "approved" ? "Set to Pending to edit" : "Edit timestamp"}
+                  title={displayStatus === "approved" ? "Set to Pending to edit" : undefined}
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeletingRow(row)}
+                  className="rounded-md p-1 text-gray-600 hover:bg-red-50 hover:text-red-600"
+                  aria-label="Delete session"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </td>
+        );
+      case "regularHours":
+        return <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{formatHours(row.regularHours)}</td>;
+      case "overtimeHours":
+        return <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{formatHours(row.overtimeHours)}</td>;
+      case "clockInType":
+        return <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{clockTypeLabel(row.clockInEvent)}</td>;
+      case "clockOutType":
+        return <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{clockTypeLabel(row.clockOutEvent)}</td>;
+      case "clockInDevice":
+        return <td className="break-words px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{clockDeviceLabel(row.clockInEvent)}</td>;
+      case "clockOutDevice":
+        return <td className="break-words px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{clockDeviceLabel(row.clockOutEvent)}</td>;
+    }
+  }
 
   function renderRow(row: ApprovalRow) {
     const worst = worstSeverity(row.warnings);
@@ -291,117 +464,9 @@ export function ApprovalsTable({
         {mode === "week" && (
           <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{formatDayLabel(row.date)}</td>
         )}
-        <td className="px-3 py-4 xl:px-6 xl:py-5 font-medium text-gray-950">
-          <span className="flex flex-wrap items-center gap-2">
-            {row.employeeName}
-            {row.isClockedInNow && (
-              <span className="inline-flex items-center rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                Clocked In
-              </span>
-            )}
-            {/* Employee comments - shift comments (Phase 9 H6 a) and
-                camera-screen punch comments. An icon, not a warning; opens
-                the same window, which shows warnings and comments together. */}
-            {row.comments.length + row.punchComments.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setReviewKey(row.key)}
-                className="inline-flex items-center justify-center rounded-full bg-blue-50 p-1 text-accent transition-transform hover:scale-110 hover:bg-blue-100"
-                title={`${row.comments.length + row.punchComments.length} employee comment${row.comments.length + row.punchComments.length === 1 ? "" : "s"}`}
-                aria-label="See employee comments"
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-              </button>
-            )}
-            {worst != null && (
-              <button
-                type="button"
-                onClick={() => setReviewKey(row.key)}
-                className={`inline-flex items-center justify-center rounded-full p-1 transition-transform hover:scale-110 ${
-                  worst === "red"
-                    ? "bg-red-100 text-red-700 hover:bg-red-200"
-                    : "bg-amber-100 text-amber-700 hover:bg-amber-200"
-                }`}
-                title="Review session"
-                aria-label="Review session and warnings"
-              >
-                <ShieldAlert className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </span>
-        </td>
-        <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">
-          {row.isSubcontractor ? (
-            <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
-              {row.companyName}
-            </span>
-          ) : (
-            row.companyName
-          )}
-        </td>
-        <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">
-          {row.siteName}
-          {/* Fix round 2 (B b): the hours count under the clock-in site;
-              this says where the clock-out was detected. Info only. */}
-          {!row.isClockedInNow && clockOutSiteNote(row.clockInEvent, row.clockOutEvent) && (
-            <span className="mt-1 block text-xs text-gray-500">{clockOutSiteNote(row.clockInEvent, row.clockOutEvent)}</span>
-          )}
-        </td>
-        <td className="px-3 py-4 xl:px-6 xl:py-5">
-          <select
-            value={effectiveJobId(row)}
-            onChange={(e) => handleJobChange(row, e.target.value)}
-            className="w-full max-w-[160px] rounded-md border border-gray-200 px-2 py-1.5 text-xs text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-          >
-            <option value="">{defaultJobLabel(row)}</option>
-            {activeJobs.map((j) => (
-              <option key={j.id} value={j.id}>
-                {j.name}
-              </option>
-            ))}
-          </select>
-        </td>
-        <td className="px-3 py-4 xl:px-6 xl:py-5 font-mono text-xs text-gray-600">
-          {formatTime(row.clockInEvent)} - {formatTime(row.clockOutEvent)}
-        </td>
-        <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{formatHours(row.breakHours)}</td>
-        <td className="px-3 py-4 xl:px-6 xl:py-5 text-gray-600">{formatWorked(row.hours, row.breakHours)}</td>
-        <td className="px-3 py-4 xl:px-4 xl:py-5">
-          <div className="flex items-center gap-2">
-            <select
-              value={displayStatus}
-              onChange={(e) => handleStatusChange(row, e.target.value as "pending" | "approved")}
-              className={`min-w-[88px] shrink-0 rounded-full border-0 px-2.5 py-1 text-xs font-medium outline-none ${
-                displayStatus === "approved"
-                  ? "bg-green-50 text-green-700"
-                  : "bg-amber-50 text-amber-700"
-              }`}
-            >
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-            </select>
-            <div className="flex shrink-0 items-center gap-1">
-              <button
-                type="button"
-                onClick={() => displayStatus !== "approved" && setEditingRow(row)}
-                disabled={displayStatus === "approved"}
-                className="rounded-md p-1 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-300 disabled:hover:bg-transparent"
-                aria-label={displayStatus === "approved" ? "Set to Pending to edit" : "Edit timestamp"}
-                title={displayStatus === "approved" ? "Set to Pending to edit" : undefined}
-              >
-                <Pencil className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setDeletingRow(row)}
-                className="rounded-md p-1 text-gray-600 hover:bg-red-50 hover:text-red-600"
-                aria-label="Delete session"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </td>
+        {columns.map((key) => (
+          <Fragment key={key}>{renderCell(key, row, displayStatus, worst)}</Fragment>
+        ))}
       </tr>
     );
   }
@@ -433,7 +498,15 @@ export function ApprovalsTable({
 
   return (
     <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-      <div className="flex justify-end border-b border-gray-200 px-6 py-3">
+      <div className="flex justify-end gap-2 border-b border-gray-200 px-6 py-3">
+        <button
+          type="button"
+          onClick={onOpenColumns}
+          className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:border-gray-300"
+        >
+          <Settings2 className="h-3.5 w-3.5" />
+          Columns
+        </button>
         <button
           type="button"
           onClick={onAddTimestamp}
@@ -497,14 +570,15 @@ export function ApprovalsTable({
                   <span className="sr-only">Select All</span>
                 </th>
                 {mode === "week" && <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Date</th>}
-                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Name</th>
-                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Company</th>
-                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Site</th>
-                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Job</th>
-                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Time</th>
-                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Break</th>
-                <th className="px-3 py-3 xl:px-6 xl:py-3.5 font-medium">Worked</th>
-                <th className="px-3 py-3 xl:px-4 xl:py-3.5 font-medium">Status</th>
+                {columnDefs.map((c) => (
+                  <th
+                    key={c.key}
+                    title={c.help}
+                    className={`px-3 py-3 xl:py-3.5 font-medium ${c.key === "status" ? "xl:px-4" : "xl:px-6"}`}
+                  >
+                    {c.label}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>{renderBody()}</tbody>

@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { isCoreOrProPlan, isProPlan } from "@/lib/stripe/tiers";
 import type { ExportSettings, RoundingIncrement } from "@/lib/types";
 import { DEFAULT_OVERTIME_TIME_ZONE, type OvertimeSettings } from "@/lib/overtime";
+import { readSavedApprovalsColumns, type OptionalApprovalsColumnKey } from "@/lib/approvalsColumns";
 
 export type AttendanceRules = {
   gracePeriodMinutes: number;
@@ -86,6 +87,10 @@ export type CompanySettings = {
   exportSettings: ExportSettings;
   faceVerification: FaceVerificationSettings;
   autoClockOut: AutoClockOutSettings;
+  // Approve Hours Columns (Task 2): the saved OPTIONAL column keys, or null
+  // when the company never saved a choice (= today's default columns).
+  // Top-level company field; see lib/approvalsColumns.ts.
+  approvalsColumns: OptionalApprovalsColumnKey[] | null;
 };
 
 // Overtime (Task 1), Settings > Export Settings. Stored top-level on the
@@ -235,6 +240,7 @@ const DEFAULT_SETTINGS: CompanySettings = {
   exportSettings: DEFAULT_EXPORT_SETTINGS,
   faceVerification: DEFAULT_FACE_VERIFICATION_SETTINGS,
   autoClockOut: DEFAULT_AUTO_CLOCK_OUT,
+  approvalsColumns: null,
 };
 
 export function useCompanySettings() {
@@ -298,6 +304,7 @@ export function useCompanySettings() {
           ...DEFAULT_AUTO_CLOCK_OUT,
           ...(data.autoClockOut ?? {}),
         },
+        approvalsColumns: readSavedApprovalsColumns(data.approvalsColumns),
       });
       setLoading(false);
     });

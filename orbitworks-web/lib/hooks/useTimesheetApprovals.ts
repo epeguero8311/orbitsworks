@@ -36,6 +36,12 @@ export type ApprovalRow = {
   siteId: string | null;
   hours: number | null;
   breakHours: number | null;
+  // Overtime ON only (null when OFF): the shift's OT (frozen on approved
+  // shifts that have it) and Regular = worked - OT, from the same OT run as
+  // breakHours above, so Regular + Overtime = Worked. Approve Hours
+  // Columns (Task 2) Regular Hours / Overtime.
+  regularHours: number | null;
+  overtimeHours: number | null;
   status: "pending" | "approved";
   eventId: string;
   clockInEvent: ClockEvent;
@@ -321,6 +327,8 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
             const otInfo = otInfoById.get(pendingIn.id);
             const breakHours = (otInfo ? otInfo.breakMs : effectiveBreakMs) / (1000 * 60 * 60);
             cumulativeWeekHours += hours - breakHours;
+            const overtimeHours = otInfo ? otInfo.overtimeMs / (1000 * 60 * 60) : null;
+            const regularHours = overtimeHours === null ? null : Math.max(0, hours - breakHours - overtimeHours);
             const overrideEventId = approval?.flags?.find(
               (f) => f.type === "SUPERVISOR_OVERRIDE"
             )?.overrideEventId;
@@ -340,6 +348,8 @@ export function useTimesheetApprovals(startDate: string, endDate: string = start
               siteId: pendingIn.siteId ?? null,
               hours,
               breakHours,
+              regularHours,
+              overtimeHours,
               status: approval?.status ?? "pending",
               eventId: pendingIn.id,
               clockInEvent,
