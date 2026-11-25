@@ -1,5 +1,6 @@
 // TODO(Phase 10): RATE LIMIT getJoinInfo along with joinCompany (public,
 // unauthenticated).
+import { kioskRecordsQuery, withoutKiosks } from "./lib/kioskCounts";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { db } from "./shared";
 import { CONSENT_VERSIONS } from "./consentVersions";
@@ -68,13 +69,14 @@ export async function runGetJoinInfo(raw: unknown, hooks: JoinInfoHooks = {}): P
     // "active" for a code joinCompany would turn away.
     const companyRef = db.collection("companies").doc(code.companyId);
     const employeesRef = companyRef.collection("employees");
-    const [companySnap, active, total] = await Promise.all([
+    const [companySnap, active, total, kiosks] = await Promise.all([
       companyRef.get(),
       employeesRef.where("active", "==", true).count().get(),
       employeesRef.count().get(),
+      kioskRecordsQuery(employeesRef).get(),
     ]);
     const company = companySnap.exists ? (companySnap.data() as CompanyData) : undefined;
-    const problem = codeProblem(code, company, { active: active.data().count, total: total.data().count });
+    const problem = codeProblem(code, company, withoutKiosks({ active: active.data().count, total: total.data().count }, kiosks));
     if (problem) return INACTIVE;
 
     // Only subcontractors listed on this code that still exist and are active.

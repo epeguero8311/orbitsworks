@@ -1,4 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { kioskRecordsQuery, withoutKiosks } from "./lib/kioskCounts";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
 import {
@@ -12,6 +13,8 @@ import {
 import { pinHistoryRef, reserveNewPin } from "./pins";
 import { deleteEmployeeFacePhotos, markConsentFaceDataDeleted } from "./facePhotos";
 import { loginRoleFor } from "./employeeAccess";
+import { KIOSK_ENABLED } from "./flags";
+import { isProPlan } from "./lib/signupShared";
 import { pendingInviteRefsForRow } from "./employeeInvites";
 import { employeeDocPinOnCreate, employeePinData, employeePinRef, readEmployeePin } from "./lib/employeePin";
 import { NEW_ADMIN_ACCESS, canManageAdmin, resolveAdminAccess } from "./adminAccessModel";
@@ -245,8 +248,13 @@ export const setEmployeeRole = onCall(async (request) => {
   const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
   const isAdmin = !!(request.data && request.data.isAdmin);
   const isSupervisor = !!(request.data && request.data.isSupervisor);
+  // Task 5 (K5-K7): Kiosk access. Exclusive with Supervisor + Admin access.
+  const isKiosk = !!(request.data && request.data.isKiosk);
   if (!employeeId) {
     throw new HttpsError("invalid-argument", "employeeId is required.");
+  }
+  if (isKiosk && (isAdmin || isSupervisor)) {
+    throw new HttpsError("invalid-argument", "Kiosk access can't be combined with Supervisor or Admin access.");
   }
   const employeeRef = db
     .collection("companies")
@@ -257,7 +265,24 @@ export const setEmployeeRole = onCall(async (request) => {
   if (!employeeSnap.exists) {
     throw new HttpsError("not-found", "Employee not found.");
   }
-  const employee = employeeSnap.data() as { linkedUserId?: string; appAccess?: boolean };
+  const employee = employeeSnap.data() as {
+    linkedUserId?: string;
+    appAccess?: boolean;
+    kiosk?: boolean;
+    active?: boolean;
+    lastEventType?: string | null;
+  };
+  const wasKiosk = employee.kiosk === true;
+  if (isKiosk && !wasKiosk) {
+    await requireCanTurnKioskOn(callerCompanyId, employee);
+  }
+  if (!isKiosk && wasKiosk && employee.active === true) {
+    // Back into the counts (onEmployeeWrite): needs room under the caps.
+    const company = (await db.collection("companies").doc(callerCompanyId).get()).data() as EmployeeCapFields | undefined;
+    if (isOverActiveCap(company) || isOverTotalCap(company)) {
+      throw new HttpsError("failed-precondition", "You're at your employee limit. Deactivate someone or upgrade first.");
+    }
+  }
   const linkedUserId = employee.linkedUserId;
   if (!linkedUserId) {
     throw new HttpsError(
@@ -294,13 +319,15 @@ export const setEmployeeRole = onCall(async (request) => {
   // drops back to the "employee" role when both toggles are turned off,
   // instead of the legacy "supervisor" floor below. Every employee doc
   // without appAccess resolves exactly as before (admin, else supervisor).
-  const dashboardRole = loginRoleFor({ isAdmin, isSupervisor, appAccess: employee.appAccess });
+  const dashboardRole = loginRoleFor({ kiosk: isKiosk, isAdmin, isSupervisor, appAccess: employee.appAccess });
 
   // RC1: claims FIRST, then the users doc. The signed-in app watches
   // users/{uid}; the moment role/roleChangedAt change it forces a token
   // refresh, which must already get the new claims (otherwise it would
   // route by a role the rules don't grant yet).
-  await employeeRef.update({ isSupervisor, isAdmin });
+  // kiosk is written only when it is (or was) involved, so every other
+  // record keeps exactly the fields it had.
+  await employeeRef.update({ isSupervisor, isAdmin, ...(isKiosk || wasKiosk ? { kiosk: isKiosk } : {}) });
   // Task 4 (D9/D16): a NEW admin starts with no sites + no permissions (the
   // website opens the Permissions modal right after); an admin who stays
   // an admin keeps their access; leaving admin drops it.
@@ -322,6 +349,30 @@ export const setEmployeeRole = onCall(async (request) => {
 
   return { success: true };
 });
+
+// Task 5 (K3, K4, K7): Kiosk access needs the flag, Pro, a record that is
+// not a person's own Employee App login, and nobody clocked in on it.
+async function requireCanTurnKioskOn(
+  companyId: string,
+  employee: { appAccess?: boolean; lastEventType?: string | null }
+): Promise<void> {
+  if (!KIOSK_ENABLED.value()) {
+    throw new HttpsError("failed-precondition", "Kiosk mode isn't available yet.");
+  }
+  const company = (await db.collection("companies").doc(companyId).get()).data();
+  if (!isProPlan(company?.planTier as string | undefined)) {
+    throw new HttpsError("failed-precondition", "Kiosk access is a Pro feature.");
+  }
+  if (employee.appAccess === true) {
+    throw new HttpsError(
+      "failed-precondition",
+      "This person uses the Employee App with their own login. A kiosk needs its own login (a new record with the tablet's email)."
+    );
+  }
+  if (employee.lastEventType && employee.lastEventType !== "out") {
+    throw new HttpsError("failed-precondition", "This record is clocked in. Clock it out first.");
+  }
+}
 
 // Grants or revokes PIN-only supervisor override access for an employee
 // with no linked login - they can authorize clock-in overrides and
@@ -384,8 +435,11 @@ export const onEmployeeWrite = onDocumentWritten(
     // active/total employee cap pair (see lib/stripe/tiers.ts PriceTier.
     // totalCap), capping how many employee records a company can keep
     // around at all rather than how many can be active at once.
-    const existedBefore = before !== undefined;
-    const existsAfter = after !== undefined;
+    // Task 5 (K8): a kiosk record (shared tablet) never counts - turning
+    // Kiosk access on takes it out of both counts, turning it off puts it
+    // back (setEmployeeRole checks the caps before that).
+    const existedBefore = before !== undefined && before.kiosk !== true;
+    const existsAfter = after !== undefined && after.kiosk !== true;
 
     const update: Record<string, unknown> = {};
 
@@ -393,8 +447,8 @@ export const onEmployeeWrite = onDocumentWritten(
       update.totalEmployeeCount = admin.firestore.FieldValue.increment(existsAfter ? 1 : -1);
     }
 
-    const wasActive = before ? before.active === true : false;
-    const isActive = after ? after.active === true : false;
+    const wasActive = before ? before.active === true && before.kiosk !== true : false;
+    const isActive = after ? after.active === true && after.kiosk !== true : false;
 
     if (wasActive !== isActive) {
       update.activeEmployeeCount = admin.firestore.FieldValue.increment(isActive ? 1 : -1);
@@ -423,8 +477,9 @@ export const backfillTotalEmployeeCount = onCall(async (request) => {
   const callerCompanyId = caller.companyId;
 
   const employeesRef = db.collection("companies").doc(callerCompanyId).collection("employees");
-  const countSnap = await employeesRef.count().get();
-  const totalEmployeeCount = countSnap.data().count;
+  const [countSnap, kiosksSnap] = await Promise.all([employeesRef.count().get(), kioskRecordsQuery(employeesRef).get()]);
+  // Task 5 (K8): kiosk records never count.
+  const totalEmployeeCount = withoutKiosks({ active: 0, total: countSnap.data().count }, kiosksSnap).total;
 
   await db.collection("companies").doc(callerCompanyId).update({ totalEmployeeCount });
 

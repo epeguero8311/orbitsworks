@@ -89,6 +89,9 @@ export { syncEmployeeSelfView } from "./employeeSelfView";
 
 export { employeeClockPunch, getEmployeeHomeSite, getMyPin, getMyPinVerifier } from "./employeeClock";
 
+// Task 5: Kiosk mode (shared wall tablet, Pro).
+export { getKioskPinTable, kioskPunch, checkKioskUnlock, renameKioskDevice, createKioskExitKey } from "./kiosk";
+
 export { runAutoClockOut } from "./autoClockOut";
 
 export {

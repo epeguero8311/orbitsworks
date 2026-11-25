@@ -104,7 +104,10 @@ async function autoRevertToFree(companyId: string) {
   const employeesRef = companyRef.collection("employees");
   const activeSnap = await employeesRef.where("active", "==", true).get();
 
-  const employees = activeSnap.docs.map((d) => ({
+  // Task 5 (K8): kiosk records (shared tablets) never count toward the cap,
+  // so they are never picked here either (K20: the kiosk login stays; the
+  // tablet itself stops taking punches on a non-Pro plan).
+  const employees = activeSnap.docs.filter((d) => d.get("kiosk") !== true).map((d) => ({
     id: d.id,
     isSupervisor: !!(d.data() as { isSupervisor?: boolean }).isSupervisor,
     linkedUserId: (d.data() as { linkedUserId?: string }).linkedUserId,
@@ -131,7 +134,11 @@ async function autoRevertToFree(companyId: string) {
     }
   }
 
+  const before = await companyRef.get();
   await companyRef.update({
+    // Task 5 (K20): when the plan changed - kioskPunch accepts punches made
+    // before this moment (queued on a tablet) and refuses later ones.
+    ...(before.get("planTier") !== "free" ? { planTierChangedAt: Timestamp.now() } : {}),
     planTier: "free",
     employeeCap: FREE_EMPLOYEE_CAP,
     totalEmployeeCap: null,
@@ -224,6 +231,9 @@ async function syncSubscriptionToFirestore(subscription: Stripe.Subscription) {
   };
 
   if (tier && (subscription.status === "active" || subscription.status === "trialing")) {
+    // Task 5 (K20): stamp a real plan change only (renewals rewrite the same key).
+    const current = await adminDb.collection("companies").doc(companyId).get();
+    if (current.get("planTier") !== tier.key) update.planTierChangedAt = Timestamp.now();
     update.planTier = tier.key;
     update.employeeCap = tier.employeeCap;
     update.totalEmployeeCap = tier.totalCap;

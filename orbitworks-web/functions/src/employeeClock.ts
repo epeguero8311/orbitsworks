@@ -2,7 +2,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { timingSafeEqual, randomUUID } from "crypto";
 import { db } from "./shared";
-import { employeeClockPunchSchema, getMyPinSchema, getMyPinVerifierSchema, EmployeeClockAction, PunchLocation } from "./employeeClockValidators";
+import { employeeClockPunchSchema, getMyPinSchema, getMyPinVerifierSchema, EmployeeClockAction, EmployeeClockPunchInput, PunchLocation } from "./employeeClockValidators";
 import { locationForPunch } from "./lib/punchLocation";
 import { isAccurateEnoughToDetect, isSiteMismatch, loadDetectableSites, pickDetectedClockInSite, pickEmployeeClockInSite, pickEmployeeClockOutSite, type ClockInSitePick, type ShiftFence } from "./geofencing";
 import { PIN_REVEAL_MAX, PIN_REVEAL_WINDOW_MS, type MyPinResult } from "./employeePinTypes";
@@ -149,7 +149,7 @@ const ERROR_CODES: Record<
   syncBlocked: "permission-denied",
 };
 
-function clockError(reason: EmployeeClockErrorReason, message?: string, extra: Record<string, unknown> = {}): HttpsError {
+export function clockError(reason: EmployeeClockErrorReason, message?: string, extra: Record<string, unknown> = {}): HttpsError {
   const text = message ?? EMPLOYEE_CLOCK_ERRORS[reason as keyof typeof EMPLOYEE_CLOCK_ERRORS];
   return new HttpsError(ERROR_CODES[reason], text, { reason, ...extra });
 }
@@ -199,8 +199,9 @@ function pinMatches(given: string, stored: unknown): boolean {
   return timingSafeEqual(Buffer.from(given), Buffer.from(stored));
 }
 
-type EmployeeDoc = {
+export type EmployeeDoc = {
   name?: string;
+  kiosk?: boolean;
   active?: boolean;
   pin?: string;
   linkedUserId?: string;
@@ -412,11 +413,11 @@ async function withReplayFence(companyId: string, result: ReturnType<typeof resu
   return { ...result, fence };
 }
 
-// A requestId already used by THIS employee for THIS action is a replay.
-// Anything else on that id is a bad request.
-function replayOf(eventId: string, data: EventData | undefined, employeeId: string, action: EmployeeClockAction) {
+// A requestId already used by THIS employee for THIS action (from the same
+// kind of caller) is a replay. Anything else on that id is a bad request.
+function replayOf(eventId: string, data: EventData | undefined, employeeId: string, action: EmployeeClockAction, source: PunchSource) {
   if (!data) return null;
-  if (data.employeeId !== employeeId || data.source !== "employeeApp" || data.type !== action) {
+  if (data.employeeId !== employeeId || data.source !== source || data.type !== action) {
     throw clockError("invalid");
   }
   return resultFrom(eventId, data, true);
@@ -445,7 +446,73 @@ export const employeeClockPunch = onCall(async (request) => {
     throw clockError("wrongAccount");
   }
 
+  return runClockPunch(
+    {
+      uid,
+      companyId,
+      employeeId,
+      source: "employeeApp",
+      // 4. the employee doc must still be this login's own, and active
+      accountError: (emp) => {
+        if (!emp || emp.linkedUserId !== uid) return "wrongAccount";
+        if (callerKind === "promoted" && emp.appAccess !== true) return "wrongAccount";
+        if (emp.active !== true) return "inactive";
+        return null;
+      },
+      pinOnBreaks: false,
+      // 5. 3 wrong in a row = 1-minute lock (employeePinLocks)
+      onlinePinError: async (given, stored, nowMs) => {
+        const pin = await checkPin(companyId, employeeId, given, stored, nowMs);
+        if (!pin.ok && pin.reason === "locked") {
+          return clockError("locked", lockedMessage(pin.secondsLeft), { secondsLeft: pin.secondsLeft });
+        }
+        if (!pin.ok && pin.reason === "wrongPin") {
+          const left = pin.attemptsLeft;
+          const message = `Wrong PIN. ${left} ${left === 1 ? "try" : "tries"} left before a 1-minute lock.`;
+          return clockError("wrongPin", message, { attemptsLeft: left });
+        }
+        return null;
+      },
+      leaveTracking: true,
+    },
+    input
+  );
+});
+
+// ---- The punch itself, shared by employeeClockPunch and kioskPunch ----
+//
+// Steps 3-8 of the header. Who the caller is (step 1), the input check
+// (step 2) and anything caller-specific are done by the callable before it
+// calls this; the differences are in PunchActor. employeeClockPunch's
+// behavior is exactly what it was before Task 5 (the steps were only moved
+// here). Task 5 (Kiosk): source "kiosk", a PIN on every action (breaks too),
+// a per-kiosk try limit instead of the employee's own lock, no leave
+// tracking, and the kiosk's device on the event.
+export type PunchSource = "employeeApp" | "kiosk";
+
+export type PunchActor = {
+  uid: string;
+  companyId: string;
+  employeeId: string;
+  source: PunchSource;
+  // Checked before the PIN and again inside the transaction.
+  accountError: (employee: EmployeeDoc | undefined) => EmployeeClockErrorReason | null;
+  // true = breaks need the PIN too (kiosk: "PIN ALWAYS required").
+  pinOnBreaks: boolean;
+  // Live (not queued) punch: null = PIN ok, else the error to throw.
+  onlinePinError: (given: string, stored: unknown, nowMs: number) => Promise<HttpsError | null>;
+  // Phase 8 leave tracking fence on a clock-in (Employee App phones only).
+  leaveTracking: boolean;
+  // Written on the event as well (kiosk: deviceId, deviceNameSnapshot).
+  extraEventFields?: Record<string, unknown>;
+};
+
+export type ClockCoreInput = Omit<EmployeeClockPunchInput, "companyId" | "employeeId">;
+
+export async function runClockPunch(actor: PunchActor, input: ClockCoreInput) {
+  const { uid, companyId, employeeId, source } = actor;
   const isInOut = input.action === "in" || input.action === "out";
+  const needsPin = isInOut || actor.pinOnBreaks;
   const queued = input.queuedAtMs !== undefined;
   // Queued but sent within FAST_SYNC_MAX_MS: server time minus the wait,
   // written like an online punch (see employeeClockQueued.ts).
@@ -464,18 +531,17 @@ export const employeeClockPunch = onCall(async (request) => {
 
   // 3. double tap (not for a PIN check, which never writes an event)
   const existing = input.checkPinOnly ? null : await eventRef.get();
-  const replay = existing ? replayOf(eventRef.id, existing.data() as EventData | undefined, employeeId, input.action) : null;
+  const replay = existing ? replayOf(eventRef.id, existing.data() as EventData | undefined, employeeId, input.action, source) : null;
   if (replay) return withReplayFence(companyId, replay, existing?.data() as EventData | undefined);
 
   // 4. account
   const employeeSnap = await employeeRef.get();
   const employee = employeeSnap.data() as EmployeeDoc | undefined;
-  if (!employee || employee.linkedUserId !== uid) return reject(clockError("wrongAccount"));
-  if (callerKind === "promoted" && employee.appAccess !== true) return reject(clockError("wrongAccount"));
-  if (employee.active !== true) return reject(clockError("inactive"));
+  const accountErr = actor.accountError(employee);
+  if (accountErr || !employee) return reject(clockError(accountErr ?? "wrongAccount"));
   // prod-readiness item 7: the PIN lives in employeePins now (old field as
   // the fallback until every employee is copied).
-  if (isInOut) employee.pin = (await readEmployeePin(companyId, employeeId, employee)) ?? undefined;
+  if (needsPin) employee.pin = (await readEmployeePin(companyId, employeeId, employee)) ?? undefined;
 
   const nowMs = Date.now();
 
@@ -489,7 +555,7 @@ export const employeeClockPunch = onCall(async (request) => {
 
   let photoUrl: string | null = null;
   let oldPinAccepted = false;
-  if (isInOut && queued) {
+  if (needsPin && queued) {
     // 5q. PIN for a queued punch: no 3-strike lock, own 24 h count + cap.
     // The current PIN, or the one that was right at the punch's own time
     // (the same time the event gets, below; a fast sync = server time).
@@ -512,17 +578,10 @@ export const employeeClockPunch = onCall(async (request) => {
       oldPinAccepted = true;
     }
   }
-  if (isInOut && !queued) {
+  if (needsPin && !queued) {
     // 5. PIN
-    const pin = await checkPin(companyId, employeeId, input.pin as string, employee.pin, nowMs);
-    if (!pin.ok && pin.reason === "locked") {
-      return reject(clockError("locked", lockedMessage(pin.secondsLeft), { secondsLeft: pin.secondsLeft }));
-    }
-    if (!pin.ok && pin.reason === "wrongPin") {
-      const left = pin.attemptsLeft;
-      const message = `Wrong PIN. ${left} ${left === 1 ? "try" : "tries"} left before a 1-minute lock.`;
-      return reject(clockError("wrongPin", message, { attemptsLeft: left }));
-    }
+    const pinErr = await actor.onlinePinError(input.pin as string, employee.pin, nowMs);
+    if (pinErr) return reject(pinErr);
     if (input.checkPinOnly) return { pinOk: true, serverNowMs: Date.now() };
   }
   // B: a queued clock in/out whose photo the phone lost is recorded
@@ -543,7 +602,7 @@ export const employeeClockPunch = onCall(async (request) => {
   const clockInSite = input.action === "in" ? await resolveClockInSite(companyId, employee, location) : null;
   const clockOutPick = input.action === "out" && location ? await detectForPro(companyId, employee, location) : null;
   // 7b. Phase 8 leave tracking fence (clock-in only, never rejects).
-  const clockInFence = clockInSite ? await fenceForNewClockIn(companyId, clockInSite.siteId).catch(() => null) : null;
+  const clockInFence = clockInSite && actor.leaveTracking ? await fenceForNewClockIn(companyId, clockInSite.siteId).catch(() => null) : null;
 
   // 8. state + write, atomically
   const eventsRef = companyRef.collection("clockEvents");
@@ -585,8 +644,8 @@ export const employeeClockPunch = onCall(async (request) => {
       ]);
       if (again.exists) return { kind: "replay", data: again.data() as EventData };
       const emp = empSnap.data() as EmployeeDoc | undefined;
-      if (!emp || emp.linkedUserId !== uid) return { kind: "rejected", err: clockError("wrongAccount") };
-      if (emp.active !== true) return { kind: "rejected", err: clockError("inactive") };
+      const txAccountErr = actor.accountError(emp);
+      if (txAccountErr || !emp) return { kind: "rejected", err: clockError(txAccountErr ?? "wrongAccount") };
 
       const latest = latestSnap.empty ? undefined : (latestSnap.docs[0].data() as EventData);
       const latestType = latest?.type;
@@ -637,13 +696,14 @@ export const employeeClockPunch = onCall(async (request) => {
         subcontractorId: emp.subcontractorId ?? null,
         subcontractorName: emp.subcontractorName ?? null,
         type: input.action,
-        source: "employeeApp",
+        source,
         timestamp,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         createdByUid: uid,
         requestId: input.requestId,
       };
       if (photoUrl) data.photoUrl = photoUrl;
+      if (actor.extraEventFields) Object.assign(data, actor.extraEventFields);
       // Phase 6. No location field from an older app = none written.
       if (location !== undefined) {
         data.location = location ? { lat: location.lat, lng: location.lng } : null;
@@ -691,7 +751,7 @@ export const employeeClockPunch = onCall(async (request) => {
         }
         // The status comes from what is left (onClockEventCreated only
         // moves it forward, so it can't step back past a removed event).
-        const punchPlaced: PlacedEvent = { id: eventRef.id, type: input.action, source: "employeeApp", ms: eventMs };
+        const punchPlaced: PlacedEvent = { id: eventRef.id, type: input.action, source, ms: eventMs };
         const newest = newestAfterPlacement(latestSnap.docs.map(placedFrom), punchPlaced, placement.remove);
         const newestDoc = latestSnap.docs.find((d) => d.id === newest.id);
         const newestSite = newest.id === eventRef.id ? site : { siteId: newestDoc?.get("siteId") ?? null, siteName: newestDoc?.get("siteName") ?? "" };
@@ -712,7 +772,7 @@ export const employeeClockPunch = onCall(async (request) => {
 
   if (outcome.kind === "rejected") return reject(outcome.err);
   if (outcome.kind === "replay") {
-    const again = replayOf(eventRef.id, outcome.data, employeeId, input.action);
+    const again = replayOf(eventRef.id, outcome.data, employeeId, input.action, source);
     if (again) return withReplayFence(companyId, again, outcome.data);
   }
   if (queued) {
@@ -736,7 +796,7 @@ export const employeeClockPunch = onCall(async (request) => {
     });
   }
   return resultFrom(eventRef.id, outcome.data, false, clockInFence);
-});
+}
 
 // ---- Employee App Home: where the next clock-in would land ----
 //

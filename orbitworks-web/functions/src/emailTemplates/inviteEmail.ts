@@ -2,18 +2,20 @@ const ACCENT_COLOR = "#3b6fe0";
 
 export function buildInviteEmail(params: {
   companyName: string;
-  role: "supervisor" | "admin";
+  role: "supervisor" | "admin" | "kiosk";
   joinLink: string;
   companyLogoUrl?: string;
 }): { subject: string; html: string } {
   const { companyName, role, joinLink, companyLogoUrl } = params;
 
-  const roleLabel = role === "admin" ? "Admin" : "Supervisor";
+  const roleLabel = role === "admin" ? "Admin" : role === "kiosk" ? "Kiosk" : "Supervisor";
   const roleArticle = role === "admin" ? "an" : "a";
   const roleDescription =
     role === "admin"
       ? "As an admin, you'll get your own login with full access to the web dashboard - manage employees, sites, timesheets, and everything else except billing."
-      : "As a supervisor, you'll get your own login, can clock yourself in and out, and can clock other employees in and out on job sites.";
+      : role === "kiosk"
+        ? "This sets up the login for a shared kiosk iPad. Set a password, then sign in with it in the OrbitsWorks app (1.1.6 or newer) on the iPad - employees clock in/out and take breaks there with their own PIN."
+        : "As a supervisor, you'll get your own login, can clock yourself in and out, and can clock other employees in and out on job sites.";
 
   const subject = `You're invited to join ${companyName} on OrbitsWorks`;
 

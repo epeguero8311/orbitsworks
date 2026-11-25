@@ -15,6 +15,18 @@ service firebase.storage {
         request.auth.token.get('employeeId', '') == employeeId;
     }
 
+    // Task 5 (K9): ALLOWLIST of the staff roles - a new role (kiosk) gets
+    // nothing company-wide. Was !isEmployeeRole().
+    function isStaff() {
+      return request.auth.token.get('role', '') in ['owner', 'admin', 'supervisor'];
+    }
+
+    function isKioskOf(companyId) {
+      return request.auth != null &&
+        request.auth.token.get('role', '') == 'kiosk' &&
+        request.auth.token.get('companyId', '') == companyId;
+    }
+
     function isImageUnder10Mb() {
       return request.resource.size < 10 * 1024 * 1024 &&
         request.resource.contentType.matches('image/.*');
@@ -23,7 +35,7 @@ service firebase.storage {
     match /companies/{companyId}/{allPaths=**} {
       allow read, write: if request.auth != null &&
         request.auth.token.companyId == companyId &&
-        !isEmployeeRole();
+        isStaff();
     }
 
     // Employee App: the employee's own clock photos - same path the mobile
@@ -31,6 +43,16 @@ service firebase.storage {
     match /companies/{companyId}/clockEvents/{employeeId}/{fileName} {
       allow read: if isSelfEmployee(companyId, employeeId);
       allow create, update: if isSelfEmployee(companyId, employeeId) && isImageUnder10Mb();
+      // Task 5 (K9): a kiosk uploads clock photos for any employee of its
+      // company but can NEVER read one. Create stamps the kiosk's uid in the
+      // file's metadata; only that same kiosk may re-upload (a retry after
+      // the upload landed but the punch call didn't). kioskPunch checks the
+      // file (path = this punch's requestId, image, age) on the server.
+      // (resource == null || ...) on both: never over a file someone else
+      // uploaded, whichever of create/update an overwrite is checked as.
+      allow create, update: if isKioskOf(companyId) && isImageUnder10Mb() &&
+        request.resource.metadata.get('kioskUid', '') == request.auth.uid &&
+        (resource == null || resource.metadata.get('kioskUid', '') == request.auth.uid);
     }
 
     // Employee App: the employee's own selfie. Deliberately NOT

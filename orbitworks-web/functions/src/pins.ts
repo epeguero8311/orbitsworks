@@ -359,7 +359,10 @@ export const getPinSyncTable = onCall(async (request) => {
   ]);
   const pinsById = await readCompanyPins(companyId, employeesSnap.docs);
 
+  // Task 5 (K8): a kiosk record never punches anywhere, so it never goes to
+  // a supervisor phone either.
   const employees = employeesSnap.docs
+    .filter((doc) => doc.get("kiosk") !== true)
     .map((doc) => {
       const data = doc.data();
       return {

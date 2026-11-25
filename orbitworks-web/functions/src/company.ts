@@ -1,4 +1,6 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { KIOSK_ENABLED } from "./flags";
+import { isProPlan } from "./lib/signupShared";
 import * as admin from "firebase-admin";
 import { db, FREE_EMPLOYEE_CAP, isOverActiveCap, isOverTotalCap, EmployeeCapFields } from "./shared";
 import { reserveNewPin } from "./pins";
@@ -191,11 +193,16 @@ export const acceptInvite = onCall(async (request) => {
   const inviteDoc = await db.collection("invites").doc(pick.id).get();
   const invite = inviteDoc.data() as {
     companyId: string;
-    role?: "supervisor" | "admin";
+    role?: "supervisor" | "admin" | "kiosk";
     assignedSiteIds?: string[];
     linkExistingEmployeeId?: string;
     name?: string;
   };
+  // Task 5 (K5): a kiosk invite links an existing record as the tablet's
+  // login - its own branch, so the supervisor/admin paths below are unchanged.
+  if (invite.role === "kiosk") {
+    return acceptKioskInvite(uid, email, inviteDoc.ref, invite);
+  }
   const role: "supervisor" | "admin" = invite.role === "admin" ? "admin" : "supervisor";
 
   const companyRef = db.collection("companies").doc(invite.companyId);
@@ -368,3 +375,57 @@ export const acceptInvite = onCall(async (request) => {
 
   return { companyId: invite.companyId, role };
 });
+
+// Task 5 (K5/K7): Edit Employee -> Kiosk access on a record with no login
+// sends a kiosk invite; accepting it makes this login the record's kiosk
+// login. Re-checks what setEmployeeRole checks (flag, Pro, not an Employee
+// App login, not clocked in), since time passed since the invite was sent.
+// Any refusal removes the just-created Auth user, like every branch above.
+async function acceptKioskInvite(
+  uid: string,
+  email: string,
+  inviteRef: FirebaseFirestore.DocumentReference,
+  invite: { companyId: string; linkExistingEmployeeId?: string; name?: string }
+): Promise<{ companyId: string; role: "kiosk" }> {
+  const refuse = async (code: "failed-precondition" | "not-found", message: string): Promise<never> => {
+    await admin.auth().deleteUser(uid);
+    throw new HttpsError(code, message);
+  };
+  if (!KIOSK_ENABLED.value()) return refuse("failed-precondition", "Kiosk mode isn't available yet.");
+  if (!invite.linkExistingEmployeeId) return refuse("failed-precondition", "This kiosk invite has no record to link.");
+  const companyRef = db.collection("companies").doc(invite.companyId);
+  const employeeRef = companyRef.collection("employees").doc(invite.linkExistingEmployeeId);
+  const [companySnap, employeeSnap] = await Promise.all([companyRef.get(), employeeRef.get()]);
+  if (!employeeSnap.exists) return refuse("not-found", "The record for this invite no longer exists.");
+  if (!isProPlan(companySnap.data()?.planTier as string | undefined)) return refuse("failed-precondition", "Kiosk access is a Pro feature.");
+  const employee = employeeSnap.data() as {
+    name?: string;
+    linkedUserId?: string;
+    appAccess?: boolean;
+    active?: boolean;
+    lastEventType?: string | null;
+  };
+  if (employee.linkedUserId) return refuse("failed-precondition", "This record already has a linked account.");
+  if (employee.appAccess === true) return refuse("failed-precondition", "This record has an Employee App login and can't be a kiosk.");
+  if (employee.active !== true) return refuse("failed-precondition", "This record is inactive.");
+  if (employee.lastEventType && employee.lastEventType !== "out") return refuse("failed-precondition", "This record is clocked in. Ask your admin to clock it out first.");
+  const name = (invite.name || employee.name || "").trim() || "Kiosk";
+
+  const batch = db.batch();
+  batch.set(db.collection("users").doc(uid), {
+    role: "kiosk",
+    companyId: invite.companyId,
+    name,
+    email,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+  batch.update(employeeRef, { linkedUserId: uid, kiosk: true, isSupervisor: false, isAdmin: false, email });
+  batch.update(inviteRef, {
+    status: "accepted",
+    acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
+    acceptedByUid: uid,
+  });
+  await batch.commit();
+  await writeRoleClaims(uid, { role: "kiosk", companyId: invite.companyId, employeeId: invite.linkExistingEmployeeId });
+  return { companyId: invite.companyId, role: "kiosk" };
+}

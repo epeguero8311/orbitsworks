@@ -1,6 +1,7 @@
 // TODO(Phase 10): RATE LIMIT getInviteInfo along with acceptEmployeeInvite,
 // joinCompany and getJoinInfo (public, unauthenticated): per-IP / per-token
 // limits and App Check before prod.
+import { kioskRecordsQuery, withoutKiosks } from "./lib/kioskCounts";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { db } from "./shared";
 import { CONSENT_VERSIONS } from "./consentVersions";
@@ -62,10 +63,9 @@ export async function runGetInviteInfo(raw: unknown, hooks: InviteInfoHooks = {}
       companyRef.get(),
       invite.kind === "existingEmployee" && invite.employeeId ? employeesRef.doc(invite.employeeId).get() : Promise.resolve(null),
       invite.kind === "newPerson"
-        ? Promise.all([employeesRef.where("active", "==", true).count().get(), employeesRef.count().get()]).then(([a, t]) => ({
-            active: a.data().count,
-            total: t.data().count,
-          }))
+        ? Promise.all([employeesRef.where("active", "==", true).count().get(), employeesRef.count().get(), kioskRecordsQuery(employeesRef).get()]).then(([a, t, k]) =>
+            withoutKiosks({ active: a.data().count, total: t.data().count }, k)
+          )
         : Promise.resolve(undefined),
     ]);
     const company = companySnap.exists ? (companySnap.data() as InviteCompany) : undefined;

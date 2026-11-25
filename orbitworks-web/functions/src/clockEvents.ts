@@ -65,9 +65,10 @@ async function handleDeviceTracking(
     // "pin" is the real app's normal PIN+photo clock-in source; faceMatch
     // is kept for forward compatibility even though nothing sends it today.
     // "employeeApp" is left out on purpose: this tracks shared supervisor
-    // devices, and an employee's own phone is not one of them.
+    // devices, and an employee's own phone is not one of them. Task 5: a
+    // kiosk tablet is a shared device too.
     const source = data.source;
-    if (source !== "faceMatch" && source !== "supervisorOverride" && source !== "pin") return;
+    if (source !== "faceMatch" && source !== "supervisorOverride" && source !== "pin" && source !== "kiosk") return;
 
     const eventTimestamp = data.timestamp;
     // Modular Timestamp import, not admin.firestore.Timestamp - the
@@ -177,10 +178,17 @@ async function sessionIsApproved(
   return approval.data()?.status === "approved";
 }
 
+// Task 5: events whose site the SERVER already picked before the write
+// (employeeClockPunch / kioskPunch share runClockPunch) - this trigger
+// never re-detects or re-copies their site.
+export function isServerSitedSource(source: unknown): boolean {
+  return source === "employeeApp" || source === "kiosk";
+}
+
 // Phase 10 (D19 a): which events copy their shift's clock-in site.
 export function copiesShiftSite(data: { type?: unknown; source?: unknown }): boolean {
   const isBreak = data.type === "breakStart" || data.type === "breakEnd";
-  if (isBreak) return data.source !== "employeeApp" && data.source !== "adminManual";
+  if (isBreak) return !isServerSitedSource(data.source) && data.source !== "adminManual";
   return data.type === "out" && data.source === "supervisorOverride";
 }
 
@@ -378,7 +386,7 @@ export const onClockEventCreated = onDocumentCreated(
     // Employee App clock-in (Phase 6): employeeClockPunch already set
     // siteMismatch with the same isSiteMismatch (detected site only), so
     // the site-mismatch alert below fires the same as for a pin punch.
-    if (data.source === "employeeApp" && data.type === "in" && data.siteMismatch === true) {
+    if (isServerSitedSource(data.source) && data.type === "in" && data.siteMismatch === true) {
       siteMismatch = true;
     }
 
@@ -654,7 +662,7 @@ export const onClockEventCreated = onDocumentCreated(
       // Employee App (Phase 6) saves a location on breaks too, but breaks
       // never get a geofence badge (a supervisor break has no location at
       // all). Its clock in/out do, against the site the punch was given.
-      const isEmployeeAppBreak = data.source === "employeeApp" && data.type !== "in" && data.type !== "out";
+      const isEmployeeAppBreak = isServerSitedSource(data.source) && data.type !== "in" && data.type !== "out";
       if (!isPinInOrOut && !isEmployeeAppBreak) {
         // finalSiteId: the event's own site, or the shift's clock-in site
         // copied above (Phase 10 D19 a - an override clock-out).
@@ -682,7 +690,7 @@ export const onClockEventCreated = onDocumentCreated(
         // nearest one.
         // Fix round 2 (D a): an Employee App clock-out that matched no site
         // gets the same check.
-        const noSiteEmployeeClockIn = data.source === "employeeApp" && (data.type === "in" || data.type === "out") && !siteId;
+        const noSiteEmployeeClockIn = isServerSitedSource(data.source) && (data.type === "in" || data.type === "out") && !siteId;
         const geofence = noSiteEmployeeClockIn
           ? geofenceForKeptSite(fix, fixAccuracyM, await loadDetectableSites(jobSitesRef), null)
           : classifyGeofence(fix, fixAccuracyM, site);

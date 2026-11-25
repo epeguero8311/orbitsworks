@@ -1,6 +1,7 @@
 // TODO(Phase 10): RATE LIMIT acceptEmployeeInvite along with getInviteInfo,
 // joinCompany and getJoinInfo. It is unauthenticated and creates Firebase
 // Auth users - add per-IP / per-token limits (and App Check) before prod.
+import { kioskRecordsQuery, withoutKiosks } from "./lib/kioskCounts";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db } from "./shared";
@@ -240,10 +241,9 @@ export async function runAcceptEmployeeInvite(raw: unknown, hooks: AcceptHooks =
       existingRow ? employeesRef.doc(precheck.employeeId as string).get() : Promise.resolve(null),
       existingRow
         ? Promise.resolve(undefined)
-        : Promise.all([employeesRef.where("active", "==", true).count().get(), employeesRef.count().get()]).then(([a, t]) => ({
-            active: a.data().count,
-            total: t.data().count,
-          })),
+        : Promise.all([employeesRef.where("active", "==", true).count().get(), employeesRef.count().get(), kioskRecordsQuery(employeesRef).get()]).then(([a, t, k]) =>
+            withoutKiosks({ active: a.data().count, total: t.data().count }, k)
+          ),
       input.subcontractorId ? companyRef.collection("subcontractors").doc(input.subcontractorId).get() : Promise.resolve(null),
     ]);
     const company = companySnap.exists ? (companySnap.data() as InviteCompany) : undefined;
@@ -308,7 +308,7 @@ export async function runAcceptEmployeeInvite(raw: unknown, hooks: AcceptHooks =
     await db.runTransaction(async (tx) => {
       const subRef = input.subcontractorId ? companyRef.collection("subcontractors").doc(input.subcontractorId) : null;
       const siteRef = !existingRow && precheck.siteId ? companyRef.collection("jobSites").doc(precheck.siteId) : null;
-      const [inviteNow, company, row, active, total, sub, site, sameBirthday, rowPinDoc] = await Promise.all([
+      const [inviteNow, company, row, active, total, sub, site, sameBirthday, rowPinDoc, kiosks] = await Promise.all([
         tx.get(inviteRef),
         tx.get(companyRef),
         existingRow ? tx.get(employeeRef) : Promise.resolve(null),
@@ -318,12 +318,13 @@ export async function runAcceptEmployeeInvite(raw: unknown, hooks: AcceptHooks =
         siteRef ? tx.get(siteRef) : Promise.resolve(null),
         existingRow ? Promise.resolve(null) : tx.get(employeesRef.where("dob", "==", input.birthday)),
         existingRow ? tx.get(employeePinRef(companyId, employeeId)) : Promise.resolve(null),
+        existingRow ? Promise.resolve(null) : tx.get(kioskRecordsQuery(employeesRef)),
       ]);
       const invite = inviteNow.exists ? (inviteNow.data() as EmployeeInviteDoc) : undefined;
       const companyData = company.exists ? (company.data() as InviteCompany) : undefined;
       const rowData = row && row.exists ? (row.data() as InviteEmployeeRow & Record<string, unknown>) : undefined;
       if (!invite || invite.companyId !== companyId || invite.inviteId !== inviteId) throw inviteError("inviteInactive");
-      const counts = active && total ? { active: active.data().count, total: total.data().count } : undefined;
+      const counts = active && total ? withoutKiosks({ active: active.data().count, total: total.data().count }, kiosks) : undefined;
       const problem = inviteProblem({ invite, company: companyData, row: rowData, counts });
       if (problem === "inviteInactive") throw inviteError(problem);
       if (input.email !== invite.email) throw inviteError("emailMismatch");

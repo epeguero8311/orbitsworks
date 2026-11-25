@@ -12,20 +12,24 @@ import { writeRoleClaims } from "./adminAccess";
 // is linked the same way supervisors are (linkedUserId + email), plus
 // appAccess: true - the one field that says "has an employee-app login".
 
-export type LoginRole = "admin" | "supervisor" | "employee";
+export type LoginRole = "admin" | "supervisor" | "employee" | "kiosk";
 // "invite" = Phase 3B email invite (employeeInviteTypes.ts).
 export type EmployeeJoinedVia = "admin" | "qr" | "invite";
 
 // Single place that decides which role claim a linked employee doc maps
-// to. Admin wins, then supervisor. With both toggles off, a login that came
+// to. Kiosk wins (Task 5 K5/K7 - setEmployeeRole/acceptInvite never leave
+// isAdmin/isSupervisor on a kiosk record anyway), then admin, then
+// supervisor. With both toggles off, a login that came
 // from the Employee App (appAccess) drops back to "employee"; every other
 // linked login keeps the legacy "supervisor" floor exactly as before (see
 // setEmployeeRole in employees.ts for why that floor exists).
 export function loginRoleFor(employee: {
+  kiosk?: boolean;
   isAdmin?: boolean;
   isSupervisor?: boolean;
   appAccess?: boolean;
 }): LoginRole {
+  if (employee.kiosk) return "kiosk";
   if (employee.isAdmin) return "admin";
   if (employee.isSupervisor) return "supervisor";
   return employee.appAccess ? "employee" : "supervisor";
@@ -78,7 +82,13 @@ export async function linkEmployeeLogin(input: LinkEmployeeLoginInput): Promise<
     assignedSiteIds?: string[];
     isAdmin?: boolean;
     isSupervisor?: boolean;
+    kiosk?: boolean;
   };
+  // Task 5 (K8): a kiosk record is a shared tablet, never a person's own
+  // Employee App login.
+  if (employee.kiosk === true) {
+    throw new HttpsError("failed-precondition", "This record is a kiosk tablet, not an employee.");
+  }
   if (employee.linkedUserId && employee.linkedUserId !== uid) {
     throw new HttpsError("failed-precondition", "This employee already has a linked account.");
   }

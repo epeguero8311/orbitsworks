@@ -43,6 +43,8 @@ export function rowCanBeInvited(row: InviteEmployeeRow | undefined): boolean {
   if (!row) return false;
   if (row.active !== true) return false;
   if (row.linkedUserId || row.appAccess) return false;
+  // Task 5 (K8): a kiosk record is a tablet, never invited to the Employee App.
+  if ((row as { kiosk?: boolean }).kiosk === true) return false;
   return !row.isSupervisor && !row.isAdmin;
 }
 

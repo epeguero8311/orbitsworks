@@ -1,6 +1,7 @@
 // TODO(Phase 10): RATE LIMIT joinCompany. It is unauthenticated and creates
 // Firebase Auth users - add per-IP / per-token limits (and App Check) before
 // this ships to prod.
+import { kioskRecordsQuery, withoutKiosks } from "./lib/kioskCounts";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db } from "./shared";
@@ -242,14 +243,14 @@ export async function runJoinCompany(raw: unknown, hooks: JoinHooks = {}): Promi
   const companyRef = db.collection("companies").doc(companyId);
   const employeesRef = companyRef.collection("employees");
   {
-    const [companySnap, active, total] = await Promise.all([
+    const [companySnap, active, total, kiosks] = await Promise.all([
       companyRef.get(),
       employeesRef.where("active", "==", true).count().get(),
       employeesRef.count().get(),
+      kioskRecordsQuery(employeesRef).get(),
     ]);
     const problem = codeProblem(precheckCode, companySnap.data() as CompanyData | undefined, {
-      active: active.data().count,
-      total: total.data().count,
+      ...withoutKiosks({ active: active.data().count, total: total.data().count }, kiosks),
     });
     if (problem) throw joinError(problem);
     const sub = input.subcontractorId ? await companyRef.collection("subcontractors").doc(input.subcontractorId).get() : null;
@@ -294,18 +295,19 @@ export async function runJoinCompany(raw: unknown, hooks: JoinHooks = {}): Promi
     const consentRef = companyRef.collection("employeeConsents").doc(employeeId);
     await db.runTransaction(async (tx) => {
       const subRef = input.subcontractorId ? companyRef.collection("subcontractors").doc(input.subcontractorId) : null;
-      const [code, company, active, total, sub, sameBirthday] = await Promise.all([
+      const [code, company, active, total, sub, sameBirthday, kiosks] = await Promise.all([
         tx.get(codeRef),
         tx.get(companyRef),
         tx.get(employeesRef.where("active", "==", true).count()),
         tx.get(employeesRef.count()),
         subRef ? tx.get(subRef) : Promise.resolve(null),
         tx.get(employeesRef.where("dob", "==", input.birthday)),
+        tx.get(kioskRecordsQuery(employeesRef)),
       ]);
       const codeData = code.exists ? (code.data() as JoinCodeData) : undefined;
       const companyData = company.exists ? (company.data() as CompanyData) : undefined;
       if (codeData?.companyId !== companyId) throw joinError("inactive");
-      const problem = codeProblem(codeData, companyData, { active: active.data().count, total: total.data().count });
+      const problem = codeProblem(codeData, companyData, withoutKiosks({ active: active.data().count, total: total.data().count }, kiosks));
       if (problem) throw joinError(problem);
       if (subcontractorProblem(codeData, input.subcontractorId, sub)) throw joinError("subcontractor");
       if (hooks.inTransaction) await hooks.inTransaction();

@@ -296,16 +296,24 @@ service cloud.firestore {
     // claims, exactly like the other roles.
     //
     // Almost every pre-existing rule below grants "anyone signed in to
-    // this company". Those now also require notEmployee(), which is true
-    // for every existing token (owner/admin/supervisor, or no role at
-    // all), so admin and supervisor access is unchanged. Employee access
-    // is then granted only through the explicit isSelfEmployee() rules.
+    // this company". Those require isStaff(): an ALLOWLIST of the staff
+    // roles (owner/admin/supervisor), so admin and supervisor access is
+    // unchanged. Employee access is granted only through the explicit
+    // isSelfEmployee() rules.
+    // Task 5 (K9): deny by default. It used to be notEmployee() (= role is
+    // not 'employee'), which any NEW role (kiosk) would have passed. A token
+    // with no role never has a companyId claim either (both are always
+    // written together), so it never passed these company checks before.
+    // Checked on prod + dev Nov 25 (scripts/listRoles.js): only owner/
+    // admin/supervisor/employee exist. A kiosk token ('kiosk') gets only
+    // employeeAppConfig + its own users doc here; everything else goes
+    // through callables (functions/src/kiosk.ts).
     function isEmployeeRole() {
       return request.auth.token.get('role', '') == 'employee';
     }
 
-    function notEmployee() {
-      return !isEmployeeRole();
+    function isStaff() {
+      return request.auth.token.get('role', '') in ['owner', 'admin', 'supervisor'];
     }
 
     function myEmployeeId() {
@@ -403,7 +411,7 @@ service cloud.firestore {
     match /companies/{companyId} {
       allow read: if request.auth != null &&
         request.auth.token.companyId == companyId &&
-        notEmployee();
+        isStaff();
       allow create: if false;
       allow update: if request.auth != null &&
         isAdminOrOwner() &&
@@ -428,7 +436,10 @@ service cloud.firestore {
           // app/api/stripe/webhook/route.ts) - both are written only by
           // the Stripe webhook and the cancellation sweep, never a client.
           'planCanceledAt',
-          'biometricPhotosWipedAt'
+          'biometricPhotosWipedAt',
+          // Task 5 (K20): when planTier last changed - written only by the
+          // Stripe webhook; a kiosk punch made after a downgrade is refused.
+          'planTierChangedAt'
         ]) &&
         // Face Verification (Pro) - checks themselves always run for Pro,
         // never for Core, with no company opt-out (functions/src/
@@ -492,10 +503,20 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
+      // Task 5 (K16): kiosk exit keys (salted hash, 10 min, single use) and
+      // the per-kiosk server PIN-try limit (K14). Server-only, even for
+      // admins - the website creates keys through createKioskExitKey.
+      match /kioskExitKeys/{keyId} {
+        allow read, write: if false;
+      }
+      match /kioskPinAttempts/{kioskEmployeeId} {
+        allow read, write: if false;
+      }
+
       match /jobSites/{siteId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee();
+          isStaff();
         // Employee App: single-doc get of a site assigned to the employee
         // only (no list - the app fetches each assigned site by id).
         allow get: if isSelfEmployee(companyId) &&
@@ -522,7 +543,7 @@ service cloud.firestore {
       match /jobs/{jobId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee();
+          isStaff();
         // Overtime (Task 1): create/update also type-check the optional
         // fixed Overtime rate and its history (validJobOvertimeFields).
         // Task 4 (D11): titles + rates = Edit pay rates & wages.
@@ -543,7 +564,7 @@ service cloud.firestore {
       match /subcontractors/{subcontractorId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee();
+          isStaff();
         allow create, update: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
@@ -554,7 +575,7 @@ service cloud.firestore {
       match /employees/{employeeId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee();
+          isStaff();
 
         // Employee App: an employee can NOT read this doc, not even their
         // own - it holds the plain-text PIN, and rules can't hide one
@@ -577,7 +598,7 @@ service cloud.firestore {
           // writes the flag, dismissDuplicateFlag clears it). 'pin' too
           // (prod-readiness item 7): every PIN is set by a callable, never
           // by a client write (no live app or website creates this doc).
-          !request.resource.data.keys().hasAny(['pin', 'faceStatus', 'faceReference', 'facePhotoRemovedAt', 'facePhotoRemovedByUid', 'appAccountDeletedAt', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf', 'duplicateFlaggedAt', 'dismissedDuplicateOf', 'duplicateDismissedAt', 'duplicateDismissedByUid', 'duplicateDismissedByName']) &&
+          !request.resource.data.keys().hasAny(['pin', 'faceStatus', 'faceReference', 'facePhotoRemovedAt', 'facePhotoRemovedByUid', 'appAccountDeletedAt', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf', 'duplicateFlaggedAt', 'dismissedDuplicateOf', 'duplicateDismissedAt', 'duplicateDismissedByUid', 'duplicateDismissedByName', 'kiosk']) &&
           underTotalCap(companyId) &&
           (request.resource.data.active != true || (underCap(companyId) && notPastDue(companyId)));
 
@@ -599,7 +620,7 @@ service cloud.firestore {
           hasPerm('em') &&
           (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['hourlyRate']) || hasPerm('pay')) &&
           !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference', 'facePhotoRemovedAt', 'facePhotoRemovedByUid', 'appAccountDeletedAt', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf', 'duplicateFlaggedAt', 'dismissedDuplicateOf', 'duplicateDismissedAt', 'duplicateDismissedByUid', 'duplicateDismissedByName']) &&
+            .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference', 'facePhotoRemovedAt', 'facePhotoRemovedByUid', 'appAccountDeletedAt', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf', 'duplicateFlaggedAt', 'dismissedDuplicateOf', 'duplicateDismissedAt', 'duplicateDismissedByUid', 'duplicateDismissedByName', 'kiosk']) &&
           (
             request.resource.data.active != true ||
             resource.data.active == true ||
@@ -653,7 +674,7 @@ service cloud.firestore {
       match /employeeUpdates/{updateId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee();
+          isStaff();
         allow write: if false;
       }
 
@@ -661,7 +682,7 @@ service cloud.firestore {
         // Task 4 (D2): not for an admin limited to some sites (server reads).
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee() &&
+          isStaff() &&
           canReadAllShifts();
         // Employee App: read own events only. The list rule uses direct
         // field access (not .get()) on purpose: Firestore can only prove a
@@ -695,6 +716,9 @@ service cloud.firestore {
           // own offline-queue ids (makeLocalId(), lib/clockQueue.js) are
           // always "<epoch ms>-<random>" and can never collide with this.
           request.resource.data.get('source', null) != 'autoClockOut' &&
+          // Task 5 (K9/K19): 'kiosk' events are written only by kioskPunch
+          // (Admin SDK) - no client may label its own write a kiosk punch.
+          request.resource.data.get('source', null) != 'kiosk' &&
           !eventId.matches('^auto-.*') &&
           // No client ever sends these (onClockEventCreated fills them in
           // after the fact - see the update rule below) - denying them at
@@ -814,7 +838,7 @@ service cloud.firestore {
       match /alertActions/{actionId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee();
+          isStaff();
         allow create: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           (
@@ -835,11 +859,11 @@ service cloud.firestore {
       match /alerts/{alertId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee();
+          isStaff();
         allow create, delete: if false;
         allow update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee() &&
+          isStaff() &&
           isOwnReadStateUpdate();
       }
 
@@ -866,7 +890,7 @@ service cloud.firestore {
       match /siteExits/{exitId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee() &&
+          isStaff() &&
           canReadAllShifts();
         allow write: if false;
       }
@@ -903,14 +927,14 @@ service cloud.firestore {
         // one, since alert content includes employee/site names.
         allow get: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee();
+          isStaff();
         allow list: if false;
         allow delete: if false;
-        // notEmployee(): every token here receives company-wide supervisor
+        // isStaff(): every token here receives company-wide supervisor
         // alert pushes, so an Employee App login must never register one.
         allow create, update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee() &&
+          isStaff() &&
           request.resource.data.deviceId == deviceId &&
           request.resource.data.token is string &&
           request.resource.data.token.matches('^Expo(nent)?PushToken\\[[A-Za-z0-9_-]+\\]$') &&
@@ -920,7 +944,7 @@ service cloud.firestore {
       match /shiftNotes/{noteId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee() &&
+          isStaff() &&
           canReadAllShifts();
         // Employee App: own shift comments only - read and create, never
         // update or delete. Direct field access for the list-query reason
@@ -1001,7 +1025,7 @@ service cloud.firestore {
           !isRestrictedAdmin();
         allow create, update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee() &&
+          isStaff() &&
           request.resource.data.localId == localId &&
           request.resource.data.backedUpByUid == request.auth.uid;
         // Employee App: same safety net for the employee's own queue, but
@@ -1086,7 +1110,14 @@ service cloud.firestore {
         isAdminOrOwner() &&
         hasPerm('inv') &&
         request.auth.token.companyId == request.resource.data.companyId &&
-        request.resource.data.role in ['supervisor', 'admin'] &&
+        request.resource.data.role in ['supervisor', 'admin', 'kiosk'] &&
+        // Task 5 (K5): a kiosk invite always links an existing employee
+        // record (Edit Employee -> Kiosk access + email) and needs Pro.
+        // acceptInvite re-checks Pro + KIOSK_ENABLED before linking.
+        (request.resource.data.role != 'kiosk' || (
+          request.resource.data.get('linkExistingEmployeeId', null) is string &&
+          companyOf(request.resource.data.companyId).get('planTier', '').matches('^pro_.*')
+        )) &&
         !request.resource.data.keys()
           .hasAny(['emailStatus', 'emailSentAt', 'emailError', 'lastEmailAttemptAt',
                    'adminAccess', 'level', 'lvl', 'sites', 'permissions', 'perms', 'allSites', 'fullAccess']);

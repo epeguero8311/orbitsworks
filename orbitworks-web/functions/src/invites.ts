@@ -13,7 +13,7 @@ type InviteData = {
   email?: string;
   companyId?: string;
   status?: "pending" | "accepted";
-  role?: "supervisor" | "admin";
+  role?: "supervisor" | "admin" | "kiosk";
   invitedByUid?: string;
   linkExistingEmployeeId?: string;
   lastEmailAttemptAt?: admin.firestore.Timestamp | null;

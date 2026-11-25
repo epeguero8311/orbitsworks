@@ -9,7 +9,8 @@
 // (firestore.rules denies every client write).
 import type * as admin from "firebase-admin";
 
-export type UserDocRole = "owner" | "admin" | "supervisor" | "employee";
+// Task 5: "kiosk" = a shared wall tablet login (Kiosk mode, Pro).
+export type UserDocRole = "owner" | "admin" | "supervisor" | "employee" | "kiosk";
 
 export interface UserDocRoleFields {
   role: UserDocRole;

@@ -24,3 +24,11 @@ export const AUTO_CLOCK_OUT_ENABLED = defineBoolean("AUTO_CLOCK_OUT_ENABLED", { 
 // now gets alerts and pushes, subject only to the switches above and each
 // company's own Settings > Alerts toggles. A leftover TEST_COMPANY_IDS line
 // in a functions/.env.<project> file is ignored.
+
+// Task 5 Kiosk mode (K3). OFF = no kiosk logins can be made: setEmployeeRole
+// and acceptInvite refuse the kiosk role and every kiosk callable refuses.
+// Stays OFF on prod until the 1.1.6 app (the first with Kiosk mode) is in
+// the App Store - an older app would open a kiosk login in the supervisor
+// screens (with no access - firestore.rules K9). Live value = the line in
+// functions/.env.<project>.
+export const KIOSK_ENABLED = defineBoolean("KIOSK_ENABLED", { default: false });
