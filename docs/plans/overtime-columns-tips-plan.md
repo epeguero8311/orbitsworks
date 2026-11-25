@@ -348,6 +348,23 @@ D8. Analytics site cost stays wages only (no tips).
 D9. Deleted shift: approval doc goes, tipEdits history is KEPT for audit (not shown anywhere).
 D10. Task 4: tip edits = "Edit pay rates & wages" + the admin's site access (noted under Task 4; not built now).
 
+## Task 4 decisions (Nov 25, 2026 - Emilio, after recon)
+D1 (1A). Storage: users/{uid}.adminAccess = { level: "full" | "admin", sites: "all" | [siteIds..., "unassigned"], permissions: { approveHours, employees, editPay, exportPayroll, analytics, billing, settings, invites } } - server-written only (setAdminAccess). Custom claims carry a small fixed-size mirror for the rules: { lvl, allSites, perms } (no site list). Changes reach the browser through the RC1 roleChangedAt refresh.
+D2 (2A). Admins with every site (owner, Full access, Admin on "All sites") keep today's direct reads + live listeners. An Admin limited to some sites cannot read clockEvents / timesheetApprovals / tipEdits / siteExits / shiftNotes directly; their pages load through server calls filtered by the SHIFT's site (the clock-in's). Every write callable checks permission + shift site server-side. Rules enforce the permissions that are plain client writes: employees (employees), editPay (jobs + pay fields on employees), settings (company settings fields), invites (invites create). Billing: Stripe routes allow owner / Full access / Billing permission. Requirement: each page keeps ONE hook with the same output shape for both sources (live listeners vs server calls) - no duplicated components.
+D3 (3A). Restricted admins get each employee-day's full total + OT from the same server call (plain numbers, no other sites' shift details), computed with the server's shared overtime code.
+D4 (4A). getPayrollExportData(range), gated on Export payroll, returns the raw data the export uses today for ALL sites; the browser builds the files as now. Known limit: for an All-sites admin, Export payroll and Analytics are UI-only gates (they can already read every shift).
+D5 (5A). setAdminAccess is the only way to change level / sites / permissions: nobody touches the owner; only the owner grants/edits/removes Full access; Full access sets regular Admins only; nobody edits their own access. Same hierarchy checks in setEmployeeRole, setEmployeeActive, deleteEmployee, deactivateEmployeesBulk, deleteEmployeesBulk.
+D6 (6A). No migration: missing adminAccess = legacy admin = All sites + all permissions except Billing (D8). New job sites: picker after create adds the site to the chosen admins' lists (server); All-sites admins see it automatically.
+D7 (7A). setShiftTip requires Edit pay rates & wages + access to the shift's site (approval doc siteId), for every admin.
+D8 (8.1A). Existing admins get every permission EXCEPT Billing (billing stays owner-only for them, nothing changes at ship).
+D9 (8.2A). New admins (invited later) start with no sites + no permissions until the owner / Full access sets them. Dashboard shows a clear "No access yet - ask the owner" state, not a broken page.
+D10 (8.3A). Time edits (Adjust time, reassign session, Add timestamp, delete session, assign site) = Approve hours.
+D11 (8.4A). Titles & Pay (title/rate create/edit) = Edit pay. Job site create/edit = Settings.
+D12 (8.5A). Reports for a restricted admin: on-screen tables show only their sites (with full day totals); the export download shows everything (Export payroll).
+D13 (8.6A). Overview stays unfiltered (rule 5): restricted admins get it from a server call too.
+D14 (8.7). Option 2A confirmed (restricted admins load Approve Hours, Reports, Time pages, Overview, Analytics from the server).
+G1-G4: proposed Nov 25, waiting on Emilio.
+
 ---
 
 ## Final combined test checklist (after Task 4, before prod)
