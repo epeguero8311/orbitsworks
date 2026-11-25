@@ -10,6 +10,8 @@ import {
   styleDataRows,
 } from "@/lib/excelHelpers";
 import { ceilTo, computeDailyPaidMinutes, hoursToMinutes } from "@/lib/utils/rounding";
+import type { OvertimeReportRow } from "@/lib/reportOvertime";
+import type { Workbook, Row, Cell } from "exceljs";
 
 // ---- Payroll: hidden Jobs lookup sheet + day-row flattening ----
 
@@ -574,6 +576,467 @@ export function addEmployeeHistorySheet(
     row.getCell(11).alignment = { vertical: "middle", wrapText: true };
     // Excel won't grow a row to fit wrapped text if the row has a fixed
     // height, so size it from the note length (~15pt per line).
+    const lines = Math.max(1, Math.ceil((d.note || "-").length / (notesWidth - 2)));
+    row.height = Math.max(20, lines * 15 + 4);
+  });
+
+  sheet.views = [{ state: "frozen", ySplit: dailyHeaderRowNum }];
+}
+
+// ====================================================================
+// Overtime (Task 1) - Overtime toggle ON only. Separate builders so the
+// Overtime OFF sheets above stay exactly as they were.
+// ====================================================================
+
+// Same hidden Jobs sheet as addJobsLookupSheet plus column C: each active
+// title's OT $/hr (its fixed Overtime rate, else rate x multiplier).
+// JobsTable becomes A:C here.
+export function addJobsLookupSheetWithOvertime(
+  workbook: Workbook,
+  jobs: Job[],
+  multiplier: number
+): { count: number; activeIds: Set<string> } | null {
+  const activeJobs = jobs.filter((j) => j.active);
+  if (activeJobs.length === 0) return null;
+
+  const sheet = workbook.addWorksheet("Jobs");
+  sheet.state = "veryHidden";
+
+  sheet.getCell(1, 1).value = "(Default)";
+  sheet.getCell(1, 2).value = null;
+  sheet.getCell(1, 3).value = null;
+
+  activeJobs.forEach((j, idx) => {
+    const r = idx + 2;
+    sheet.getCell(r, 1).value = j.name;
+    sheet.getCell(r, 2).value = j.hourlyRate;
+    sheet.getCell(r, 3).value = j.overtimeRate ?? j.hourlyRate * multiplier;
+  });
+
+  const count = activeJobs.length + 1;
+  workbook.definedNames.add(`'Jobs'!$A$1:$A$${count}`, "JobsList");
+  workbook.definedNames.add(`'Jobs'!$A$1:$C$${count}`, "JobsTable");
+
+  return { count, activeIds: new Set(activeJobs.map((j) => j.id)) };
+}
+
+export const PAYROLL_DAY_TOTAL_LABEL = "Day total";
+
+// Payroll Hours with Overtime ON. Layout:
+// Summary: A Employee | B Total Hours | C Total Break Hrs | D Total Hours
+//   Worked | E Overtime | F Sessions | G Open Sessions | H Hourly Rate |
+//   I Estimated Pay | J Company
+// Daily:   A Employee | B Date | C Job | D Hourly Rate | E Hours | F Break |
+//   G Worked Hours | H Overtime | I Estimated Pay | J Company |
+//   K (hidden) Default Rate | L (hidden) OT Rate | M (hidden) Default OT Rate
+// Est. Pay = D x (G - H) + L x H. A single-job day keeps the live Job
+// dropdown (rate and OT rate follow the picked job). A day with 2+ jobs is
+// split into locked job rows (plain values) plus a "Day total" row; the
+// summary formulas skip the Day total rows so nothing counts twice.
+export function addPayrollSheetWithOvertime(
+  workbook: Workbook,
+  summaries: EmployeeSummary[],
+  jobs: Job[],
+  rows: OvertimeReportRow[],
+  multiplier: number,
+  roundTotalMinutes: RoundingIncrement,
+  companyName: string,
+  startDate: string,
+  endDate: string
+) {
+  const sheet = workbook.addWorksheet("Payroll Hours");
+  const rangeLabel = formatDateRangeLabel(startDate, endDate);
+
+  sheet.columns = [
+    { width: 24 },
+    { width: 18 },
+    { width: 18 },
+    { width: 20 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 14 },
+    { width: 22 },
+    { width: 22 },
+    { width: 12 },
+    { width: 12 },
+    { width: 12 },
+  ];
+
+  addTitleRow(sheet, `Payroll Hours: ${rangeLabel}`, 10);
+
+  const jobsInfo = addJobsLookupSheetWithOvertime(workbook, jobs, multiplier);
+  const hasJobs = jobsInfo != null;
+
+  const sortedSummaries = sortByCompanyThen(
+    summaries,
+    (s) => companyLabelFor(s.subcontractorName, companyName),
+    companyName,
+    (a, b) => a.employeeName.localeCompare(b.employeeName)
+  );
+
+  const summaryHeaderRowNum = 2;
+  const summaryHeader = sheet.getRow(summaryHeaderRowNum);
+  [
+    "Employee",
+    "Total Hours",
+    "Total Break Hrs",
+    "Total Hours Worked",
+    "Overtime",
+    "Sessions",
+    "Open Sessions",
+    "Hourly Rate",
+    "Estimated Pay (Excluding Break)",
+    "Company",
+  ].forEach((h, i) => (summaryHeader.getCell(i + 1).value = h));
+  styleHeaderRow(summaryHeader);
+
+  const summaryFirstDataRow = summaryHeaderRowNum + 1;
+  sortedSummaries.forEach((s, idx) => {
+    const row = sheet.getRow(summaryFirstDataRow + idx);
+    row.height = 20;
+    row.getCell(1).value = s.employeeName;
+    row.getCell(2).value = Number(s.totalHours.toFixed(2));
+    row.getCell(2).numFmt = "0.00";
+    row.getCell(3).numFmt = "0.00";
+    row.getCell(4).numFmt = "0.00";
+    row.getCell(5).numFmt = "0.00";
+    row.getCell(6).value = s.sessionCount;
+    row.getCell(7).value = s.openSessions;
+    row.getCell(8).value = s.hourlyRate;
+    row.getCell(8).numFmt = '"$"#,##0.00';
+    row.getCell(9).numFmt = '"$"#,##0.00';
+    row.getCell(10).value = companyLabelFor(s.subcontractorName, companyName);
+  });
+  const summaryLastRow = summaryFirstDataRow + sortedSummaries.length - 1;
+
+  const dailyTitleRow = summaryLastRow + 3;
+  sheet.mergeCells(dailyTitleRow, 1, dailyTitleRow, 10);
+  const titleCell = sheet.getCell(dailyTitleRow, 1);
+  titleCell.value = hasJobs
+    ? "Daily Breakdown - pick a Job on any single-job day to update that day's pay and the totals above"
+    : "Daily Breakdown";
+  titleCell.font = { bold: true, size: 12, color: { argb: "FF111827" } };
+  sheet.getRow(dailyTitleRow).height = 26;
+
+  const dailyHeaderRow = dailyTitleRow + 1;
+  const dailyHeader = sheet.getRow(dailyHeaderRow);
+  [
+    "Employee",
+    "Date",
+    "Job",
+    "Hourly Rate",
+    "Hours",
+    "Break",
+    "Worked Hours",
+    "Overtime",
+    "Estimated Pay (Excluding Break)",
+    "Company",
+  ].forEach((h, i) => (dailyHeader.getCell(i + 1).value = h));
+  dailyHeader.getCell(11).value = "Default Rate";
+  dailyHeader.getCell(12).value = "OT Rate";
+  dailyHeader.getCell(13).value = "Default OT Rate";
+  styleHeaderRow(dailyHeader);
+  sheet.getColumn(11).hidden = true;
+  sheet.getColumn(12).hidden = true;
+  sheet.getColumn(13).hidden = true;
+
+  const kindOrder: Record<OvertimeReportRow["kind"], number> = { single: 0, job: 0, total: 1 };
+  const sortedRows = sortByCompanyThen(
+    rows,
+    (d) => companyLabelFor(d.subcontractorName, companyName),
+    companyName,
+    (a, b) =>
+      a.employeeName !== b.employeeName
+        ? a.employeeName.localeCompare(b.employeeName)
+        : a.date !== b.date
+          ? (a.date < b.date ? -1 : 1)
+          : kindOrder[a.kind] - kindOrder[b.kind]
+  );
+
+  let r = dailyHeaderRow + 1;
+  let prevEmployee: string | null = null;
+  let dayJobRowStart: number | null = null;
+
+  sortedRows.forEach((d) => {
+    if (prevEmployee !== null && d.employeeName !== prevEmployee) {
+      sheet.getRow(r).height = 10;
+      r += 1;
+    }
+    prevEmployee = d.employeeName;
+
+    const row = sheet.getRow(r);
+    row.height = 20;
+    row.getCell(1).value = d.employeeName;
+    const parsed = parseDateKey(d.date);
+    row.getCell(2).value = parsed ? formatDatePart(parsed) : d.date;
+    row.getCell(10).value = companyLabelFor(d.subcontractorName, companyName);
+    for (const c of [5, 6, 7, 8]) row.getCell(c).numFmt = "0.00";
+    for (const c of [4, 9, 11, 12, 13]) row.getCell(c).numFmt = '"$"#,##0.00';
+
+    if (d.kind === "total") {
+      const first = dayJobRowStart ?? r;
+      const last = r - 1;
+      row.getCell(3).value = PAYROLL_DAY_TOTAL_LABEL;
+      row.getCell(5).value = { formula: `SUM(E${first}:E${last})` };
+      row.getCell(6).value = { formula: `SUM(F${first}:F${last})` };
+      row.getCell(7).value = { formula: `SUM(G${first}:G${last})` };
+      row.getCell(8).value = { formula: `SUM(H${first}:H${last})` };
+      row.getCell(9).value = { formula: `SUM(I${first}:I${last})` };
+      row.font = { bold: true };
+      dayJobRowStart = null;
+      r += 1;
+      return;
+    }
+    if (d.kind === "job" && dayJobRowStart === null) dayJobRowStart = r;
+
+    row.getCell(5).value = Number((d.clockedMinutes / 60).toFixed(2));
+    row.getCell(6).value = Number((d.breakMinutes / 60).toFixed(2));
+    row.getCell(7).value = Number((d.workedMinutes / 60).toFixed(2));
+    row.getCell(8).value = Number((d.overtimeMinutes / 60).toFixed(2));
+    row.getCell(11).value = d.defaultRate;
+    row.getCell(13).value = d.defaultOvertimeRate;
+
+    const jobIsPickable = d.jobId === null || (jobsInfo?.activeIds.has(d.jobId) ?? false);
+    if (d.kind === "single" && hasJobs && jobIsPickable) {
+      // Live dropdown, same as today: rate and OT rate follow the job.
+      row.getCell(3).value = d.jobId ? d.jobLabel : "(Default)";
+      row.getCell(3).dataValidation = { type: "list", allowBlank: true, formulae: ["JobsList"] };
+      row.getCell(4).value = {
+        formula: `IF(OR(C${r}="",C${r}="(Default)"),K${r},VLOOKUP(C${r},JobsTable,2,FALSE))`,
+      };
+      row.getCell(12).value = d.isSubcontractor
+        ? { formula: `D${r}` }
+        : { formula: `IF(OR(C${r}="",C${r}="(Default)"),M${r},VLOOKUP(C${r},JobsTable,3,FALSE))` };
+    } else {
+      // Locked: a job row of a 2+ job day, or a job that can't be picked.
+      row.getCell(3).value = hasJobs || d.jobId ? d.jobLabel : null;
+      row.getCell(4).value = d.rate;
+      row.getCell(12).value = d.overtimeRate;
+    }
+    row.getCell(9).value = { formula: `D${r}*(G${r}-H${r})+L${r}*H${r}` };
+    r += 1;
+  });
+
+  const first = dailyHeaderRow + 1;
+  const last = r - 1;
+  const notTotal = `C${first}:C${last},"<>${PAYROLL_DAY_TOTAL_LABEL}"`;
+  sortedSummaries.forEach((s, idx) => {
+    const row = summaryFirstDataRow + idx;
+    if (sortedRows.length > 0) {
+      const sumOf = (col: string) => `SUMIFS(${col}${first}:${col}${last},A${first}:A${last},A${row},${notTotal})`;
+      sheet.getCell(row, 3).value = { formula: sumOf("F") };
+      sheet.getCell(row, 4).value =
+        roundTotalMinutes === 0
+          ? { formula: sumOf("G") }
+          : { formula: `CEILING(${sumOf("G")},${roundTotalMinutes / 60})` };
+      sheet.getCell(row, 5).value = { formula: sumOf("H") };
+      sheet.getCell(row, 9).value = { formula: sumOf("I") };
+    } else {
+      sheet.getCell(row, 3).value = s.totalBreakHours;
+      sheet.getCell(row, 4).value = 0;
+      sheet.getCell(row, 5).value = 0;
+      sheet.getCell(row, 9).value = 0;
+    }
+  });
+
+  styleDataRows(sheet, 2);
+  sheet.views = [{ state: "frozen", ySplit: 2 }];
+}
+
+// One session row of the Time History sheet with Overtime ON.
+export type EmployeeHistoryOvertimeRow = EmployeeHistoryDayRow & {
+  jobId: string | null;
+  jobName: string | null;
+  rate: number | null;
+  overtimeHours: number;
+  overtimeRate: number | null;
+};
+
+// Time History with Overtime ON (decision 11): the weekly OT comes from the
+// shared overtime function (daily + weekly, per-job OT rate, rounding)
+// instead of the old flat weekly 1.5x estimate. Layout:
+// Weekly: A Week Of | B Hours | C Worked Hours | D Overtime Hours | E Est. Pay
+// Daily:  A Date | B Job Site | C Job | D Hourly Rate | E Clock In |
+//   F Clock Out | G Hours | H Break | I Worked Hours | J Overtime |
+//   K Est. Pay | L Notes | M Adjusted | N (hidden) Default Rate |
+//   O (hidden) Week Of | P (hidden) OT Rate | Q (hidden) Default OT Rate
+export function addEmployeeHistorySheetWithOvertime(
+  workbook: Workbook,
+  employeeName: string,
+  defaultRate: number | null,
+  defaultOvertimeRate: number | null,
+  isSubcontractor: boolean,
+  jobs: Job[],
+  multiplier: number,
+  dayRows: EmployeeHistoryOvertimeRow[],
+  weekLabels: string[],
+  startDate: string,
+  endDate: string
+) {
+  const sheet = workbook.addWorksheet("Time History");
+  const rangeLabel = formatDateRangeLabel(startDate, endDate);
+
+  const longest = (values: (string | null | undefined)[]) =>
+    values.reduce((max, v) => Math.max(max, (v ?? "").length), 0);
+  const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+  const siteWidth = clamp(longest(dayRows.map((d) => d.siteName)) + 2, 16, 40);
+  const jobWidth = clamp(longest([...jobs.map((j) => j.name), "(Default)"]) + 4, 16, 32);
+  const notesWidth = clamp(longest(dayRows.map((d) => d.note)) + 2, 30, 50);
+
+  sheet.columns = [
+    { width: 14 }, // A
+    { width: siteWidth }, // B
+    { width: jobWidth }, // C
+    { width: 15 }, // D
+    { width: 19 }, // E
+    { width: 12 }, // F
+    { width: 9 }, // G
+    { width: 9 }, // H
+    { width: 15 }, // I
+    { width: 11 }, // J
+    { width: 19 }, // K
+    { width: notesWidth }, // L
+    { width: 11 }, // M
+    { width: 12 }, // N
+    { width: 14 }, // O
+    { width: 12 }, // P
+    { width: 12 }, // Q
+  ];
+
+  const wrapHeaderRow = (row: Row) => {
+    row.eachCell((cell: Cell) => {
+      cell.alignment = { ...cell.alignment, wrapText: true };
+    });
+    row.height = 32;
+  };
+
+  addTitleRow(sheet, `${employeeName} - Time History: ${rangeLabel}`, 13);
+
+  const jobsInfo = addJobsLookupSheetWithOvertime(workbook, jobs, multiplier);
+  const hasJobs = jobsInfo != null;
+
+  const summaryHeaderRowNum = 2;
+  const summaryHeader = sheet.getRow(summaryHeaderRowNum);
+  ["Week Of", "Hours", "Worked Hours", "Overtime Hours", "Estimated Pay (Excluding Break)"].forEach(
+    (h, i) => (summaryHeader.getCell(i + 1).value = h)
+  );
+  styleHeaderRow(summaryHeader);
+  wrapHeaderRow(summaryHeader);
+
+  const summaryFirstRow = summaryHeaderRowNum + 1;
+  const dailyHeaderRowNum = summaryFirstRow + weekLabels.length + 2;
+  const dailyFirstDataRow = dailyHeaderRowNum + 1;
+  const dailyLastRow = dailyFirstDataRow + dayRows.length - 1;
+
+  weekLabels.forEach((weekLabel, idx) => {
+    const rowNum = summaryFirstRow + idx;
+    const row = sheet.getRow(rowNum);
+    row.height = 20;
+    row.getCell(1).value = weekLabel;
+    const sumOf = (col: string) =>
+      dayRows.length > 0
+        ? { formula: `SUMIF(O${dailyFirstDataRow}:O${dailyLastRow},A${rowNum},${col}${dailyFirstDataRow}:${col}${dailyLastRow})` }
+        : 0;
+    row.getCell(2).value = sumOf("G");
+    row.getCell(3).value = sumOf("I");
+    row.getCell(4).value = sumOf("J");
+    row.getCell(5).value = sumOf("K");
+    row.getCell(2).numFmt = "0.00";
+    row.getCell(3).numFmt = "0.00";
+    row.getCell(4).numFmt = "0.00";
+    row.getCell(5).numFmt = '"$"#,##0.00';
+  });
+
+  const summaryLastRow = summaryFirstRow + weekLabels.length - 1;
+  if (weekLabels.length > 0) {
+    const row = sheet.getRow(summaryLastRow + 1);
+    row.getCell(1).value = "Total";
+    row.getCell(1).font = { bold: true };
+    for (const [c, col] of [[2, "B"], [3, "C"], [4, "D"], [5, "E"]] as const) {
+      row.getCell(c).value = { formula: `SUM(${col}${summaryFirstRow}:${col}${summaryLastRow})` };
+      row.getCell(c).numFmt = c === 5 ? '"$"#,##0.00' : "0.00";
+    }
+  }
+
+  sheet.mergeCells(dailyHeaderRowNum - 1, 1, dailyHeaderRowNum - 1, 13);
+  const dailyTitleCell = sheet.getCell(dailyHeaderRowNum - 1, 1);
+  dailyTitleCell.value = hasJobs ? "Daily Breakdown - pick a Job on any row to update pay" : "Daily Breakdown";
+  dailyTitleCell.font = { bold: true, size: 12, color: { argb: "FF111827" } };
+  sheet.getRow(dailyHeaderRowNum - 1).height = 26;
+
+  const dailyHeader = sheet.getRow(dailyHeaderRowNum);
+  [
+    "Date",
+    "Job Site",
+    "Job",
+    "Hourly Rate",
+    "Clock In",
+    "Clock Out",
+    "Hours",
+    "Break",
+    "Worked Hours",
+    "Overtime",
+    "Estimated Pay (Excluding Break)",
+    "Notes",
+    "Adjusted",
+  ].forEach((h, i) => (dailyHeader.getCell(i + 1).value = h));
+  styleHeaderRow(dailyHeader);
+  wrapHeaderRow(dailyHeader);
+  for (const c of [14, 15, 16, 17]) sheet.getColumn(c).hidden = true;
+
+  dayRows.forEach((d, idx) => {
+    const r = dailyFirstDataRow + idx;
+    const row = sheet.getRow(r);
+    row.height = 20;
+    row.getCell(1).value = d.dateLabel;
+    row.getCell(2).value = d.siteName;
+    row.getCell(14).value = defaultRate;
+    row.getCell(17).value = defaultOvertimeRate;
+
+    const jobIsPickable = d.jobId === null || (jobsInfo?.activeIds.has(d.jobId) ?? false);
+    if (hasJobs && jobIsPickable) {
+      row.getCell(3).value = d.jobId ? d.jobName ?? "(Default)" : "(Default)";
+      row.getCell(3).dataValidation = { type: "list", allowBlank: true, formulae: ["JobsList"] };
+      row.getCell(4).value = {
+        formula: `IF(OR(C${r}="",C${r}="(Default)"),N${r},VLOOKUP(C${r},JobsTable,2,FALSE))`,
+      };
+      row.getCell(16).value = isSubcontractor
+        ? { formula: `D${r}` }
+        : { formula: `IF(OR(C${r}="",C${r}="(Default)"),Q${r},VLOOKUP(C${r},JobsTable,3,FALSE))` };
+    } else {
+      row.getCell(3).value = d.jobName;
+      row.getCell(4).value = d.rate;
+      row.getCell(16).value = d.overtimeRate;
+    }
+    row.getCell(4).numFmt = '"$"#,##0.00';
+    row.getCell(16).numFmt = '"$"#,##0.00';
+    row.getCell(17).numFmt = '"$"#,##0.00';
+
+    row.getCell(5).value = d.clockInLabel;
+    row.getCell(6).value = d.clockOutLabel;
+    row.getCell(7).value = Number(d.hours.toFixed(2));
+    row.getCell(7).numFmt = "0.00";
+    row.getCell(8).value = Number(d.breakHours.toFixed(2));
+    row.getCell(8).numFmt = "0.00";
+    row.getCell(9).value = { formula: `G${r}-H${r}` };
+    row.getCell(9).numFmt = "0.00";
+    row.getCell(10).value = Number(d.overtimeHours.toFixed(2));
+    row.getCell(10).numFmt = "0.00";
+    row.getCell(11).value = { formula: `D${r}*(I${r}-J${r})+P${r}*J${r}` };
+    row.getCell(11).numFmt = '"$"#,##0.00';
+    row.getCell(12).value = d.note || "-";
+    row.getCell(13).value = d.adjusted ? "Adjusted" : "";
+    row.getCell(15).value = d.weekLabel;
+  });
+
+  styleDataRows(sheet, dailyHeaderRowNum);
+
+  dayRows.forEach((d, idx) => {
+    const row = sheet.getRow(dailyFirstDataRow + idx);
+    row.getCell(5).alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+    row.getCell(6).alignment = { vertical: "middle", horizontal: "left", indent: 1 };
+    row.getCell(12).alignment = { vertical: "middle", wrapText: true };
     const lines = Math.max(1, Math.ceil((d.note || "-").length / (notesWidth - 2)));
     row.height = Math.max(20, lines * 15 + 4);
   });

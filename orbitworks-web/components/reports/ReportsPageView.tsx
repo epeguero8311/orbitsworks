@@ -13,6 +13,7 @@ import { dateKey, startOfWeek } from "@/lib/reportUtils";
 import { toTimesheetsCsv, downloadCsv } from "@/lib/reportUtils";
 import { buildExportFilename, exportAllReportsExcel } from "@/lib/reportExcelUtils";
 import { buildDailyBreakdownRows, computeEmployeeRoundedTotals } from "@/lib/reportDailyBreakdown";
+import { applyOvertimeOverrides, computeOvertimeTotals } from "@/lib/reportOvertime";
 import AttendanceCards from "@/components/reports/AttendanceCards";
 import TimeTrendsCharts from "@/components/reports/TimeTrendsCharts";
 import PayrollTable from "@/components/reports/PayrollTable";
@@ -80,8 +81,23 @@ export default function ReportsPageView() {
     breakHoursByEmployeeDay,
     employeeJobIdById,
     approvedJobIdByEmployeeDay,
+    overtimeRows,
     runReport,
   } = useReports();
+
+  // Overtime (Task 1): only non-null with the Overtime toggle ON. Every
+  // section and export below falls back to today's data when it's null.
+  const overtimeMultiplier = settings.overtimeMultiplier;
+  const overtimeView = useMemo(() => {
+    if (!overtimeRows) return null;
+    const rows = applyOvertimeOverrides(overtimeRows, overrides, jobs, overtimeMultiplier);
+    return {
+      baseRows: overtimeRows,
+      rows,
+      totals: computeOvertimeTotals(rows, roundTotalMinutes),
+      multiplier: overtimeMultiplier,
+    };
+  }, [overtimeRows, overrides, jobs, overtimeMultiplier, roundTotalMinutes]);
 
   function handleRunReport(start: string, end: string, filter: CompanyFilter = companyFilter) {
     setOverrides({});
@@ -164,7 +180,8 @@ export default function ReportsPageView() {
                 companyName,
                 startDate,
                 endDate,
-                siteExits
+                siteExits,
+                overtimeView ? { rows: overtimeView.baseRows, multiplier: overtimeView.multiplier } : null
               )
             }
             onCsv={() =>
@@ -274,6 +291,7 @@ export default function ReportsPageView() {
             endDate={endDate}
             companyName={companyName}
             siteExits={siteExits}
+            overtime={overtimeView}
           />
           <AttendanceCards attendance={attendance} />
           <TimeTrendsCharts
@@ -286,6 +304,7 @@ export default function ReportsPageView() {
             startDate={startDate}
             endDate={endDate}
             roundedTotalsByEmployee={roundedTotalsByEmployee}
+            overtimeTotals={overtimeView?.totals ?? null}
           />
           <PayrollDayView
             startDate={startDate}
@@ -297,6 +316,7 @@ export default function ReportsPageView() {
             roundDailyMinutes={roundDailyMinutes}
             overrides={overrides}
             onOverrideChange={handleOverrideChange}
+            overtimeRows={overtimeView?.rows ?? null}
           />
           <ShiftNotesTable notes={shiftNotes} />
           <SiteExitsReportTable exits={siteExits} />

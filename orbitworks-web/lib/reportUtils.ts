@@ -5,6 +5,7 @@ import type {
   AttendanceRecord,
 } from "@/lib/types";
 import type { DailyBreakdownRow, EmployeeRoundedTotal } from "@/lib/reportDailyBreakdown";
+import type { OvertimeReportRow, OvertimeEmployeeTotal } from "@/lib/reportOvertime";
 import { minutesToHoursDecimal } from "@/lib/utils/rounding";
 
 export const APPROVALS_CUTOVER_DATE = "2026-09-06";
@@ -143,6 +144,66 @@ export function toPayrollCsv(
     minutesToHoursDecimal(d.clockedMinutes),
     minutesToHoursDecimal(d.breakMinutes),
     minutesToHoursDecimal(d.workedMinutes),
+    d.pay != null ? d.pay.toFixed(2) : "",
+  ]);
+
+  return [
+    `Report period: ${startDate} to ${endDate}`,
+    header.join(","),
+    csvRows(rows),
+    "",
+    "Daily Breakdown",
+    dailyHeader.join(","),
+    csvRows(dailyRowsOut),
+  ].join("\n");
+}
+
+// Overtime (Task 1): Payroll CSV with the Overtime toggle ON - same layout
+// as toPayrollCsv plus an Overtime column in both tables, Est. pay with OT
+// pay, and a day with 2+ jobs split into job rows + a "Day total" row.
+export function toPayrollCsvWithOvertime(
+  summaries: EmployeeSummary[],
+  startDate: string,
+  endDate: string,
+  overtimeRows: OvertimeReportRow[],
+  overtimeTotals: Map<string, OvertimeEmployeeTotal>
+) {
+  const header = [
+    "Employee",
+    "Total Hours (Including Break, decimal)",
+    "Total Hours (Including Break, h:m)",
+    "Total Break Hrs (decimal)",
+    "Overtime Hours (decimal)",
+    "Completed Sessions",
+    "Missing Clock-Outs",
+    "Hourly Rate",
+    "Estimated Pay (Excluding Break)",
+  ];
+  const rows = summaries.map((s) => {
+    const total = overtimeTotals.get(s.employeeId);
+    return [
+      s.employeeName,
+      s.totalHours.toFixed(2),
+      formatHours(s.totalHours),
+      s.totalBreakHours.toFixed(2),
+      minutesToHoursDecimal(total?.totalOvertimeMinutes ?? 0),
+      String(s.sessionCount),
+      String(s.openSessions),
+      s.hourlyRate != null ? s.hourlyRate.toFixed(2) : "",
+      total?.totalPay != null ? total.totalPay.toFixed(2) : "",
+    ];
+  });
+
+  const dailyHeader = ["Employee", "Date", "Job", "Hourly Rate", "Hours", "Break", "Worked Hours", "Overtime Hours", "Estimated Pay"];
+  const dailyRowsOut = overtimeRows.map((d) => [
+    d.employeeName,
+    d.date,
+    d.jobLabel,
+    d.rate != null ? d.rate.toFixed(2) : "",
+    minutesToHoursDecimal(d.clockedMinutes),
+    minutesToHoursDecimal(d.breakMinutes),
+    minutesToHoursDecimal(d.workedMinutes),
+    minutesToHoursDecimal(d.overtimeMinutes),
     d.pay != null ? d.pay.toFixed(2) : "",
   ]);
 

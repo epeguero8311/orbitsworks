@@ -14,10 +14,13 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
-import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
+import { useCompanySettings, overtimeSettingsFrom } from "@/lib/hooks/useCompanySettings";
 import type { ClockEvent, Job, TimesheetApproval } from "@/lib/types";
 import { dateKey, startOfWeek } from "@/lib/reportUtils";
 import { applyAutoBreak } from "@/lib/autoBreak";
+import { computeOvertime, overtimeWeekKey, type OvertimeShiftInput } from "@/lib/overtime";
+import { effectiveOvertimeRate } from "@/lib/reportOvertime";
+import type { EmployeeHistoryOvertimeExport } from "@/lib/reportExcelUtils";
 
 export type EmployeeHistoryDayRow = {
   dateLabel: string;
@@ -43,6 +46,10 @@ export type EmployeeTimesheet = {
   jobs: Job[];
   dayRows: EmployeeHistoryDayRow[];
   weeklyTotals: EmployeeHistoryWeek[];
+  // Overtime (Task 1, decision 11): only with the Overtime toggle ON - the
+  // Time History sheet then uses the shared overtime function. null = the
+  // existing sheet, unchanged.
+  overtime: EmployeeHistoryOvertimeExport | null;
 };
 
 type EventWithDate = Omit<ClockEvent, "id"> & {
@@ -69,6 +76,18 @@ export function useEmployeeTimesheet() {
       try {
         const start = new Date(`${startDate}T00:00:00`);
         const end = new Date(`${endDate}T23:59:59`);
+        // Overtime ON: weekly OT needs the whole week, so load from the
+        // start of the week containing startDate (minus a day of margin).
+        // Overtime OFF: exactly the requested range, as before.
+        const otSettings = settings.overtimeEnabled ? overtimeSettingsFrom(settings) : null;
+        const fetchStart = new Date(start);
+        if (otSettings) {
+          const weekStartKey = overtimeWeekKey(startDate, otSettings.weekStartsOn);
+          const wideStart = new Date(`${weekStartKey}T00:00:00`);
+          wideStart.setDate(wideStart.getDate() - 1);
+          if (wideStart < fetchStart) fetchStart.setTime(wideStart.getTime());
+        }
+        const fetchStartKey = `${fetchStart.getFullYear()}-${String(fetchStart.getMonth() + 1).padStart(2, "0")}-${String(fetchStart.getDate()).padStart(2, "0")}`;
 
         const employeeSnap = await getDoc(
           doc(db, "companies", userData.companyId, "employees", employeeId)
@@ -78,6 +97,7 @@ export function useEmployeeTimesheet() {
               name?: string;
               hourlyRate?: number | null;
               jobId?: string | null;
+              subcontractorId?: string | null;
             })
           : {};
 
@@ -99,7 +119,7 @@ export function useEmployeeTimesheet() {
         const q = query(
           eventsRef,
           where("employeeId", "==", employeeId),
-          where("timestamp", ">=", Timestamp.fromDate(start)),
+          where("timestamp", ">=", Timestamp.fromDate(fetchStart)),
           where("timestamp", "<=", Timestamp.fromDate(end)),
           orderBy("timestamp", "asc")
         );
@@ -118,7 +138,7 @@ export function useEmployeeTimesheet() {
         const approvalsQuery = query(
           approvalsRef,
           where("employeeId", "==", employeeId),
-          where("date", ">=", startDate),
+          where("date", ">=", fetchStartKey),
           where("date", "<=", endDate)
         );
         const approvalsSnapshot = await getDocs(approvalsQuery);
@@ -134,6 +154,9 @@ export function useEmployeeTimesheet() {
         let sessionAdjusted = false;
         let sessionNotes: string[] = [];
         const weeklyMs = new Map<string, number>();
+        // Overtime ON only: every closed session (incl. the week's earlier
+        // days), with its row, for the shared overtime function.
+        const otSessions: { input: OvertimeShiftInput; row: EmployeeHistoryDayRow }[] = [];
 
         for (const event of events) {
           if (event.note && event.type !== "in") sessionNotes.push(event.note);
@@ -178,7 +201,7 @@ export function useEmployeeTimesheet() {
               const weekKey = dateKey(startOfWeek(pendingIn.timestamp.toDate()));
               weeklyMs.set(weekKey, (weeklyMs.get(weekKey) ?? 0) + netMs);
 
-              dayRows.push({
+              const row: EmployeeHistoryDayRow = {
                 dateLabel: pendingIn.timestamp.toDate().toLocaleDateString(undefined, {
                   month: "short",
                   day: "numeric",
@@ -201,7 +224,31 @@ export function useEmployeeTimesheet() {
                 breakHours: effectiveBreakMs / (1000 * 60 * 60),
                 note: sessionNotes.join("; "),
                 adjusted: sessionAdjusted,
-              });
+              };
+              if (otSettings) {
+                const approvedJobId = approval?.jobId && jobsMap.has(approval.jobId) ? approval.jobId : null;
+                const defaultJobId = employeeData.jobId && jobsMap.has(employeeData.jobId) ? employeeData.jobId : null;
+                otSessions.push({
+                  input: {
+                    id: pendingIn.id,
+                    startMs: pendingIn.timestamp.toMillis(),
+                    endMs: event.timestamp.toMillis(),
+                    breakMs: currentSessionBreakMs,
+                    jobId: approvedJobId ?? defaultJobId,
+                    ...(approval?.status === "approved"
+                      ? {
+                          autoBreak: {
+                            minutes: approval.autoBreakMinutesApplied ?? 0,
+                            minimumShiftHours: approval.autoBreakMinShiftHoursApplied ?? 0,
+                          },
+                        }
+                      : {}),
+                  },
+                  row,
+                });
+              } else {
+                dayRows.push(row);
+              }
             }
             pendingIn = null;
             openBreakStart = null;
@@ -221,6 +268,55 @@ export function useEmployeeTimesheet() {
             hours: ms / (1000 * 60 * 60),
           }));
 
+        let overtime: EmployeeHistoryOvertimeExport | null = null;
+        if (otSettings) {
+          const isSubcontractor = !!employeeData.subcontractorId;
+          const defaultJob = employeeData.jobId ? jobsMap.get(employeeData.jobId) : undefined;
+          const result = computeOvertime(
+            otSessions.map((x) => x.input),
+            otSettings,
+            (jobId) => {
+              const job = jobId ? jobsMap.get(jobId) : undefined;
+              return job
+                ? { rate: job.hourlyRate, overtimeRate: job.overtimeRate ?? null }
+                : { rate: employeeData.hourlyRate ?? null, overtimeRate: null };
+            },
+            { noOvertimePremium: isSubcontractor }
+          );
+          const weekLabelOf = (weekKey: string) =>
+            new Date(`${weekKey}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+          const rows: EmployeeHistoryOvertimeExport["rows"] = [];
+          const weekKeys: string[] = [];
+          result.shifts.forEach((r) => {
+            if (r.dayKey < startDate || r.dayKey > endDate) return;
+            const session = otSessions.find((x) => x.input.id === r.id);
+            if (!session) return;
+            if (!weekKeys.includes(r.weekKey)) weekKeys.push(r.weekKey);
+            rows.push({
+              ...session.row,
+              weekLabel: weekLabelOf(r.weekKey),
+              breakHours: r.breakMs / (1000 * 60 * 60),
+              jobId: r.jobId,
+              jobName: r.jobId ? jobsMap.get(r.jobId)?.name ?? null : null,
+              rate: r.rate,
+              overtimeHours: r.overtimeMs / (1000 * 60 * 60),
+              overtimeRate: r.overtimeRate,
+            });
+          });
+          overtime = {
+            rows,
+            weekLabels: weekKeys.sort().map(weekLabelOf),
+            defaultOvertimeRate: effectiveOvertimeRate(
+              hourlyRate,
+              defaultJob?.overtimeRate,
+              otSettings.multiplier,
+              isSubcontractor
+            ),
+            isSubcontractor,
+            multiplier: otSettings.multiplier,
+          };
+        }
+
         return {
           employeeName: employeeData.name ?? "Unknown employee",
           hourlyRate,
@@ -228,6 +324,7 @@ export function useEmployeeTimesheet() {
           jobs,
           dayRows,
           weeklyTotals,
+          overtime,
         };
       } catch (err) {
         console.error("Employee timesheet error:", err);
@@ -250,11 +347,8 @@ export function useEmployeeTimesheet() {
         setLoading(false);
       }
     },
-    [
-      userData?.companyId,
-      settings.exportSettings.automaticBreakMinutes,
-      settings.exportSettings.minimumShiftHours,
-    ]
+    // settings as a whole: the Overtime branch reads several of its fields.
+    [userData, settings]
   );
 
   return { runTimesheet, loading, error };

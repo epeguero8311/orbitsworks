@@ -63,6 +63,11 @@ export interface OvertimeShiftInput {
   // The job worked on this shift (Approve Hours job, else the employee's
   // default job) - resolved by the caller.
   jobId: string | null;
+  // Automatic Break settings frozen on this shift when it was approved
+  // (timesheetApprovals autoBreak*Applied). Omitted = the live settings.
+  // Overtime OFF: used for this shift. Overtime ON: the day uses the frozen
+  // settings of its last closed shift (where the deduction lands).
+  autoBreak?: { minutes: number; minimumShiftHours: number };
 }
 
 export interface OvertimeJobRates {
@@ -216,8 +221,11 @@ export function computeOvertime(
   options: OvertimeOptions = {}
 ): OvertimeResult {
   const timeZone = settings.timeZone || DEFAULT_OVERTIME_TIME_ZONE;
-  const autoBreakMs = Math.max(0, settings.automaticBreakMinutes) * MINUTE_MS;
-  const minShiftMs = Math.max(0, settings.minimumShiftHours) * HOUR_MS;
+  const autoBreakFor = (s: WorkingShift) => {
+    const minutes = s.input.autoBreak ? s.input.autoBreak.minutes : settings.automaticBreakMinutes;
+    const minHours = s.input.autoBreak ? s.input.autoBreak.minimumShiftHours : settings.minimumShiftHours;
+    return { ms: Math.max(0, minutes) * MINUTE_MS, minShiftMs: Math.max(0, minHours) * HOUR_MS };
+  };
 
   // ---- 1. Day/week placement, gross time, tracked breaks ----
   const working: WorkingShift[] = shifts
@@ -257,31 +265,32 @@ export function computeOvertime(
 
   // ---- 2. Automatic Break ----
   const dayAutoBreakMs = new Map<string, number>();
-  if (autoBreakMs > 0) {
-    if (!settings.enabled) {
-      // Overtime OFF: the existing per-shift rule (autoBreak.ts), closed
-      // shifts only, each shift on its own gross hours.
-      for (const s of working) {
-        if (!s.closed || s.grossMs < minShiftMs) continue;
-        s.autoBreakMs = Math.min(autoBreakMs, s.grossMs - s.realBreakMs);
-        dayAutoBreakMs.set(s.dayKey, (dayAutoBreakMs.get(s.dayKey) ?? 0) + s.autoBreakMs);
+  if (!settings.enabled) {
+    // Overtime OFF: the existing per-shift rule (autoBreak.ts), closed
+    // shifts only, each shift on its own gross hours.
+    for (const s of working) {
+      const ab = autoBreakFor(s);
+      if (ab.ms <= 0 || !s.closed || s.grossMs < ab.minShiftMs) continue;
+      s.autoBreakMs = Math.min(ab.ms, s.grossMs - s.realBreakMs);
+      dayAutoBreakMs.set(s.dayKey, (dayAutoBreakMs.get(s.dayKey) ?? 0) + s.autoBreakMs);
+    }
+  } else {
+    // Overtime ON: once per day, on the day's combined closed-shift gross
+    // hours. Taken from the day's last closed shift first (earlier ones
+    // only if it is shorter than the break).
+    for (const dayKey of dayOrder) {
+      const closed = (shiftsByDay.get(dayKey) ?? []).filter((s) => s.closed);
+      if (closed.length === 0) continue;
+      const ab = autoBreakFor(closed[closed.length - 1]);
+      const combinedGross = closed.reduce((sum, s) => sum + s.grossMs, 0);
+      if (ab.ms <= 0 || combinedGross < ab.minShiftMs) continue;
+      let remaining = ab.ms;
+      for (let i = closed.length - 1; i >= 0 && remaining > 0; i--) {
+        const take = Math.min(remaining, workedOf(closed[i]));
+        closed[i].autoBreakMs += take;
+        remaining -= take;
       }
-    } else {
-      // Overtime ON: once per day, on the day's combined closed-shift gross
-      // hours. Taken from the day's last closed shift first (earlier ones
-      // only if it is shorter than the break).
-      for (const dayKey of dayOrder) {
-        const closed = (shiftsByDay.get(dayKey) ?? []).filter((s) => s.closed);
-        const combinedGross = closed.reduce((sum, s) => sum + s.grossMs, 0);
-        if (closed.length === 0 || combinedGross < minShiftMs) continue;
-        let remaining = autoBreakMs;
-        for (let i = closed.length - 1; i >= 0 && remaining > 0; i--) {
-          const take = Math.min(remaining, workedOf(closed[i]));
-          closed[i].autoBreakMs += take;
-          remaining -= take;
-        }
-        dayAutoBreakMs.set(dayKey, autoBreakMs - remaining);
-      }
+      dayAutoBreakMs.set(dayKey, ab.ms - remaining);
     }
   }
 

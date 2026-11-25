@@ -14,6 +14,7 @@ import type {
 } from "@/lib/types";
 import {
   toPayrollCsv,
+  toPayrollCsvWithOvertime,
   toTimesheetsCsv,
   toEmployeesCsv,
   toAttendanceCsv,
@@ -30,6 +31,7 @@ import {
   buildDailyBreakdownRows,
   computeEmployeeRoundedTotals,
 } from "@/lib/reportDailyBreakdown";
+import type { OvertimeEmployeeTotal, OvertimeReportRow } from "@/lib/reportOvertime";
 
 export function ExportDropdown({
   label,
@@ -119,6 +121,7 @@ export default function ExportMenu({
   endDate,
   companyName,
   siteExits = [],
+  overtime = null,
 }: {
   summaries: EmployeeSummary[];
   sessions: SessionRecord[];
@@ -138,6 +141,15 @@ export default function ExportMenu({
   companyName: string;
   // Phase 9 (H7 a): the Timesheets Excel gets the job site columns + sheet.
   siteExits?: SiteExit[];
+  // Overtime (Task 1): only with the Overtime toggle ON. baseRows = the
+  // Approve Hours jobs (Excel keeps its own live Job dropdown, like today);
+  // rows/totals = with this page's report-only Job overrides (CSV).
+  overtime?: {
+    baseRows: OvertimeReportRow[];
+    rows: OvertimeReportRow[];
+    totals: Map<string, OvertimeEmployeeTotal>;
+    multiplier: number;
+  } | null;
 }) {
   const dailyRows = buildDailyBreakdownRows(
     summaries,
@@ -191,11 +203,14 @@ export default function ExportMenu({
           roundTotalMinutes,
           companyName,
           startDate,
-          endDate
+          endDate,
+          overtime ? { rows: overtime.baseRows, multiplier: overtime.multiplier } : null
         ),
       onCsv: () =>
         downloadCsv(
-          toPayrollCsv(summaries, startDate, endDate, dailyRows, roundedTotalsByEmployee),
+          overtime
+            ? toPayrollCsvWithOvertime(summaries, startDate, endDate, overtime.rows, overtime.totals)
+            : toPayrollCsv(summaries, startDate, endDate, dailyRows, roundedTotalsByEmployee),
           buildExportFilename(companyName, "Payroll", "csv", startDate, endDate)
         ),
     },

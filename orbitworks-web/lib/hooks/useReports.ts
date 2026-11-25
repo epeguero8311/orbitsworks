@@ -11,7 +11,14 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
-import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
+import { useCompanySettings, overtimeSettingsFrom } from "@/lib/hooks/useCompanySettings";
+import { overtimeWeekKey } from "@/lib/overtime";
+import {
+  buildOvertimeReportRows,
+  pairReportShifts,
+  type OvertimeReportRow,
+  type ReportEmployee,
+} from "@/lib/reportOvertime";
 import type {
   EmployeeSummary,
   AttendanceStats,
@@ -72,6 +79,10 @@ export function useReports() {
   const [approvedJobIdByEmployeeDay, setApprovedJobIdByEmployeeDay] = useState<
     Map<string, string | null>
   >(new Map());
+  // Overtime (Task 1): day rows with Overtime, only when the company's
+  // Overtime toggle is ON. null = OFF - every section and export then uses
+  // the existing (unchanged) data above.
+  const [overtimeRows, setOvertimeRows] = useState<OvertimeReportRow[] | null>(null);
 
   const runReport = useCallback(
     // Phase 9 (H9 a/a): companyFilter narrows EVERY section and export to
@@ -83,6 +94,7 @@ export function useReports() {
       setError("");
       setLoading(true);
       setSummaries(null);
+      setOvertimeRows(null);
 
       try {
         const start = new Date(startDate + "T00:00:00");
@@ -267,6 +279,96 @@ export function useReports() {
           settings.attendanceRules.gracePeriodMinutes ?? 0,
           payroll.breakHoursByEmployeeDay
         );
+        // ---- Overtime (Task 1), only with the Overtime toggle ON ----
+        // Weekly OT needs the whole week, so this loads from the start of
+        // the week containing startDate (company week start + time zone),
+        // with a day of margin each side; rows outside startDate..endDate
+        // are computed but not shown. Same approval gating and company
+        // filter as everything above.
+        if (settings.overtimeEnabled) {
+          const otSettings = overtimeSettingsFrom(settings);
+          const weekStartKey = overtimeWeekKey(startDate, otSettings.weekStartsOn);
+          const wideStart = new Date(`${weekStartKey}T00:00:00`);
+          wideStart.setDate(wideStart.getDate() - 1);
+          const wideEnd = new Date(end);
+          wideEnd.setDate(wideEnd.getDate() + 1);
+          const wideSnapshot = await getDocs(
+            query(
+              eventsRef,
+              where("timestamp", ">=", Timestamp.fromDate(wideStart)),
+              where("timestamp", "<=", Timestamp.fromDate(wideEnd)),
+              orderBy("timestamp", "asc")
+            )
+          );
+          const wideEvents = wideSnapshot.docs.map((d) => {
+            const data = d.data() as Omit<EventWithDate, "id">;
+            return { id: d.id, ...data, timestamp: data.adjustedTimestamp ?? data.timestamp };
+          });
+          const wideStartKey = `${wideStart.getFullYear()}-${String(wideStart.getMonth() + 1).padStart(2, "0")}-${String(wideStart.getDate()).padStart(2, "0")}`;
+          const wideApprovals = await getDocs(
+            query(
+              approvalsRef,
+              where("date", ">=", approvalsQueryStart(wideStartKey < startDate ? wideStartKey : startDate, APPROVALS_CUTOVER_DATE)),
+              where("date", "<=", endDate)
+            )
+          );
+          const wideStatus = new Map<string, "pending" | "approved">();
+          const wideAutoBreak = new Map<string, { minutes: number; minShiftHours: number }>();
+          const jobIdByClockInId = new Map<string, string | null>();
+          wideApprovals.docs.forEach((d) => {
+            const data = d.data() as {
+              status?: "pending" | "approved";
+              jobId?: string | null;
+              autoBreakMinutesApplied?: number;
+              autoBreakMinShiftHoursApplied?: number;
+            };
+            wideStatus.set(d.id, data.status ?? "pending");
+            if (data.status === "approved") {
+              wideAutoBreak.set(d.id, {
+                minutes: data.autoBreakMinutesApplied ?? 0,
+                minShiftHours: data.autoBreakMinShiftHoursApplied ?? 0,
+              });
+            }
+            if (data.jobId) jobIdByClockInId.set(d.id, data.jobId);
+          });
+          const wideExcluded = computeExcludedEventIds(wideEvents, wideStatus);
+          const otShifts = pairReportShifts(
+            wideEvents
+              .filter((e) => !wideExcluded.has(e.id) && inCompany(e.employeeId))
+              .map((e) => ({ id: e.id, employeeId: e.employeeId, type: e.type, ms: e.timestamp.toMillis() }))
+          );
+          const otEmployees = new Map<string, ReportEmployee>();
+          employeeDocs.forEach((d) => {
+            const data = d.data() as {
+              name?: string;
+              jobId?: string | null;
+              hourlyRate?: number | null;
+              subcontractorId?: string | null;
+              subcontractorName?: string | null;
+            };
+            otEmployees.set(d.id, {
+              name: data.name ?? "",
+              defaultJobId: data.jobId ?? null,
+              customRate: data.hourlyRate ?? null,
+              isSubcontractor: !!data.subcontractorId,
+              subcontractorName: data.subcontractorName ?? null,
+            });
+          });
+          setOvertimeRows(
+            buildOvertimeReportRows({
+              shifts: otShifts,
+              employees: otEmployees,
+              jobs: jobsMap,
+              jobIdByClockInId,
+              autoBreakByClockInId: wideAutoBreak,
+              settings: otSettings,
+              roundDailyMinutes: settings.exportSettings.roundDailyMinutes,
+              startDate,
+              endDate,
+            })
+          );
+        }
+
         setAttendanceRecords(attendanceResult.attendanceRecords);
         setAttendance(attendanceResult.attendance);
         setEmployeesPerDay(attendanceResult.employeesPerDay);
@@ -278,13 +380,9 @@ export function useReports() {
         setLoading(false);
       }
     },
-    [
-      companyId,
-      settings.businessHours.open,
-      settings.attendanceRules.gracePeriodMinutes,
-      settings.exportSettings.automaticBreakMinutes,
-      settings.exportSettings.minimumShiftHours,
-    ]
+    // settings as a whole: the Overtime branch reads several of its fields
+    // (toggle, thresholds, multiplier, rounding, time zone).
+    [companyId, settings]
   );
 
   return {
@@ -307,6 +405,7 @@ export function useReports() {
     hoursByEmployeeDay,
     breakHoursByEmployeeDay,
     approvedJobIdByEmployeeDay,
+    overtimeRows,
     runReport,
   };
 }

@@ -6,6 +6,7 @@ import type { EmployeeSummary, Job, RoundingIncrement } from "@/lib/types";
 import { dateKey } from "@/lib/reportUtils";
 import { minutesToHoursDecimal } from "@/lib/utils/rounding";
 import { buildDailyBreakdownRows } from "@/lib/reportDailyBreakdown";
+import type { OvertimeReportRow } from "@/lib/reportOvertime";
 
 export default function PayrollDayView({
   startDate,
@@ -17,6 +18,7 @@ export default function PayrollDayView({
   roundDailyMinutes,
   overrides,
   onOverrideChange,
+  overtimeRows = null,
 }: {
   startDate: string;
   endDate: string;
@@ -27,6 +29,10 @@ export default function PayrollDayView({
   roundDailyMinutes: RoundingIncrement;
   overrides: Record<string, string>;
   onOverrideChange: (employeeId: string, date: string, jobId: string) => void;
+  // Overtime (Task 1): only passed with the Overtime toggle ON (overrides
+  // already applied). Adds the Overtime column; a day with 2+ jobs splits
+  // into locked job rows + a day total. null = today's table, unchanged.
+  overtimeRows?: OvertimeReportRow[] | null;
 }) {
   const [currentDate, setCurrentDate] = useState(startDate);
 
@@ -58,6 +64,8 @@ export default function PayrollDayView({
     roundDailyMinutes
   );
   const rows = allRows.filter((r) => r.date === currentDate);
+  const otRows = overtimeRows ? overtimeRows.filter((r) => r.date === currentDate) : null;
+  const activeJobs = jobs.filter((j) => j.active);
 
   const canGoBack = currentDate > startDate;
   const canGoForward = currentDate < endDate;
@@ -93,6 +101,79 @@ export default function PayrollDayView({
         only affects this report - it doesn't change the employee's assigned job.
       </p>
 
+      {otRows && (
+        <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 bg-white">
+          {otRows.length === 0 ? (
+            <p className="p-4 text-sm text-gray-600">No clock events on this day.</p>
+          ) : (
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-gray-200 text-gray-600">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Employee</th>
+                  <th className="px-4 py-2 font-medium">Job / hourly rate</th>
+                  <th className="px-4 py-2 font-medium">Hours</th>
+                  <th className="px-4 py-2 font-medium">Break</th>
+                  <th className="px-4 py-2 font-medium">Worked Hours</th>
+                  <th className="px-4 py-2 font-medium">Overtime</th>
+                  <th className="px-4 py-2 font-medium">Est. pay</th>
+                </tr>
+              </thead>
+              <tbody>
+                {otRows.map((r) => (
+                  <tr
+                    key={r.key}
+                    className={`border-b border-gray-200 last:border-0 ${r.kind === "total" ? "bg-gray-50 font-medium" : ""}`}
+                  >
+                    <td className="px-4 py-2.5 text-gray-950">
+                      {r.kind === "job" ? <span className="text-gray-600">{r.employeeName}</span> : r.employeeName}
+                      {r.incomplete && r.kind !== "job" && (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                          Missing clock-out
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {r.kind === "single" ? (
+                        <select
+                          value={r.overrideJobId}
+                          onChange={(e) => onOverrideChange(r.employeeId, currentDate, e.target.value)}
+                          className="rounded-md border border-gray-200 px-2 py-1.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                        >
+                          <option value="">
+                            {r.overrideJobId ? "Approve Hours job" : r.jobLabel}
+                            {r.rate != null && !r.overrideJobId ? ` - $${r.rate.toFixed(2)}/hr` : ""}
+                          </option>
+                          {activeJobs.map((j) => (
+                            <option key={j.id} value={j.id}>
+                              {j.name} - ${j.hourlyRate.toFixed(2)}/hr
+                            </option>
+                          ))}
+                        </select>
+                      ) : r.kind === "job" ? (
+                        <span className="text-gray-950" title="2 or more jobs this day - change them on Approve Hours">
+                          {r.jobLabel}
+                          {r.rate != null ? ` - $${r.rate.toFixed(2)}/hr` : ""}
+                        </span>
+                      ) : (
+                        <span className="text-gray-950">Day total</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.clockedMinutes)}</td>
+                    <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.breakMinutes)}</td>
+                    <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.workedMinutes)}</td>
+                    <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.overtimeMinutes)}</td>
+                    <td className="px-4 py-2.5 font-mono text-gray-950">
+                      {r.pay != null ? `$${r.pay.toFixed(2)}` : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {!otRows && (
       <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 bg-white">
         {rows.length === 0 ? (
           <p className="p-4 text-sm text-gray-600">No clock events on this day.</p>
@@ -154,6 +235,7 @@ export default function PayrollDayView({
           </table>
         )}
       </div>
+      )}
     </div>
   );
 }

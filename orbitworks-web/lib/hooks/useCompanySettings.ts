@@ -6,6 +6,7 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { isCoreOrProPlan, isProPlan } from "@/lib/stripe/tiers";
 import type { ExportSettings, RoundingIncrement } from "@/lib/types";
+import { DEFAULT_OVERTIME_TIME_ZONE, type OvertimeSettings } from "@/lib/overtime";
 
 export type AttendanceRules = {
   gracePeriodMinutes: number;
@@ -75,6 +76,10 @@ export type CompanySettings = {
   dailyOvertimeThreshold: number;
   overtimeWeekStartsOn: OvertimeWeekday;
   overtimeRoundMinutes: RoundingIncrement;
+  // One time zone for every day/week boundary in overtime math: the
+  // company's timezone field if it has one, else America/Chicago (same
+  // fallback the server uses, functions/src/shared.ts COMPANY_TIMEZONE).
+  timeZone: string;
   attendanceRules: AttendanceRules;
   alerts: Alerts;
   appSettings: AppSettings;
@@ -132,6 +137,21 @@ export function resolveOvertimeFields(data: Record<string, unknown>): OvertimeFi
       typeof round === "number" && ROUNDING_INCREMENTS.includes(round)
         ? (round as RoundingIncrement)
         : DEFAULT_OVERTIME_FIELDS.overtimeRoundMinutes,
+  };
+}
+
+// The shared overtime function's settings, from the company's settings.
+export function overtimeSettingsFrom(settings: CompanySettings): OvertimeSettings {
+  return {
+    enabled: settings.overtimeEnabled,
+    weeklyThresholdHours: settings.weeklyOvertimeThreshold,
+    dailyThresholdHours: settings.dailyOvertimeThreshold,
+    weekStartsOn: settings.overtimeWeekStartsOn,
+    multiplier: settings.overtimeMultiplier,
+    roundOvertimeMinutes: settings.overtimeRoundMinutes,
+    automaticBreakMinutes: settings.exportSettings.automaticBreakMinutes,
+    minimumShiftHours: settings.exportSettings.minimumShiftHours,
+    timeZone: settings.timeZone,
   };
 }
 
@@ -208,6 +228,7 @@ const DEFAULT_SETTINGS: CompanySettings = {
   weeklyOvertimeThreshold: 40,
   overtimeMultiplier: 1.5,
   ...DEFAULT_OVERTIME_FIELDS,
+  timeZone: DEFAULT_OVERTIME_TIME_ZONE,
   attendanceRules: DEFAULT_ATTENDANCE_RULES,
   alerts: DEFAULT_ALERTS,
   appSettings: DEFAULT_APP_SETTINGS,
@@ -251,6 +272,8 @@ export function useCompanySettings() {
         weeklyOvertimeThreshold: data.weeklyOvertimeThreshold ?? 40,
         overtimeMultiplier: data.overtimeMultiplier ?? 1.5,
         ...resolveOvertimeFields(data),
+        timeZone:
+          typeof data.timezone === "string" && data.timezone ? data.timezone : DEFAULT_OVERTIME_TIME_ZONE,
         attendanceRules: {
           ...DEFAULT_ATTENDANCE_RULES,
           ...(data.attendanceRules ?? {}),

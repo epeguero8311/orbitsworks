@@ -135,7 +135,8 @@ export default function ClockEventLookup() {
         timesheetSettings.weeklyOvertimeThreshold,
         companyName,
         startDate,
-        endDate
+        endDate,
+        result.overtime
       );
     } catch (err) {
       console.error("Employee Excel export error:", err);
