@@ -363,7 +363,10 @@ D11 (8.4A). Titles & Pay (title/rate create/edit) = Edit pay. Job site create/ed
 D12 (8.5A). Reports for a restricted admin: on-screen tables show only their sites (with full day totals); the export download shows everything (Export payroll).
 D13 (8.6A). Overview stays unfiltered (rule 5): restricted admins get it from a server call too.
 D14 (8.7). Option 2A confirmed (restricted admins load Approve Hours, Reports, Time pages, Overview, Analytics from the server).
-G1-G4: proposed Nov 25, waiting on Emilio.
+D15 (G1 A). Rule changes only bite on an Admin limited to some sites; supervisor + employee rules and claims stay exactly as today (prod apps). Emulator tests prove the supervisor-app and employee-app reads/writes still pass. G1 sub A: a restricted admin who is ALSO a supervisor (employee isSupervisor) keeps supervisor-level reads (all sites, like any supervisor today); the server still limits their admin actions to their sites.
+D16 (G2 A). Invites can't carry access: invites rule refuses access fields; acceptInvite always writes "no sites, no permissions" and never changes an existing owner / Full access account; Team "Make admin" (setEmployeeRole) also starts with no access and the website opens the Permissions modal right after, so the owner sets access straight away. Only setAdminAccess grants access (D5 hierarchy).
+D17 (G3 A). A restricted admin with Settings who creates a job site gets it added to their own sites automatically (server trigger on jobSites create; createdByUid enforced by rules = creator). The "which admins can see this" picker is shown only to owner / Full access.
+D18 (G4). Alerts: A - alerts stay readable by every admin; alert action buttons move to one server call for EVERY admin (checks Approve hours + shift site); other sites' alerts show "Not your site" on the buttons for a restricted admin. FINAL SWEEP: re-test alert actions for ALL admins (path changes for existing customers). Devices: B - hide the unnamed-devices section for restricted admins. Employee modal: no change.
 
 ---
 
