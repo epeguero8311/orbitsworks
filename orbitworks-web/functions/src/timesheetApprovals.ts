@@ -171,7 +171,14 @@ export const setApprovalStatus = onCall(async (request) => {
   const jobFields = await resolveJobFields(callerCompanyId, status, jobId);
   const autoBreakFields = await resolveAutoBreakFields(callerCompanyId, status);
   // Overtime (Task 1) rule 11: freeze this shift's OT (Overtime ON only).
-  const overtimeFields = (await resolveOvertimeFreezeFields(callerCompanyId, status, [eventId])).get(eventId) ?? {
+  const overtimeFields = (
+    await resolveOvertimeFreezeFields(
+      callerCompanyId,
+      status,
+      [eventId],
+      jobId !== undefined ? new Map([[eventId, jobId]]) : new Map()
+    )
+  ).get(eventId) ?? {
     overtimeApplied: admin.firestore.FieldValue.delete(),
   };
   await approvalRef.update({
@@ -255,7 +262,13 @@ export const setApprovalStatusBulk = onCall(async (request) => {
 
   // Overtime (Task 1) rule 11: frozen OT per row, computed per
   // employee+week (one query per group, never per row).
-  const overtimeFieldsByEventId = await resolveOvertimeFreezeFields(callerCompanyId, status, eventIds);
+  const jobIdOverrides = new Map<string, string | null>();
+  for (const eventId of eventIds) {
+    if (eventId in jobIdByEventIdRaw) {
+      jobIdOverrides.set(eventId, jobIdByEventIdRaw[eventId] == null ? null : String(jobIdByEventIdRaw[eventId]));
+    }
+  }
+  const overtimeFieldsByEventId = await resolveOvertimeFreezeFields(callerCompanyId, status, eventIds, jobIdOverrides);
 
   const batch = db.batch();
   approvalRefs.forEach((ref, i) => {

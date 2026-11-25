@@ -1,33 +1,35 @@
 #!/usr/bin/env node
-// DEV ONLY - seeds a test company for Task 1 (Overtime) on orbitworks-dev-ew.
-// Refuses every other project (there is no prod flag).
+// DEV ONLY - seeds two test companies for Task 1 (Overtime) on
+// orbitworks-dev-ew. Refuses every other project (there is no prod flag).
 //
 //   cd functions
 //   node scripts/devSeedOvertime.js --project orbitworks-dev-ew \
-//     --admin-email you+ot@example.com --admin-password <8+ chars>          (dry run: prints the plan)
-//   node scripts/devSeedOvertime.js --project orbitworks-dev-ew \
-//     --admin-email you+ot@example.com --admin-password <8+ chars> --apply  (writes)
+//     --admin-email <email A> --admin-email-b <email B> --admin-password <8+ chars>          (dry run)
+//   ...same... --apply                                                                   (writes)
+//
+// One login can only belong to one company, so each test company gets its
+// own owner email (same password for both).
 //
 // Credentials: Application Default Credentials for the dev project
 // (gcloud auth application-default login) or GOOGLE_APPLICATION_CREDENTIALS
 // for an orbitworks-dev-ew service account.
 //
-// Creates (once - refuses if the company already exists):
-//  - companies/ot-test-company: Pro plan, Overtime ON, weekly 40, daily 8,
-//    multiplier 1.5, week starts Monday, no rounding, no Automatic Break.
-//  - jobs Laborer $15, Foreman $23 (OT rate $40), Foreman B $23 (no OT rate,
-//    for examples D and E which use the 1.5x multiplier).
-//  - one employee per plan example (A, B, C, D, E) with clock events in the
-//    week Mon Nov 16 - Sun Nov 22 2026 (America/Chicago), every session
-//    approved on Approve Hours with its job.
-//  - an owner login for the admin email (new Auth user, or an existing one
-//    that is not in any company yet).
+// Creates (once - refuses if either company already exists):
+//  - companies/ot-test-company "OT Test Co": Overtime ON, weekly 40,
+//    daily 8, 1.5x, Monday - plan examples A, C, D, E.
+//  - companies/ot-test-company-b "OT Test Co B": Overtime ON, weekly 40,
+//    daily 12, 1.5x, Monday - plan example B exactly (Mon 14h, Tue-Fri 8h).
+//  - both: Pro plan, no rounding, no Automatic Break; jobs Laborer $15,
+//    Foreman $23 (OT rate $40), Foreman B $23 (no OT rate = 1.5x; used by
+//    D and E); clock events in Mon Nov 16 - Sun Nov 22 2026
+//    (America/Chicago), every session approved on Approve Hours with its job.
+//  - an owner login per company (new Auth user, or an existing one that is
+//    not in any company yet).
 // Expected export numbers: docs/plans/overtime-dev-seed-expected.md.
 
 const fs = require("node:fs");
 
 const DEV = "orbitworks-dev-ew";
-const COMPANY_ID = "ot-test-company";
 const TERMS_VERSION = "2026-11-17-r7"; // components/legal/TermsContent.tsx
 
 function fail(message) {
@@ -36,18 +38,21 @@ function fail(message) {
 }
 
 // ---- args ----
-const args = { project: null, apply: false, adminEmail: null, adminPassword: null };
+const args = { project: null, apply: false, adminEmail: null, adminEmailB: null, adminPassword: null };
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === "--project") args.project = argv[++i];
   else if (a === "--apply") args.apply = true;
   else if (a === "--admin-email") args.adminEmail = (argv[++i] || "").trim().toLowerCase();
+  else if (a === "--admin-email-b") args.adminEmailB = (argv[++i] || "").trim().toLowerCase();
   else if (a === "--admin-password") args.adminPassword = argv[++i] || "";
   else fail(`Unknown argument "${a}".`);
 }
 if (args.project !== DEV) fail(`This script only runs with --project ${DEV} (got "${args.project}").`);
-if (!args.adminEmail || !args.adminEmail.includes("@")) fail("--admin-email is required.");
+if (!args.adminEmail || !args.adminEmail.includes("@")) fail("--admin-email is required (owner of OT Test Co).");
+if (!args.adminEmailB || !args.adminEmailB.includes("@")) fail("--admin-email-b is required (owner of OT Test Co B).");
+if (args.adminEmail === args.adminEmailB) fail("--admin-email and --admin-email-b must be different (one company per login).");
 if (!args.adminPassword || args.adminPassword.length < 8) fail("--admin-password is required (8+ characters).");
 
 // ---- project lock (before firebase-admin loads) ----
@@ -87,8 +92,8 @@ const JOBS = [
   { id: "foreman-b", name: "Foreman B", hourlyRate: 23 },
 ];
 
-// [day, in, out, jobId]
-const EMPLOYEES = [
+// [day, in, out, jobId] - OT Test Co (daily 8).
+const EMPLOYEES_A = [
   {
     id: "ot-a",
     name: "OT A Split Shift",
@@ -96,19 +101,6 @@ const EMPLOYEES = [
     shifts: [
       [16, "08:00", "13:00", "laborer"],
       [16, "14:00", "23:00", "laborer"],
-    ],
-  },
-  {
-    id: "ot-b",
-    name: "OT B Daily And Weekly",
-    jobId: "laborer",
-    shifts: [
-      [16, "06:00", "20:00", "laborer"],
-      [17, "08:00", "16:00", "laborer"],
-      [18, "08:00", "16:00", "laborer"],
-      [19, "08:00", "16:00", "laborer"],
-      [20, "08:00", "16:00", "laborer"],
-      [21, "08:00", "16:00", "laborer"],
     ],
   },
   {
@@ -150,47 +142,69 @@ const EMPLOYEES = [
   },
 ];
 
+// Plan example B exactly - OT Test Co B (daily 12): Mon 14h, Tue-Fri 8h.
+const EMPLOYEES_B = [
+  {
+    id: "ot-b",
+    name: "OT B Daily And Weekly",
+    jobId: "laborer",
+    shifts: [
+      [16, "06:00", "20:00", "laborer"],
+      [17, "08:00", "16:00", "laborer"],
+      [18, "08:00", "16:00", "laborer"],
+      [19, "08:00", "16:00", "laborer"],
+      [20, "08:00", "16:00", "laborer"],
+    ],
+  },
+];
+
+const COMPANIES = [
+  { id: "ot-test-company", name: "OT Test Co", daily: 8, employees: EMPLOYEES_A, emailArg: "adminEmail" },
+  { id: "ot-test-company-b", name: "OT Test Co B", daily: 12, employees: EMPLOYEES_B, emailArg: "adminEmailB" },
+];
+
 function dateKeyOf(day) {
   return `2026-11-${String(day).padStart(2, "0")}`;
 }
 
-async function main() {
-  console.log(`[devSeedOvertime] project=${DEV} company=${COMPANY_ID} apply=${args.apply}`);
-  const companyRef = db.collection("companies").doc(COMPANY_ID);
-  if ((await companyRef.get()).exists) {
-    fail(`companies/${COMPANY_ID} already exists - nothing written. Delete it in the console to reseed.`);
+async function checkCompany(c) {
+  const email = args[c.emailArg];
+  if ((await db.collection("companies").doc(c.id).get()).exists) {
+    fail(`companies/${c.id} already exists - nothing written. Delete it in the console to reseed.`);
   }
-
   let user = null;
   try {
-    user = await admin.auth().getUserByEmail(args.adminEmail);
+    user = await admin.auth().getUserByEmail(email);
   } catch (err) {
     if (err.code !== "auth/user-not-found") throw err;
   }
   if (user) {
     const existing = await db.collection("users").doc(user.uid).get();
     if (existing.exists || user.customClaims?.companyId) {
-      fail(`${args.adminEmail} already belongs to a company - use a new email for the test company.`);
+      fail(`${email} already belongs to a company - use a new email for ${c.name}.`);
     }
   }
+  const sessions = c.employees.reduce((n, e) => n + e.shifts.length, 0);
+  console.log(
+    `  ${c.name} (companies/${c.id}): Overtime ON, daily ${c.daily}, weekly 40, 1.5x, Monday; ${JOBS.length} jobs; ` +
+      `${c.employees.length} employee(s) [${c.employees.map((e) => e.name).join(", ")}]; ${sessions} approved sessions; ` +
+      `owner ${email} (${user ? "existing Auth user" : "new Auth user"})`
+  );
+  return user;
+}
 
-  const totalShifts = EMPLOYEES.reduce((n, e) => n + e.shifts.length, 0);
-  console.log(`Plan: 1 company, ${JOBS.length} jobs, ${EMPLOYEES.length} employees, ${totalShifts} approved sessions, owner ${args.adminEmail} (${user ? "existing Auth user" : "new Auth user"}).`);
-  if (!args.apply) {
-    console.log("Dry run - nothing written. Add --apply to write.");
-    return;
-  }
-
-  // 1. Company + owner.
-  if (!user) user = await admin.auth().createUser({ email: args.adminEmail, password: args.adminPassword });
+async function seedCompany(c, existingUser) {
+  const email = args[c.emailArg];
+  const companyRef = db.collection("companies").doc(c.id);
+  const user = existingUser ?? (await admin.auth().createUser({ email, password: args.adminPassword }));
   await companyRef.set({
-    name: "OT Test Co",
+    name: c.name,
     authMode: "individual",
     businessHours: { open: "07:00", close: "23:59" },
     weeklyOvertimeThreshold: 40,
     overtimeMultiplier: 1.5,
     overtimeEnabled: true,
-    dailyOvertimeThreshold: 8,
+    dailyOvertimeThreshold: c.daily,
     overtimeWeekStartsOn: 1,
     overtimeRoundMinutes: 0,
     exportSettings: { roundDailyMinutes: 0, roundTotalMinutes: 0, automaticBreakMinutes: 0, minimumShiftHours: 0 },
@@ -212,17 +226,15 @@ async function main() {
   });
   await db.collection("users").doc(user.uid).set({
     role: "owner",
-    companyId: COMPANY_ID,
-    email: args.adminEmail,
-    name: "OT Test Admin",
+    companyId: c.id,
+    email,
+    name: `${c.name} Admin`,
     createdAt: FieldValue.serverTimestamp(),
     agreedToTermsAt: FieldValue.serverTimestamp(),
     termsVersion: TERMS_VERSION,
   });
-  await admin.auth().setCustomUserClaims(user.uid, { role: "owner", companyId: COMPANY_ID });
-  console.log(`Company + owner ${user.uid} written.`);
+  await admin.auth().setCustomUserClaims(user.uid, { role: "owner", companyId: c.id });
 
-  // 2. Jobs.
   for (const j of JOBS) {
     await companyRef.collection("jobs").doc(j.id).set({
       name: j.name,
@@ -233,9 +245,8 @@ async function main() {
     });
   }
 
-  // 3. Employees + clock events.
   const sessions = [];
-  for (const e of EMPLOYEES) {
+  for (const e of c.employees) {
     await companyRef.collection("employees").doc(e.id).set({
       name: e.name,
       active: true,
@@ -254,10 +265,11 @@ async function main() {
       sessions.push({ id: inRef.id, employee: e, day, jobId });
     }
   }
-  console.log(`${sessions.length} sessions written. Waiting for the clock-event trigger to create their approval docs...`);
+  console.log(`  ${c.name}: company, owner ${user.uid}, ${JOBS.length} jobs, ${sessions.length} sessions written. Waiting for the clock-event trigger...`);
 
-  // 4. Approve each session with its job, AFTER the trigger wrote its
-  //    pending doc (it uses set(), so approving first would be overwritten).
+  // Approve AFTER the trigger wrote each pending doc (it uses set(), so
+  // approving first would be overwritten).
+  let direct = 0;
   for (const s of sessions) {
     const ref = companyRef.collection("timesheetApprovals").doc(s.id);
     let snap = await ref.get();
@@ -265,6 +277,7 @@ async function main() {
       await new Promise((r) => setTimeout(r, 1000));
       snap = await ref.get();
     }
+    if (!snap.exists) direct++;
     const job = JOBS.find((j) => j.id === s.jobId);
     await ref.set(
       {
@@ -284,10 +297,21 @@ async function main() {
       },
       { merge: true }
     );
-    if (!snap.exists) console.warn(`  trigger never created ${s.id}; approval written directly`);
   }
-  console.log("All sessions approved. Done.");
-  console.log(`Sign in on the dev site with ${args.adminEmail}, then Reports for 2026-11-16 to 2026-11-22.`);
+  console.log(`  ${c.name}: ${sessions.length} sessions approved${direct ? ` (${direct} written directly - trigger never created them)` : ""}.`);
+}
+
+async function main() {
+  console.log(`[devSeedOvertime] project=${DEV} apply=${args.apply}`);
+  const users = [];
+  for (const c of COMPANIES) users.push(await checkCompany(c));
+  if (!args.apply) {
+    console.log("Dry run - nothing written. Add --apply to write.");
+    return;
+  }
+  for (let i = 0; i < COMPANIES.length; i++) await seedCompany(COMPANIES[i], users[i]);
+  console.log("Done. Sign in on dev with each owner email; Reports for 2026-11-16 to 2026-11-22.");
+  console.log("These approvals carry no frozen OT/rates (overtimeApplied) - set a row to Pending and approve it to freeze it.");
 }
 
 main().catch((err) => {

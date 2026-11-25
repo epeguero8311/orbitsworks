@@ -799,6 +799,11 @@ export interface TimesheetApproval {
     dailyOvertimeMinutes: number;
     weeklyOvertimeMinutes: number;
     workedMinutes: number;
+    // Decision 4B: job + rates frozen with it (Overtime ON only). Missing on
+    // docs approved before 4B shipped -> live rates.
+    jobId?: string | null;
+    rate?: number | null;
+    overtimeRate?: number | null;
     settings: {
       weeklyThresholdHours: number;
       dailyThresholdHours: number;

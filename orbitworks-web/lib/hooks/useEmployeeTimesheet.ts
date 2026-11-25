@@ -245,6 +245,15 @@ export function useEmployeeTimesheet() {
                           ...(typeof approval.overtimeApplied?.overtimeMinutes === "number"
                             ? { frozenOvertimeMs: approval.overtimeApplied.overtimeMinutes * 60 * 1000 }
                             : {}),
+                          // Decision 4B: rates frozen at approval.
+                          ...(typeof approval.overtimeApplied?.rate === "number"
+                            ? {
+                                frozenRates: {
+                                  rate: approval.overtimeApplied.rate,
+                                  overtimeRate: approval.overtimeApplied.overtimeRate ?? null,
+                                },
+                              }
+                            : {}),
                         }
                       : {}),
                   },
@@ -305,6 +314,7 @@ export function useEmployeeTimesheet() {
               rate: r.rate,
               overtimeHours: r.overtimeMs / (1000 * 60 * 60),
               overtimeRate: r.overtimeRate,
+              ratesFrozen: session.input.frozenRates !== undefined,
             });
           });
           overtime = {

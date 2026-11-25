@@ -288,3 +288,22 @@ test("frozen OT on an approved shift replaces the live OT (rule 11), capped at w
   const off = computeOvertime([{ ...a, frozenOvertimeMs: 3 * HOUR }], settings({ enabled: false }), ratesFor);
   assert.equal(off.shifts[0].overtimeMs, 0);
 });
+
+test("plan example B hours with daily 8 (not 12): 6 daily OT, 0 weekly, total 6", () => {
+  const shifts = [shift(9, 6, 20), shift(10, 8, 16), shift(11, 8, 16), shift(12, 8, 16), shift(13, 8, 16)];
+  const r = computeOvertime(shifts, settings({ dailyThresholdHours: 8, weeklyThresholdHours: 40 }), ratesFor);
+  assert.equal(h(r.shifts[0].dailyOvertimeMs), 6);
+  assert.equal(h(r.totals.overtimeMs - r.shifts[0].dailyOvertimeMs), 0);
+  assert.equal(h(r.totals.overtimeMs), 6);
+  assert.equal(h(r.totals.workedMs), 46);
+});
+
+test("frozen rates (decision 4B) replace the live job rates for that shift's pay", () => {
+  const a = { ...shift(9, 8, 18, "foreman"), frozenRates: { rate: 20, overtimeRate: 31 } };
+  const r = computeOvertime([a], settings({ dailyThresholdHours: 8 }), ratesFor);
+  assert.equal(r.shifts[0].rate, 20);
+  assert.equal(r.shifts[0].overtimeRate, 31);
+  assert.equal(money(r.totals.pay), 8 * 20 + 2 * 31);
+  const off = computeOvertime([a], settings({ enabled: false }), ratesFor);
+  assert.equal(off.shifts[0].rate, 23); // OFF: live rates, nothing frozen used
+});

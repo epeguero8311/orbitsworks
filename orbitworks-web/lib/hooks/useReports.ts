@@ -316,16 +316,25 @@ export function useReports() {
           const wideAutoBreak = new Map<string, { minutes: number; minShiftHours: number }>();
           const jobIdByClockInId = new Map<string, string | null>();
           const frozenOvertimeMinutesByClockInId = new Map<string, number>();
+          const frozenRatesByClockInId = new Map<string, { rate: number; overtimeRate: number | null }>();
           wideApprovals.docs.forEach((d) => {
             const data = d.data() as {
               status?: "pending" | "approved";
               jobId?: string | null;
               autoBreakMinutesApplied?: number;
               autoBreakMinShiftHoursApplied?: number;
-              overtimeApplied?: { overtimeMinutes?: number };
+              overtimeApplied?: { overtimeMinutes?: number; rate?: number | null; overtimeRate?: number | null };
             };
             if (data.status === "approved" && typeof data.overtimeApplied?.overtimeMinutes === "number") {
               frozenOvertimeMinutesByClockInId.set(d.id, data.overtimeApplied.overtimeMinutes);
+              // Decision 4B: rates frozen with it (docs approved before 4B
+              // have none -> live rates).
+              if (typeof data.overtimeApplied.rate === "number") {
+                frozenRatesByClockInId.set(d.id, {
+                  rate: data.overtimeApplied.rate,
+                  overtimeRate: data.overtimeApplied.overtimeRate ?? null,
+                });
+              }
             }
             wideStatus.set(d.id, data.status ?? "pending");
             if (data.status === "approved") {
@@ -371,6 +380,7 @@ export function useReports() {
               startDate,
               endDate,
               frozenOvertimeMinutesByClockInId,
+              frozenRatesByClockInId,
             })
           );
         }

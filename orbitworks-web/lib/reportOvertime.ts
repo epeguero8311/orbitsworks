@@ -112,6 +112,8 @@ export type OvertimeReportRow = {
   pay: number | null;
   // A shift that day has no clock-out (counted as 0, never assumed).
   incomplete: boolean;
+  // Decision 4B: rate / overtimeRate are the ones frozen at approval.
+  ratesFrozen: boolean;
   // Report-only Job override on a single-job day ("" = none).
   overrideJobId: string;
 };
@@ -146,9 +148,12 @@ export function buildOvertimeReportRows(params: {
   endDate: string;
   // Rule 11: OT minutes frozen on approved sessions (overtimeApplied).
   frozenOvertimeMinutesByClockInId?: Map<string, number>;
+  // Decision 4B: rate + effective OT $/hr frozen on approved sessions.
+  frozenRatesByClockInId?: Map<string, { rate: number; overtimeRate: number | null }>;
 }): OvertimeReportRow[] {
   const { shifts, employees, jobs, jobIdByClockInId, autoBreakByClockInId, settings, roundDailyMinutes, startDate, endDate } = params;
   const frozenOvertime = params.frozenOvertimeMinutesByClockInId ?? new Map<string, number>();
+  const frozenRates = params.frozenRatesByClockInId ?? new Map<string, { rate: number; overtimeRate: number | null }>();
 
   const shiftsByEmployee = new Map<string, ReportShift[]>();
   for (const s of shifts) {
@@ -173,6 +178,7 @@ export function buildOvertimeReportRows(params: {
     const inputs: OvertimeShiftInput[] = empShifts.map((s) => {
       const frozen = autoBreakByClockInId.get(s.id);
       const frozenOt = frozenOvertime.get(s.id);
+      const frozenRate = frozenRates.get(s.id);
       return {
         id: s.id,
         startMs: s.startMs,
@@ -181,6 +187,7 @@ export function buildOvertimeReportRows(params: {
         jobId: resolveJob(s.id),
         ...(frozen ? { autoBreak: { minutes: frozen.minutes, minimumShiftHours: frozen.minShiftHours } } : {}),
         ...(frozenOt !== undefined ? { frozenOvertimeMs: frozenOt * MINUTE_MS } : {}),
+        ...(frozenRate ? { frozenRates: frozenRate } : {}),
       };
     });
     const result = computeOvertime(
@@ -199,7 +206,11 @@ export function buildOvertimeReportRows(params: {
       if (day.dayKey < startDate || day.dayKey > endDate) continue;
       const dayShifts = result.shifts.filter((s) => s.dayKey === day.dayKey);
 
+      // One part per job AND rate pair, so a frozen-rate shift never
+      // gets priced at another shift's rate (decision 4B).
       type JobPart = {
+        key: string;
+        ratesFrozen: boolean;
         jobId: string | null;
         clocked: number;
         brk: number;
@@ -210,9 +221,10 @@ export function buildOvertimeReportRows(params: {
       };
       const parts: JobPart[] = [];
       for (const s of dayShifts) {
-        let part = parts.find((p) => p.jobId === s.jobId);
+        const partKey = `${s.jobId ?? ""}|${s.rate}|${s.overtimeRate}`;
+        let part = parts.find((p) => p.key === partKey);
         if (!part) {
-          part = { jobId: s.jobId, clocked: 0, brk: 0, worked: 0, ot: 0, rate: s.rate, overtimeRate: s.overtimeRate };
+          part = { key: partKey, ratesFrozen: frozenRates.has(s.id), jobId: s.jobId, clocked: 0, brk: 0, worked: 0, ot: 0, rate: s.rate, overtimeRate: s.overtimeRate };
           parts.push(part);
         }
         part.clocked += s.grossMs;
@@ -231,7 +243,9 @@ export function buildOvertimeReportRows(params: {
       // time on the day's last-worked job.
       const extra = ceilTo(dayWorked, roundDailyMinutes) - dayWorked;
       const lastShift = dayShifts[dayShifts.length - 1];
-      const lastPart = parts.find((p) => p.jobId === (lastShift ? lastShift.jobId : null)) ?? parts[parts.length - 1];
+      const lastPart =
+        parts.find((p) => lastShift && p.key === `${lastShift.jobId ?? ""}|${lastShift.rate}|${lastShift.overtimeRate}`) ??
+        parts[parts.length - 1];
       if (extra > 0 && lastPart) lastPart.worked += extra;
 
       const labelFor = (jobId: string | null) => (jobId ? jobs.get(jobId)?.name ?? "Default" : "Default");
@@ -248,11 +262,12 @@ export function buildOvertimeReportRows(params: {
       };
 
       if (parts.length <= 1) {
-        const p = parts[0] ?? { jobId: defaultJob ? defaultJob.id : null, clocked: 0, brk: 0, worked: 0, ot: 0, rate: defaultRate, overtimeRate: defaultOvertimeRate };
+        const p = parts[0] ?? { key: "", ratesFrozen: false, jobId: defaultJob ? defaultJob.id : null, clocked: 0, brk: 0, worked: 0, ot: 0, rate: defaultRate, overtimeRate: defaultOvertimeRate };
         rows.push({
           ...base,
           key: `${employeeId}__${day.dayKey}`,
           kind: "single",
+          ratesFrozen: p.ratesFrozen,
           jobId: p.jobId,
           jobLabel: labelFor(p.jobId),
           rate: p.rate,
@@ -267,13 +282,14 @@ export function buildOvertimeReportRows(params: {
       }
 
       let totalPay: number | null = 0;
-      for (const p of parts) {
+      parts.forEach((p, i) => {
         const pay = rowPay(p.rate, p.overtimeRate, p.worked, p.ot);
         totalPay = totalPay === null || pay === null ? null : totalPay + pay;
         rows.push({
           ...base,
-          key: `${employeeId}__${day.dayKey}__${p.jobId ?? "default"}`,
+          key: `${employeeId}__${day.dayKey}__${p.jobId ?? "default"}${i > 0 && parts.slice(0, i).some((q) => q.jobId === p.jobId) ? `-${i}` : ""}`,
           kind: "job",
+          ratesFrozen: p.ratesFrozen,
           jobId: p.jobId,
           jobLabel: labelFor(p.jobId),
           rate: p.rate,
@@ -284,11 +300,12 @@ export function buildOvertimeReportRows(params: {
           overtimeMinutes: p.ot,
           pay,
         });
-      }
+      });
       rows.push({
         ...base,
         key: `${employeeId}__${day.dayKey}__total`,
         kind: "total",
+        ratesFrozen: false,
         jobId: null,
         jobLabel: "Day total",
         rate: null,
@@ -336,6 +353,7 @@ export function applyOvertimeOverrides(
       jobLabel: job.name,
       rate,
       overtimeRate,
+      ratesFrozen: false,
       overrideJobId: job.id,
       pay: rowPay(rate, overtimeRate, row.workedMinutes, row.overtimeMinutes),
     };

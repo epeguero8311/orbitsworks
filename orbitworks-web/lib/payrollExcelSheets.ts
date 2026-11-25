@@ -622,6 +622,13 @@ export function addJobsLookupSheetWithOvertime(
 
 export const PAYROLL_DAY_TOTAL_LABEL = "Day total";
 
+// Decision 4B: wraps a live Job-dropdown formula so the value frozen at
+// approval is used while the row still shows the approved job's name.
+function frozenOr(cell: string, label: string, frozen: number | null, live: string): string {
+  if (frozen === null) return live;
+  return `IF(${cell}="${label.replace(/"/g, '""')}",${frozen},${live})`;
+}
+
 // Payroll Hours with Overtime ON. Layout:
 // Summary: A Employee | B Total Hours | C Total Break Hrs | D Total Hours
 //   Worked | E Overtime | F Sessions | G Open Sessions | H Hourly Rate |
@@ -800,14 +807,27 @@ export function addPayrollSheetWithOvertime(
     const jobIsPickable = d.jobId === null || (jobsInfo?.activeIds.has(d.jobId) ?? false);
     if (d.kind === "single" && hasJobs && jobIsPickable) {
       // Live dropdown, same as today: rate and OT rate follow the job.
-      row.getCell(3).value = d.jobId ? d.jobLabel : "(Default)";
+      const label = d.jobId ? d.jobLabel : "(Default)";
+      row.getCell(3).value = label;
       row.getCell(3).dataValidation = { type: "list", allowBlank: true, formulae: ["JobsList"] };
       row.getCell(4).value = {
-        formula: `IF(OR(C${r}="",C${r}="(Default)"),K${r},VLOOKUP(C${r},JobsTable,2,FALSE))`,
+        formula: frozenOr(
+          `C${r}`,
+          label,
+          d.ratesFrozen ? d.rate : null,
+          `IF(OR(C${r}="",C${r}="(Default)"),K${r},VLOOKUP(C${r},JobsTable,2,FALSE))`
+        ),
       };
       row.getCell(12).value = d.isSubcontractor
         ? { formula: `D${r}` }
-        : { formula: `IF(OR(C${r}="",C${r}="(Default)"),M${r},VLOOKUP(C${r},JobsTable,3,FALSE))` };
+        : {
+            formula: frozenOr(
+              `C${r}`,
+              label,
+              d.ratesFrozen ? d.overtimeRate : null,
+              `IF(OR(C${r}="",C${r}="(Default)"),M${r},VLOOKUP(C${r},JobsTable,3,FALSE))`
+            ),
+          };
     } else {
       // Locked: a job row of a 2+ job day, or a job that can't be picked.
       row.getCell(3).value = hasJobs || d.jobId ? d.jobLabel : null;
@@ -851,6 +871,8 @@ export type EmployeeHistoryOvertimeRow = EmployeeHistoryDayRow & {
   rate: number | null;
   overtimeHours: number;
   overtimeRate: number | null;
+  // Decision 4B: rate / overtimeRate frozen at approval.
+  ratesFrozen?: boolean;
 };
 
 // Time History with Overtime ON (decision 11): the weekly OT comes from the
@@ -996,14 +1018,27 @@ export function addEmployeeHistorySheetWithOvertime(
 
     const jobIsPickable = d.jobId === null || (jobsInfo?.activeIds.has(d.jobId) ?? false);
     if (hasJobs && jobIsPickable) {
-      row.getCell(3).value = d.jobId ? d.jobName ?? "(Default)" : "(Default)";
+      const label = d.jobId ? d.jobName ?? "(Default)" : "(Default)";
+      row.getCell(3).value = label;
       row.getCell(3).dataValidation = { type: "list", allowBlank: true, formulae: ["JobsList"] };
       row.getCell(4).value = {
-        formula: `IF(OR(C${r}="",C${r}="(Default)"),N${r},VLOOKUP(C${r},JobsTable,2,FALSE))`,
+        formula: frozenOr(
+          `C${r}`,
+          label,
+          d.ratesFrozen ? d.rate : null,
+          `IF(OR(C${r}="",C${r}="(Default)"),N${r},VLOOKUP(C${r},JobsTable,2,FALSE))`
+        ),
       };
       row.getCell(16).value = isSubcontractor
         ? { formula: `D${r}` }
-        : { formula: `IF(OR(C${r}="",C${r}="(Default)"),Q${r},VLOOKUP(C${r},JobsTable,3,FALSE))` };
+        : {
+            formula: frozenOr(
+              `C${r}`,
+              label,
+              d.ratesFrozen ? d.overtimeRate : null,
+              `IF(OR(C${r}="",C${r}="(Default)"),Q${r},VLOOKUP(C${r},JobsTable,3,FALSE))`
+            ),
+          };
     } else {
       row.getCell(3).value = d.jobName;
       row.getCell(4).value = d.rate;

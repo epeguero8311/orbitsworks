@@ -143,3 +143,26 @@ test("Time History (OT ON): Overtime column, OT-aware pay formula, weekly OT sum
   const buf = await wb.xlsx.writeBuffer();
   assert.ok(buf.byteLength > 1000);
 });
+
+test("decision 4B: a frozen single-job day keeps its dropdown; frozen rate applies while its job is picked", async () => {
+  const frozenRows = buildOvertimeReportRows({
+    shifts: [{ id: "a", employeeId: "juan", startMs: ct(10, 7), endMs: ct(10, 17), breakMs: 0 }],
+    employees: EMP,
+    jobs: JOBS,
+    jobIdByClockInId: new Map(),
+    autoBreakByClockInId: new Map(),
+    settings: SETTINGS,
+    roundDailyMinutes: 0,
+    startDate: "2026-11-09",
+    endDate: "2026-11-15",
+    frozenRatesByClockInId: new Map([["a", { rate: 14, overtimeRate: 21 }]]),
+  });
+  const wb = new ExcelJS.Workbook();
+  addPayrollSheetWithOvertime(wb, SUMMARY, JOB_LIST, frozenRows, 1.5, 0, "Acme", "2026-11-09", "2026-11-15");
+  const sheet = wb.getWorksheet("Payroll Hours");
+  const header = findRow(sheet, (row) => row.getCell(1).value === "Employee" && row.getCell(2).value === "Date");
+  const r = header + 1;
+  assert.deepEqual(sheet.getCell(r, 3).dataValidation.formulae, ["JobsList"]);
+  assert.match(sheet.getCell(r, 4).value.formula, /^IF\(C\d+="Laborer",14,IF\(OR/);
+  assert.match(sheet.getCell(r, 12).value.formula, /^IF\(C\d+="Laborer",21,IF\(OR/);
+});

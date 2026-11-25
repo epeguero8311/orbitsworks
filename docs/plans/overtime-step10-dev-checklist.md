@@ -9,11 +9,11 @@ Expected numbers: docs/plans/overtime-dev-seed-expected.md. Mark each line OK / 
 
 ## 0. Setup
 - [ ] Browser DevTools > Network > filter `firestore.googleapis.com`: requests say `projects%2Forbitworks-dev-ew`.
-- [ ] Seed (new email, not one already in a company):
+- [ ] Seed (two new emails, not already in a company):
       `cd orbitworks-web/functions` then
-      `node scripts/devSeedOvertime.js --project orbitworks-dev-ew --admin-email <email> --admin-password <8+>` (dry run),
-      then the same with `--apply`. It ends with "All sessions approved. Done."
-- [ ] Sign in with that email. Company "OT Test Co" opens (Pro).
+      `node scripts/devSeedOvertime.js --project orbitworks-dev-ew --admin-email <A> --admin-email-b <B> --admin-password <8+>` (dry run),
+      then the same with `--apply`. It ends with "Done."
+- [ ] Sign in with email A: "OT Test Co" opens (Pro, daily 8). Sign in with email B: "OT Test Co B" (Pro, daily 12).
 
 ## 1. Settings
 - [ ] Export Settings: Overtime ON; Weekly overtime after 40; Daily overtime after 8; Week starts on Monday.
@@ -32,11 +32,12 @@ Expected numbers: docs/plans/overtime-dev-seed-expected.md. Mark each line OK / 
       (Exports use the CURRENT OT rate; Analytics uses the rate as of each day.)
 
 ## 3. Reports (2026-11-16 to 2026-11-22) - compare with the expected doc
-- [ ] Payroll table has an Overtime column; per employee: A 6.00 / $255.00, B 14.00 / $915.00, C 5.00 / $920.00, D 5.00 / $892.50, E 2.00 / $213.00.
+- [ ] OT Test Co: Payroll table has an Overtime column; A 6.00 / $255.00, C 5.00 / $920.00, D 5.00 / $892.50, E 2.00 / $213.00.
+- [ ] OT Test Co B: B 6.00 / $735.00; Daily breakdown Mon Nov 16 = 14.00 worked / 2.00 OT / $225.00, Fri Nov 20 = 8.00 / 4.00 / $150.00.
 - [ ] Daily breakdown has an Overtime column right after Worked Hours.
 - [ ] Nov 17: E splits into Laborer 5.00 / 0.00 / $75.00, Foreman B 5.00 / 2.00 / $138.00, Day total 10.00 / 2.00 / $213.00. Job rows have no dropdown.
 - [ ] Nov 19: C and D split into Laborer 1h + Foreman(B) 7h + Day total 8h.
-- [ ] Single-job day dropdown still works: Nov 21 for B, pick Foreman: pay becomes 8 x $40 = $320 (OT hours unchanged). Refresh resets it.
+- [ ] Single-job day dropdown still works: Nov 16 for A, pick Foreman: pay becomes 8 x $23 + 6 x $40 = $424.00 (OT hours unchanged). Refresh resets it.
 - [ ] Payroll CSV: Overtime columns in both tables, Day total rows, same numbers.
 - [ ] Payroll Hours Excel (and Full Report): Overtime column after Worked Hours in both blocks; Day total rows; summary totals match.
       In Excel, change the Job on a single-job day (e.g. A Nov 16 -> Foreman): Est. Pay and the summary update (OT at $40).
@@ -47,10 +48,12 @@ Expected numbers: docs/plans/overtime-dev-seed-expected.md. Mark each line OK / 
 - [ ] OT A rows (Nov 16): both show Max hours "Worked 14.0h today (all shifts), limit 12h". The 2pm row shows "6.00h overtime on this shift".
 - [ ] Frozen OT: set A's 2pm row to Pending, approve it again. Then change Daily overtime after to 6 and Save:
       Reports still shows A = 6.00 OT for that day (frozen). Put daily back to 8.
-- [ ] Re-approve warning: set B's Tue Nov 17 row to Pending, then set B's Sat Nov 21 row Pending and approve it again (freezes Sat = 8h OT).
-      Now adjust Tue's clock-out 1 hour EARLIER (3:00pm; Tue still pending). Regular hours before Sat drop to 39, so open Sat's
-      review: "Overtime changed - re-approve" (8.00h -> 7.00h). (Making Tue longer would only add daily OT on Tue.)
-      Set Sat to Pending and approve again: the warning is gone.
+- [ ] Re-approve warning (OT Test Co B): set B's Tue Nov 17 row to Pending, then set B's Fri Nov 20 row Pending and approve it again
+      (freezes Fri = 4h weekly OT). Now adjust Tue's clock-out 1 hour EARLIER (3:00pm; Tue still pending). Regular hours before Fri
+      drop by 1, so open Fri's review: "Overtime changed - re-approve" (4.00h -> 3.00h). Set Fri to Pending and approve again: gone.
+- [ ] Frozen rates (4B): in OT Test Co, set A's 2pm row Pending and approve again (freezes $15 / $22.50). Raise Laborer to $16
+      (effective date before Nov 16): Reports A Nov 16 now = 5h at $16 for the 8am row (live, seed approval has no freeze) +
+      the 2pm row still at $15 / $22.50 -> shown as two Laborer rows + Day total. Put Laborer back to $15.
 - [ ] Automatic Break once per day: set Automatic Break 30 min, minimum shift 6h. Set both A rows to Pending: only the 2pm row shows the 0.5h break.
       (Approved rows keep the break frozen at approval.) Put Automatic Break back to 0.
 - [ ] Overtime OFF: the rows' warnings go back to per shift (no "today (all shifts)", no per-shift OT text).
@@ -70,14 +73,9 @@ Use a fresh employee in OT Test Co and admin-entered punches for TODAY.
 - [ ] Overtime OFF company: only the open shift counts (12h of it).
 
 ## 7. Analytics (Pro) - Job Site Cost, Nov 16-22
-- [ ] Totals: labor cost = sum of the export Est. Pay (A+B+C+D+E = $3,195.50 with the seed's no-site shifts).
+- [ ] Totals: labor cost = sum of the export Est. Pay: OT Test Co $2,280.50 (A+C+D+E); OT Test Co B $735.00.
 - [ ] OT split by site: give OT A's two Nov 16 shifts two different sites (5h Site A, 9h Site B; Approve Hours > Site): Site A OT 2.14h, Site B 3.86h.
-- [ ] Overtime OFF: Analytics shows what it showed before (see open question 1 below).
+- [ ] Overtime OFF: Analytics shows what it showed before (decision 26: kept as today).
 
-## Open questions (answer before prod)
-1. Analytics with Overtime OFF: kept exactly as today (it still shows weekly OT x multiplier). The plan says "Shows OT only when the Overtime toggle is on". Keep today's, or hide OT when OFF?
-2. Auto clock-out with Overtime ON when the day's earlier shifts already reached the cap: the open shift is closed at its own clock-in time (0h). OK, or close it at the time the sweep notices?
-3. Frozen OT only applies to sessions approved AFTER this ships with Overtime ON; the seed's approvals (and anything approved while OFF) are computed live until re-approved. OK?
-4. Frozen OT stores hours only; pay uses the job's CURRENT rate/OT rate in exports (same as today's rates). OK?
-5. Analytics site split: each DAY's OT (daily + weekly landing that day) is split by that day's site hours. OK?
-6. Employee app's own hours screens (My Hours) still apply Automatic Break per shift; changing that needs an app release. Leave for later?
+## Open questions
+All answered Nov 25 (plan decisions 26-31). Follow-up: employee app My Hours - Automatic Break once per day (later app release).

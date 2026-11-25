@@ -109,3 +109,38 @@ test("an already-approved shift's frozen Automatic Break is used for the week", 
   assert.equal(tue.overtimeApplied.workedMinutes, 540);
   assert.equal(tue.overtimeApplied.overtimeMinutes, 60);
 });
+
+test("decision 4B: rate + OT rate frozen with the Approve Hours job, else the default job", async () => {
+  await seed("fz6");
+  await company("fz6").collection("jobs").doc("laborer").set({ name: "Laborer", hourlyRate: 15, active: true });
+  await company("fz6").collection("jobs").doc("foreman").set({ name: "Foreman", hourlyRate: 23, overtimeRate: 40, active: true });
+  await company("fz6").collection("employees").doc("e1").set({ name: "Juan", active: true, jobId: "laborer" });
+  await shift("fz6", "mon", 16, "07:00", "17:00");
+  await shift("fz6", "tue", 17, "07:00", "17:00");
+  await setStatus("fz6", "mon", "approved"); // default job
+  await funcs.setApprovalStatus.run({ data: { eventId: "tue", status: "approved", jobId: "foreman" }, auth: auth("fz6"), rawRequest: {} });
+  const mon = (await approval("fz6", "mon")).overtimeApplied;
+  const tue = (await approval("fz6", "tue")).overtimeApplied;
+  assert.deepEqual([mon.jobId, mon.rate, mon.overtimeRate], ["laborer", 15, 22.5]);
+  assert.deepEqual([tue.jobId, tue.rate, tue.overtimeRate], ["foreman", 23, 40]);
+  // A later raise doesn't move the frozen rate.
+  await company("fz6").collection("jobs").doc("foreman").set({ hourlyRate: 30 }, { merge: true });
+  assert.equal((await approval("fz6", "tue")).overtimeApplied.rate, 23);
+});
+
+test("decision 4B: subcontractor OT rate = straight rate; bulk keeps each row's picked job", async () => {
+  await seed("fz7");
+  await company("fz7").collection("jobs").doc("foreman").set({ name: "Foreman", hourlyRate: 23, overtimeRate: 40, active: true });
+  await company("fz7").collection("employees").doc("e1").set({ name: "Juan", active: true, jobId: null, hourlyRate: 18, subcontractorId: "sub1" });
+  await shift("fz7", "mon", 16, "07:00", "17:00");
+  await shift("fz7", "tue", 17, "07:00", "17:00");
+  await funcs.setApprovalStatusBulk.run({
+    data: { eventIds: ["mon", "tue"], status: "approved", jobIdByEventId: { tue: "foreman" } },
+    auth: auth("fz7"),
+    rawRequest: {},
+  });
+  const mon = (await approval("fz7", "mon")).overtimeApplied;
+  const tue = (await approval("fz7", "tue")).overtimeApplied;
+  assert.deepEqual([mon.jobId, mon.rate, mon.overtimeRate], [null, 18, 18]);
+  assert.deepEqual([tue.jobId, tue.rate, tue.overtimeRate], ["foreman", 23, 23]);
+});

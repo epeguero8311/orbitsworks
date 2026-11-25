@@ -73,6 +73,10 @@ export interface OvertimeShiftInput {
   // live OT of this shift (capped at its worked time); other shifts are
   // still computed live. Omitted = live.
   frozenOvertimeMs?: number;
+  // Decision 4B: the job rate and the effective OT $/hr frozen with it at
+  // approval (overtimeApplied.rate / overtimeRate). With Overtime ON they
+  // replace ratesFor() for this shift's pay. Omitted = live rates.
+  frozenRates?: { rate: number | null; overtimeRate: number | null };
 }
 
 export interface OvertimeJobRates {
@@ -361,14 +365,17 @@ export function computeOvertime(
   const shiftResults: OvertimeShiftResult[] = working.map((s) => {
     const workedMs = workedOf(s);
     const regularMs = workedMs - s.overtimeMs;
-    const rates = ratesFor(s.input.jobId, s.dayKey);
+    const frozenRates = settings.enabled ? s.input.frozenRates : undefined;
+    const rates = frozenRates ?? ratesFor(s.input.jobId, s.dayKey);
     const rate = rates.rate;
     const overtimeRate =
       rate === null
         ? null
-        : options.noOvertimePremium
-          ? rate
-          : rates.overtimeRate ?? rate * settings.multiplier;
+        : frozenRates
+          ? frozenRates.overtimeRate ?? rate
+          : options.noOvertimePremium
+            ? rate
+            : rates.overtimeRate ?? rate * settings.multiplier;
     const regularPay = rate === null ? null : (regularMs / HOUR_MS) * rate;
     const overtimePay = overtimeRate === null ? null : (s.overtimeMs / HOUR_MS) * overtimeRate;
     return {

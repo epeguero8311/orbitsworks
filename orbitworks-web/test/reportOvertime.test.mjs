@@ -194,3 +194,31 @@ test("frozen Automatic Break on an approved shift is used instead of the live se
   const frozenOff = { ...base, autoBreak: { minutes: 0, minimumShiftHours: 0 } };
   assert.equal(computeOvertime([frozenOff], live, rates).totals.workedMs / MIN, 480);
 });
+
+test("decision 4B: frozen rates price the approved shift; same job at two rates splits rows", () => {
+  const shifts = [
+    { id: "a", employeeId: "juan", startMs: ct(10, 7), endMs: ct(10, 12), breakMs: 0 },
+    { id: "b", employeeId: "juan", startMs: ct(10, 12, 30), endMs: ct(10, 17, 30), breakMs: 0 },
+  ];
+  const rows = buildOvertimeReportRows({
+    shifts,
+    employees: EMP,
+    jobs: JOBS,
+    jobIdByClockInId: new Map(),
+    autoBreakByClockInId: new Map(),
+    settings: settings(),
+    roundDailyMinutes: 0,
+    startDate: "2026-11-09",
+    endDate: "2026-11-15",
+    frozenRatesByClockInId: new Map([["b", { rate: 14, overtimeRate: 21 }]]), // approved at an older Laborer rate
+  });
+  assert.deepEqual(
+    rows.map((r) => [r.kind, r.rate, r.overtimeMinutes / 60, r.ratesFrozen, Math.round(r.pay * 100) / 100]),
+    [
+      ["job", 15, 0, false, 75],
+      ["job", 14, 2, true, 3 * 14 + 2 * 21],
+      ["total", null, 2, false, 75 + 84],
+    ]
+  );
+  assert.equal(new Set(rows.map((r) => r.key)).size, 3);
+});

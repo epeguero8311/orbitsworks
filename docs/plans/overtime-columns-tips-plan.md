@@ -213,3 +213,13 @@ Answers after steps 5-6 (Nov 24, 2026):
 23. Approve Hours per-shift Max hours flag -> combined day with Overtime ON, fixed in step 8.
 24. Daily worked rounding on a 2+ job day: the extra rounded minutes go to the last-worked job as regular time.
 25. Reports' UTC day grouping (evening shifts on the next day, Overtime OFF paths): left alone on this branch; separate fix after Task 1 (docs/plans/reports-utc-day-grouping-fix.md).
+
+Answers after steps 7-9 (Nov 25, 2026):
+26. Analytics with Overtime OFF stays exactly as today (still shows weekly OT x multiplier).
+27. Auto clock-out with Overtime ON when the day's earlier shifts already reached the cap: the open shift is closed at its own clock-in time (0h).
+28. Frozen OT only exists on sessions approved after this ships with Overtime ON; older approvals stay live until re-approved.
+29. (4B) Freeze the rates too: at approval (Overtime ON only), overtimeApplied also stores jobId, rate and the effective OT $/hr (fixed Overtime rate, else rate x multiplier; subcontractors the straight rate) - the job's CURRENT rates at that moment. Reports, CSV, Excel and Time History price approved shifts with these frozen values (Excel: the frozen value applies while the row still shows the approved job; picking another job uses that job's live rates). Analytics keeps its as-of-the-day rate history.
+30. Analytics site split: each day's OT (daily + weekly landing that day) is split by that day's site hours.
+31. Employee app My Hours still applies Automatic Break per shift - left as is. FOLLOW-UP (own task, needs an app release): employee app My Hours - Automatic Break once per day when Overtime is ON.
+
+Seed fix (Nov 25): example B was seeded wrong (an extra Saturday 8h, 54h -> 14 OT / $915). The function was right: plan B hours give 6 OT with daily 8 (6 daily + 0 weekly) and with daily 12 (2 daily + 4 weekly). B now lives in its own dev company "OT Test Co B" (daily 12, weekly 40, 1.5x, Monday) and matches the plan exactly: 12 regular + 2 daily OT Mon, 4 weekly OT Fri, total 6, $735. Test added for B hours with daily 8.
