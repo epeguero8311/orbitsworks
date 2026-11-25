@@ -14,7 +14,9 @@ import { useAuth } from "@/lib/AuthContext";
 // button below is what ends the session.
 export function UseAppNotice() {
   const router = useRouter();
-  const { currentUser } = useAuth();
+  const { currentUser, userData } = useAuth();
+  // Task 5: a Kiosk login (shared iPad) gets its own wording.
+  const isKiosk = userData?.role === "kiosk";
   const [signingOut, setSigningOut] = useState(false);
 
   async function handleSignOut() {
@@ -38,10 +40,13 @@ export function UseAppNotice() {
           <Smartphone className="h-6 w-6 text-accent" />
         </div>
 
-        <h1 className="text-xl font-semibold text-gray-950">Please use the OrbitsWorks app</h1>
+        <h1 className="text-xl font-semibold text-gray-950">
+          {isKiosk ? "This is a Kiosk login" : "Please use the OrbitsWorks app"}
+        </h1>
         <p className="mt-2 text-sm text-gray-600">
-          Your account is for clocking in and out from your phone. Open the OrbitsWorks mobile app
-          and sign in there with the same email and password.
+          {isKiosk
+            ? "Sign in with this email and password in the OrbitsWorks app (1.1.6 or newer) on the kiosk iPad. Employees clock in and out there with their own PIN."
+            : "Your account is for clocking in and out from your phone. Open the OrbitsWorks mobile app and sign in there with the same email and password."}
         </p>
 
         {currentUser ? (

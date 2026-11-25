@@ -61,6 +61,8 @@ export function sourceLabel(source: ClockEvent["source"]): { text: string; class
       return { text: "Temp link", className: "bg-teal-50 text-teal-700" };
     case "employeeApp":
       return { text: "Employee app", className: "bg-gray-100 text-gray-700" };
+    case "kiosk":
+      return { text: "Kiosk", className: "bg-teal-50 text-teal-700" };
     default:
       return { text: "Unknown", className: "bg-gray-50 text-gray-600" };
   }

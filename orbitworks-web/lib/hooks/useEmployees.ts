@@ -7,7 +7,11 @@ import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import type { Employee } from "@/lib/types";
 
-export function useEmployees() {
+// Task 5 (K8): kiosk records (shared iPads) are left out by default - they
+// never clock in, so they never belong in Time, Approve Hours, pickers or
+// counts. The Team page (EmployeesPageView) and Devices pass
+// { includeKiosks: true }.
+export function useEmployees({ includeKiosks = false }: { includeKiosks?: boolean } = {}) {
   const { userData } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,10 +31,12 @@ export function useEmployees() {
       q,
       (snapshot) => {
         setEmployees(
-          snapshot.docs.map((d) => ({
-            id: d.id,
-            ...(d.data() as Omit<Employee, "id">),
-          }))
+          snapshot.docs
+            .map((d) => ({
+              id: d.id,
+              ...(d.data() as Omit<Employee, "id">),
+            }))
+            .filter((e) => includeKiosks || e.kiosk !== true)
         );
         setLoading(false);
       },
@@ -41,7 +47,7 @@ export function useEmployees() {
     );
 
     return unsubscribe;
-  }, [userData?.companyId]);
+  }, [userData?.companyId, includeKiosks]);
 
   const toggleEmployeeActive = useCallback(
     async (employeeId: string, active: boolean) => {

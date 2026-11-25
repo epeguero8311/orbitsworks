@@ -9,6 +9,8 @@ import type { Device } from "@/lib/types";
 import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 
 export interface UnnamedDevice {
+  // Task 5 (K19): seen on a kiosk punch (source "kiosk").
+  kiosk?: boolean;
   deviceId: string;
   lastSeen: Timestamp | null;
 }
@@ -27,6 +29,7 @@ export function useDevices() {
   const [devicesLoading, setDevicesLoading] = useState(true);
   const [devicesError, setDevicesError] = useState(false);
   const [seenDeviceIds, setSeenDeviceIds] = useState<Map<string, Timestamp | null>>(new Map());
+  const [kioskDeviceIds, setKioskDeviceIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!userData?.companyId) return;
@@ -64,14 +67,17 @@ export function useDevices() {
       q,
       (snapshot) => {
         const seen = new Map<string, Timestamp | null>();
+        const kiosks = new Set<string>();
         snapshot.docs.forEach((d) => {
           const data = d.data();
           const deviceId = data.deviceId;
           if (typeof deviceId === "string" && deviceId && !seen.has(deviceId)) {
             seen.set(deviceId, (data.timestamp as Timestamp | undefined) ?? null);
           }
+          if (typeof deviceId === "string" && data.source === "kiosk") kiosks.add(deviceId);
         });
         setSeenDeviceIds(seen);
+        setKioskDeviceIds(kiosks);
       },
       (err) => {
         // Unnamed-device discovery is a nice-to-have on top of the named
@@ -88,8 +94,8 @@ export function useDevices() {
     const namedIds = new Set(devices.map((d) => d.id));
     return Array.from(seenDeviceIds.entries())
       .filter(([deviceId]) => !namedIds.has(deviceId))
-      .map(([deviceId, lastSeen]) => ({ deviceId, lastSeen }));
-  }, [devices, seenDeviceIds]);
+      .map(([deviceId, lastSeen]) => ({ deviceId, lastSeen, kiosk: kioskDeviceIds.has(deviceId) }));
+  }, [devices, seenDeviceIds, kioskDeviceIds]);
 
   return {
     devices,

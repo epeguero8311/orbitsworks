@@ -188,6 +188,10 @@ export interface Employee {
   // legacy "supervisor" floor. linkedUserId/email are reused as-is for the
   // login link, same as supervisors.
   appAccess?: boolean;
+  // Task 5: this record is a Kiosk (shared wall iPad), not a person.
+  // Server-written only (setEmployeeRole / acceptInvite). Never counted,
+  // never in any employee list but the Team page (lib/kiosk.ts).
+  kiosk?: boolean;
   // Employee App "Delete account" (functions/src/employeeAccount.ts
   // deleteMyEmployeeAccount). Server-written only. Set when the employee
   // deleted their own app login: the row stays (deactivated) as the
@@ -290,7 +294,7 @@ export interface Invite {
   id: string;
   email: string;
   companyId: string;
-  role: "supervisor" | "admin";
+  role: "supervisor" | "admin" | "kiosk";
   assignedSiteIds: string[];
   invitedByUid: string;
   // Set only when this invite promotes an existing employee record in
@@ -352,7 +356,9 @@ export interface ClockEvent {
     // Employee App - an employee clocking themselves in/out/break from
     // their own phone. firestore.rules only lets the "employee" role write
     // this source, and only for its own employeeId.
-    | "employeeApp";
+    | "employeeApp"
+    // Task 5: a shared Kiosk iPad (kioskPunch, server-written only).
+    | "kiosk";
   // Admin/system text (manual entries, "Clocked out from alert", auto
   // clock-out). Never the employee's own words - see employeeComment.
   note?: string;
@@ -559,6 +565,9 @@ export interface Device {
   locked: boolean;
   lockedByUid?: string;
   lockedAt?: Timestamp;
+  // Task 5 (K19): set by renameKioskDevice (server) when a Kiosk iPad names
+  // itself - the Devices list shows a Kiosk tag instead of Supervisor.
+  kioskEmployeeId?: string;
 }
 
 // ---- Alerts ----

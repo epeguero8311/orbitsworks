@@ -247,7 +247,9 @@ export function useBillingPage() {
     const employeesRef = collection(db, "companies", userData.companyId, "employees");
     const q = query(employeesRef, where("active", "==", true), orderBy("createdAt", "desc"));
     const snap = await getDocs(q);
-    return snap.docs.map((d) => {
+    // Task 5 (K8): kiosk records never count toward a cap, so they are never
+    // offered for deactivation/deletion to fit one.
+    return snap.docs.filter((d) => d.get("kiosk") !== true).map((d) => {
       const data = d.data();
       return {
         id: d.id,
@@ -269,7 +271,9 @@ export function useBillingPage() {
     const employeesRef = collection(db, "companies", userData.companyId, "employees");
     const q = query(employeesRef, where("active", "==", false), orderBy("createdAt", "desc"));
     const snap = await getDocs(q);
-    return snap.docs.map((d) => {
+    // Task 5 (K8): kiosk records never count toward a cap, so they are never
+    // offered for deactivation/deletion to fit one.
+    return snap.docs.filter((d) => d.get("kiosk") !== true).map((d) => {
       const data = d.data();
       return {
         id: d.id,

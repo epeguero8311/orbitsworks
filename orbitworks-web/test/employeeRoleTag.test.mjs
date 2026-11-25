@@ -30,3 +30,10 @@ test("only a real true counts (junk values give no tag)", () => {
   assert.equal(employeeRoleTag({ appAccess: "true" }), null);
   assert.equal(employeeRoleTag({ isSupervisor: 1 }), null);
 });
+
+test("Task 5: Kiosk tag wins over everything (exclusive on the server anyway)", () => {
+  assert.equal(employeeRoleTag({ kiosk: true }), "kiosk");
+  assert.equal(employeeRoleTag({ kiosk: true, isAdmin: true, isSupervisor: true }), "kiosk");
+  assert.equal(employeeRoleTag({ kiosk: false, isSupervisor: true }), "supervisor");
+  assert.equal(employeeRoleTag({ kiosk: "true" }), null);
+});

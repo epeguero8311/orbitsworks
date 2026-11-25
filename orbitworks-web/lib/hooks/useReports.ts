@@ -261,7 +261,8 @@ export function useReports() {
         const inCompany = (employeeId: string | null | undefined) =>
           !!employeeId && companyMatches(companyFilter, companyOfEmployee.get(employeeId) ?? null);
         const gatedEvents = events.filter((event) => !excludedEventIds.has(event.id) && inCompany(event.employeeId));
-        const employeeDocs = employeesSnapshot.docs.filter((d) => inCompany(d.id));
+        // Task 5 (K8): kiosk records never clock in - never a report row.
+        const employeeDocs = employeesSnapshot.docs.filter((d) => inCompany(d.id) && d.get("kiosk") !== true);
 
         // ---- Jobs (name + live hourly rate) ----
         const jobsRef = collection(db, "companies", companyId, "jobs");

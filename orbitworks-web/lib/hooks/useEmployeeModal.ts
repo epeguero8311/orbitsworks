@@ -53,9 +53,13 @@ export function useEmployeeModal({
   // blank, Save instead calls setEmployeePinSupervisor directly - the
   // employee stays unlinked (no login, no app/dashboard access) but can
   // authorize overrides and breaks on mobile with just their PIN.
-  const [promoteToSupervisor, setPromoteToSupervisor] = useState(
+  const [promoteToSupervisor, setPromoteToSupervisorRaw] = useState(
     !employee.linkedUserId && (employee.isSupervisor ?? false)
   );
+  const setPromoteToSupervisor = (v: boolean) => {
+    setPromoteToSupervisorRaw(v);
+    if (v) setPromoteToKioskRaw(false);
+  };
   // Linked employees already have this denormalized onto the doc (set by
   // acceptInvite). Unlinked ones don't get it until they accept - see the
   // effect below, which looks it up from the still-pending invite so the
@@ -66,8 +70,33 @@ export function useEmployeeModal({
   // setEmployeeRole. isAdmin gates dashboard access; isSupervisorAccess
   // gates mobile override/break authority - a linked employee can be
   // either, both, or neither.
-  const [isAdmin, setIsAdmin] = useState(employee.isAdmin ?? false);
-  const [isSupervisorAccess, setIsSupervisorAccess] = useState(employee.isSupervisor ?? false);
+  const [isAdmin, setIsAdminRaw] = useState(employee.isAdmin ?? false);
+  const [isSupervisorAccess, setIsSupervisorAccessRaw] = useState(employee.isSupervisor ?? false);
+  // Task 5 (K5-K7): Kiosk access. Exclusive with Supervisor/Admin access:
+  // turning one on turns the others off (the server refuses a mix).
+  // Unlinked record: promoteToKiosk + promoteEmail = send a kiosk invite.
+  const wasKiosk = employee.kiosk === true;
+  const [isKioskAccess, setIsKioskAccessRaw] = useState(wasKiosk);
+  const [promoteToKiosk, setPromoteToKioskRaw] = useState(false);
+  const setIsAdmin = (v: boolean) => {
+    setIsAdminRaw(v);
+    if (v) setIsKioskAccessRaw(false);
+  };
+  const setIsSupervisorAccess = (v: boolean) => {
+    setIsSupervisorAccessRaw(v);
+    if (v) setIsKioskAccessRaw(false);
+  };
+  const setPromoteToKiosk = (v: boolean) => {
+    setPromoteToKioskRaw(v);
+    if (v) setPromoteToSupervisorRaw(false);
+  };
+  const setIsKioskAccess = (v: boolean) => {
+    setIsKioskAccessRaw(v);
+    if (v) {
+      setIsAdminRaw(false);
+      setIsSupervisorAccessRaw(false);
+    }
+  };
   // Task 4 (D16): the Permissions modal - opened from the Permissions button,
   // and right after "Make admin" is saved (a new admin starts with nothing).
   const [permissionsOpen, setPermissionsOpen] = useState(false);
@@ -307,7 +336,11 @@ export function useEmployeeModal({
     // admin invite for this email must block this too, otherwise
     // acceptInvite's query (no explicit ordering) could resolve to
     // either pending invite.
-    if (!isLinked && promoteToSupervisor && normalizedPromoteEmail) {
+    if (!isLinked && promoteToKiosk && !normalizedPromoteEmail) {
+      setError("Enter the email for the kiosk login.");
+      return;
+    }
+    if (!isLinked && (promoteToSupervisor || promoteToKiosk) && normalizedPromoteEmail) {
       const existingInvites = await getDocs(
         query(
           collection(db, "invites"),
@@ -400,7 +433,21 @@ export function useEmployeeModal({
       // setEmployeePinSupervisor so a linked account's users/{uid}.role
       // and custom claim stay in sync (an unlinked PIN-only supervisor
       // has neither, so there's nothing to keep in sync for them).
-      if (!isLinked && promoteToSupervisor && normalizedPromoteEmail) {
+      if (!isLinked && promoteToKiosk && normalizedPromoteEmail) {
+        // Task 5 (K5): a kiosk invite always links THIS record (rules +
+        // acceptInvite check Pro and the flag).
+        await addDoc(collection(db, "invites"), {
+          email: normalizedPromoteEmail,
+          companyId,
+          role: "kiosk",
+          assignedSiteIds: employee.assignedSiteIds ?? [],
+          invitedByUid: currentUser?.uid ?? "",
+          linkExistingEmployeeId: employee.id,
+          name: employee.name,
+          status: "pending",
+          createdAt: serverTimestamp(),
+        });
+      } else if (!isLinked && promoteToSupervisor && normalizedPromoteEmail) {
         await addDoc(collection(db, "invites"), {
           email: normalizedPromoteEmail,
           companyId,
@@ -424,13 +471,17 @@ export function useEmployeeModal({
       } else if (
         isLinked &&
         (isAdmin !== (employee.isAdmin ?? false) ||
-          isSupervisorAccess !== (employee.isSupervisor ?? false))
+          isSupervisorAccess !== (employee.isSupervisor ?? false) ||
+          isKioskAccess !== wasKiosk)
       ) {
         const setEmployeeRole = httpsCallable(functions, "setEmployeeRole");
         await setEmployeeRole({
           employeeId: employee.id,
           isAdmin,
           isSupervisor: isSupervisorAccess,
+          // Only sent when Kiosk is (or was) involved - same payload as
+          // before Task 5 otherwise.
+          ...(isKioskAccess || wasKiosk ? { isKiosk: isKioskAccess } : {}),
         });
         if (isAdmin && !(employee.isAdmin ?? false)) setPermissionsOpen(true);
       }
@@ -439,7 +490,15 @@ export function useEmployeeModal({
       setSuccess("Saved.");
     } catch (err) {
       console.error("Update employee error:", err);
-      setError("Couldn't save changes. Try again.");
+      // Task 5: the kiosk checks (clocked in, Employee App login, Pro, cap)
+      // explain themselves; anything else keeps the generic message.
+      const code = (err as { code?: string })?.code;
+      const message = (err as { message?: string })?.message;
+      setError(
+        (code === "functions/failed-precondition" || code === "functions/invalid-argument") && message
+          ? message
+          : "Couldn't save changes. Try again."
+      );
     } finally {
       setIsSaving(false);
     }
@@ -510,6 +569,10 @@ export function useEmployeeModal({
     setIsAdmin,
     isSupervisorAccess,
     setIsSupervisorAccess,
+    isKioskAccess,
+    setIsKioskAccess,
+    promoteToKiosk,
+    setPromoteToKiosk,
     permissionsOpen,
     setPermissionsOpen,
     dob,

@@ -99,8 +99,17 @@ export function seatsFrom(company: CompanyPlanFields, counts: { active: number; 
 
 async function liveSeats(companyId: string, company: CompanyPlanFields): Promise<Seats> {
   const employees = adminDb.collection("companies").doc(companyId).collection("employees");
-  const [active, total] = await Promise.all([employees.where("active", "==", true).count().get(), employees.count().get()]);
-  return seatsFrom(company, { active: active.data().count, total: total.data().count });
+  const [active, total, kiosks] = await Promise.all([
+    employees.where("active", "==", true).count().get(),
+    employees.count().get(),
+    employees.where("kiosk", "==", true).get(),
+  ]);
+  // Task 5 (K8): kiosk records (shared tablets) never take a seat.
+  const activeKiosks = kiosks.docs.filter((d) => d.get("active") === true).length;
+  return seatsFrom(company, {
+    active: Math.max(0, active.data().count - activeKiosks),
+    total: Math.max(0, total.data().count - kiosks.size),
+  });
 }
 
 // Every /api/join-codes/* route: valid ID token, role admin|owner from

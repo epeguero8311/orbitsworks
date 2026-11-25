@@ -17,6 +17,8 @@ interface DeviceRow {
   lastSeen: Timestamp | null;
   lastUsedByUid: string | null;
   locked: boolean;
+  // Task 5 (K19): Kiosk iPad or Supervisor app.
+  kiosk: boolean;
   lockedByUid?: string;
   lockedAt?: Timestamp;
 }
@@ -28,6 +30,7 @@ function buildRows(devices: Device[], unnamed: UnnamedDevice[]): DeviceRow[] {
     lastSeen: d.lastSeenAt ?? null,
     lastUsedByUid: d.lastUserUid ?? null,
     locked: d.locked,
+    kiosk: !!d.kioskEmployeeId,
     lockedByUid: d.lockedByUid,
     lockedAt: d.lockedAt,
   }));
@@ -39,6 +42,7 @@ function buildRows(devices: Device[], unnamed: UnnamedDevice[]): DeviceRow[] {
     lastSeen: u.lastSeen,
     lastUsedByUid: null,
     locked: false,
+    kiosk: u.kiosk === true,
   }));
   unnamedRows.sort((a, b) => (b.lastSeen?.toMillis() ?? 0) - (a.lastSeen?.toMillis() ?? 0));
 
@@ -62,7 +66,7 @@ function shortDeviceId(id: string): string {
 export function DevicesCard({ isPro }: { isPro: boolean }) {
   const { userData, currentUser } = useAuth();
   const { devices, unnamedDevices, loading, error } = useDevices();
-  const { employees } = useEmployees();
+  const { employees } = useEmployees({ includeKiosks: true });
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -314,6 +318,13 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
                               Unnamed device ({shortDeviceId(row.id)})
                             </span>
                           )}
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                              row.kiosk ? "bg-teal-50 text-teal-700" : "bg-blue-50 text-blue-700"
+                            }`}
+                          >
+                            {row.kiosk ? "Kiosk" : "Supervisor"}
+                          </span>
                           <button
                             type="button"
                             onClick={() => startEditing(row)}

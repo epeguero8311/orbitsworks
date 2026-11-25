@@ -24,7 +24,7 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
-import { useAuth } from "@/lib/AuthContext";
+import { isAppOnlyRole, useAuth } from "@/lib/AuthContext";
 import { isProPlan } from "@/lib/stripe/tiers";
 import { PastDueBanner } from "@/components/PastDueBanner";
 import { HelpChat } from "@/components/help-chat/HelpChat";
@@ -78,7 +78,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       router.push("/mobile-only");
       return;
     }
-    if (!loading && userData?.role === "employee") {
+    // Task 5 (K10): a kiosk login is app-only too, never the dashboard.
+    if (!loading && isAppOnlyRole(userData?.role)) {
       router.push("/use-app");
       return;
     }
@@ -96,7 +97,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Employee App logins can't read the company doc (firestore.rules) and
     // are being redirected to /use-app anyway.
-    if (!userData?.companyId || userData.role === "employee") return;
+    if (!userData?.companyId || isAppOnlyRole(userData.role)) return;
     const companyRef = doc(db, "companies", userData.companyId);
     const unsubscribe = onSnapshot(companyRef, (snapshot) => {
       const data = snapshot.exists() ? snapshot.data() : null;
@@ -122,7 +123,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!currentUser || userData?.role === "supervisor" || userData?.role === "employee") {
+  if (!currentUser || userData?.role === "supervisor" || isAppOnlyRole(userData?.role)) {
     return null;
   }
 

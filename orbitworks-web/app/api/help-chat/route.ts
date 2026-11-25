@@ -5,6 +5,7 @@ import { loadAllDocs, isGreeting, GREETING_RESPONSE } from "@/lib/help-chat/sear
 import { selectDoc } from "@/lib/help-chat/selectDoc";
 import { checkRateLimit } from "@/lib/help-chat/rateLimit";
 import { askAI, askAINoMatch } from "@/lib/help-chat/askAI";
+import { isStaffRole } from "@/lib/roles";
 
 const ERROR_FALLBACK_RESPONSE =
   "Sorry, I'm having trouble right now. Please contact epeguero8311@gmail.com and we'll help you out.";
@@ -26,8 +27,9 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
-  // Employee App logins are mobile-only and have no use for this route.
-  if (role === "employee") {
+  // Staff only (Task 5 K9: an allowlist, so Employee App and Kiosk logins
+  // - and any future role - are refused).
+  if (!isStaffRole(role)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

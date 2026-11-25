@@ -8,6 +8,7 @@
 //   Supervisor App  pin (camera clock-in), supervisorPin (breaks),
 //                   supervisorOverride, faceMatch (legacy)
 //   Quick Link      tempLink (Temp Clock-In Link)
+//   Kiosk           kiosk (Task 5 K19 - a shared Kiosk iPad)
 //   Auto clock-out  autoClockOut (new and legacy sweeps)
 //   Deactivated     employeeDeactivated
 // Anything else (autoBreakEnd is a break event, never an in/out) = "-".
@@ -18,6 +19,7 @@
 //   Supervisor app   name at punch time, else "Unnamed device"
 //                    (no deviceId at all = old build = "-")
 //   Employee app     "Employee's phone"
+//   Kiosk            the kiosk's device name at punch time, else "Kiosk"
 //   everything else  "-"
 
 type ClockInfoEvent = {
@@ -39,6 +41,8 @@ export function clockTypeLabel(event: ClockInfoEvent | null | undefined): string
       return "Admin Manual";
     case "employeeApp":
       return "Employee App";
+    case "kiosk":
+      return "Kiosk";
     case "tempLink":
       return "Quick Link";
     case "autoClockOut":
@@ -54,6 +58,10 @@ export function clockDeviceLabel(event: ClockInfoEvent | null | undefined): stri
   const source = event?.source;
   if (!source) return NO_VALUE;
   if (source === "employeeApp") return "Employee's phone";
+  if (source === "kiosk") {
+    const kioskName = typeof event?.deviceNameSnapshot === "string" ? event.deviceNameSnapshot.trim() : "";
+    return kioskName || "Kiosk";
+  }
   if (!SUPERVISOR_APP_SOURCES.has(source)) return NO_VALUE;
   const name = typeof event?.deviceNameSnapshot === "string" ? event.deviceNameSnapshot.trim() : "";
   if (name) return name;

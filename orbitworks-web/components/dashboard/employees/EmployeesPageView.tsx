@@ -23,14 +23,14 @@ import type { Employee } from "@/lib/types";
 // from ONE useEmployeeInvites listener.
 export function EmployeesPageView() {
   const { userData } = useAuth();
-  const { employees: employeeDocs, loading, toggleEmployeeActive } = useEmployees();
+  const { employees: employeeDocs, loading, toggleEmployeeActive } = useEmployees({ includeKiosks: true });
   // PINs come from the server-only employeePins (admin callable), not the
   // employee doc - see useEmployeePins.
   const employees = useEmployeePins(employeeDocs, !loading);
   const { sites } = useSites();
   const { jobs } = useJobs();
   const { subcontractors } = useSubcontractors();
-  const { settings, canUseInvites, loading: settingsLoading } = useCompanySettings();
+  const { settings, isPro, canUseInvites, loading: settingsLoading } = useCompanySettings();
   const appInvites = useEmployeeInvites();
   const companyName = settings.name || "Main company";
   const activeSites = sites.filter((s) => s.active);
@@ -106,6 +106,7 @@ export function EmployeesPageView() {
           appInvite={appInvites.byEmployee.get(employeeForModal.id)}
           appInviteApi={appInvites}
           appInvitePlanOk={invitePlanOk}
+          isPro={isPro}
           allEmployees={employees}
           onOpenEmployee={setSelectedId}
         />

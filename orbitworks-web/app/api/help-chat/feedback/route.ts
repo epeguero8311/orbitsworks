@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { z } from "zod";
+import { isStaffRole } from "@/lib/roles";
 
 const feedbackSchema = z.object({
   question: z.string().min(1).max(1000),
@@ -24,8 +25,9 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
-  // Employee App logins are mobile-only and have no use for this route.
-  if (role === "employee") {
+  // Staff only (Task 5 K9: an allowlist, so Employee App and Kiosk logins
+  // - and any future role - are refused).
+  if (!isStaffRole(role)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

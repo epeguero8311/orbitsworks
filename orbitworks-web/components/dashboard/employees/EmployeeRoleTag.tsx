@@ -1,6 +1,7 @@
 import { employeeRoleTag, type EmployeeRoleFlags, type EmployeeRoleTagKind } from "@/lib/employeeRoleTag";
 
 const TAGS: Record<EmployeeRoleTagKind, { label: string; className: string }> = {
+  kiosk: { label: "Kiosk", className: "bg-teal-50 text-teal-700" },
   admin: { label: "Admin", className: "bg-purple-50 text-purple-700" },
   supervisor: { label: "Supervisor", className: "bg-blue-50 text-blue-700" },
   employee: { label: "Employee", className: "bg-gray-100 text-gray-700" },

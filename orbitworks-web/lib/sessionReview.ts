@@ -20,6 +20,8 @@ export function sessionSourceTag(source: ClockEvent["source"] | undefined): Tag 
       return { text: "Supervisor app", className: "bg-blue-50 text-blue-700" };
     case "employeeApp":
       return { text: "Employee app", className: "bg-gray-100 text-gray-700" };
+    case "kiosk":
+      return { text: "Kiosk", className: "bg-teal-50 text-teal-700" };
     case "adminManual":
       return { text: "Admin manual", className: "bg-purple-50 text-purple-700" };
     case "autoClockOut":

@@ -77,11 +77,12 @@ function JoinForm() {
         name,
         ...(inviteIdFromLink ? { inviteId: inviteIdFromLink } : {}),
       });
-      const { role } = result.data as { role?: "supervisor" | "admin" };
+      const { role } = result.data as { role?: "supervisor" | "admin" | "kiosk" };
 
       await user.getIdToken(true);
 
-      router.push(role === "admin" ? "/dashboard" : "/mobile-only");
+      // Task 5: a kiosk invite's login is for the iPad app only.
+      router.push(role === "admin" ? "/dashboard" : role === "kiosk" ? "/use-app" : "/mobile-only");
     } catch (err) {
       console.error("Join setup error:", err);
       const code = (err as { code?: string })?.code;

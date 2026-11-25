@@ -43,8 +43,9 @@ export default function LoginPage() {
         return;
       }
 
-      // Employee App logins stay signed in - /use-app has its own Log out.
-      if (role === "employee") {
+      // Employee App and Kiosk (Task 5) logins stay signed in - /use-app has
+      // its own Log out.
+      if (role === "employee" || role === "kiosk") {
         router.push("/use-app");
         return;
       }

@@ -159,3 +159,10 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Task 5 Kiosk mode (K3): OFF on prod until app 1.1.6 is in the App Store
+  # (functions/.env.orbitworks-7ef59 KIOSK_ENABLED=false too).
+  - variable: NEXT_PUBLIC_KIOSK_ENABLED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME

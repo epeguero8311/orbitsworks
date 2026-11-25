@@ -11,6 +11,8 @@ import { AutomationsCard } from "@/components/dashboard/settings/AutomationsCard
 import { AlertsCard } from "@/components/dashboard/settings/AlertsCard";
 import { AppSettingsCard } from "@/components/dashboard/settings/AppSettingsCard";
 import { DevicesCard } from "@/components/dashboard/settings/DevicesCard";
+import { KioskExitKeysCard } from "@/components/dashboard/settings/KioskExitKeysCard";
+import { KIOSK_ENABLED } from "@/lib/kiosk";
 import { SettingsTabBar } from "@/components/dashboard/settings/SettingsTabBar";
 import { SettingsSearchBar } from "@/components/dashboard/settings/SettingsSearchBar";
 
@@ -121,6 +123,9 @@ function SettingsPageContent() {
               />
 
               <DevicesCard isPro={s.isPro} />
+
+              {/* Task 5 (K16): exit keys for Kiosk iPads. */}
+              {KIOSK_ENABLED && <KioskExitKeysCard />}
             </>
           )}
         </div>

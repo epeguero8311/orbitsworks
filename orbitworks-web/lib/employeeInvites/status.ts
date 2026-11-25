@@ -26,8 +26,9 @@ export function employeeInviteLink(token: string, baseUrl: string): string {
 // Which rows get "Invite to app" (decision J1) - same rule as
 // rowCanBeInvited in functions/src/lib/employeeInviteChecks.ts, which is
 // the real check. Rows with supervisor/admin access use those invites.
-export function rowCanBeInvited(row: { active?: boolean; linkedUserId?: string | null; appAccess?: boolean; isSupervisor?: boolean; isAdmin?: boolean }): boolean {
-  return row.active === true && !row.linkedUserId && !row.appAccess && !row.isSupervisor && !row.isAdmin;
+// Task 5 (K8): never a kiosk record (same as functions/src/lib/employeeInviteChecks.ts).
+export function rowCanBeInvited(row: { active?: boolean; linkedUserId?: string | null; appAccess?: boolean; isSupervisor?: boolean; isAdmin?: boolean; kiosk?: boolean }): boolean {
+  return row.active === true && !row.linkedUserId && !row.appAccess && !row.isSupervisor && !row.isAdmin && row.kiosk !== true;
 }
 
 // Live (blocks a new invite for the same person) = pending and not expired.

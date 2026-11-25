@@ -162,6 +162,7 @@ test("D3/D10: Type maps every source", () => {
     autoClockOut: "Auto clock-out",
     employeeDeactivated: "Deactivated",
     autoBreakEnd: "-",
+    kiosk: "Kiosk",
   };
   for (const [source, label] of Object.entries(cases)) assert.equal(clockTypeLabel({ source }), label, source);
   assert.equal(clockTypeLabel(undefined), "-");
@@ -177,6 +178,12 @@ test("D4: Device - supervisor app name / Unnamed device, employee phone, else -"
   assert.equal(clockDeviceLabel({ source: "adminManual", deviceId: "d1" }), "-");
   assert.equal(clockDeviceLabel({ source: "autoClockOut" }), "-");
   assert.equal(clockDeviceLabel(null), "-");
+});
+
+test("Task 5 K19: Kiosk type + the kiosk's device name", () => {
+  assert.equal(clockDeviceLabel({ source: "kiosk", deviceId: "d1", deviceNameSnapshot: "Front iPad" }), "Front iPad");
+  assert.equal(clockDeviceLabel({ source: "kiosk", deviceId: "d1", deviceNameSnapshot: null }), "Kiosk");
+  assert.equal(clockDeviceLabel({ source: "kiosk" }), "Kiosk");
 });
 
 test("Task 3: Tips column hidden while Tips is OFF (stays saved, counts), drawn after Worked when ON", () => {

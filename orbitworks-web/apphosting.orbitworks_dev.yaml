@@ -164,3 +164,9 @@ env:
     availability:
       - BUILD
       - RUNTIME
+  # Task 5 Kiosk mode (K3): ON for dev (functions KIOSK_ENABLED=true too).
+  - variable: NEXT_PUBLIC_KIOSK_ENABLED
+    value: "true"
+    availability:
+      - BUILD
+      - RUNTIME

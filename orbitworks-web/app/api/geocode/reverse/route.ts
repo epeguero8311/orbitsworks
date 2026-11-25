@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase/admin";
 import { reverseGeocodeRequestSchema } from "@/lib/validators/geocode";
+import { isStaffRole } from "@/lib/roles";
 
 // Nominatim's usage policy requires a descriptive User-Agent naming the
 // app and a real contact - same support address the help-chat fallback
@@ -17,8 +18,9 @@ export async function POST(request: NextRequest) {
 
     const decoded = await adminAuth.verifyIdToken(idToken);
     const companyId = decoded.companyId as string | undefined;
-    // Employee App logins are mobile-only and have no use for this route.
-    if (!companyId || decoded.role === "employee") {
+    // Staff only (Task 5 K9: an allowlist, so Employee App and Kiosk logins
+    // - and any future role - are refused).
+    if (!companyId || !isStaffRole(decoded.role as string | undefined)) {
       return NextResponse.json({ error: "Not authorized." }, { status: 403 });
     }
 

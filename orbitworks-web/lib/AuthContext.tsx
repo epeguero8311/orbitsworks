@@ -15,7 +15,12 @@ import { isFatalRefreshError, tokenRefreshReason } from "./roleRefresh";
 // "employee" = Employee App login (self-service clock in/out on mobile).
 // Never allowed into the web dashboard - see app/use-app and the
 // dashboard layout guard.
-export type UserRole = "owner" | "admin" | "supervisor" | "employee";
+// "kiosk" = Task 5 shared wall-tablet login (Kiosk mode in the app). Never
+// gets the dashboard - same as "employee" (dashboard layout, login, join).
+export type UserRole = "owner" | "admin" | "supervisor" | "employee" | "kiosk";
+
+// Pure role helpers live in lib/roles.ts (server routes use them too).
+export { isAppOnlyRole, isStaffRole } from "./roles";
 
 type UserData = {
   role: UserRole;
