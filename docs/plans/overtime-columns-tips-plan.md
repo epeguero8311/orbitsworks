@@ -1,9 +1,17 @@
 # OrbitsWorks - Overtime, Approve Hours Columns, Tips (Plan)
 
-Planned: Nov 24, 2026. Status: planning done, no code yet.
+Planned: Nov 24, 2026.
 
-## Ground rules (all 3 tasks)
-- 3 separate tasks, each on its own branch off main. Build order: Task 1 -> Task 2 -> Task 3 (Task 3 needs Task 2's columns modal).
+## STATUS (Nov 25, 2026)
+- Task 1 (Overtime): DONE and tested on dev. Frozen on feature/overtime (6e43c83). Not on prod.
+- Rollout: stacked branches. Task 2 = feature/approve-columns (off feature/overtime), Task 3 off Task 2, Task 4 off Task 3.
+- After Task 4: ONE combined test on dev, then all 4 tasks ship to prod together (Emilio's call).
+- Separate follow-ups (not part of these 4 tasks):
+  - docs/plans/reports-utc-day-grouping-fix.md (Reports UTC day grouping).
+  - Employee app My Hours: Automatic Break once per day when Overtime is ON (needs an app release; see decision 31).
+
+## Ground rules (all 4 tasks)
+- 4 tasks, each on its own branch, stacked on the one before (Task 1 -> Task 2 -> Task 3 -> Task 4). Build order: Task 1 -> Task 2 -> Task 3 (Task 3 needs Task 2's columns modal) -> Task 4 (built last).
 - All plans (Free/Core/Pro) unless noted.
 - Existing AND new companies: every new toggle defaults OFF, so nothing changes until the company turns it on.
 - Feature order inside each task: types -> validator -> hook/API -> components -> page.
@@ -172,6 +180,72 @@ Last edited by Ana Lopez (i)
 Export: Worked 10.00 | OT 2.00 | Tips $45.00 | Est. Pay $258.00 ($213 wages + $45 tips)
 ```
 - Data model (where tips + history are stored): Claude Code proposes, Emilio approves before building. Must follow the tenant (companyId) rules.
+
+---
+
+## TASK 4 - Admin Permissions (site access + what each admin can do) - BUILT LAST
+
+Goal: the owner controls which job sites each admin can see and which actions they can take, e.g. sites A B C D -> Admin 1 gets A + B, Admin 2 gets C + D, and each can only approve their own sites.
+
+### Roles
+```
+Owner        everything, can't be restricted, edited or removed by anyone
+Full access  everything the owner can do (incl. billing + setting Admin permissions)
+Admin        only the sites + permissions the owner / Full access gives them
+```
+- Owner is always on top. Nobody can touch the owner.
+- ONLY the owner can give or remove Full access.
+- ONLY the owner can edit or remove a Full access admin. Full access admins can't touch each other.
+- Full access admins can set permissions for regular Admins.
+- Billing IS included in Full access.
+- Ownership transfer: NOT in scope for now (removed Nov 25).
+- Supervisors are NOT part of this feature (admin-only). A supervisor promoted to admin keeps supervisor app access.
+- All plans.
+
+### Permissions modal (Team -> admin row -> Permissions)
+```
+[ ] Full access   (on = acts like the owner, everything below on + locked)
+
+Job sites:   ( ) All sites (includes new ones automatically)
+             (o) Only these: [x] A  [x] B  [ ] C  [ ] D  [ ] Unassigned
+
+Can:         [x] Approve hours
+             [x] Create / edit employees
+             [ ] Edit pay rates & wages
+             [ ] Export payroll
+             [ ] Analytics
+             [ ] Billing
+             [ ] Settings
+             [ ] Invite admins / supervisors
+```
+- Permission list is the current agreed list; Emilio may add more later.
+- "Unassigned" = shifts with no job site.
+- EXISTING admins when this ships: keep full access (All sites + all permissions), so nothing changes for current customers.
+
+### Rules
+1. Shift visibility goes by WHERE THE SHIFT HAPPENED (the shift's site), not the employee's assigned sites. The ADMIN's access is set by the admin's assigned sites.
+```
+Admin 1 = A + B
+Juan  Mon  Site A  8am-1pm   -> Admin 1 sees + can approve
+Juan  Mon  Site C  2pm-11pm  -> Admin 1 does NOT see
+```
+2. Day totals: Admin 1 still sees the employee's FULL day total (all sites combined) so OT makes sense, without the other site's shift details.
+```
+Admin 1 sees: Juan Mon, Site A 5h | Day total 14h | OT 6h (lands on another site's shift)
+```
+3. Export payroll is its own permission. When allowed, the export shows EVERYTHING, no matter the site.
+4. Alerts: every admin gets all alerts (not filtered by site).
+5. Analytics / Overview: NOT filtered by site. The Analytics permission controls who can open the Analytics tab.
+6. Creating employees: admins can assign employees to ANY site.
+7. Job site creation gets a picker for which admins can see the new site. "All sites" admins see new sites automatically.
+8. Pay: every admin can SEE pay rates / Est. Pay / tips. The "Edit pay rates & wages" permission controls whether they can CHANGE them.
+
+### Enforcement (important)
+- Hiding things in the UI is not enough. Firestore rules and the server/Cloud Functions must enforce site access + permissions (project rules: real authorization lives in rules/server).
+- Data model (where roles, site lists and permissions live; custom claims vs users doc) - Claude Code proposes, Emilio approves before building.
+
+### Open (for Claude Code to propose, Emilio to approve)
+- Data model for roles / site access / permissions.
 
 ---
 
