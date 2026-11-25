@@ -9,6 +9,10 @@ Planned: Nov 24, 2026.
 - Separate follow-ups (not part of these 4 tasks):
   - docs/plans/reports-utc-day-grouping-fix.md (Reports UTC day grouping).
   - Employee app My Hours: Automatic Break once per day when Overtime is ON (needs an app release; see decision 31).
+  - (a) Approve Hours column widths never apply in Chrome: the <col> widths are calc(% - px), which browsers treat as auto in a table, so every column is drawn equal width. Pre-existing since Phase 10 (same on feature/overtime); Task 2 kept the same values.
+  - (b) Overview (lib/hooks/useDashboardStatus.ts): "Weekly attendance error: Missing or insufficient permissions" in the console on account switch (log out + log in as another company), likely a listener/query not closed on logout. Check whether it also happens on prod.
+  - (c) Employee app: record the phone model on employee-app punches (Task 2 D4 follow-up, next app release).
+- Task 2: built + dev-checked on feature/approve-columns (e7d41b3; rules deployed to dev Nov 25). Task 3 next on feature/tips.
 
 ## Ground rules (all 4 tasks)
 - 4 tasks, each on its own branch, stacked on the one before (Task 1 -> Task 2 -> Task 3 -> Task 4). Build order: Task 1 -> Task 2 -> Task 3 (Task 3 needs Task 2's columns modal) -> Task 4 (built last).
@@ -318,7 +322,22 @@ D3. Clock-in/out Type values: Admin Manual (adminManual), Employee App (employee
 D4. Device: supervisor-app punches = device name at punch time (deviceNameSnapshot) or "Unnamed device"; employee-app punches = "Employee's phone"; Quick Link / Admin Manual / auto = "-"; old shifts with no data = "-". No app release. FOLLOW-UP (not this task): record the phone model on employee-app punches with the next app release.
 D5. Free plan: Type + Device locked with the PRO pill, same as Core (one isPro check).
 D6. Downgrade: Pro columns stay saved but are hidden while not Pro (back on upgrade). firestore.rules refuses saving Pro column keys on a non-Pro plan.
+    How it actually works: right after a downgrade the Type/Device columns disappear from the table and show locked (PRO pill, unchecked, can't be added) in the modal, and don't count toward the 8. They stay in approvalsColumns only until someone saves the Columns modal again - that save drops them (the rule refuses them off Pro). Other company saves (Settings page) never touch the field. Upgrading back before a modal save brings them back.
 D7. Job column can be turned off, with a modal note that approvals then use the employee's default job. Known risk: columns are per company, so hiding Job removes the job picker for every admin and 2-job days fall back to the default job (changes OT pay). Safer option if needed later: Job required while Overtime is ON.
 D8. Storage: top-level company field approvalsColumns (string list of the OPTIONAL keys only; Name + Status implied). Missing field = default. zod validator + firestore.rules type/allowed-keys check. Task 4: changing columns will probably fall under the "Settings" permission - lock in during Task 4.
 D9. Owner and any admin can change the columns (supervisors never reach the dashboard).
 D10. Type shows the event's original source only (no "edited" marker; edit history stays in Session review).
+
+All D1-D10 picks = option A (the starred recommendation), Nov 25, 2026.
+
+Dev check (Nov 25, localhost against orbitworks-dev-ew): a, b, c, d, e (OT Test Co B briefly on core2_tier1, back to pro_tier1), g, i OK; c/f/h/j partly (see the checklist below). Dev seed fix: devSeedOvertime.js wrote source "admin" (not a real source) - now "adminManual"; the 46 seeded dev events were changed to match (source field only). Reports totals unchanged after: A $255, C $920, D $892.50, E $213; B $570 (Overtime OFF + Fri Pending from testing).
+
+---
+
+## Final combined test checklist (after Task 4, before prod)
+Things that could not be tested on dev for Task 2, and what each needs:
+- Re-approve warning with custom columns: an approved shift WITH frozen OT (approved after Task 1, Overtime ON), then an edit to an earlier unapproved day of the same week that moves its OT. The seeded approvals have no frozen OT (seed writes them directly) - approve/re-approve one in the UI first.
+- Clocked In badge with custom columns: an employee clocked in right now (open shift today) - needs a real open clock-in from the supervisor app or employee app on a dev test company (Add Timestamp entries always have a clock-out, so they can't show it).
+- Second admin sees the same columns: a second admin login in the same test company (invite one to OT Test Co).
+- Type labels Supervisor App / Quick Link / Employee App / Auto clock-out: punches from the supervisor app (pin / supervisorPin / supervisorOverride), a temp clock-in link, the employee app, and an auto clock-out in one test company. Dev today: only Shipmate (Pro-dev) has employeeApp + autoClockOut events (no login on hand); nobody on dev has supervisor-app or tempLink punches.
+- Device names: supervisor-app punches from a NAMED device (Settings > Devices) and from an unnamed one ("Unnamed device"); employee-app punches show "Employee's phone".

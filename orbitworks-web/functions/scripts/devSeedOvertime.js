@@ -259,7 +259,7 @@ async function seedCompany(c, existingUser) {
       createdAt: FieldValue.serverTimestamp(),
     });
     for (const [day, inAt, outAt, jobId] of e.shifts) {
-      const base = { employeeId: e.id, employeeName: e.name, siteId: null, siteName: "Not specified", source: "admin", createdByUid: user.uid };
+      const base = { employeeId: e.id, employeeName: e.name, siteId: null, siteName: "Not specified", source: "adminManual", createdByUid: user.uid };
       const inRef = await companyRef.collection("clockEvents").add({ ...base, type: "in", timestamp: Timestamp.fromMillis(ct(day, inAt)) });
       await companyRef.collection("clockEvents").add({ ...base, type: "out", timestamp: Timestamp.fromMillis(ct(day, outAt)) });
       sessions.push({ id: inRef.id, employee: e, day, jobId });
