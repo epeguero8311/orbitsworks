@@ -42,7 +42,7 @@ function radiusMetersFrom(input: JobSiteInput): number {
 }
 
 export function useSites() {
-  const { userData } = useAuth();
+  const { userData, currentUser } = useAuth();
   const [sites, setSites] = useState<JobSite[]>([]);
   const [loading, setLoading] = useState(true);
   const [planTier, setPlanTier] = useState<string | null>(null);
@@ -115,6 +115,9 @@ export function useSites() {
       address: trimmedAddress,
       active: true,
       createdAt: serverTimestamp(),
+      // Task 4 (D17): rules require it; a restricted creator gets the new
+      // site added to their own sites by onJobSiteCreated.
+      createdByUid: currentUser?.uid ?? null,
       requireGeofence,
       lat: location?.lat ?? null,
       lng: location?.lng ?? null,

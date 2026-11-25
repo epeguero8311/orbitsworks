@@ -15,6 +15,40 @@ service cloud.firestore {
       return request.auth.token.role == 'admin' || request.auth.token.role == 'owner';
     }
 
+    // ---- Admin Permissions (Task 4, decisions D1-D18) ----
+    // Claims mirror of users/{uid}.adminAccess (written only by the server,
+    // functions/src/adminAccess.ts writeRoleClaims): lvl ('full' | 'admin'),
+    // allSites (bool), perms (list of short codes), sup (also a supervisor).
+    // An admin token WITHOUT these claims is a legacy (pre-Task 4) admin:
+    // All sites + every permission except Billing (D6/D8). Supervisor and
+    // employee tokens never carry them and none of these helpers change
+    // anything for those roles (D15).
+    //   codes: ah approve hours, em employees, pay edit pay, exp export,
+    //          an analytics, bil billing, set settings, inv invites
+    function isRestrictedAdmin() {
+      return request.auth.token.role == 'admin' &&
+        request.auth.token.get('allSites', true) == false;
+    }
+
+    // Admin/owner with this permission.
+    function hasPerm(code) {
+      return request.auth.token.role == 'owner' ||
+        (request.auth.token.role == 'admin' && (
+          request.auth.token.get('lvl', '') == 'full' ||
+          (!('perms' in request.auth.token) && code != 'bil') ||
+          ('perms' in request.auth.token && code in request.auth.token.perms)
+        ));
+    }
+
+    // Shift data (clockEvents, siteExits, shiftNotes...) can be read
+    // directly by everyone it could be read by before, EXCEPT an admin
+    // limited to some sites - their pages load through the server (D2).
+    // G1 sub A: a restricted admin who is also a supervisor keeps
+    // supervisor-level reads (the server still limits their actions).
+    function canReadAllShifts() {
+      return !isRestrictedAdmin() || request.auth.token.get('sup', false) == true;
+    }
+
     // Overtime (Task 1): type checks for the top-level company fields
     // added next to weeklyOvertimeThreshold / overtimeMultiplier. Only
     // checked when a write actually touches the field, so a company that
@@ -408,7 +442,10 @@ service cloud.firestore {
         ) &&
         validCompanyOvertimeFields() &&
         validCompanyApprovalsColumns() &&
-        validCompanyTipsFields();
+        validCompanyTipsFields() &&
+        // Task 4 (D2): company settings (incl. Approve Hours columns) need
+        // the Settings permission.
+        hasPerm('set');
       allow delete: if false;
 
       // Employee App: the company settings the app needs, mirrored here
@@ -463,9 +500,23 @@ service cloud.firestore {
         // only (no list - the app fetches each assigned site by id).
         allow get: if isSelfEmployee(companyId) &&
           siteId in myEmployeeDoc(companyId).get('assignedSiteIds', []);
-        allow write: if request.auth != null &&
+        // Task 4 (D11): job site create/edit = Settings. A new site records
+        // its creator (D17: a restricted creator gets it added to their own
+        // sites by onJobSiteCreated); it can never be rewritten later.
+        allow create: if request.auth != null &&
           isAdminOrOwner() &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          hasPerm('set') &&
+          request.resource.data.get('createdByUid', null) == request.auth.uid;
+        allow update: if request.auth != null &&
+          isAdminOrOwner() &&
+          request.auth.token.companyId == companyId &&
+          hasPerm('set') &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['createdByUid']);
+        allow delete: if request.auth != null &&
+          isAdminOrOwner() &&
+          request.auth.token.companyId == companyId &&
+          hasPerm('set');
       }
 
       match /jobs/{jobId} {
@@ -474,13 +525,16 @@ service cloud.firestore {
           notEmployee();
         // Overtime (Task 1): create/update also type-check the optional
         // fixed Overtime rate and its history (validJobOvertimeFields).
+        // Task 4 (D11): titles + rates = Edit pay rates & wages.
         allow create, update: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
+          hasPerm('pay') &&
           validJobOvertimeFields();
         allow delete: if request.auth != null &&
           isAdminOrOwner() &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          hasPerm('pay');
       }
 
       // Admin/owner of the same company may add, rename and deactivate.
@@ -492,7 +546,8 @@ service cloud.firestore {
           notEmployee();
         allow create, update: if request.auth != null &&
           isAdminOrOwner() &&
-          request.auth.token.companyId == companyId;
+          request.auth.token.companyId == companyId &&
+          hasPerm('em');
         allow delete: if false;
       }
 
@@ -514,6 +569,10 @@ service cloud.firestore {
         allow create: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
+          // Task 4: Create / edit employees; a typed pay rate also needs
+          // Edit pay rates & wages.
+          hasPerm('em') &&
+          (request.resource.data.get('hourlyRate', null) == null || hasPerm('pay')) &&
           // Phase 9: every duplicate-flag field is server-only (sign-up
           // writes the flag, dismissDuplicateFlag clears it). 'pin' too
           // (prod-readiness item 7): every PIN is set by a callable, never
@@ -537,6 +596,8 @@ service cloud.firestore {
         allow update: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
+          hasPerm('em') &&
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['hourlyRate']) || hasPerm('pay')) &&
           !request.resource.data.diff(resource.data).affectedKeys()
             .hasAny(['subcontractorId', 'subcontractorName', 'subcontractorHistory', 'pin', 'isAdmin', 'isSupervisor', 'linkedUserId', 'faceStatus', 'faceReference', 'facePhotoRemovedAt', 'facePhotoRemovedByUid', 'appAccountDeletedAt', 'photoNoticeAck', 'deactivatedAt', 'appAccess', 'joinedVia', 'joinCodeId', 'employeeInviteId', 'possibleDuplicateOf', 'duplicateFlaggedAt', 'dismissedDuplicateOf', 'duplicateDismissedAt', 'duplicateDismissedByUid', 'duplicateDismissedByName']) &&
           (
@@ -597,9 +658,11 @@ service cloud.firestore {
       }
 
       match /clockEvents/{eventId} {
+        // Task 4 (D2): not for an admin limited to some sites (server reads).
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee();
+          notEmployee() &&
+          canReadAllShifts();
         // Employee App: read own events only. The list rule uses direct
         // field access (not .get()) on purpose: Firestore can only prove a
         // query is safe against a plain field comparison that the query
@@ -616,7 +679,9 @@ service cloud.firestore {
           isValidClockEventType(request.resource.data) &&
           isActiveOrClosingOpenSession(companyId, request.resource.data.employeeId, request.resource.data) &&
           (
-            isAdminOrOwner() ||
+            // Task 4: a restricted admin writes through the server unless
+            // they're also a supervisor (supervisor app, G1 sub A).
+            (isAdminOrOwner() && canReadAllShifts()) ||
             (request.auth.token.role == 'supervisor' &&
              isActiveEmployee(companyId))
           ) &&
@@ -696,11 +761,12 @@ service cloud.firestore {
               'employeeComment'
             ]) &&
           (
-            isAdminOrOwner() ||
+            (isAdminOrOwner() && canReadAllShifts()) ||
             isIdempotentReplay(companyId)
           );
         allow delete: if request.auth != null &&
           isAdminOrOwner() &&
+          !isRestrictedAdmin() &&
           request.auth.token.companyId == companyId;
       }
 
@@ -800,7 +866,8 @@ service cloud.firestore {
       match /siteExits/{exitId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee();
+          notEmployee() &&
+          canReadAllShifts();
         allow write: if false;
       }
 
@@ -853,7 +920,8 @@ service cloud.firestore {
       match /shiftNotes/{noteId} {
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          notEmployee();
+          notEmployee() &&
+          canReadAllShifts();
         // Employee App: own shift comments only - read and create, never
         // update or delete. Direct field access for the list-query reason
         // explained on the employees list rule. The write rule below can't
@@ -868,7 +936,7 @@ service cloud.firestore {
         allow create: if isValidEmployeeShiftNoteCreate(companyId);
         allow write: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          (isAdminOrOwner() || request.auth.token.role == 'supervisor');
+          ((isAdminOrOwner() && canReadAllShifts()) || request.auth.token.role == 'supervisor');
       }
 
       match /timesheetApprovals/{eventId} {
@@ -881,7 +949,8 @@ service cloud.firestore {
         // setShiftTip (Admin SDK) too.
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          isAdminOrOwner();
+          isAdminOrOwner() &&
+          !isRestrictedAdmin();
         allow write: if false;
 
         // Tips (Task 3): the tip's full change history, append-only. Every
@@ -892,7 +961,8 @@ service cloud.firestore {
         match /tipEdits/{editId} {
           allow read: if request.auth != null &&
             request.auth.token.companyId == companyId &&
-            isAdminOrOwner();
+            isAdminOrOwner() &&
+            !isRestrictedAdmin();
           allow write: if false;
         }
       }
@@ -904,7 +974,8 @@ service cloud.firestore {
         // read for the Approvals page's override-detail view, never write.
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          isAdminOrOwner();
+          isAdminOrOwner() &&
+          !isRestrictedAdmin();
         allow write: if false;
       }
 
@@ -926,7 +997,8 @@ service cloud.firestore {
         // so there's still a real, trustworthy record of who wrote it.
         allow read: if request.auth != null &&
           request.auth.token.companyId == companyId &&
-          isAdminOrOwner();
+          isAdminOrOwner() &&
+          !isRestrictedAdmin();
         allow create, update: if request.auth != null &&
           request.auth.token.companyId == companyId &&
           notEmployee() &&
@@ -1007,14 +1079,23 @@ service cloud.firestore {
       // rules entirely, so blocking these keys here just means no client
       // request (create or update) may set them, same pattern as the
       // employees/{employeeId} 'pin' field above.
+      // Task 4 (D16): Invites permission; an invite can never carry access
+      // (acceptInvite always starts a new admin with nothing - setAdminAccess
+      // is the only way to grant it).
       allow create: if request.auth != null &&
         isAdminOrOwner() &&
+        hasPerm('inv') &&
         request.auth.token.companyId == request.resource.data.companyId &&
         request.resource.data.role in ['supervisor', 'admin'] &&
         !request.resource.data.keys()
-          .hasAny(['emailStatus', 'emailSentAt', 'emailError', 'lastEmailAttemptAt']);
-      allow read, delete: if request.auth != null &&
+          .hasAny(['emailStatus', 'emailSentAt', 'emailError', 'lastEmailAttemptAt',
+                   'adminAccess', 'level', 'lvl', 'sites', 'permissions', 'perms', 'allSites', 'fullAccess']);
+      allow read: if request.auth != null &&
         isAdminOrOwner() &&
+        request.auth.token.companyId == resource.data.companyId;
+      allow delete: if request.auth != null &&
+        isAdminOrOwner() &&
+        hasPerm('inv') &&
         request.auth.token.companyId == resource.data.companyId;
       // No client ever updates an invite (the website only creates,
       // queries and deletes them; the app never touches this collection).
