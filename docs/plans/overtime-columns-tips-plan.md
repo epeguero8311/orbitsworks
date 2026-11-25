@@ -308,3 +308,17 @@ After step 10 passed (Nov 25, 2026) - hours columns change + fixes:
 33. (2A) Summary Hourly Rate = "Mixed" when the employee worked 2+ jobs in the period (Overtime ON: Payroll Hours Excel + Payroll CSV).
 34. Excel: the "Estimated Pay (Excluding Break)" column is wide enough for the full header (Payroll Hours, ON and OFF).
 35. Excel: Day total rows carry <ignoredErrors formula/formulaRange> so Excel shows no green "inconsistent formula" triangles (exceljs can't write it; lib/xlsxIgnoredErrors.ts adds it to the saved file; jszip added as a direct dependency - it was already installed via exceljs).
+
+---
+
+## Task 2 decisions (Nov 25, 2026 - Emilio, after step 0 recon)
+D1. Default columns = today's 8: Name, Company, Site, Job, Time, Break, Worked, Status. (The plan left Site out by mistake - it is already on the table.) Max stays 8 counting Name + Status, so the default is full: adding Type / Device / OT / Tips means turning another column off first. The checkbox and the week-mode Date column don't count.
+D2. Regular Hours / Overtime with Overtime OFF: shown greyed out in the modal ("Turn on Overtime in Export Settings"), not drawn in the table; the saved choice comes back when Overtime turns on. Tips (Task 3) works the same way with its own toggle.
+D3. Clock-in/out Type values: Admin Manual (adminManual), Employee App (employeeApp), Supervisor App (pin, supervisorPin, supervisorOverride, faceMatch), Quick Link (tempLink), plus "Auto clock-out" (autoClockOut) and "Deactivated" (employeeDeactivated).
+D4. Device: supervisor-app punches = device name at punch time (deviceNameSnapshot) or "Unnamed device"; employee-app punches = "Employee's phone"; Quick Link / Admin Manual / auto = "-"; old shifts with no data = "-". No app release. FOLLOW-UP (not this task): record the phone model on employee-app punches with the next app release.
+D5. Free plan: Type + Device locked with the PRO pill, same as Core (one isPro check).
+D6. Downgrade: Pro columns stay saved but are hidden while not Pro (back on upgrade). firestore.rules refuses saving Pro column keys on a non-Pro plan.
+D7. Job column can be turned off, with a modal note that approvals then use the employee's default job. Known risk: columns are per company, so hiding Job removes the job picker for every admin and 2-job days fall back to the default job (changes OT pay). Safer option if needed later: Job required while Overtime is ON.
+D8. Storage: top-level company field approvalsColumns (string list of the OPTIONAL keys only; Name + Status implied). Missing field = default. zod validator + firestore.rules type/allowed-keys check. Task 4: changing columns will probably fall under the "Settings" permission - lock in during Task 4.
+D9. Owner and any admin can change the columns (supervisors never reach the dashboard).
+D10. Type shows the event's original source only (no "edited" marker; edit history stays in Session review).
