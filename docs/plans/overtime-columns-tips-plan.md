@@ -12,7 +12,8 @@ Planned: Nov 24, 2026.
   - (a) Approve Hours column widths never apply in Chrome: the <col> widths are calc(% - px), which browsers treat as auto in a table, so every column is drawn equal width. Pre-existing since Phase 10 (same on feature/overtime); Task 2 kept the same values.
   - (b) Overview (lib/hooks/useDashboardStatus.ts): "Weekly attendance error: Missing or insufficient permissions" in the console on account switch (log out + log in as another company), likely a listener/query not closed on logout. Check whether it also happens on prod.
   - (c) Employee app: record the phone model on employee-app punches (Task 2 D4 follow-up, next app release).
-- Task 2: built + dev-checked on feature/approve-columns (e7d41b3; rules deployed to dev Nov 25). Task 3 next on feature/tips.
+- Task 2: CODE COMPLETE on feature/approve-columns (last commit 0d08f0b; feature commit e7d41b3; rules deployed to dev Nov 25).
+- Task 3 (Tips): STARTED Nov 25 on feature/tips (off feature/approve-columns 0d08f0b). Recon: docs/plans/tips-recon.md. Waiting on data-model decisions before building. Task 4 will branch off feature/tips.
 
 ## Ground rules (all 4 tasks)
 - 4 tasks, each on its own branch, stacked on the one before (Task 1 -> Task 2 -> Task 3 -> Task 4). Build order: Task 1 -> Task 2 -> Task 3 (Task 3 needs Task 2's columns modal) -> Task 4 (built last).
