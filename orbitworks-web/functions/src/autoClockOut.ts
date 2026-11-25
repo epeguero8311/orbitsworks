@@ -3,6 +3,8 @@ import * as admin from "firebase-admin";
 import { db, localDateKey } from "./shared";
 import { AUTO_CLOCK_OUT_ENABLED } from "./flags";
 import { createAlertIfNew, type AlertInput } from "./alerts";
+import { computeOvertime, overtimeDayKey, type OvertimeSettings } from "./overtime";
+import { companyOvertimeSettings, shiftsFromClockEvents } from "./overtimeShifts";
 
 // Settings > Automations > Auto clock-out. Available on every plan, off by
 // default per company - this sweep is the only writer of source
@@ -125,7 +127,8 @@ async function maybeAutoClockOutEmployee(
   empEvents: MinimalEvent[],
   capHours: number,
   capMs: number,
-  nowMs: number
+  nowMs: number,
+  overtime: OvertimeSettings
 ): Promise<void> {
   const sorted = [...empEvents].sort((a, b) => (effectiveMs(a) ?? 0) - (effectiveMs(b) ?? 0));
 
@@ -145,7 +148,30 @@ async function maybeAutoClockOutEmployee(
   if (shiftEvents.length === 0 || shiftEvents[0].type !== "in") return;
 
   const clockInEvent = shiftEvents[0];
-  const crossing = findCapCrossing(shiftEvents, capMs, nowMs);
+
+  // Overtime (Task 1, decisions 4 + 5): with the company's Overtime toggle
+  // ON the cap is on the COMBINED day - the worked time of the day's
+  // earlier closed shifts (after their Automatic Break, once per day) plus
+  // this open shift. The day is the open shift's start day in the company
+  // time zone. Only this open shift is ever closed; closed pieces are never
+  // touched. If the earlier shifts already reached the cap, the open shift
+  // is closed at its own clock-in time. Overtime OFF: the open shift alone,
+  // exactly as before.
+  let capForShiftMs = capMs;
+  const clockInMs = effectiveMs(clockInEvent);
+  if (overtime.enabled && clockInMs != null) {
+    const openDay = overtimeDayKey(clockInMs, overtime.timeZone);
+    const earlier = shiftsFromClockEvents(sorted.slice(0, shiftStartIndex)).filter(
+      (sh) => sh.endMs !== null && overtimeDayKey(sh.startMs, overtime.timeZone) === openDay
+    );
+    if (earlier.length > 0) {
+      const result = computeOvertime(earlier, overtime, () => ({ rate: null, overtimeRate: null }));
+      const earlierWorkedMs = result.days.find((dd) => dd.dayKey === openDay)?.workedMs ?? 0;
+      capForShiftMs = Math.max(0, capMs - earlierWorkedMs);
+    }
+  }
+
+  const crossing = findCapCrossing(shiftEvents, capForShiftMs, nowMs);
   if (!crossing) return;
 
   const autoOutRef = eventsRef.doc(`auto-${clockInEvent.id}`);
@@ -249,6 +275,7 @@ async function sweepCompanyAutoClockOut(companyDoc: FirebaseFirestore.QueryDocum
   const capHours = data.autoClockOut?.enabled === true ? data.autoClockOut?.maxWorkedHours : undefined;
   if (typeof capHours !== "number" || !Number.isFinite(capHours) || capHours <= 0) return;
   const capMs = capHours * 60 * 60 * 1000;
+  const overtime = companyOvertimeSettings(data);
 
   const nowMs = Date.now();
   // Cap is bounded to 24h by the Settings UI, but this reads the company
@@ -268,7 +295,7 @@ async function sweepCompanyAutoClockOut(companyDoc: FirebaseFirestore.QueryDocum
 
   for (const [employeeId, empEvents] of byEmployee) {
     try {
-      await maybeAutoClockOutEmployee(companyId, eventsRef, empEvents, capHours, capMs, nowMs);
+      await maybeAutoClockOutEmployee(companyId, eventsRef, empEvents, capHours, capMs, nowMs, overtime);
     } catch (err) {
       console.warn("Auto clock-out failed for employee", { companyId, employeeId, error: String(err) });
     }

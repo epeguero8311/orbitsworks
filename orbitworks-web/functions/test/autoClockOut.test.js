@@ -189,3 +189,69 @@ test("auto clock-out keeps the clock-in's site", async () => {
   assert.equal(out.data().siteId, "siteA");
   assert.equal(out.data().siteName, "Site A");
 });
+
+// ---- Overtime (Task 1) step 7: combined day with the Overtime toggle ON ----
+
+async function seedClosedShift(companyId, id, startHoursAgo, endHoursAgo) {
+  const base = { employeeId: "e1", employeeName: "Jordan", siteId: null, siteName: "", subcontractorId: null, subcontractorName: null, source: "pin" };
+  const col = db.collection("companies").doc(companyId).collection("clockEvents");
+  await col.doc(id).set({ ...base, type: "in", timestamp: admin.firestore.Timestamp.fromMillis(Date.now() - startHoursAgo * HOUR) });
+  await col.doc(`${id}-out`).set({ ...base, type: "out", timestamp: admin.firestore.Timestamp.fromMillis(Date.now() - endHoursAgo * HOUR) });
+}
+
+// Fixed "now" mid-afternoon Chicago so every shift below is on one day.
+const NOON_PLUS = Date.parse("2026-10-21T21:00:00-05:00");
+
+test("Overtime ON: cap counts the day's earlier closed shift; only the open shift is closed", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOON_PLUS });
+  const companyId = "ot-on-combined";
+  await seedCompany(companyId, { enabled: true, maxWorkedHours: 12 });
+  await db.collection("companies").doc(companyId).set({ overtimeEnabled: true }, { merge: true });
+  await seedClosedShift(companyId, "early", 13, 8); // 8am-1pm = 5h
+  const clockIn = await seedOpenShift(companyId, "late", 7.5); // since 1:30pm = 7.5h
+  await funcs.runAutoClockOut.run({});
+  const out = await getAutoOut(companyId, "late");
+  assert.ok(out.exists);
+  // 12h cap - 5h earlier = 7h into the open shift.
+  assert.equal(out.data().timestamp.toMillis(), clockIn.timestamp.toMillis() + 7 * HOUR);
+  const early = await db.collection("companies").doc(companyId).collection("clockEvents").doc("early-out").get();
+  assert.equal(early.data().timestamp.toMillis(), NOON_PLUS - 8 * HOUR); // untouched
+  assert.equal((await getAutoOut(companyId, "early")).exists, false);
+});
+
+test("Overtime ON: earlier shifts' Automatic Break is subtracted (decision 5)", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOON_PLUS });
+  const companyId = "ot-on-autobreak";
+  await seedCompany(companyId, { enabled: true, maxWorkedHours: 12 });
+  await db.collection("companies").doc(companyId).set(
+    { overtimeEnabled: true, exportSettings: { automaticBreakMinutes: 30, minimumShiftHours: 6 } },
+    { merge: true }
+  );
+  await seedClosedShift(companyId, "early", 13, 6); // 8am-3pm = 7h gross -> 6.5h worked
+  const clockIn = await seedOpenShift(companyId, "late", 5.75); // since 3:15pm = 5.75h
+  await funcs.runAutoClockOut.run({});
+  const out = await getAutoOut(companyId, "late");
+  assert.ok(out.exists); // 6.5 + 5.75 = 12.25 > 12
+  assert.equal(out.data().timestamp.toMillis(), clockIn.timestamp.toMillis() + 5.5 * HOUR);
+});
+
+test("Overtime OFF: earlier closed shifts don't count (per shift, as today)", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOON_PLUS });
+  const companyId = "ot-off-pershift";
+  await seedCompany(companyId, { enabled: true, maxWorkedHours: 12 });
+  await seedClosedShift(companyId, "early", 13, 8);
+  await seedOpenShift(companyId, "late", 7.5);
+  await funcs.runAutoClockOut.run({});
+  assert.equal((await getAutoOut(companyId, "late")).exists, false);
+});
+
+test("Overtime ON: a closed shift on another day doesn't count", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: NOON_PLUS });
+  const companyId = "ot-on-otherday";
+  await seedCompany(companyId, { enabled: true, maxWorkedHours: 12 });
+  await db.collection("companies").doc(companyId).set({ overtimeEnabled: true }, { merge: true });
+  await seedClosedShift(companyId, "yesterday", 30, 25); // previous day
+  await seedOpenShift(companyId, "late", 7.5);
+  await funcs.runAutoClockOut.run({});
+  assert.equal((await getAutoOut(companyId, "late")).exists, false);
+});
