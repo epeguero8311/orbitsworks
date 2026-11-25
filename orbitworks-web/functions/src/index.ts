@@ -60,7 +60,7 @@ export {
 
 export { setShiftTip } from "./shiftTips";
 
-export { setAdminAccess, setSiteAdmins, onJobSiteCreated } from "./adminPermissions";
+export { setAdminAccess, setSiteAdmins, onJobSiteCreated, fillJobSiteCreator } from "./adminPermissions";
 export { adminClockAction } from "./adminClockActions";
 export { getShiftData } from "./shiftReads";
 

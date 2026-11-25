@@ -524,11 +524,19 @@ service cloud.firestore {
         // Task 4 (D11): job site create/edit = Settings. A new site records
         // its creator (D17: a restricted creator gets it added to their own
         // sites by onJobSiteCreated); it can never be rewritten later.
+        // Backward compatible (Nov 25): createdByUid is REQUIRED only for an
+        // admin limited to some sites. Owner / Full access / all-sites admins
+        // may leave it out (the live website before Task 4 never sends it);
+        // fillJobSiteCreator then fills it from the write's auth context.
+        // When it IS sent it must always be the caller.
         allow create: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&
           hasPerm('set') &&
-          request.resource.data.get('createdByUid', null) == request.auth.uid;
+          (
+            request.resource.data.get('createdByUid', null) == request.auth.uid ||
+            (!('createdByUid' in request.resource.data) && !isRestrictedAdmin())
+          );
         allow update: if request.auth != null &&
           isAdminOrOwner() &&
           request.auth.token.companyId == companyId &&

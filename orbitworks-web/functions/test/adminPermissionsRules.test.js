@@ -145,6 +145,25 @@ test("Settings: company settings + job sites (createdByUid = creator, never rewr
   await assertFails(updateDoc(ref(restricted([]), "jobSites", "siteA"), { name: "Nope" }));
 });
 
+test("Job sites: createdByUid only required for a restricted admin (backward compatible, Nov 25)", async () => {
+  // owner / Full access / all-sites admin / legacy admin: may leave it out (live website)
+  await assertSucceeds(setDoc(ref(owner(), "jobSites", "o1"), { name: "O1", active: true }));
+  await assertSucceeds(setDoc(ref(fullAdmin(), "jobSites", "f1"), { name: "F1", active: true }));
+  await assertSucceeds(setDoc(ref(allSitesAdmin(["set"]), "jobSites", "a1"), { name: "A1", active: true }));
+  await assertSucceeds(setDoc(ref(legacyAdmin(), "jobSites", "l1"), { name: "L1", active: true }));
+  // ...or send their own uid
+  await assertSucceeds(setDoc(ref(owner(), "jobSites", "o2"), { name: "O2", active: true, createdByUid: "uidOwner" }));
+  // never someone else's, never null
+  await assertFails(setDoc(ref(owner(), "jobSites", "o3"), { name: "O3", active: true, createdByUid: "uidR" }));
+  await assertFails(setDoc(ref(fullAdmin(), "jobSites", "f2"), { name: "F2", active: true, createdByUid: null }));
+  // restricted admin (incl. one who is also a supervisor): must send their own
+  await assertFails(setDoc(ref(restricted(["set"]), "jobSites", "r1"), { name: "R1", active: true }));
+  await assertFails(setDoc(ref(restricted(["set"], { sup: true }), "jobSites", "r2"), { name: "R2", active: true }));
+  await assertSucceeds(setDoc(ref(restricted(["set"]), "jobSites", "r3"), { name: "R3", active: true, createdByUid: "uidR" }));
+  // still no Settings permission = no create
+  await assertFails(setDoc(ref(allSitesAdmin([]), "jobSites", "a2"), { name: "A2", active: true }));
+});
+
 test("Invites: permission needed; an invite can never carry access (G2)", async () => {
   const invite = (extra = {}) => ({ companyId: A, role: "admin", email: "new@x.com", status: "pending", ...extra });
   await assertFails(addDoc(collection(allSitesAdmin([]), "invites"), invite()));

@@ -309,3 +309,30 @@ test("getShiftData: re-approve 'OT changed' + weekly hours count every site for 
   assert.equal(off.overtime.sA.overtimeChanged, null);
   assert.equal(off.overtime.sA.weekWorkedMinutesThrough, 7 * 60);
 });
+
+// ---- fillJobSiteCreator (backward-compatible job site create, Nov 25) ----
+test("fillJobSiteCreator: fills a missing createdByUid from the auth context, only for this company's admin/owner", async () => {
+  const { creatorToFill } = require("../lib/adminPermissions.js");
+  const owner = { role: "owner", companyId: "c1" };
+  assert.equal(creatorToFill({ data: { name: "S" }, authId: "u1", user: owner, companyId: "c1" }), "u1");
+  assert.equal(creatorToFill({ data: { name: "S" }, authId: "u1", user: { role: "admin", companyId: "c1" }, companyId: "c1" }), "u1");
+  assert.equal(creatorToFill({ data: { name: "S", createdByUid: "x" }, authId: "u1", user: owner, companyId: "c1" }), null);
+  assert.equal(creatorToFill({ data: { name: "S", createdByUid: null }, authId: "u1", user: owner, companyId: "c1" }), null);
+  assert.equal(creatorToFill({ data: { name: "S" }, authId: "u1", user: { role: "owner", companyId: "c2" }, companyId: "c1" }), null);
+  assert.equal(creatorToFill({ data: { name: "S" }, authId: "u1", user: { role: "supervisor", companyId: "c1" }, companyId: "c1" }), null);
+  assert.equal(creatorToFill({ data: { name: "S" }, authId: undefined, user: owner, companyId: "c1" }), null);
+  assert.equal(creatorToFill({ data: { name: "S" }, authId: "u1", user: undefined, companyId: "c1" }), null);
+
+  // the trigger itself
+  const C = "fill-co";
+  await db.doc("users/fill-owner").set({ role: "owner", companyId: C });
+  const site = db.doc(`companies/${C}/jobSites/s1`);
+  await site.set({ name: "Live website site", active: true });
+  await funcs.fillJobSiteCreator.run({ data: { data: () => ({ name: "Live website site", active: true }) }, params: { companyId: C, siteId: "s1" }, authType: "unknown", authId: "fill-owner" });
+  assert.equal((await site.get()).data().createdByUid, "fill-owner");
+  // never over a value
+  const site2 = db.doc(`companies/${C}/jobSites/s2`);
+  await site2.set({ name: "B", active: true, createdByUid: "someone" });
+  await funcs.fillJobSiteCreator.run({ data: { data: () => ({ name: "B", active: true, createdByUid: "someone" }) }, params: { companyId: C, siteId: "s2" }, authType: "unknown", authId: "fill-owner" });
+  assert.equal((await site2.get()).data().createdByUid, "someone");
+});

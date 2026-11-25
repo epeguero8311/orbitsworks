@@ -1,5 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentCreatedWithAuthContext } from "firebase-functions/v2/firestore";
 import * as admin from "firebase-admin";
 import { db } from "./shared";
 import { canManageAdmin, resolveAdminAccess, type StoredAdminAccess } from "./adminAccessModel";
@@ -94,4 +94,43 @@ export const onJobSiteCreated = onDocumentCreated("companies/{companyId}/jobSite
   const a = target.access;
   if (a.level !== "admin" || a.sites === "all" || a.sites.includes(siteId)) return;
   await saveAdminAccess(creator, companyId, { level: "admin", sites: [...a.sites, siteId], permissions: a.permissions });
+});
+
+// Backward-compatible job site create (Nov 25, final checklist): owner /
+// Full access / all-sites admins may create a job site WITHOUT createdByUid
+// (the live website before Task 4 never sends it; firestore.rules allows it
+// for them only). This fills it from the write's auth context, so every
+// site still records its creator. Only when it is missing, only with a
+// signed-in caller who is an admin/owner of THIS company, never over an
+// existing value. Never needed for D17 (a restricted admin always sends it,
+// and onJobSiteCreated above handles that one). A separate trigger so
+// onJobSiteCreated keeps its trigger type.
+export function creatorToFill(args: {
+  data: Record<string, unknown> | undefined;
+  authId: string | undefined;
+  user: { role?: unknown; companyId?: unknown } | undefined;
+  companyId: string;
+}): string | null {
+  const { data, authId, user, companyId } = args;
+  if (!data || "createdByUid" in data) return null;
+  if (!authId || !user || user.companyId !== companyId) return null;
+  if (user.role !== "admin" && user.role !== "owner") return null;
+  return authId;
+}
+
+export const fillJobSiteCreator = onDocumentCreatedWithAuthContext("companies/{companyId}/jobSites/{siteId}", async (event) => {
+  const data = event.data?.data();
+  if (!data || "createdByUid" in data) return;
+  const { companyId, siteId } = event.params;
+  const authId = event.authId;
+  if (!authId) return;
+  const user = (await db.collection("users").doc(authId).get()).data();
+  const uid = creatorToFill({ data, authId, user, companyId });
+  if (!uid) return;
+  const ref = db.collection("companies").doc(companyId).collection("jobSites").doc(siteId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists || snap.get("createdByUid") !== undefined) return;
+    tx.update(ref, { createdByUid: uid });
+  });
 });
