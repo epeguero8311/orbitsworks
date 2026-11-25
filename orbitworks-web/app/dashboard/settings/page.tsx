@@ -80,6 +80,12 @@ function SettingsPageContent() {
             <ExportSettingsCard
               exportSettings={s.exportSettings}
               setExportSettings={s.setExportSettings}
+              otThreshold={s.otThreshold}
+              setOtThreshold={s.setOtThreshold}
+              otMultiplier={s.otMultiplier}
+              setOtMultiplier={s.setOtMultiplier}
+              overtime={s.overtime}
+              setOvertime={s.setOvertime}
             />
           )}
 
@@ -97,9 +103,6 @@ function SettingsPageContent() {
               alerts={s.alerts}
               setAlerts={s.setAlerts}
               otThreshold={s.otThreshold}
-              setOtThreshold={s.setOtThreshold}
-              otMultiplier={s.otMultiplier}
-              setOtMultiplier={s.setOtMultiplier}
               isPro={s.isPro}
               faceVerification={s.faceVerification}
               onFaceVerificationChange={s.setFaceVerification}

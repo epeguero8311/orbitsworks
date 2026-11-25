@@ -11,19 +11,15 @@ export function AlertsCard({
   alerts,
   setAlerts,
   otThreshold,
-  setOtThreshold,
-  otMultiplier,
-  setOtMultiplier,
   isPro,
   faceVerification,
   onFaceVerificationChange,
 }: {
   alerts: Alerts;
   setAlerts: Dispatch<SetStateAction<Alerts>>;
+  // Read-only here - the input moved to Export Settings > Overtime
+  // (Task 1). The warning still fires off it even with Overtime off.
   otThreshold: string;
-  setOtThreshold: (value: string) => void;
-  otMultiplier: string;
-  setOtMultiplier: (value: string) => void;
   isPro: boolean;
   faceVerification: FaceVerificationSettings;
   onFaceVerificationChange: (value: FaceVerificationSettings) => void;
@@ -68,27 +64,10 @@ export function AlertsCard({
         <div id="overtime-warning" className="py-1">
           <Toggle
             label="Overtime warning"
+            description={`Fires at ${otThreshold || "40"} hours/week. Change it in Export Settings > Overtime.`}
             checked={alerts.overtimeWarning}
             onChange={(v) => setAlerts((prev) => ({ ...prev, overtimeWarning: v }))}
           />
-          <ThresholdField
-            label="Warning at:"
-            suffix="hours/week"
-            value={otThreshold ? parseFloat(otThreshold) : 40}
-            onChange={(v) => setOtThreshold(String(v))}
-          />
-          <div className="flex items-center gap-2 pb-3.5">
-            <label className="text-xs text-gray-600">Pay multiplier:</label>
-            <input
-              type="number"
-              min="1"
-              step="0.1"
-              value={otMultiplier}
-              onChange={(e) => setOtMultiplier(e.target.value)}
-              className="w-20 rounded-md border border-gray-200 px-2 py-1 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-            />
-            <span className="text-xs text-gray-600">x hourly rate, used in Analytics</span>
-          </div>
         </div>
 
         <div id="missed-clockout-alert" className="py-1">
