@@ -1,6 +1,7 @@
 import { computeOvertime, type OvertimeSettings, type OvertimeShiftInput } from "@/lib/overtime";
 import { ceilTo } from "@/lib/utils/rounding";
 import type { Job, RoundingIncrement } from "@/lib/types";
+import { hoursDisplay, sumHoursDisplay, totalHoursShown, type HoursDisplay } from "@/lib/hoursDisplay";
 
 // Overtime (Task 1) step 5 - Reports / exports when the company's Overtime
 // toggle is ON. Pure (no Firebase), built on the shared computeOvertime.
@@ -109,6 +110,10 @@ export type OvertimeReportRow = {
   breakMinutes: number;
   workedMinutes: number;
   overtimeMinutes: number;
+  // What the row shows (decimal hours) - the same on screen, CSV and Excel;
+  // Shift - Break = Total Worked on every row (lib/hoursDisplay.ts). A Day
+  // total row is the sum of its job rows' shown hours.
+  hours: HoursDisplay;
   // Tips (Task 3): dollars from this row's own shifts (a 2-job day's tip
   // stays on its shift's job row; the Day total row adds them up). 0 = none.
   tips: number;
@@ -293,6 +298,7 @@ export function buildOvertimeReportRows(params: {
           breakMinutes: p.brk,
           workedMinutes: p.worked,
           overtimeMinutes: p.ot,
+          hours: hoursDisplay(p.clocked, p.brk, p.worked, p.ot),
           tips: p.tipCents / 100,
           pay: rowPay(p.rate, p.overtimeRate, p.worked, p.ot, p.tipCents / 100),
         });
@@ -300,6 +306,7 @@ export function buildOvertimeReportRows(params: {
       }
 
       let totalPay: number | null = 0;
+      const jobHours: HoursDisplay[] = [];
       parts.forEach((p, i) => {
         const pay = rowPay(p.rate, p.overtimeRate, p.worked, p.ot, p.tipCents / 100);
         totalPay = totalPay === null || pay === null ? null : totalPay + pay;
@@ -316,9 +323,11 @@ export function buildOvertimeReportRows(params: {
           breakMinutes: p.brk,
           workedMinutes: p.worked,
           overtimeMinutes: p.ot,
+          hours: hoursDisplay(p.clocked, p.brk, p.worked, p.ot),
           tips: p.tipCents / 100,
           pay,
         });
+        jobHours.push(rows[rows.length - 1].hours);
       });
       rows.push({
         ...base,
@@ -333,6 +342,7 @@ export function buildOvertimeReportRows(params: {
         breakMinutes: parts.reduce((sum, p) => sum + p.brk, 0),
         workedMinutes: parts.reduce((sum, p) => sum + p.worked, 0),
         overtimeMinutes: parts.reduce((sum, p) => sum + p.ot, 0),
+        hours: sumHoursDisplay(jobHours),
         tips: parts.reduce((sum, p) => sum + p.tipCents, 0) / 100,
         pay: totalPay,
       });
@@ -389,6 +399,10 @@ export type OvertimeEmployeeTotal = {
   // Includes tips (each row's pay already does).
   totalPay: number | null;
   totalTips: number;
+  // Shown hours: column sums of the employee's shown day rows (what the
+  // Excel SUMIFS gives), Total Worked rounded up once more with total
+  // rounding ON.
+  hours: HoursDisplay;
 };
 
 // Per employee: single rows + day total rows (never the job rows, which the
@@ -400,10 +414,11 @@ export function computeOvertimeTotals(
   rows: OvertimeReportRow[],
   roundTotalMinutes: RoundingIncrement
 ): Map<string, OvertimeEmployeeTotal> {
-  const acc = new Map<string, { shift: number; brk: number; worked: number; ot: number; tips: number; pay: number | null; defaultRate: number | null }>();
+  const acc = new Map<string, { shift: number; brk: number; worked: number; ot: number; tips: number; pay: number | null; defaultRate: number | null; hours: HoursDisplay[] }>();
   for (const row of rows) {
     if (row.kind === "job") continue;
-    const a = acc.get(row.employeeId) ?? { shift: 0, brk: 0, worked: 0, ot: 0, tips: 0, pay: null, defaultRate: row.defaultRate };
+    const a = acc.get(row.employeeId) ?? { shift: 0, brk: 0, worked: 0, ot: 0, tips: 0, pay: null, defaultRate: row.defaultRate, hours: [] };
+    a.hours.push(row.hours);
     a.shift += row.clockedMinutes;
     a.brk += row.breakMinutes;
     a.worked += row.workedMinutes;
@@ -423,6 +438,7 @@ export function computeOvertimeTotals(
       totalOvertimeMinutes: a.ot,
       totalPay: a.pay !== null && a.defaultRate !== null ? a.pay + (extra / 60) * a.defaultRate : a.pay,
       totalTips: a.tips,
+      hours: totalHoursShown(sumHoursDisplay(a.hours), roundTotalMinutes),
     });
   }
   return totals;

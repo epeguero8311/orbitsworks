@@ -4,6 +4,7 @@ import {
   computeDailyPaidMinutes,
   hoursToMinutes,
 } from "@/lib/utils/rounding";
+import { hoursDisplay, sumHoursDisplay, totalHoursShown, type HoursDisplay } from "@/lib/hoursDisplay";
 
 // One employee, one calendar day. Built once from hoursByEmployeeDay /
 // breakHoursByEmployeeDay (same maps the Excel export and the old
@@ -20,6 +21,9 @@ export type DailyBreakdownRow = {
   clockedMinutes: number; // "Hours" - gross clocked time, never rounded
   breakMinutes: number; // "Break" - never rounded
   workedMinutes: number; // "Total Worked" - break subtracted, then rounded
+  // What the row shows (decimal hours), Shift - Break = Total Worked - the
+  // same rounding as the Overtime ON rows (lib/hoursDisplay.ts).
+  hours: HoursDisplay;
   // Tips (Task 3): that day's tips in dollars (0 = none / Tips OFF).
   tips: number;
   // Wages + tips (tips are added into Est. Pay). null = no rate.
@@ -73,6 +77,7 @@ export function buildDailyBreakdownRows(
       clockedMinutes,
       breakMinutes,
       workedMinutes,
+      hours: hoursDisplay(clockedMinutes, breakMinutes, workedMinutes),
       tips,
       pay,
     });
@@ -93,6 +98,9 @@ export type EmployeeRoundedTotal = {
   // Includes tips (each day's pay already does).
   totalPay: number | null;
   totalTips: number;
+  // Shown hours: column sums of the employee's shown day rows (the Excel
+  // SUMIFs), Total Worked rounded up once more with total rounding ON.
+  hours: HoursDisplay;
 };
 
 // Rolls the already daily-rounded rows up to one total per employee, then
@@ -110,8 +118,10 @@ export function computeEmployeeRoundedTotals(
   const paySumByEmployee = new Map<string, number>();
   const rateByEmployee = new Map<string, number | null>();
   const tipsByEmployee = new Map<string, number>();
+  const hoursByEmployee = new Map<string, HoursDisplay[]>();
 
   for (const row of rows) {
+    hoursByEmployee.set(row.employeeId, [...(hoursByEmployee.get(row.employeeId) ?? []), row.hours]);
     tipsByEmployee.set(row.employeeId, (tipsByEmployee.get(row.employeeId) ?? 0) + (row.tips ?? 0));
     minutesByEmployee.set(
       row.employeeId,
@@ -137,7 +147,12 @@ export function computeEmployeeRoundedTotals(
       paySum != null && defaultRate != null
         ? paySum + (extraMinutes / 60) * defaultRate
         : paySum;
-    totals.set(employeeId, { totalWorkedMinutes, totalPay, totalTips: tipsByEmployee.get(employeeId) ?? 0 });
+    totals.set(employeeId, {
+      totalWorkedMinutes,
+      totalPay,
+      totalTips: tipsByEmployee.get(employeeId) ?? 0,
+      hours: totalHoursShown(sumHoursDisplay(hoursByEmployee.get(employeeId) ?? []), roundTotalMinutes),
+    });
   }
   return totals;
 }

@@ -1,4 +1,5 @@
 import { overtimeDayKey, overtimeWeekKey } from "@/lib/overtime";
+import { showHours } from "@/lib/hoursDisplay";
 import type {
   EmployeeSummary,
   SessionRecord,
@@ -7,7 +8,6 @@ import type {
 } from "@/lib/types";
 import type { DailyBreakdownRow, EmployeeRoundedTotal } from "@/lib/reportDailyBreakdown";
 import type { OvertimeReportRow, OvertimeEmployeeTotal } from "@/lib/reportOvertime";
-import { minutesToHoursDecimal } from "@/lib/utils/rounding";
 import { HOURS_COLUMNS, MIXED_RATE_LABEL } from "@/lib/hoursColumns";
 
 export const APPROVALS_CUTOVER_DATE = "2026-09-06";
@@ -145,11 +145,14 @@ export function toPayrollCsv(
     const roundedTotal = roundedTotalsByEmployee.get(s.employeeId);
     const estimatedPay = roundedTotal?.totalPay ?? s.estimatedPay;
     const tips = roundedTotal?.totalTips ?? s.tips ?? 0;
+    // Shown hours: sums of the shown day rows below (lib/hoursDisplay.ts).
+    const shiftHours = roundedTotal?.hours.shift ?? s.totalHours;
+    const breakHours = roundedTotal?.hours.brk ?? s.totalBreakHours;
     return withTipsBeforePay([
       s.employeeName,
-      s.totalHours.toFixed(2),
-      formatHours(s.totalHours),
-      s.totalBreakHours.toFixed(2),
+      showHours(shiftHours),
+      formatHours(shiftHours),
+      showHours(breakHours),
       String(s.sessionCount),
       String(s.openSessions),
       s.hourlyRate != null ? s.hourlyRate.toFixed(2) : "",
@@ -174,9 +177,9 @@ export function toPayrollCsv(
         d.date,
         d.jobLabel,
         d.rate != null ? d.rate.toFixed(2) : "",
-        minutesToHoursDecimal(d.clockedMinutes),
-        minutesToHoursDecimal(d.breakMinutes),
-        minutesToHoursDecimal(d.workedMinutes),
+        showHours(d.hours.shift),
+        showHours(d.hours.brk),
+        showHours(d.hours.worked),
         d.pay != null ? d.pay.toFixed(2) : "",
       ],
       (d.tips ?? 0).toFixed(2),
@@ -231,18 +234,17 @@ export function toPayrollCsvWithOvertime(
   ];
   const rows = summaries.map((s) => {
     const total = overtimeTotals.get(s.employeeId);
-    const worked = total?.totalWorkedMinutes ?? 0;
-    const ot = total?.totalOvertimeMinutes ?? 0;
     const mixed = (jobsByEmployee.get(s.employeeId)?.size ?? 0) >= 2;
-    const shiftHours = (total?.totalShiftMinutes ?? 0) / 60;
+    // Shown hours: sums of the shown day rows (lib/hoursDisplay.ts).
+    const h = total?.hours ?? { shift: 0, brk: 0, regular: 0, overtime: 0, worked: 0 };
     return withTipsBeforePay([
       s.employeeName,
-      shiftHours.toFixed(2),
-      formatHours(shiftHours),
-      minutesToHoursDecimal(total?.totalBreakMinutes ?? 0),
-      minutesToHoursDecimal(worked - ot),
-      minutesToHoursDecimal(ot),
-      minutesToHoursDecimal(worked),
+      showHours(h.shift),
+      formatHours(h.shift),
+      showHours(h.brk),
+      showHours(h.regular),
+      showHours(h.overtime),
+      showHours(h.worked),
       String(s.sessionCount),
       String(s.openSessions),
       mixed ? MIXED_RATE_LABEL : s.hourlyRate != null ? s.hourlyRate.toFixed(2) : "",
@@ -269,11 +271,11 @@ export function toPayrollCsvWithOvertime(
         d.date,
         d.jobLabel,
         d.rate != null ? d.rate.toFixed(2) : "",
-        minutesToHoursDecimal(d.clockedMinutes),
-        minutesToHoursDecimal(d.breakMinutes),
-        minutesToHoursDecimal(d.workedMinutes - d.overtimeMinutes),
-        minutesToHoursDecimal(d.overtimeMinutes),
-        minutesToHoursDecimal(d.workedMinutes),
+        showHours(d.hours.shift),
+        showHours(d.hours.brk),
+        showHours(d.hours.regular),
+        showHours(d.hours.overtime),
+        showHours(d.hours.worked),
         d.pay != null ? d.pay.toFixed(2) : "",
       ],
       (d.tips ?? 0).toFixed(2),

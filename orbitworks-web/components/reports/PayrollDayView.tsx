@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { EmployeeSummary, Job, RoundingIncrement } from "@/lib/types";
 import { dateKey } from "@/lib/reportUtils";
 import { minutesToHoursDecimal } from "@/lib/utils/rounding";
+import { showHours } from "@/lib/hoursDisplay";
 import { buildDailyBreakdownRows } from "@/lib/reportDailyBreakdown";
 import type { OvertimeReportRow } from "@/lib/reportOvertime";
 import { HOURS_COLUMNS as H } from "@/lib/hoursColumns";
@@ -180,11 +181,13 @@ export default function PayrollDayView({
                         <span className="text-gray-950">Day total</span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.clockedMinutes)}</td>
-                    <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.breakMinutes)}</td>
-                    <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.workedMinutes - r.overtimeMinutes)}</td>
-                    <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.overtimeMinutes)}</td>
-                    <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(r.workedMinutes)}</td>
+                    {/* Shown hours (lib/hoursDisplay.ts): same as CSV/Excel,
+                        Shift - Break = Total Worked. */}
+                    <td className="px-4 py-2.5 font-mono text-gray-950">{showHours(r.hours.shift)}</td>
+                    <td className="px-4 py-2.5 font-mono text-gray-950">{showHours(r.hours.brk)}</td>
+                    <td className="px-4 py-2.5 font-mono text-gray-950">{showHours(r.hours.regular)}</td>
+                    <td className="px-4 py-2.5 font-mono text-gray-950">{showHours(r.hours.overtime)}</td>
+                    <td className="px-4 py-2.5 font-mono text-gray-950">{showHours(r.hours.worked)}</td>
                     {tipsEnabled && <td className="px-4 py-2.5 font-mono text-gray-950">${r.tips.toFixed(2)}</td>}
                     <td className="px-4 py-2.5 font-mono text-gray-950">
                       {r.pay != null ? `$${r.pay.toFixed(2)}` : "-"}
@@ -241,15 +244,9 @@ export default function PayrollDayView({
                         ))}
                     </select>
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-gray-950">
-                    {minutesToHoursDecimal(r.clockedMinutes)}
-                  </td>
-                  <td className="px-4 py-2.5 font-mono text-gray-950">
-                    {minutesToHoursDecimal(r.breakMinutes)}
-                  </td>
-                  <td className="px-4 py-2.5 font-mono text-gray-950">
-                    {minutesToHoursDecimal(r.workedMinutes)}
-                  </td>
+                  <td className="px-4 py-2.5 font-mono text-gray-950">{showHours(r.hours.shift)}</td>
+                  <td className="px-4 py-2.5 font-mono text-gray-950">{showHours(r.hours.brk)}</td>
+                  <td className="px-4 py-2.5 font-mono text-gray-950">{showHours(r.hours.worked)}</td>
                   {tipsEnabled && (
                     <td className="px-4 py-2.5 font-mono text-gray-950">${r.tips.toFixed(2)}</td>
                   )}

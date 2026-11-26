@@ -11,7 +11,7 @@ const parse = (csv) => csv.split("\n").map((line) => line.replace(/^"|"$/g, "").
 const SUMMARY = [{ employeeId: "juan", employeeName: "Juan", totalHours: 10, totalBreakHours: 0, sessionCount: 2, openSessions: 0, hourlyRate: 15, estimatedPay: 150, subcontractorId: null, subcontractorName: null }];
 
 test("Overtime OFF CSV: same numbers, new labels only", () => {
-  const daily = [{ key: "juan__2026-11-10", employeeId: "juan", employeeName: "Juan", date: "2026-11-10", overrideJobId: "", jobLabel: "Default", rate: 15, clockedMinutes: 600, breakMinutes: 0, workedMinutes: 600, pay: 150 }];
+  const daily = [{ key: "juan__2026-11-10", employeeId: "juan", employeeName: "Juan", date: "2026-11-10", overrideJobId: "", jobLabel: "Default", rate: 15, clockedMinutes: 600, breakMinutes: 0, workedMinutes: 600, hours: { shift: 10, brk: 0, regular: 10, overtime: 0, worked: 10 }, pay: 150 }];
   const lines = toPayrollCsv(SUMMARY, "2026-11-09", "2026-11-15", daily, new Map()).split("\n");
   assert.equal(lines[1], "Employee,Shift Hours (decimal),Shift Hours (h:m),Break (decimal),Completed Sessions,Missing Clock-Outs,Hourly Rate,Estimated Pay (Excluding Break)");
   assert.equal(lines[5], "Employee,Date,Job,Hourly Rate,Shift Hours,Break,Total Worked,Estimated Pay");

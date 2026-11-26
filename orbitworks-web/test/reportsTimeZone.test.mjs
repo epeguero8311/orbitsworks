@@ -105,10 +105,10 @@ test("OT Test Co Emilio, Overtime OFF: Nov 25 7:10 PM shift on Nov 25 (was merge
   assert.deepEqual(
     dayRows.map((d) => [d.dateKey, Number(d.hours.toFixed(2)), Number(d.breakHours.toFixed(2)), Number(d.workedHours.toFixed(2)), d.tips]),
     [
-      // 30.9 s clocked / 15.8 s break: worked rounds per minute to 1 min
-      // (0.02 h) - same as the Overtime ON row.
-      ["2026-11-25", 0.01, 0, 0.02, 0],
-      ["2026-11-26", 5.72, 2.11, 3.6, 234],
+      // Whole minutes per day, same as the Overtime ON rows: 30.9 s clocked
+      // = 1 min, 15.8 s break = 0 min, worked 1 min (0.02 h).
+      ["2026-11-25", 0.02, 0, 0.02, 0],
+      ["2026-11-26", 5.72, 2.12, 3.6, 234],
     ]
   );
   assert.equal(r.summaries[0].sessionCount, 6);

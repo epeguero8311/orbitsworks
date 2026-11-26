@@ -4,7 +4,7 @@ import type { EmployeeSummary } from "@/lib/types";
 import { formatHours } from "@/lib/reportUtils";
 import type { EmployeeRoundedTotal } from "@/lib/reportDailyBreakdown";
 import type { OvertimeEmployeeTotal } from "@/lib/reportOvertime";
-import { minutesToHoursDecimal } from "@/lib/utils/rounding";
+import { showHours } from "@/lib/hoursDisplay";
 import { HOURS_COLUMNS as H } from "@/lib/hoursColumns";
 
 export default function PayrollTable({
@@ -40,7 +40,13 @@ export default function PayrollTable({
     return roundedTotalsByEmployee.get(s.employeeId)?.totalTips ?? s.tips ?? 0;
   }
 
-  const totalHoursAll = summaries.reduce((sum, s) => sum + s.totalHours, 0);
+  // Shift Hours as shown: the sum of the employee's shown day rows (same as
+  // the Excel summary), Overtime ON or OFF.
+  function shiftHoursFor(s: EmployeeSummary): number {
+    if (overtimeTotals) return overtimeTotals.get(s.employeeId)?.hours.shift ?? 0;
+    return roundedTotalsByEmployee.get(s.employeeId)?.hours.shift ?? s.totalHours;
+  }
+  const totalHoursAll = summaries.reduce((sum, s) => sum + shiftHoursFor(s), 0);
   const totalOpenSessions = summaries.reduce((sum, s) => sum + s.openSessions, 0);
   const totalEstimatedPay = summaries.reduce((sum, s) => sum + (payFor(s) ?? 0), 0);
   const anyRatesMissing = summaries.some((s) => s.hourlyRate == null);
@@ -114,20 +120,16 @@ export default function PayrollTable({
                       the same day rows, so Shift - Break = Total Worked and
                       Regular + Overtime = Total Worked. OFF: as before. */}
                   <td className="px-4 py-2.5 font-mono text-gray-950">
-                    {overtimeTotals
-                      ? minutesToHoursDecimal(overtimeTotals.get(s.employeeId)?.totalShiftMinutes ?? 0)
-                      : formatHours(s.totalHours)}
+                    {overtimeTotals ? showHours(shiftHoursFor(s)) : formatHours(shiftHoursFor(s))}
                   </td>
                   {overtimeTotals && (() => {
-                    const t = overtimeTotals.get(s.employeeId);
-                    const worked = t?.totalWorkedMinutes ?? 0;
-                    const ot = t?.totalOvertimeMinutes ?? 0;
+                    const h = overtimeTotals.get(s.employeeId)?.hours;
                     return (
                       <>
-                        <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(t?.totalBreakMinutes ?? 0)}</td>
-                        <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(worked - ot)}</td>
-                        <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(ot)}</td>
-                        <td className="px-4 py-2.5 font-mono text-gray-950">{minutesToHoursDecimal(worked)}</td>
+                        <td className="px-4 py-2.5 font-mono text-gray-950">{showHours(h?.brk ?? 0)}</td>
+                        <td className="px-4 py-2.5 font-mono text-gray-950">{showHours(h?.regular ?? 0)}</td>
+                        <td className="px-4 py-2.5 font-mono text-gray-950">{showHours(h?.overtime ?? 0)}</td>
+                        <td className="px-4 py-2.5 font-mono text-gray-950">{showHours(h?.worked ?? 0)}</td>
                       </>
                     );
                   })()}

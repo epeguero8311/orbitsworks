@@ -14,6 +14,7 @@ import type { OvertimeReportRow } from "@/lib/reportOvertime";
 import type { Workbook, Row, Cell } from "exceljs";
 import { HOURS_COLUMNS, MIXED_RATE_LABEL, addHoursHeaderNotes } from "@/lib/hoursColumns";
 import { markIgnoredFormulaErrors } from "@/lib/xlsxIgnoredErrors";
+import { hoursDisplay } from "@/lib/hoursDisplay";
 
 // 1 -> "A", 27 -> "AA" (Tips, Task 3: columns after Tips shift by one).
 export function colLetter(n: number): string {
@@ -100,20 +101,21 @@ export function buildDayRows(
     const jobId = approvedJobIdByEmployeeDay.get(key) ?? employeeJobIdById.get(employeeId) ?? null;
     const defaultJobName = jobId ? jobNameById.get(jobId) ?? null : null;
 
-    const breakHours = breakHoursByEmployeeDay.get(key) ?? 0;
-    const workedMinutes = computeDailyPaidMinutes(
-      hoursToMinutes(hours),
-      hoursToMinutes(breakHours),
-      roundDailyMinutes
-    );
+    // Whole minutes per day, then the shown hours (lib/hoursDisplay.ts) -
+    // the same rounding as the Overtime ON sheet and the Reports page, so
+    // Shift Hours - Break = Total Worked on every row.
+    const clockedMinutes = hoursToMinutes(hours);
+    const breakMinutes = hoursToMinutes(breakHoursByEmployeeDay.get(key) ?? 0);
+    const workedMinutes = computeDailyPaidMinutes(clockedMinutes, breakMinutes, roundDailyMinutes);
+    const shown = hoursDisplay(clockedMinutes, breakMinutes, workedMinutes);
 
     rows.push({
       employeeName,
       dateKey: dateStr,
       dateLabel,
-      hours,
-      breakHours,
-      workedHours: workedMinutes / 60,
+      hours: shown.shift,
+      breakHours: shown.brk,
+      workedHours: shown.worked,
       defaultRate: rateById.get(employeeId) ?? null,
       defaultJobName,
       subcontractorName: companyById.get(employeeId) ?? null,
@@ -354,6 +356,9 @@ export function addPayrollSheet(
   sortedSummaries.forEach((s, idx) => {
     const row = summaryFirstDataRow + idx;
     if (sortedDayRows.length > 0) {
+      // Shift Hours from the same day rows as Break and Total Worked, so the
+      // summary adds up too (was the exact clocked total).
+      sheet.getCell(row, 2).value = { formula: sumIf(row, "E") };
       sheet.getCell(row, 3).value = { formula: sumIf(row, "F") };
       sheet.getCell(row, 4).value =
         roundTotalMinutes === 0
@@ -924,10 +929,11 @@ export function addPayrollSheetWithOvertime(
     }
     if (d.kind === "job" && dayJobRowStart === null) dayJobRowStart = r;
 
-    row.getCell(5).value = Number((d.clockedMinutes / 60).toFixed(2));
-    row.getCell(6).value = Number((d.breakMinutes / 60).toFixed(2));
-    row.getCell(8).value = Number((d.overtimeMinutes / 60).toFixed(2));
-    row.getCell(9).value = Number((d.workedMinutes / 60).toFixed(2));
+    // Shown hours (lib/hoursDisplay.ts): Shift - Break = Total Worked.
+    row.getCell(5).value = d.hours.shift;
+    row.getCell(6).value = d.hours.brk;
+    row.getCell(8).value = d.hours.overtime;
+    row.getCell(9).value = d.hours.worked;
     row.getCell(DEFAULT_RATE).value = d.defaultRate;
     row.getCell(DEFAULT_OT_RATE).value = d.defaultOvertimeRate;
     if (showTips) row.getCell(TIPS).value = Number((d.tips ?? 0).toFixed(2));
