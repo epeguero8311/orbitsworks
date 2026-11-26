@@ -58,6 +58,10 @@ export type AppSettings = {
   // functions/src/updateEmployee.ts, which also enforces this server-side) -
   // independent of allowAppEmployeeCreate, defaulted the same way.
   allowAppEmployeeUpdate: boolean;
+  // Task 5 v2 (3): Kiosk section. Default OFF (missing = off). The server
+  // (createEmployee / reserveEmployeePin / getKioskPinTable) enforces both.
+  kioskCreateAccount?: boolean;
+  kioskRequireAdminPin?: boolean;
   // Company-wide policy (replaced a per-device AsyncStorage toggle on
   // mobile) - when on, clock-in without Pro geofencing auto-detection
   // picks the employee's own assigned site instead of trusting whatever
@@ -206,6 +210,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   allowAppEmployeeCreate: true,
   allowAppEmployeeUpdate: true,
   askJobSiteEachTime: true,
+  kioskCreateAccount: false,
+  kioskRequireAdminPin: false,
 };
 
 export const DEFAULT_EXPORT_SETTINGS: ExportSettings = {

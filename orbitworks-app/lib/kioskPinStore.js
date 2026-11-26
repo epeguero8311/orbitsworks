@@ -146,6 +146,17 @@ export async function lookupKioskPin(pin) {
   return findEmployeeByHash(table, await hashPin(table.salt, pin));
 }
 
+// Task 5 v2 (G): an admin PIN -> the proof createEmployee /
+// reserveEmployeePin check (the unlocker's id + this table's salt + the
+// salted hash). Never the PIN itself. null = not an admin PIN here.
+export async function adminProofForPin(pin) {
+  const table = current ? current.table : null;
+  if (!table) return null;
+  const hash = await hashPin(table.salt, pin);
+  const unlocker = findUnlockerByHash(table, hash);
+  return unlocker ? { employeeId: unlocker.id, salt: table.salt, hash } : null;
+}
+
 // K17: an admin's own PIN that opens Kiosk Settings, or null.
 export async function lookupKioskUnlocker(pin) {
   const table = current ? current.table : null;

@@ -1,179 +1,129 @@
-import { useRef, useState } from "react";
-import {
-  View, Text, TextInput, TouchableOpacity, Image, StyleSheet,
-  ScrollView, KeyboardAvoidingView, Platform,
-} from "react-native";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { useState } from "react";
+import { Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
-import { Feather } from "@expo/vector-icons";
 import { useAuth } from "../../lib/AuthContext";
 import { useTheme } from "../../lib/ThemeContext";
 import { validateEmployeeName, EMPLOYEE_NAME_MAX_LENGTH } from "../../lib/validators/createEmployee";
 import { queueCreateEmployee } from "../../lib/employeeQueue";
 import { syncEmployeeQueueItemNow } from "../../lib/employeeQueueSync";
+import { birthdayIso, pinForNewEmployee } from "../../lib/employeeCreateFlow";
+import { syncKioskTable } from "../../lib/kioskPinStore";
 import ScreenHeader from "../../components/ScreenHeader";
-import CreateEmployeeSuccessModal from "../../components/supervisor/CreateEmployeeSuccessModal";
-import PhotoNoticeModal from "../../components/supervisor/PhotoNoticeModal";
+import BirthdayBoxes from "../../components/join/BirthdayBoxes";
+import PhotoButton from "../../components/camera/PhotoButton";
+import NewPinModal from "../../components/supervisor/NewPinModal";
 import Spinner from "../../components/Spinner";
 
-// How long the online attempt gets to finish before this just falls back to
-// the offline messaging - the queued item keeps retrying in the background
-// either way (see employeeQueueSync.js), so a slow/lying "connected" network
-// never leaves the person stuck watching a spinner.
+// Create Employee (supervisor app) and Create account (Kiosk, Task 5 v2):
+//   Name, Birthday (MM/DD/YYYY), Photo (full-screen camera, retake / use)
+//   -> "Your PIN: 4821 ..." [OK] -> only then is the account created.
+// The PIN is held for this login on the server first (reserveEmployeePin,
+// which also blocks a same name + birthday duplicate); offline it is a
+// local guess and the create waits in the queue like before.
+// route.params: { mode: "kiosk", adminProof } for the kiosk.
+
 const ONLINE_ATTEMPT_TIMEOUT_MS = 10000;
 
 function withTimeout(promise, ms) {
-  return Promise.race([
-    promise,
-    new Promise((resolve) => setTimeout(() => resolve(null), ms)),
-  ]);
+  return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
 }
 
-export default function CreateEmployeeScreen({ navigation }) {
+const STOP_TEXT = {
+  duplicate: null, // the server's own message
+  adminPin: "That admin PIN can't approve this. Go back and try again.",
+  createOff: "Creating accounts on this kiosk is turned off.",
+  notPro: "Kiosk needs Pro - ask your admin",
+};
+
+export default function CreateEmployeeScreen({ navigation, route }) {
+  const mode = route?.params?.mode === "kiosk" ? "kiosk" : "supervisor";
+  const adminProof = route?.params?.adminProof ?? null;
+  const isKiosk = mode === "kiosk";
   const { userData, currentUser } = useAuth();
   const { colors } = useTheme();
-  const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef(null);
 
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState(null);
-  const [rawPhotoUri, setRawPhotoUri] = useState(null); // just snapped, awaiting retake/use
-  const [confirmedPhotoUri, setConfirmedPhotoUri] = useState(null); // set
-  const [capturing, setCapturing] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState(null);
-  const [result, setResult] = useState(null); // { name, pin, photoUri, offline }
-  // Notice-before-capture (Terms Section 4.1) - the camera only renders
-  // once this holds a timestamp, gating every path into handleCapture
-  // behind having shown and acknowledged the notice first. Threaded
-  // through to queueCreateEmployee as photoNoticeShownAt.
+  const [birthday, setBirthday] = useState({ mm: "", dd: "", yyyy: "" });
+  const [birthdayError, setBirthdayError] = useState(null);
+  const [photoUri, setPhotoUri] = useState(null);
   const [photoNoticeShownAt, setPhotoNoticeShownAt] = useState(null);
+  const [preparing, setPreparing] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+  const [pending, setPending] = useState(null); // { name, dob, pin } waiting for OK
+  const [creating, setCreating] = useState(false);
 
-  const canSubmit = !!validateEmployeeName(name).valid && !!confirmedPhotoUri && !submitting;
-  // CameraView's native preview surface renders black on Android when it
-  // is a descendant of a ScrollView (a SurfaceView/TextureView compositing
-  // issue ScrollView's clipping/recycling triggers - iOS's layer-based
-  // preview does not have this problem). Rendered inside a plain View
-  // instead whenever the live camera is actually on screen; every other
-  // state (photo preview, permission prompt, notice) stays in the
-  // ScrollView below.
-  const showingLiveCamera = !!permission?.granted && !!photoNoticeShownAt && !rawPhotoUri && !confirmedPhotoUri;
+  const canContinue = !!validateEmployeeName(name).valid && !!photoUri && !preparing;
 
-  async function handleCapture() {
-    if (!cameraRef.current || capturing) return;
-    setCapturing(true);
-    try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
-      setRawPhotoUri(photo.uri);
-    } finally {
-      setCapturing(false);
-    }
+  function goHome() {
+    if (isKiosk) navigation.popToTop();
+    else navigation.navigate("MainTabs");
   }
 
-  function handleRetake() {
-    setRawPhotoUri(null);
-  }
-
-  function handleUsePhoto() {
-    setConfirmedPhotoUri(rawPhotoUri);
-    setRawPhotoUri(null);
-  }
-
-  function handleRetakeConfirmed() {
-    setConfirmedPhotoUri(null);
-  }
-
-  async function handleCreate() {
+  async function handleContinue() {
     const validated = validateEmployeeName(name);
-    if (!validated.valid) {
-      setNameError(validated.error);
-      return;
-    }
-    if (!confirmedPhotoUri || submitting) return;
+    const bday = birthdayIso(birthday);
+    setNameError(validated.valid ? null : validated.error);
+    setBirthdayError(bday.ok ? null : bday.error);
+    if (!validated.valid || !bday.ok || !photoUri || preparing) return;
 
     setSubmitError(null);
-    setSubmitting(true);
+    setPreparing(true);
     try {
-      const { localId, pin: localPin } = await queueCreateEmployee({
-        name: validated.trimmed,
-        photoUri: confirmedPhotoUri,
+      const { pin } = await pinForNewEmployee({ name: validated.trimmed, dob: bday.iso, adminProof, mode });
+      setPending({ name: validated.trimmed, dob: bday.iso, pin });
+    } catch (err) {
+      setSubmitError(STOP_TEXT[err.code] || err.message || "Something went wrong. Try again.");
+    } finally {
+      setPreparing(false);
+    }
+  }
+
+  // OK in the PIN modal: NOW the account is created (queued, then sent).
+  async function handleOk() {
+    if (!pending || creating) return;
+    setCreating(true);
+    try {
+      const { localId } = await queueCreateEmployee({
+        name: pending.name,
+        photoUri,
         createdByUid: currentUser.uid,
         companyId: userData.companyId,
         photoNoticeShownAt,
+        pin: pending.pin,
+        dob: pending.dob,
+        mode,
+        adminProof: isKiosk ? adminProof : null,
       });
 
       const net = await NetInfo.fetch();
-      let outcome = null;
-      if (net.isConnected) {
-        outcome = await withTimeout(
-          syncEmployeeQueueItemNow(localId, userData.companyId),
-          ONLINE_ATTEMPT_TIMEOUT_MS
-        );
-      }
+      const outcome = net.isConnected
+        ? await withTimeout(syncEmployeeQueueItemNow(localId, userData.companyId), ONLINE_ATTEMPT_TIMEOUT_MS)
+        : null;
 
-      if (outcome?.success) {
-        setResult({ name: validated.trimmed, pin: outcome.pin, photoUri: confirmedPhotoUri, offline: false });
+      if (outcome?.success && outcome.pin && outcome.pin !== pending.pin) {
+        // Rare: the hold ran out and the PIN was taken meanwhile.
+        Alert.alert("PIN changed", `${pending.name}'s PIN is ${outcome.pin}. Write it down - it can't be shown again.`);
       } else if (outcome?.terminal) {
-        setSubmitError(
-          "Couldn't create this employee - see the alert for details, or try again from Employee Alerts."
-        );
-        return;
-      } else {
-        // Offline, or the attempt timed out / hit a transient error - the
-        // queue keeps retrying in the background (see useEmployeeQueueSync.js).
-        setResult({ name: validated.trimmed, pin: localPin, photoUri: confirmedPhotoUri, offline: true });
+        Alert.alert("Not created", isKiosk ? "This account couldn't be created. Ask your admin." : "Couldn't create this employee - see Employee Alerts for details.");
       }
+      if (isKiosk && currentUser?.uid) syncKioskTable(currentUser.uid).catch(() => {});
+      setPending(null);
+      goHome();
     } catch (err) {
       console.log("Create employee failed:", err.message);
+      setPending(null);
       setSubmitError("Something went wrong. Try again.");
     } finally {
-      setSubmitting(false);
+      setCreating(false);
     }
   }
 
-  function handleModalClose() {
-    setResult(null);
-    navigation.navigate("MainTabs");
-  }
-
-  if (!permission) {
-    return <View style={styles.center}><Spinner size={20} color={colors.accent} /></View>;
-  }
-
   return (
-    <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <ScreenHeader title="Create Employee" onBack={() => navigation.goBack()} />
-      {showingLiveCamera ? (
-        <View style={styles.content}>{renderFormBody()}</View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          {renderFormBody()}
-        </ScrollView>
-      )}
-
-      <CreateEmployeeSuccessModal
-        visible={!!result}
-        name={result?.name}
-        pin={result?.pin}
-        photoUri={result?.photoUri}
-        offline={result?.offline}
-        onClose={handleModalClose}
-      />
-
-      <PhotoNoticeModal
-        visible={!!permission?.granted && !photoNoticeShownAt && !rawPhotoUri && !confirmedPhotoUri}
-        onAcknowledge={setPhotoNoticeShownAt}
-      />
-    </KeyboardAvoidingView>
-  );
-
-  function renderFormBody() {
-    return (
-      <>
-        <Text style={[styles.label, { color: colors.subtext }]}>Full name</Text>
+    <KeyboardAvoidingView style={[styles.container, { backgroundColor: colors.background }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <ScreenHeader title={isKiosk ? "Create account" : "Create Employee"} onBack={() => (isKiosk ? navigation.popToTop() : navigation.goBack())} />
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <Text style={[styles.label, { color: colors.subtext }]}>Name</Text>
         <TextInput
           value={name}
           onChangeText={(text) => {
@@ -183,123 +133,56 @@ export default function CreateEmployeeScreen({ navigation }) {
           placeholder="e.g. Jordan Lee"
           placeholderTextColor={colors.subtext}
           maxLength={EMPLOYEE_NAME_MAX_LENGTH}
-          style={[
-            styles.input,
-            { borderColor: colors.border, color: colors.text, backgroundColor: colors.card },
-          ]}
+          style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.card }]}
         />
         {nameError && <Text style={[styles.error, { color: colors.red }]}>{nameError}</Text>}
 
-        <Text style={[styles.label, { color: colors.subtext, marginTop: 20 }]}>Reference photo</Text>
+        <Text style={[styles.label, { color: colors.subtext, marginTop: 20 }]}>Birthday</Text>
+        <BirthdayBoxes
+          value={birthday}
+          onChange={(b) => {
+            setBirthday(b);
+            setBirthdayError(null);
+          }}
+          editable={!preparing}
+          colors={colors}
+        />
+        {birthdayError && <Text style={[styles.error, { color: colors.red }]}>{birthdayError}</Text>}
 
-        {confirmedPhotoUri ? (
-          <View style={styles.confirmedRow}>
-            <Image source={{ uri: confirmedPhotoUri }} style={styles.confirmedPhoto} />
-            <TouchableOpacity
-              style={[styles.retakeChip, { borderColor: colors.border }]}
-              onPress={handleRetakeConfirmed}
-            >
-              <Feather name="camera" size={14} color={colors.accent} />
-              <Text style={[styles.retakeChipText, { color: colors.accent }]}>Retake</Text>
-            </TouchableOpacity>
-          </View>
-        ) : rawPhotoUri ? (
-          <View style={styles.photoBox}>
-            <Image source={{ uri: rawPhotoUri }} style={styles.cameraFill} />
-            <View style={styles.previewActions}>
-              <TouchableOpacity style={[styles.previewButton, { backgroundColor: "rgba(0,0,0,0.55)" }]} onPress={handleRetake}>
-                <Text style={styles.previewButtonText}>Retake</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.previewButton, { backgroundColor: colors.accent }]} onPress={handleUsePhoto}>
-                <Text style={styles.previewButtonText}>Use photo</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : !permission.granted ? (
-          <View style={[styles.photoBox, styles.permBox, { borderColor: colors.border }]}>
-            <Text style={[styles.permText, { color: colors.text }]}>
-              Camera access is needed to take a reference photo.
-            </Text>
-            <TouchableOpacity style={[styles.previewButton, { backgroundColor: colors.accent }]} onPress={requestPermission}>
-              <Text style={styles.previewButtonText}>Grant Permission</Text>
-            </TouchableOpacity>
-          </View>
-        ) : !photoNoticeShownAt ? (
-          <View style={[styles.photoBox, styles.permBox, { borderColor: colors.border }]}>
-            <Text style={[styles.permText, { color: colors.text }]}>
-              Review the identity-verification notice to continue.
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.photoBox}>
-            <CameraView ref={cameraRef} style={styles.cameraFill} facing="front" />
-            <View pointerEvents="none" style={styles.faceGuide} />
-            <Text style={styles.guideHint}>Center their face in the frame</Text>
-            <TouchableOpacity
-              style={[styles.captureButton, capturing && styles.captureButtonDisabled]}
-              onPress={handleCapture}
-              disabled={capturing}
-            >
-              {capturing ? <Spinner size={20} color="#fff" /> : <View style={styles.captureInner} />}
-            </TouchableOpacity>
-          </View>
-        )}
+        <Text style={[styles.label, { color: colors.subtext, marginTop: 20 }]}>Photo</Text>
+        <PhotoButton
+          photoUri={photoUri}
+          name={name}
+          onPhoto={(uri, noticeAt) => {
+            setPhotoUri(uri);
+            setPhotoNoticeShownAt(noticeAt);
+          }}
+          disabled={preparing}
+        />
 
         {submitError && <Text style={[styles.error, { color: colors.red, marginTop: 16 }]}>{submitError}</Text>}
 
         <TouchableOpacity
-          style={[styles.submitButton, { backgroundColor: colors.accent }, !canSubmit && { opacity: 0.4 }]}
-          onPress={handleCreate}
-          disabled={!canSubmit}
+          style={[styles.submitButton, { backgroundColor: colors.accent }, !canContinue && styles.dim]}
+          onPress={handleContinue}
+          disabled={!canContinue}
         >
-          {submitting ? <Spinner size={20} color="#fff" /> : <Text style={styles.submitButtonText}>Create Employee</Text>}
+          {preparing ? <Spinner size={20} color="#fff" /> : <Text style={styles.submitButtonText}>{isKiosk ? "Create account" : "Create Employee"}</Text>}
         </TouchableOpacity>
-      </>
-    );
-  }
+      </ScrollView>
+
+      <NewPinModal visible={!!pending} pin={pending?.pin} busy={creating} onOk={handleOk} />
+    </KeyboardAvoidingView>
+  );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40 },
+  content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40, width: "100%", maxWidth: 640, alignSelf: "center" },
   label: { fontSize: 13, fontWeight: "600", marginBottom: 8 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15 },
   error: { fontSize: 12, marginTop: 6 },
-  photoBox: {
-    width: "100%", aspectRatio: 1, borderRadius: 16, overflow: "hidden",
-    backgroundColor: "#000", justifyContent: "flex-end", alignItems: "center",
-  },
-  permBox: { backgroundColor: "transparent", borderWidth: 1, justifyContent: "center", gap: 16, padding: 20 },
-  permText: { textAlign: "center", fontSize: 14 },
-  cameraFill: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
-  faceGuide: {
-    position: "absolute", top: "16%", alignSelf: "center",
-    width: "56%", height: "62%", borderRadius: 999,
-    borderWidth: 3, borderColor: "rgba(255,255,255,0.85)", borderStyle: "dashed",
-  },
-  guideHint: {
-    position: "absolute", top: "10%", alignSelf: "center",
-    color: "#fff", fontSize: 12, fontWeight: "600",
-  },
-  captureButton: {
-    marginBottom: 20, width: 64, height: 64, borderRadius: 32, borderWidth: 4,
-    borderColor: "#fff", justifyContent: "center", alignItems: "center",
-  },
-  captureButtonDisabled: { opacity: 0.5 },
-  captureInner: { width: 48, height: 48, borderRadius: 24, backgroundColor: "#fff" },
-  previewActions: {
-    position: "absolute", bottom: 16, flexDirection: "row", gap: 12,
-  },
-  previewButton: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12 },
-  previewButtonText: { color: "#fff", fontSize: 14, fontWeight: "700" },
-  confirmedRow: { flexDirection: "row", alignItems: "center", gap: 14 },
-  confirmedPhoto: { width: 88, height: 88, borderRadius: 44 },
-  retakeChip: {
-    flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1,
-    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8,
-  },
-  retakeChipText: { fontSize: 13, fontWeight: "600" },
   submitButton: { marginTop: 28, borderRadius: 14, paddingVertical: 16, alignItems: "center" },
   submitButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  dim: { opacity: 0.4 },
 });

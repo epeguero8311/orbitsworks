@@ -99,6 +99,7 @@ async function syncOne(sqlite, item, companyId) {
     updateId: item.updateId,
     ...(item.name ? { name: item.name } : {}),
     ...(item.pin ? { pin: item.pin } : {}),
+    ...(item.dob ? { dob: item.dob } : {}),
     ...(photoUrl ? { photoUrl, photoNoticeShownAt: item.photoNoticeShownAt ?? null } : {}),
     deviceId: item.deviceId,
     updatedByName: item.updatedByName,

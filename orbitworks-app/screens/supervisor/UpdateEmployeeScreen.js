@@ -28,7 +28,7 @@ export default function UpdateEmployeeScreen({ navigation }) {
     const employeesQuery = query(employeesRef, where("active", "==", true));
     const unsubEmployees = onSnapshot(
       employeesQuery,
-      (snap) => setEmployees(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (snap) => setEmployees(snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((e) => e.kiosk !== true)),
       (error) => console.log("[UpdateEmployeeScreen] employees listener error:", error.code, error.message)
     );
 

@@ -1,11 +1,6 @@
-import { useRef, useState } from "react";
-import {
-  View, Text, TextInput, TouchableOpacity, Image, StyleSheet,
-  ScrollView, KeyboardAvoidingView, Platform,
-} from "react-native";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { useState } from "react";
+import { Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
-import { Feather } from "@expo/vector-icons";
 import { useAuth } from "../../lib/AuthContext";
 import { useTheme } from "../../lib/ThemeContext";
 import { validateEmployeeName, EMPLOYEE_NAME_MAX_LENGTH } from "../../lib/validators/createEmployee";
@@ -13,9 +8,10 @@ import { queueUpdateEmployee } from "../../lib/employeeUpdateQueue";
 import { syncEmployeeUpdateQueueItemNow } from "../../lib/employeeUpdateQueueSync";
 import { getOrCreateDeviceId } from "../../lib/deviceId";
 import ScreenHeader from "../../components/ScreenHeader";
-import Avatar from "../../components/Avatar";
-import PhotoNoticeModal from "../../components/supervisor/PhotoNoticeModal";
 import Spinner from "../../components/Spinner";
+import BirthdayBoxes from "../../components/join/BirthdayBoxes";
+import PhotoButton from "../../components/camera/PhotoButton";
+import { birthdayBoxes, birthdayIso } from "../../lib/employeeCreateFlow";
 
 // How long the online attempt gets to finish before this just falls back
 // to the offline messaging - same tradeoff as CreateEmployeeScreen.js's
@@ -41,90 +37,39 @@ export default function EditEmployeeScreen({ navigation, route }) {
   const { employee } = route.params;
   const { userData, currentUser } = useAuth();
   const { colors } = useTheme();
-  const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef(null);
-
   const [name, setName] = useState(employee.name || "");
   const [nameError, setNameError] = useState(null);
   const canEditPin = userData?.role === "admin" || userData?.role === "owner";
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState(null);
-  // Unlike CreateEmployeeScreen.js (which always opens straight to the
-  // camera, since there's no existing photo yet), this screen defaults to
-  // showing the employee's current photo - the camera only opens once the
-  // person explicitly asks to change it.
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const [rawPhotoUri, setRawPhotoUri] = useState(null); // just snapped, awaiting retake/use
-  const [newPhotoUri, setNewPhotoUri] = useState(null); // confirmed retake, replaces employee.photoUrl
-  const [capturing, setCapturing] = useState(false);
+  // Task 5 v2 (5): birthday (name + birthday + photo). Blank on an older
+  // record = leave it unset.
+  const [birthday, setBirthday] = useState(birthdayBoxes(employee.dob));
+  const [birthdayError, setBirthdayError] = useState(null);
+  // Task 5 v2 (6): the photo button turns the whole screen into the camera.
+  const [newPhotoUri, setNewPhotoUri] = useState(null);
+  const [photoNoticeShownAt, setPhotoNoticeShownAt] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
-  // Notice-before-capture (Terms Section 4.1) - same shape as
-  // CreateEmployeeScreen.js's own field, reset on handleChangePhoto so a
-  // later "Change photo" tap in the same screen visit shows it again (the
-  // first acknowledgment is tied to the photo it preceded, not the
-  // screen visit).
-  const [photoNoticeShownAt, setPhotoNoticeShownAt] = useState(null);
 
   const trimmedName = validateEmployeeName(name).trimmed;
   const nameChanged = !!validateEmployeeName(name).valid && trimmedName !== employee.name;
   // Blank = keep the current PIN.
   const pinEntered = canEditPin && pin.length > 0;
   const pinValid = !pinEntered || /^\d{4}$/.test(pin);
+  const birthdayTyped = !!(birthday.mm || birthday.dd || birthday.yyyy);
+  const bday = birthdayTyped ? birthdayIso(birthday) : null;
+  const dobChanged = !!bday?.ok && bday.iso !== employee.dob;
   const canSubmit =
-    !!validateEmployeeName(name).valid && pinValid && (nameChanged || !!newPhotoUri || pinEntered) && !submitting;
-  // CameraView's native preview surface renders black on Android when it
-  // is a descendant of a ScrollView (a SurfaceView/TextureView compositing
-  // issue ScrollView's clipping/recycling triggers - iOS's layer-based
-  // preview does not have this problem). Rendered inside a plain View
-  // instead whenever the live camera is actually on screen; every other
-  // state (current photo, preview, permission prompt, notice) stays in
-  // the ScrollView below.
-  const showingLiveCamera = cameraOpen && !!permission?.granted && !!photoNoticeShownAt && !rawPhotoUri && !newPhotoUri;
-
-  async function handleCapture() {
-    if (!cameraRef.current || capturing) return;
-    setCapturing(true);
-    try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 });
-      setRawPhotoUri(photo.uri);
-    } finally {
-      setCapturing(false);
-    }
-  }
-
-  function handleRetake() {
-    setRawPhotoUri(null);
-  }
-
-  function handleUsePhoto() {
-    setNewPhotoUri(rawPhotoUri);
-    setRawPhotoUri(null);
-    setCameraOpen(false);
-  }
-
-  // Discards the just-confirmed retake and reopens the camera right away
-  // (same single-step "Retake" behavior as CreateEmployeeScreen.js) -
-  // unlike dismissing the camera entirely, which goes back to showing the
-  // employee's original photo instead (see handleChangePhoto/below).
-  function handleRetakeConfirmed() {
-    setNewPhotoUri(null);
-    setCameraOpen(true);
-  }
-
-  async function handleChangePhoto() {
-    if (!permission?.granted) {
-      const result = await requestPermission();
-      if (!result.granted) return;
-    }
-    setPhotoNoticeShownAt(null);
-    setCameraOpen(true);
-  }
-
+    !!validateEmployeeName(name).valid && pinValid && (nameChanged || !!newPhotoUri || pinEntered || dobChanged) && !submitting;
   async function handleSave() {
     const validated = validateEmployeeName(name);
     if (!validated.valid) {
       setNameError(validated.error);
+      return;
+    }
+    if (bday && !bday.ok) {
+      setBirthdayError(bday.error);
       return;
     }
     if (!canSubmit) return;
@@ -140,6 +85,7 @@ export default function EditEmployeeScreen({ navigation, route }) {
         employeeName: employee.name,
         name: nameChanged ? validated.trimmed : null,
         pin: pinEntered ? pin : null,
+        dob: dobChanged ? bday.iso : null,
         photoUri: newPhotoUri,
         photoNoticeShownAt: newPhotoUri ? photoNoticeShownAt : null,
         deviceId,
@@ -149,7 +95,12 @@ export default function EditEmployeeScreen({ navigation, route }) {
 
       const net = await NetInfo.fetch();
       if (net.isConnected) {
-        await withTimeout(syncEmployeeUpdateQueueItemNow(localId, userData.companyId), ONLINE_ATTEMPT_TIMEOUT_MS);
+        const outcome = await withTimeout(syncEmployeeUpdateQueueItemNow(localId, userData.companyId), ONLINE_ATTEMPT_TIMEOUT_MS);
+        // Task 5 v2 (F): e.g. the same name + birthday as someone else.
+        if (outcome?.terminal) {
+          setSubmitError("Couldn't save this change - see Employee Alerts for why.");
+          return;
+        }
       }
       // Whether the online attempt succeeded, timed out, or this is
       // offline, the queued item keeps retrying in the background (see
@@ -173,34 +124,13 @@ export default function EditEmployeeScreen({ navigation, route }) {
     }
   }
 
-  if (!permission) {
-    return <View style={styles.center}><Spinner size={20} color={colors.accent} /></View>;
-  }
-
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScreenHeader title="Edit Employee" onBack={() => navigation.goBack()} />
-      {showingLiveCamera ? (
-        <View style={styles.content}>{renderFormBody()}</View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          {renderFormBody()}
-        </ScrollView>
-      )}
-
-      <PhotoNoticeModal
-        visible={cameraOpen && !!permission?.granted && !photoNoticeShownAt && !rawPhotoUri && !newPhotoUri}
-        onAcknowledge={setPhotoNoticeShownAt}
-      />
-    </KeyboardAvoidingView>
-  );
-
-  function renderFormBody() {
-    return (
-      <>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={[styles.label, { color: colors.subtext }]}>Full name</Text>
         <TextInput
           value={name}
@@ -211,12 +141,21 @@ export default function EditEmployeeScreen({ navigation, route }) {
           placeholder="e.g. Jordan Lee"
           placeholderTextColor={colors.subtext}
           maxLength={EMPLOYEE_NAME_MAX_LENGTH}
-          style={[
-            styles.input,
-            { borderColor: colors.border, color: colors.text, backgroundColor: colors.card },
-          ]}
+          style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.card }]}
         />
         {nameError && <Text style={[styles.error, { color: colors.red }]}>{nameError}</Text>}
+
+        <Text style={[styles.label, { color: colors.subtext, marginTop: 20 }]}>Birthday</Text>
+        <BirthdayBoxes
+          value={birthday}
+          onChange={(b) => {
+            setBirthday(b);
+            setBirthdayError(null);
+          }}
+          editable={!submitting}
+          colors={colors}
+        />
+        {birthdayError && <Text style={[styles.error, { color: colors.red }]}>{birthdayError}</Text>}
 
         {canEditPin && (
           <>
@@ -232,10 +171,7 @@ export default function EditEmployeeScreen({ navigation, route }) {
               keyboardType="number-pad"
               maxLength={4}
               secureTextEntry
-              style={[
-                styles.input,
-                { borderColor: colors.border, color: colors.text, backgroundColor: colors.card },
-              ]}
+              style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.card }]}
             />
             {pinError ? (
               <Text style={[styles.error, { color: colors.red }]}>{pinError}</Text>
@@ -245,127 +181,39 @@ export default function EditEmployeeScreen({ navigation, route }) {
           </>
         )}
 
-        <Text style={[styles.label, { color: colors.subtext, marginTop: 20 }]}>Reference photo</Text>
-
-        {newPhotoUri ? (
-          <View style={styles.confirmedRow}>
-            <Image source={{ uri: newPhotoUri }} style={styles.confirmedPhoto} />
-            <TouchableOpacity
-              style={[styles.retakeChip, { borderColor: colors.border }]}
-              onPress={handleRetakeConfirmed}
-            >
-              <Feather name="camera" size={14} color={colors.accent} />
-              <Text style={[styles.retakeChipText, { color: colors.accent }]}>Retake</Text>
-            </TouchableOpacity>
-          </View>
-        ) : rawPhotoUri ? (
-          <View style={styles.photoBox}>
-            <Image source={{ uri: rawPhotoUri }} style={styles.cameraFill} />
-            <View style={styles.previewActions}>
-              <TouchableOpacity style={[styles.previewButton, { backgroundColor: "rgba(0,0,0,0.55)" }]} onPress={handleRetake}>
-                <Text style={styles.previewButtonText}>Retake</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.previewButton, { backgroundColor: colors.accent }]} onPress={handleUsePhoto}>
-                <Text style={styles.previewButtonText}>Use photo</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : !cameraOpen ? (
-          <View style={styles.confirmedRow}>
-            <Avatar name={employee.name} photoUrl={employee.photoUrl} size={88} />
-            <TouchableOpacity
-              style={[styles.retakeChip, { borderColor: colors.border }]}
-              onPress={handleChangePhoto}
-            >
-              <Feather name="camera" size={14} color={colors.accent} />
-              <Text style={[styles.retakeChipText, { color: colors.accent }]}>Change photo</Text>
-            </TouchableOpacity>
-          </View>
-        ) : !permission.granted ? (
-          <View style={[styles.photoBox, styles.permBox, { borderColor: colors.border }]}>
-            <Text style={[styles.permText, { color: colors.text }]}>
-              Camera access is needed to take a new reference photo.
-            </Text>
-            <TouchableOpacity style={[styles.previewButton, { backgroundColor: colors.accent }]} onPress={requestPermission}>
-              <Text style={styles.previewButtonText}>Grant Permission</Text>
-            </TouchableOpacity>
-          </View>
-        ) : !photoNoticeShownAt ? (
-          <View style={[styles.photoBox, styles.permBox, { borderColor: colors.border }]}>
-            <Text style={[styles.permText, { color: colors.text }]}>
-              Review the identity-verification notice to continue.
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.photoBox}>
-            <CameraView ref={cameraRef} style={styles.cameraFill} facing="front" />
-            <View pointerEvents="none" style={styles.faceGuide} />
-            <Text style={styles.guideHint}>Center their face in the frame</Text>
-            <TouchableOpacity
-              style={[styles.captureButton, capturing && styles.captureButtonDisabled]}
-              onPress={handleCapture}
-              disabled={capturing}
-            >
-              {capturing ? <Spinner size={20} color="#fff" /> : <View style={styles.captureInner} />}
-            </TouchableOpacity>
-          </View>
-        )}
+        <Text style={[styles.label, { color: colors.subtext, marginTop: 20 }]}>Photo</Text>
+        <PhotoButton
+          photoUri={newPhotoUri}
+          currentPhotoUrl={employee.photoUrl}
+          name={employee.name}
+          onPhoto={(uri, noticeAt) => {
+            setNewPhotoUri(uri);
+            setPhotoNoticeShownAt(noticeAt);
+          }}
+          disabled={submitting}
+        />
 
         {submitError && <Text style={[styles.error, { color: colors.red, marginTop: 16 }]}>{submitError}</Text>}
 
         <TouchableOpacity
-          style={[styles.submitButton, { backgroundColor: colors.accent }, !canSubmit && { opacity: 0.4 }]}
+          style={[styles.submitButton, { backgroundColor: colors.accent }, !canSubmit && styles.dim]}
           onPress={handleSave}
           disabled={!canSubmit}
         >
           {submitting ? <Spinner size={20} color="#fff" /> : <Text style={styles.submitButtonText}>Save Changes</Text>}
         </TouchableOpacity>
-      </>
-    );
-  }
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40 },
+  content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40, width: "100%", maxWidth: 640, alignSelf: "center" },
   label: { fontSize: 13, fontWeight: "600", marginBottom: 8 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15 },
   error: { fontSize: 12, marginTop: 6 },
-  photoBox: {
-    width: "100%", aspectRatio: 1, borderRadius: 16, overflow: "hidden",
-    backgroundColor: "#000", justifyContent: "flex-end", alignItems: "center",
-  },
-  permBox: { backgroundColor: "transparent", borderWidth: 1, justifyContent: "center", gap: 16, padding: 20 },
-  permText: { textAlign: "center", fontSize: 14 },
-  cameraFill: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
-  faceGuide: {
-    position: "absolute", top: "16%", alignSelf: "center",
-    width: "56%", height: "62%", borderRadius: 999,
-    borderWidth: 3, borderColor: "rgba(255,255,255,0.85)", borderStyle: "dashed",
-  },
-  guideHint: {
-    position: "absolute", top: "10%", alignSelf: "center",
-    color: "#fff", fontSize: 12, fontWeight: "600",
-  },
-  captureButton: {
-    marginBottom: 20, width: 64, height: 64, borderRadius: 32, borderWidth: 4,
-    borderColor: "#fff", justifyContent: "center", alignItems: "center",
-  },
-  captureButtonDisabled: { opacity: 0.5 },
-  captureInner: { width: 48, height: 48, borderRadius: 24, backgroundColor: "#fff" },
-  previewActions: {
-    position: "absolute", bottom: 16, flexDirection: "row", gap: 12,
-  },
-  previewButton: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12 },
-  previewButtonText: { color: "#fff", fontSize: 14, fontWeight: "700" },
-  confirmedRow: { flexDirection: "row", alignItems: "center", gap: 14 },
-  confirmedPhoto: { width: 88, height: 88, borderRadius: 44 },
-  retakeChip: {
-    flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1,
-    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8,
-  },
-  retakeChipText: { fontSize: 13, fontWeight: "600" },
   submitButton: { marginTop: 28, borderRadius: 14, paddingVertical: 16, alignItems: "center" },
   submitButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  dim: { opacity: 0.4 },
 });

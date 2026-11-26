@@ -4,8 +4,13 @@ service firebase.storage {
     // Employee App (self-service) login - see firestore.rules for the role
     // model. Every other role keeps the company-wide access below exactly
     // as before; an employee only gets the two paths further down.
+    // Task 5 v2 (A): an admin whose app type is the Employee app (appMode
+    // claim, functions/src/adminAccess.ts writeRoleClaims) also gets the
+    // Employee App self paths. Admins are staff, so this adds nothing new
+    // to what they could already read.
     function isEmployeeRole() {
-      return request.auth.token.get('role', '') == 'employee';
+      return request.auth.token.get('role', '') == 'employee' ||
+        (request.auth.token.get('role', '') == 'admin' && request.auth.token.get('appMode', '') == 'employee');
     }
 
     function isSelfEmployee(companyId, employeeId) {
@@ -52,6 +57,13 @@ service firebase.storage {
       // the upload already landed is refused here and the app goes on to
       // kioskPunch, which checks the file (path = this punch's requestId,
       // an image, made in the last 10 minutes) on the server.
+      allow create, update: if isKioskOf(companyId) && isImageUnder10Mb() && resource == null;
+    }
+
+    // Task 5 v2 (G): kiosk "Create account" photo. Create only, never read,
+    // never over an existing file; createEmployee (server) checks it and
+    // copies it to employees/{employeeId}/reference.jpg.
+    match /companies/{companyId}/kioskSignups/{employeeId}/{fileName} {
       allow create, update: if isKioskOf(companyId) && isImageUnder10Mb() && resource == null;
     }
 

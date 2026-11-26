@@ -7,7 +7,7 @@ import { functions } from "../../lib/firebase";
 import { useTheme } from "../../lib/ThemeContext";
 import { useKioskPinPad } from "../../lib/hooks/useKioskPinPad";
 import { useKioskIdle } from "../../lib/hooks/useKioskIdle";
-import { lookupKioskUnlocker } from "../../lib/kioskPinStore";
+import { adminProofForPin, lookupKioskUnlocker } from "../../lib/kioskPinStore";
 import { isOnline } from "../../lib/employeeClockApi";
 import PinPad from "../../components/employee/PinPad";
 import { KIOSK_PAD_SCALE } from "../../lib/kioskLayout";
@@ -20,7 +20,11 @@ import { KIOSK_PAD_SCALE } from "../../lib/kioskLayout";
 
 const unlockFn = httpsCallable(functions, "checkKioskUnlock", { timeout: 15000 });
 
-export default function KioskUnlockScreen({ navigation }) {
+// Task 5 v2 (3): purpose "createAccount" = Require admin PIN before Create
+// account: an admin's own PIN only (never the exit key); the proof (salted
+// hash, not the PIN) goes along so the server checks it too.
+export default function KioskUnlockScreen({ navigation, route }) {
+  const forCreate = route?.params?.purpose === "createAccount";
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [message, setMessage] = useState("");
@@ -30,6 +34,15 @@ export default function KioskUnlockScreen({ navigation }) {
     async (code) => {
       touch();
       setMessage("");
+      if (forCreate) {
+        const adminProof = await adminProofForPin(code);
+        if (!adminProof) {
+          setMessage("That isn't an admin PIN.");
+          return false;
+        }
+        navigation.replace("KioskCreateAccount", { mode: "kiosk", adminProof });
+        return true;
+      }
       if (await lookupKioskUnlocker(code)) {
         navigation.replace("KioskSettings");
         return true;
@@ -52,7 +65,7 @@ export default function KioskUnlockScreen({ navigation }) {
         return null;
       }
     },
-    [navigation, touch]
+    [navigation, touch, forCreate]
   );
   const pad = useKioskPinPad(onFull);
 
@@ -63,8 +76,8 @@ export default function KioskUnlockScreen({ navigation }) {
         <Text style={[styles.backText, { color: colors.text }]}>Back</Text>
       </TouchableOpacity>
       <View style={styles.center}>
-        <Text style={[styles.title, { color: colors.text }]}>Kiosk settings</Text>
-        <Text style={[styles.sub, { color: colors.subtext }]}>Admin PIN or exit key</Text>
+        <Text style={[styles.title, { color: colors.text }]}>{forCreate ? "Create account" : "Kiosk settings"}</Text>
+        <Text style={[styles.sub, { color: colors.subtext }]}>{forCreate ? "An admin's PIN is needed" : "Admin PIN or exit key"}</Text>
         <PinPad length={pad.pin.length} onDigit={pad.onDigit} onDelete={pad.onDelete} disabled={pad.locked || pad.checking} scale={KIOSK_PAD_SCALE} />
         {pad.locked ? (
           <Text style={[styles.error, { color: colors.red }]}>Too many wrong tries. Try again in {pad.lockLeft} s.</Text>

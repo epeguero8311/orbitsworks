@@ -317,8 +317,13 @@ service cloud.firestore {
     // admin/supervisor/employee exist. A kiosk token ('kiosk') gets only
     // employeeAppConfig + its own users doc here; everything else goes
     // through callables (functions/src/kiosk.ts).
+    // Task 5 v2 (A): an admin whose app type is the Employee app (appMode
+    // claim, functions/src/adminAccess.ts writeRoleClaims) also gets the
+    // Employee App self paths. Admins are staff, so this adds nothing new
+    // to what they could already read.
     function isEmployeeRole() {
-      return request.auth.token.get('role', '') == 'employee';
+      return request.auth.token.get('role', '') == 'employee' ||
+        (request.auth.token.get('role', '') == 'admin' && request.auth.token.get('appMode', '') == 'employee');
     }
 
     function isStaff() {
@@ -1139,13 +1144,11 @@ service cloud.firestore {
         hasPerm('inv') &&
         request.auth.token.companyId == request.resource.data.companyId &&
         request.resource.data.role in ['supervisor', 'admin', 'kiosk'] &&
-        // Task 5 (K5): a kiosk invite always links an existing employee
-        // record (Edit Employee -> Kiosk access + email) and needs Pro.
-        // acceptInvite re-checks Pro + KIOSK_ENABLED before linking.
-        (request.resource.data.role != 'kiosk' || (
-          request.resource.data.get('linkExistingEmployeeId', null) is string &&
-          companyOf(request.resource.data.companyId).get('planTier', '').matches('^pro_.*')
-        )) &&
+        // Task 5 v2 (2): a kiosk invite (Invites -> Kiosk) needs Pro; it may
+        // link an existing record (older path) or make a new one on accept.
+        // acceptInvite re-checks Pro + KIOSK_ENABLED.
+        (request.resource.data.role != 'kiosk' ||
+          companyOf(request.resource.data.companyId).get('planTier', '').matches('^pro_.*')) &&
         !request.resource.data.keys()
           .hasAny(['emailStatus', 'emailSentAt', 'emailError', 'lastEmailAttemptAt',
                    'adminAccess', 'level', 'lvl', 'sites', 'permissions', 'perms', 'allSites', 'fullAccess']);

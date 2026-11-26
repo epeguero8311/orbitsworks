@@ -12,7 +12,8 @@ import {
 } from "./shared";
 import { pinHistoryRef, reserveNewPin } from "./pins";
 import { deleteEmployeeFacePhotos, markConsentFaceDataDeleted } from "./facePhotos";
-import { loginRoleFor } from "./employeeAccess";
+import { appModeFor, loginRoleFor, type AppType } from "./employeeAccess";
+import { setEmployeeRoleSchema } from "./employeeRoleValidators";
 import { KIOSK_ENABLED } from "./flags";
 import { isProPlan } from "./lib/signupShared";
 import { pendingInviteRefsForRow } from "./employeeInvites";
@@ -245,14 +246,18 @@ export const setEmployeeRole = onCall(async (request) => {
   requirePermission(caller, "invites");
   const callerCompanyId = caller.companyId;
 
-  const employeeId = (request.data && request.data.employeeId ? String(request.data.employeeId) : "").trim();
-  const isAdmin = !!(request.data && request.data.isAdmin);
-  const isSupervisor = !!(request.data && request.data.isSupervisor);
-  // Task 5 (K5-K7): Kiosk access. Exclusive with Supervisor + Admin access.
-  const isKiosk = !!(request.data && request.data.isKiosk);
-  if (!employeeId) {
-    throw new HttpsError("invalid-argument", "employeeId is required.");
+  const parsed = setEmployeeRoleSchema.safeParse(request.data ?? {});
+  if (!parsed.success) {
+    throw new HttpsError("invalid-argument", parsed.error.issues[0]?.message ?? "Invalid request.");
   }
+  const input = parsed.data;
+  const employeeId = input.employeeId;
+  const isAdmin = input.isAdmin === true;
+  // Task 5 v2 (A): appType = the radio. Old website builds send only the
+  // three switches; map them to the same fields as before.
+  const appType: AppType | null = input.appType ?? null;
+  const isKiosk = appType ? appType === "kiosk" : input.isKiosk === true;
+  const isSupervisor = appType ? appType === "supervisor" : input.isSupervisor === true;
   if (isKiosk && (isAdmin || isSupervisor)) {
     throw new HttpsError("invalid-argument", "Kiosk access can't be combined with Supervisor or Admin access.");
   }
@@ -271,10 +276,11 @@ export const setEmployeeRole = onCall(async (request) => {
     kiosk?: boolean;
     active?: boolean;
     lastEventType?: string | null;
+    appType?: string;
   };
   const wasKiosk = employee.kiosk === true;
   if (isKiosk && !wasKiosk) {
-    await requireCanTurnKioskOn(callerCompanyId, employee);
+    await requireCanTurnKioskOn(callerCompanyId, employeeId, employee);
   }
   if (!isKiosk && wasKiosk && employee.active === true) {
     // Back into the counts (onEmployeeWrite): needs room under the caps.
@@ -319,7 +325,10 @@ export const setEmployeeRole = onCall(async (request) => {
   // drops back to the "employee" role when both toggles are turned off,
   // instead of the legacy "supervisor" floor below. Every employee doc
   // without appAccess resolves exactly as before (admin, else supervisor).
-  const dashboardRole = loginRoleFor({ kiosk: isKiosk, isAdmin, isSupervisor, appAccess: employee.appAccess });
+  // Task 5 v2: picking the Employee app gives the login the Employee App
+  // (appAccess), so a supervisor/admin switched to it works there too.
+  const appAccess = appType === "employee" ? true : employee.appAccess;
+  const dashboardRole = loginRoleFor({ kiosk: isKiosk, isAdmin, isSupervisor, appAccess, appType: appType ?? employee.appType });
 
   // RC1: claims FIRST, then the users doc. The signed-in app watches
   // users/{uid}; the moment role/roleChangedAt change it forces a token
@@ -327,7 +336,13 @@ export const setEmployeeRole = onCall(async (request) => {
   // route by a role the rules don't grant yet).
   // kiosk is written only when it is (or was) involved, so every other
   // record keeps exactly the fields it had.
-  await employeeRef.update({ isSupervisor, isAdmin, ...(isKiosk || wasKiosk ? { kiosk: isKiosk } : {}) });
+  await employeeRef.update({
+    isSupervisor,
+    isAdmin,
+    ...(isKiosk || wasKiosk ? { kiosk: isKiosk } : {}),
+    // Only written by the new radio, so old records keep their exact shape.
+    ...(appType ? { appType, ...(appType === "employee" ? { appAccess: true } : {}) } : {}),
+  });
   // Task 4 (D9/D16): a NEW admin starts with no sites + no permissions (the
   // website opens the Permissions modal right after); an admin who stays
   // an admin keeps their access; leaving admin drops it.
@@ -342,8 +357,14 @@ export const setEmployeeRole = onCall(async (request) => {
     companyId: callerCompanyId,
     employeeId,
   });
+  // Task 5 v2 (A): appMode on the users doc too (same value as the claim),
+  // so the signed-in app sees an admin's app-type change as a role change
+  // (orbitworks-app/lib/roleSync.js appRole) and refreshes its token.
+  const adminAppMode =
+    dashboardRole === "admin" ? appModeFor({ isAdmin, isSupervisor, appAccess, appType: appType ?? employee.appType }) : null;
   await userRef.update({
     role: dashboardRole,
+    appMode: adminAppMode && adminAppMode !== "supervisor" ? adminAppMode : admin.firestore.FieldValue.delete(),
     roleChangedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 
@@ -354,6 +375,7 @@ export const setEmployeeRole = onCall(async (request) => {
 // not a person's own Employee App login, and nobody clocked in on it.
 async function requireCanTurnKioskOn(
   companyId: string,
+  employeeId: string,
   employee: { appAccess?: boolean; lastEventType?: string | null }
 ): Promise<void> {
   if (!KIOSK_ENABLED.value()) {
@@ -366,11 +388,23 @@ async function requireCanTurnKioskOn(
   if (employee.appAccess === true) {
     throw new HttpsError(
       "failed-precondition",
-      "This person uses the Employee App with their own login. A kiosk needs its own login (a new record with the tablet's email)."
+      "This person uses the Employee App with their own login. Invite the tablet as a Kiosk instead."
     );
   }
   if (employee.lastEventType && employee.lastEventType !== "out") {
     throw new HttpsError("failed-precondition", "This record is clocked in. Clock it out first.");
+  }
+  // Task 5 v2 (C a): kiosk records are left out of every report, so a
+  // record with any clock history would lose those hours. Use Invites ->
+  // Kiosk for a new tablet login instead.
+  const history = await db
+    .collection("companies").doc(companyId).collection("clockEvents")
+    .where("employeeId", "==", employeeId).limit(1).get();
+  if (!history.empty) {
+    throw new HttpsError(
+      "failed-precondition",
+      "This person has clock history, so they can't become a kiosk. Invite the tablet as a Kiosk instead."
+    );
   }
 }
 

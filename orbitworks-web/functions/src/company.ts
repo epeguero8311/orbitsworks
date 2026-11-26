@@ -201,7 +201,8 @@ export const acceptInvite = onCall(async (request) => {
   // Task 5 (K5): a kiosk invite links an existing record as the tablet's
   // login - its own branch, so the supervisor/admin paths below are unchanged.
   if (invite.role === "kiosk") {
-    return acceptKioskInvite(uid, email, inviteDoc.ref, invite);
+    const deviceName = typeof request.data?.name === "string" ? request.data.name : "";
+    return acceptKioskInvite(uid, email, inviteDoc.ref, invite, deviceName);
   }
   const role: "supervisor" | "admin" = invite.role === "admin" ? "admin" : "supervisor";
 
@@ -385,14 +386,59 @@ async function acceptKioskInvite(
   uid: string,
   email: string,
   inviteRef: FirebaseFirestore.DocumentReference,
-  invite: { companyId: string; linkExistingEmployeeId?: string; name?: string }
+  invite: { companyId: string; linkExistingEmployeeId?: string; name?: string },
+  deviceName: string
 ): Promise<{ companyId: string; role: "kiosk" }> {
   const refuse = async (code: "failed-precondition" | "not-found", message: string): Promise<never> => {
     await admin.auth().deleteUser(uid);
     throw new HttpsError(code, message);
   };
   if (!KIOSK_ENABLED.value()) return refuse("failed-precondition", "Kiosk mode isn't available yet.");
-  if (!invite.linkExistingEmployeeId) return refuse("failed-precondition", "This kiosk invite has no record to link.");
+  // Task 5 v2 (2): Invites -> Kiosk makes a brand-new kiosk record from the
+  // device name typed on /join (no selfie, birthday or consent - it's a
+  // tablet). Kiosk records never count toward the caps (K8).
+  if (!invite.linkExistingEmployeeId) {
+    const name = deviceName.trim();
+    if (!name || name.length > 60) return refuse("failed-precondition", "Enter a device name (up to 60 characters).");
+    const companyRef = db.collection("companies").doc(invite.companyId);
+    const companySnap = await companyRef.get();
+    if (!isProPlan(companySnap.data()?.planTier as string | undefined)) return refuse("failed-precondition", "Kiosk access is a Pro feature.");
+    // K8: the kiosk's own PIN stays reserved (unique) but never punches.
+    const pin = await reserveNewPin(invite.companyId);
+    const employeeRef = companyRef.collection("employees").doc();
+    const batch = db.batch();
+    batch.set(db.collection("users").doc(uid), {
+      role: "kiosk",
+      companyId: invite.companyId,
+      name,
+      email,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    batch.set(employeeRef, {
+      name,
+      jobTitle: "Kiosk",
+      assignedSiteIds: [],
+      active: true,
+      kiosk: true,
+      appType: "kiosk",
+      isSupervisor: false,
+      isAdmin: false,
+      linkedUserId: uid,
+      email,
+      ...employeeDocPinOnCreate(pin),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    batch.set(employeePinRef(invite.companyId, employeeRef.id), employeePinData(pin));
+    batch.set(companyRef.collection("pins").doc(pin), { employeeId: employeeRef.id, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    batch.update(inviteRef, {
+      status: "accepted",
+      acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
+      acceptedByUid: uid,
+    });
+    await batch.commit();
+    await writeRoleClaims(uid, { role: "kiosk", companyId: invite.companyId, employeeId: employeeRef.id });
+    return { companyId: invite.companyId, role: "kiosk" };
+  }
   const companyRef = db.collection("companies").doc(invite.companyId);
   const employeeRef = companyRef.collection("employees").doc(invite.linkExistingEmployeeId);
   const [companySnap, employeeSnap] = await Promise.all([companyRef.get(), employeeRef.get()]);

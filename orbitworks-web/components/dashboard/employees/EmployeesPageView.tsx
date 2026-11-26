@@ -12,8 +12,7 @@ import { useEmployeePins } from "@/lib/hooks/useEmployeePins";
 import { AddEmployeeForm } from "@/components/dashboard/employees/AddEmployeeForm";
 import { EmployeesTable } from "@/components/dashboard/employees/EmployeesTable";
 import { EmployeeModal } from "@/components/dashboard/employees/EmployeeModal";
-import { InviteManager } from "@/components/dashboard/employees/InviteManager";
-import { AppInvitesCard } from "@/components/dashboard/employees/AppInvitesCard";
+import { InvitesSection } from "@/components/dashboard/employees/InvitesSection";
 import { InviteForm } from "@/components/dashboard/employees/InviteForm";
 import type { Employee } from "@/lib/types";
 
@@ -80,19 +79,13 @@ export function EmployeesPageView() {
           invitesByEmployee={appInvites.byEmployee}
         />
       </div>
-      {/* Phase 9 (H1 a): one invite form with a role dropdown; the three
-          invite lists (App invites, Supervisors, Admins) stay below. */}
+      {/* Phase 9 (H1 a): one invite form with a role dropdown. */}
       <div className="mt-10">
         <InviteForm sites={activeSites} createAppInvite={appInvites.create} />
       </div>
+      {/* Task 5 v2 (2): one merged, collapsible Invites section. */}
       <div className="mt-10">
-        <AppInvitesCard sites={activeSites} api={appInvites} />
-      </div>
-      <div className="mt-10">
-        <InviteManager role="supervisor" sites={activeSites} />
-      </div>
-      <div className="mt-10">
-        <InviteManager role="admin" />
+        <InvitesSection api={appInvites} employees={employees} sites={activeSites} subcontractors={subcontractors} />
       </div>
       {employeeForModal && (
         <EmployeeModal

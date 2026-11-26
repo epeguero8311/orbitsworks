@@ -11,8 +11,7 @@ import { DuplicateSection } from "@/components/dashboard/employees/DuplicateFlag
 import type { Employee, EmployeeInvite, JobSite, Job, Subcontractor } from "@/lib/types";
 import PermissionsModal from "@/components/dashboard/employees/PermissionsModal";
 import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
-import { KioskAccessField } from "@/components/dashboard/employees/KioskAccessField";
-import { KIOSK_ENABLED } from "@/lib/kiosk";
+import { AccountTypeField } from "@/components/dashboard/employees/AccountTypeField";
 
 export function EmployeeModal({
   employee,
@@ -116,29 +115,25 @@ export function EmployeeModal({
           onPromoteToSupervisorChange={m.setPromoteToSupervisor}
           promoteEmail={m.promoteEmail}
           onPromoteEmailChange={m.setPromoteEmail}
-          isAdmin={m.isAdmin}
-          onIsAdminChange={m.setIsAdmin}
-          onOpenPermissions={
-            employee.isAdmin && employee.linkedUserId && adminAccess.isFull ? () => m.setPermissionsOpen(true) : undefined
+          accountTypeSlot={
+            <AccountTypeField
+              appType={m.appType}
+              onAppTypeChange={m.setAppType}
+              isAdmin={m.isAdmin}
+              onIsAdminChange={m.setIsAdmin}
+              onOpenPermissions={
+                employee.isAdmin && employee.linkedUserId && adminAccess.isFull ? () => m.setPermissionsOpen(true) : undefined
+              }
+              isPro={isPro}
+              appAccess={employee.appAccess}
+              alreadyKiosk={employee.kiosk === true}
+              loginEmail={m.promoteEmail}
+            />
           }
-          isSupervisorAccess={m.isSupervisorAccess}
-          onIsSupervisorAccessChange={m.setIsSupervisorAccess}
           dob={m.dob}
           onDobChange={m.setDob}
         />
 
-        {KIOSK_ENABLED && (
-          <KioskAccessField
-            isLinked={m.isLinked}
-            isPro={isPro}
-            appAccess={employee.appAccess}
-            alreadyKiosk={employee.kiosk === true}
-            value={m.isLinked ? m.isKioskAccess : m.promoteToKiosk}
-            onChange={m.isLinked ? m.setIsKioskAccess : m.setPromoteToKiosk}
-            email={m.promoteEmail}
-            onEmailChange={m.setPromoteEmail}
-          />
-        )}
 
         <DuplicateSection employee={employee} employees={allEmployees} onOpenEmployee={onOpenEmployee} />
 

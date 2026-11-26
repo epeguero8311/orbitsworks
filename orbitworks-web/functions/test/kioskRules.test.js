@@ -149,14 +149,17 @@ test("staff can't forge kiosk punches, the kiosk field, or planTierChangedAt", a
   await assertFails(getDoc(doc(db, "companies", A, "kioskPinAttempts", "kiosk1")));
 });
 
-test("kiosk invites: must link a record and need Pro", async () => {
+// Task 5 v2 (2): Invites -> Kiosk makes a NEW record on accept, so a kiosk
+// invite no longer needs linkExistingEmployeeId - only Pro.
+test("kiosk invites: need Pro (linking a record is optional)", async () => {
   const db = owner();
   await assertSucceeds(setDoc(doc(db, "invites", "ok"), { companyId: A, role: "kiosk", email: "ipad@x.com", linkExistingEmployeeId: "emp1", status: "pending" }));
-  await assertFails(setDoc(doc(db, "invites", "nolink"), { companyId: A, role: "kiosk", email: "ipad2@x.com", status: "pending" }));
+  await assertSucceeds(setDoc(doc(db, "invites", "nolink"), { companyId: A, role: "kiosk", email: "ipad2@x.com", status: "pending" }));
   await env.withSecurityRulesDisabled(async (ctx) => {
     await updateDoc(doc(ctx.firestore(), "companies", A), { planTier: "core2_tier1" });
   });
   await assertFails(setDoc(doc(db, "invites", "core"), { companyId: A, role: "kiosk", email: "ipad3@x.com", linkExistingEmployeeId: "emp1", status: "pending" }));
+  await assertFails(setDoc(doc(db, "invites", "core2"), { companyId: A, role: "kiosk", email: "ipad4@x.com", status: "pending" }));
   // supervisor / admin invites unchanged on Core
   await assertSucceeds(setDoc(doc(db, "invites", "sup"), { companyId: A, role: "supervisor", email: "s@x.com", status: "pending" }));
 });
@@ -195,4 +198,17 @@ test("STORAGE kiosk: nothing else company-wide, nothing of another company", asy
   // staff unchanged
   const sup = supervisor();
   await assertSucceeds(getBytes(ref(sup.storage(), `companies/${A}/logo.jpg`)));
+});
+
+// Task 5 v2 (G): kiosk Create account photo - create only, never read,
+// never over an existing file, own company only.
+test("STORAGE kiosk: Create account photo goes to kioskSignups (create only)", async () => {
+  const ctx = kioskCtx();
+  const p = `companies/${A}/kioskSignups/newEmp1/reference.jpg`;
+  await assertSucceeds(put(ctx, p));
+  await assertFails(getBytes(ref(ctx.storage(), p)));
+  await assertFails(put(ctx, p));
+  await assertFails(put(ctx, `companies/otherCo/kioskSignups/newEmp1/reference.jpg`));
+  // never the real reference photo path
+  await assertFails(put(ctx, `companies/${A}/employees/newEmp2/reference.jpg`));
 });

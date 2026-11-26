@@ -261,6 +261,13 @@ async function openDb() {
     "ALTER TABLE employee_queue ADD COLUMN companyId TEXT",
     "ALTER TABLE employee_update_queue ADD COLUMN createdByUid TEXT",
     "ALTER TABLE employee_update_queue ADD COLUMN companyId TEXT",
+    // Task 5 v2: birthday (YYYY-MM-DD) on create and edit; mode 'kiosk' for
+    // a kiosk Create account row (photo to kioskSignups/, no pin_cache) and
+    // its adminProof JSON (salted hash from the kiosk table, never a PIN).
+    "ALTER TABLE employee_queue ADD COLUMN dob TEXT",
+    "ALTER TABLE employee_queue ADD COLUMN mode TEXT",
+    "ALTER TABLE employee_queue ADD COLUMN adminProof TEXT",
+    "ALTER TABLE employee_update_queue ADD COLUMN dob TEXT",
   ];
   for (const migration of migrations) {
     try {

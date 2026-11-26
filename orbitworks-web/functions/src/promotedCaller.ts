@@ -18,8 +18,11 @@ const PROMOTED_OWN_ITEM_ROLES = new Set(["supervisor", "admin"]);
 
 export type QueueCallerKind = "employee" | "promoted";
 
-export function punchCallerKind(role: string | undefined): QueueCallerKind | null {
+// Task 5 v2 (A): an admin whose app type is the Employee app (appMode
+// claim) is an Employee App caller too.
+export function punchCallerKind(role: string | undefined, appMode?: unknown): QueueCallerKind | null {
   if (role === "employee") return "employee";
+  if (role === "admin" && appMode === "employee") return "employee";
   if (role && PROMOTED_OWN_ITEM_ROLES.has(role)) return "promoted";
   return null;
 }
@@ -36,7 +39,7 @@ export async function ownQueueCaller(request: CallableRequest): Promise<{
   employee: FirebaseFirestore.DocumentData;
 }> {
   if (!request.auth) throw new HttpsError("unauthenticated", "You must be signed in.");
-  const kind = punchCallerKind(request.auth.token.role as string | undefined);
+  const kind = punchCallerKind(request.auth.token.role as string | undefined, request.auth.token.appMode);
   const companyId = request.auth.token.companyId as string | undefined;
   const employeeId = request.auth.token.employeeId as string | undefined;
   if (!kind || !companyId || !employeeId) {

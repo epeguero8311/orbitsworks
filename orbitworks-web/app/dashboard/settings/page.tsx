@@ -120,6 +120,7 @@ function SettingsPageContent() {
                 setAppSettings={s.setAppSettings}
                 attendanceRules={s.attendanceRules}
                 setAttendanceRules={s.setAttendanceRules}
+                isPro={s.isPro}
               />
 
               <DevicesCard isPro={s.isPro} />

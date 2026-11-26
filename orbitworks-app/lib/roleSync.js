@@ -18,8 +18,25 @@
 
 const STAFF_ROLES = ["owner", "admin", "supervisor"];
 
+// Task 5 v2 (A): the role the APP routes by. An admin login also carries
+// appMode (claim + users doc, set by the website account-type radio):
+// "employee" -> Employee App screens, "none" -> website-only screen,
+// missing/"supervisor" -> supervisor app as before. The server still
+// treats the token as an admin.
+function appRole(role, appMode) {
+  if (role === "admin" && appMode === "employee") return "employee";
+  if (role === "admin" && appMode === "none") return "websiteOnly";
+  return role;
+}
+
+function usersDocAppRole(usersDoc) {
+  if (!usersDoc || typeof usersDoc.role !== "string") return null;
+  return appRole(usersDoc.role, usersDoc.appMode);
+}
+
 function roleFamily(role) {
   if (role === "employee") return "employee";
+  if (role === "websiteOnly") return "websiteOnly";
   // Task 5: a shared Kiosk iPad - its own screens and its own queue.
   if (role === "kiosk") return "kiosk";
   if (STAFF_ROLES.includes(role)) return "staff";
@@ -41,7 +58,8 @@ function toMillis(v) {
 function claimsFields(claims) {
   if (!claims || typeof claims.role !== "string" || typeof claims.companyId !== "string") return null;
   return {
-    role: claims.role,
+    role: appRole(claims.role, claims.appMode),
+    tokenRole: claims.role,
     companyId: claims.companyId,
     employeeId: typeof claims.employeeId === "string" ? claims.employeeId : null,
     issuedAtMs: typeof claims.iat === "number" ? claims.iat * 1000 : null,
@@ -71,9 +89,9 @@ function needsRoleRefresh({ claims, usersDoc, handledChangeMs = null }) {
   if (changedMs !== null && handledChangeMs !== null && changedMs <= handledChangeMs) {
     // Already refreshed for this change: only a role that still differs
     // (the server hadn't set the claims yet) is worth another try.
-    return usersDoc.role !== claims.role;
+    return usersDocAppRole(usersDoc) !== claims.role;
   }
-  if (usersDoc.role !== claims.role) return true;
+  if (usersDocAppRole(usersDoc) !== claims.role) return true;
   if (changedMs === null || claims.issuedAtMs === null) return false;
   return changedMs > claims.issuedAtMs;
 }
@@ -129,6 +147,8 @@ function openOwnPunches(items, companyId, employeeId) {
 module.exports = {
   REFRESH_RETRY_MS,
   openOwnPunches,
+  appRole,
+  usersDocAppRole,
   claimsFields,
   leftoverNotice,
   mergeUserData,

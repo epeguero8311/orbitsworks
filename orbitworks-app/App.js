@@ -34,6 +34,7 @@ import FloatingTabBar from "./components/FloatingTabBar";
 import LoginScreen from "./screens/LoginScreen";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen";
 import AccountDisabledScreen from "./screens/AccountDisabledScreen";
+import WebsiteOnlyScreen from "./screens/WebsiteOnlyScreen";
 import LoadingScreen from "./screens/LoadingScreen";
 import RoleUpdating from "./components/RoleUpdating";
 import ConfirmModal from "./components/ui/ConfirmModal";
@@ -270,6 +271,8 @@ function KioskRoot() {
         <KioskStack.Screen name="KioskDone" component={KioskDoneScreen} options={{ animation: "fade" }} />
         <KioskStack.Screen name="KioskUnlock" component={W.KioskUnlock} />
         <KioskStack.Screen name="KioskSettings" component={KioskSettingsScreen} />
+        {/* Task 5 v2 (5): Create account = the supervisor Create Employee screen in kiosk mode. */}
+        <KioskStack.Screen name="KioskCreateAccount" component={W.CreateEmployee} />
       </KioskStack.Navigator>
     </KioskProvider>
   );
@@ -305,7 +308,9 @@ function RootNavigator() {
   // Task 5: a kiosk login never runs the supervisor background work either
   // (every one of those calls is staff-only on the server).
   const isKioskLogin = userData?.role === "kiosk";
-  const backgroundSync = isEmployeeLogin || isKioskLogin ? null : <SupervisorBackgroundSync />;
+  // Task 5 v2 (B a): an admin with no app type (website only).
+  const isWebsiteOnly = userData?.role === "websiteOnly";
+  const backgroundSync = isEmployeeLogin || isKioskLogin || isWebsiteOnly ? null : <SupervisorBackgroundSync />;
   useJoinLink({ loggedIn: !!currentUser, navReady: navReady && splashAnimationDone });
   // Task 6: shared devices (supervisor / admin / owner / kiosk) report their
   // app version once per run for the website Devices list.
@@ -375,6 +380,8 @@ function RootNavigator() {
       <Stack.Navigator key={roleTreeKey} screenOptions={{ headerShown: false }}>
         {currentUser && accountDisabled ? (
           <Stack.Screen name="AccountDisabled" component={AccountDisabledScreen} />
+        ) : currentUser && isWebsiteOnly ? (
+          <Stack.Screen name="WebsiteOnly" component={WebsiteOnlyScreen} />
         ) : currentUser && isKioskLogin ? (
           <Stack.Screen name="KioskRoot" component={KioskRoot} />
         ) : currentUser && isEmployeeLogin ? (

@@ -28,6 +28,10 @@ function JoinForm() {
   // The invite this link was made for (absent on links sent before it
   // existed - acceptInvite then uses the one pending invite for the email).
   const inviteIdFromLink = searchParams.get("invite") ?? undefined;
+  // Task 5 v2 (2): a kiosk invite asks only for a device name (it's a
+  // tablet - no selfie, birthday or consent). acceptInvite reads the role
+  // from the invite itself; this only changes the labels.
+  const isKiosk = searchParams.get("kiosk") === "1";
   useEffect(() => {
     if (emailFromLink) setEmail(emailFromLink);
   }, [emailFromLink]);
@@ -189,7 +193,9 @@ function JoinForm() {
             Accept your invite
           </h1>
           <p className="mt-1.5 text-sm text-gray-600">
-            Set a password to finish creating your supervisor account.
+            {isKiosk
+              ? "Set a password and name this tablet. Then sign in with this email on the tablet to open Kiosk mode."
+              : "Set a password to finish creating your supervisor account."}
           </p>
 
           <form onSubmit={handleSubmit} className="mt-8">
@@ -198,7 +204,7 @@ function JoinForm() {
                 htmlFor="name"
                 className="mb-1.5 block text-sm font-medium text-gray-950"
               >
-                Your name
+                {isKiosk ? "Device name" : "Your name"}
               </label>
               <input
                 id="name"
@@ -207,7 +213,8 @@ function JoinForm() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-950 outline-none focus:border-accent focus:ring-1 focus:ring-accent"
-                placeholder="Jane Smith"
+                maxLength={isKiosk ? 60 : undefined}
+                placeholder={isKiosk ? "Front door iPad" : "Jane Smith"}
               />
             </div>
 

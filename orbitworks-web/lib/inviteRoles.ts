@@ -8,10 +8,13 @@ import type { InviteRole } from "@/lib/types";
 //   or admin each becomes an active employee row (seatsLeft null = no cap).
 
 export const INVITE_ROLES: { role: InviteRole; label: string }[] = [
-  { role: "employee", label: "Employee (app)" },
+  { role: "employee", label: "Employee" },
   { role: "supervisor", label: "Supervisor" },
+  { role: "kiosk", label: "Kiosk" },
   { role: "admin", label: "Admin" },
 ];
+
+export const KIOSK_PRO_TEXT = "Kiosk is a Pro feature. Upgrade to Pro to invite a kiosk tablet.";
 
 export const NO_SEATS_TEXT = "No seats left on your plan. Upgrade or deactivate someone first.";
 export const PAST_DUE_TEXT = "Your subscription is past due.";
@@ -20,6 +23,7 @@ export const APP_INVITES_PLAN_TEXT = "Employee app invites need a Core or Pro pl
 export interface InvitePlanState {
   canUseAppInvites: boolean; // Core/Pro and not past_due
   pastDue: boolean;
+  isPro?: boolean; // Task 5 v2: Kiosk is Pro only
   seatsLeft: number | null; // null = no cap
 }
 
@@ -27,6 +31,8 @@ export interface InvitePlanState {
 export function inviteRoleBlock(role: InviteRole, plan: InvitePlanState): string | null {
   if (plan.pastDue) return PAST_DUE_TEXT;
   if (role === "employee" && !plan.canUseAppInvites) return APP_INVITES_PLAN_TEXT;
+  // Task 5 v2 (2): a kiosk is a tablet, not a seat (K8) - only Pro matters.
+  if (role === "kiosk") return plan.isPro ? null : KIOSK_PRO_TEXT;
   if (plan.seatsLeft !== null && plan.seatsLeft <= 0) return NO_SEATS_TEXT;
   return null;
 }

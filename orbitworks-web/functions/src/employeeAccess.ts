@@ -16,23 +16,49 @@ export type LoginRole = "admin" | "supervisor" | "employee" | "kiosk";
 // "invite" = Phase 3B email invite (employeeInviteTypes.ts).
 export type EmployeeJoinedVia = "admin" | "qr" | "invite";
 
-// Single place that decides which role claim a linked employee doc maps
-// to. Kiosk wins (Task 5 K5/K7 - setEmployeeRole/acceptInvite never leave
-// isAdmin/isSupervisor on a kiosk record anyway), then admin, then
-// supervisor. With both toggles off, a login that came
-// from the Employee App (appAccess) drops back to "employee"; every other
-// linked login keeps the legacy "supervisor" floor exactly as before (see
-// setEmployeeRole in employees.ts for why that floor exists).
-export function loginRoleFor(employee: {
+// Task 5 v2 (A): the app type picked on the website (radio), separate from
+// Admin access. "none" = website-only admin (only with isAdmin).
+export type AppType = "employee" | "supervisor" | "kiosk" | "none";
+export const APP_TYPES: readonly AppType[] = ["employee", "supervisor", "kiosk", "none"];
+
+type RoleFields = {
   kiosk?: boolean;
   isAdmin?: boolean;
   isSupervisor?: boolean;
   appAccess?: boolean;
-}): LoginRole {
+  appType?: unknown;
+};
+
+// Which app mode a linked login opens. An explicit appType (set by the
+// Task 5 v2 radio) wins; records saved before it keep their old mode:
+// supervisor or admin -> supervisor app, Employee App login -> employee
+// app, any other linked login -> the legacy supervisor floor.
+export function appModeFor(employee: RoleFields): AppType {
+  if (employee.kiosk) return "kiosk";
+  const t = employee.appType;
+  if (t === "employee" || t === "supervisor") return t;
+  if (t === "none" && employee.isAdmin) return "none";
+  if (employee.isSupervisor || employee.isAdmin) return "supervisor";
+  return employee.appAccess ? "employee" : "supervisor";
+}
+
+// Single place that decides which role claim a linked employee doc maps
+// to. Kiosk wins (Task 5 K5/K7), then admin (website access; the app mode
+// rides in the appMode claim, adminAccess.ts writeRoleClaims), then the
+// app mode: employee app -> "employee", else "supervisor" (incl. the
+// legacy floor for a linked login with neither toggle).
+export function loginRoleFor(employee: RoleFields): LoginRole {
   if (employee.kiosk) return "kiosk";
   if (employee.isAdmin) return "admin";
-  if (employee.isSupervisor) return "supervisor";
-  return employee.appAccess ? "employee" : "supervisor";
+  return appModeFor(employee) === "employee" ? "employee" : "supervisor";
+}
+
+// Task 5 v2 (A): an Employee App caller = role "employee", or an admin
+// whose app type is the Employee app (appMode claim). Every employee-app
+// callable checks this instead of role === "employee".
+export function isEmployeeAppToken(token: { role?: unknown; appMode?: unknown } | undefined): boolean {
+  if (!token) return false;
+  return token.role === "employee" || (token.role === "admin" && token.appMode === "employee");
 }
 
 export interface LinkEmployeeLoginInput {

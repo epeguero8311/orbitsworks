@@ -27,7 +27,7 @@ test("roleFamily: employee vs staff; unknown is null", () => {
 test("claimsFields: needs role + companyId; keeps employeeId and iat", () => {
   assert.equal(claimsFields(null), null);
   assert.equal(claimsFields({ role: "employee" }), null);
-  assert.deepEqual(claims("employee"), { role: "employee", companyId: "co", employeeId: "emp1", issuedAtMs: T0 });
+  assert.deepEqual(claims("employee"), { role: "employee", tokenRole: "employee", companyId: "co", employeeId: "emp1", issuedAtMs: T0 });
   assert.equal(claimsFields({ role: "owner", companyId: "co" }).employeeId, null);
 });
 
@@ -145,4 +145,30 @@ test("Task 5: kiosk is its own family; leaving it drains the kiosk queue; going 
   assert.equal(transitionPlan("employee", "kiosk").drain, "employeePunches");
   assert.equal(transitionPlan("kiosk", "kiosk").kind, "sameScreens");
   assert.match(leftoverNotice("kioskExit", 2), /2 items saved in Kiosk mode/);
+});
+
+// Task 5 v2 (A): an admin's app type rides in appMode (claim + users doc).
+test("appRole: admin + appMode employee -> employee screens; none -> website only; else unchanged", () => {
+  const { appRole, usersDocAppRole } = require("../lib/roleSync");
+  assert.equal(appRole("admin", "employee"), "employee");
+  assert.equal(appRole("admin", "none"), "websiteOnly");
+  assert.equal(appRole("admin", undefined), "admin");
+  assert.equal(appRole("admin", "supervisor"), "admin");
+  assert.equal(appRole("supervisor", "employee"), "supervisor");
+  assert.equal(usersDocAppRole({ role: "admin", appMode: "employee" }), "employee");
+  assert.equal(usersDocAppRole(null), null);
+  const c = claimsFields({ role: "admin", appMode: "employee", companyId: "co", employeeId: "e1", iat: T0 / 1000 });
+  assert.equal(c.role, "employee");
+  assert.equal(c.tokenRole, "admin");
+});
+
+test("needsRoleRefresh: an admin's app type change (same role) is a change", () => {
+  const c = claimsFields({ role: "admin", companyId: "co", employeeId: "e1", iat: T0 / 1000 });
+  assert.equal(needsRoleRefresh({ claims: c, usersDoc: { role: "admin", appMode: "employee" } }), true);
+  assert.equal(needsRoleRefresh({ claims: c, usersDoc: { role: "admin" } }), false);
+});
+
+test("transitionPlan: admin supervisor app -> employee app drains the staff queues first", () => {
+  assert.equal(transitionPlan("admin", "employee").kind, "demotion");
+  assert.equal(transitionPlan("employee", "websiteOnly").kind, "promotion");
 });

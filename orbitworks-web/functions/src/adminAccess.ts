@@ -1,3 +1,4 @@
+import { appModeFor } from "./employeeAccess";
 import { HttpsError, type CallableRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { db } from "./shared";
@@ -111,6 +112,10 @@ export async function writeRoleClaims(
     if (base.employeeId) {
       const emp = await db.collection("companies").doc(base.companyId).collection("employees").doc(base.employeeId).get();
       if (emp.data()?.isSupervisor === true) claims.sup = true;
+      // Task 5 v2 (A): which app this admin login opens. Missing (owner-made
+      // admins with no record, old tokens) = supervisor app, as before.
+      const mode = emp.exists ? appModeFor(emp.data() ?? {}) : "supervisor";
+      if (mode !== "supervisor") claims.appMode = mode;
     }
   }
   await admin.auth().setCustomUserClaims(uid, claims);

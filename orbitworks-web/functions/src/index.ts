@@ -16,6 +16,7 @@ export {
 } from "./employees";
 
 export { createEmployee } from "./createEmployee";
+export { reserveEmployeePin } from "./employeeCreateExtras";
 
 export { joinCompany } from "./joinCompany";
 

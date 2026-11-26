@@ -38,6 +38,11 @@ async function generateLocalPin() {
 
 // Exported for employeeUpdateQueue.js (Update Employee, mobile) - same
 // local-copy need, a retaken photo during an edit.
+// Offline PIN for the PIN modal (no server to hold one).
+export async function localPinGuess(mode) {
+  return mode === "kiosk" ? randomNonJunkPin() : generateLocalPin();
+}
+
 export async function persistEmployeePhoto(photoUri) {
   const dir = `${FileSystem.documentDirectory}employeePhotos/`;
   await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
@@ -54,11 +59,15 @@ export async function persistEmployeePhoto(photoUri) {
 // employees/{employeeId}/reference.jpg) before createEmployee ever runs -
 // see employeeQueueSync.js for why that ordering is what makes sync
 // idempotent and retry-safe without a separate rollback step.
-export async function queueCreateEmployee({ name, photoUri, createdByUid, companyId, photoNoticeShownAt }) {
+// Task 5 v2 (E): pin = the PIN already shown in the PIN modal (a server
+// hold from reserveEmployeePin, or an offline guess from localPinGuess).
+// dob = YYYY-MM-DD. mode "kiosk" = kiosk Create account (adminProof when
+// the company requires an admin PIN; no supervisor pin_cache on a kiosk).
+export async function queueCreateEmployee({ name, photoUri, createdByUid, companyId, photoNoticeShownAt, pin, dob, mode, adminProof }) {
   const employeeId = doc(collection(firestoreDb, "companies", companyId, "employees")).id;
   const [photoLocalUri, clientPin] = await Promise.all([
     persistEmployeePhoto(photoUri),
-    generateLocalPin(),
+    pin ? Promise.resolve(pin) : mode === "kiosk" ? Promise.resolve(randomNonJunkPin()) : generateLocalPin(),
   ]);
 
   const localId = makeLocalId();
@@ -67,10 +76,14 @@ export async function queueCreateEmployee({ name, photoUri, createdByUid, compan
   const sqlite = await getDb();
   await sqlite.runAsync(
     `INSERT INTO employee_queue
-      (localId, employeeId, name, photoLocalUri, clientPin, createdByUid, syncStatus, attempts, createdAt, photoNoticeShownAt, companyId)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)`,
-    [localId, employeeId, name, photoLocalUri, clientPin, createdByUid, now, photoNoticeShownAt ?? null, companyId]
+      (localId, employeeId, name, photoLocalUri, clientPin, createdByUid, syncStatus, attempts, createdAt, photoNoticeShownAt, companyId, dob, mode, adminProof)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?)`,
+    [localId, employeeId, name, photoLocalUri, clientPin, createdByUid, now, photoNoticeShownAt ?? null, companyId, dob ?? null, mode ?? null, adminProof ? JSON.stringify(adminProof) : null]
   );
+  if (mode === "kiosk") {
+    notifyEmployeeQueueChange();
+    return { localId, employeeId, pin: clientPin };
+  }
   // Their PIN works on this phone right away, before the create syncs.
   // Clock events made for them wait in the queue until it has (see
   // queueSync.js's pending-create hold), so they attach to this same

@@ -11,6 +11,7 @@ import { syncPinTable, setLocalEmployeePin, removeLocalEmployeeFromPinCache } fr
 import { drainQueue } from "./queueSync";
 import { notifyQueueChange } from "./queueEvents";
 import { uploadLocalFileToStorage } from "./storageUpload";
+import { isAlreadyUploaded } from "./kioskLogic";
 
 let syncing = false;
 
@@ -90,9 +91,33 @@ async function uploadReferencePhoto(companyId, employeeId, localUri) {
 // success modal for an online create, or recorded into the sync alert for
 // an offline one that changed). The caller gets the PIN back as this
 // function's return value instead of having to re-read the row afterward.
+// Task 5 v2 (G): a kiosk can't read Storage - it uploads to
+// kioskSignups/{employeeId}/ and createEmployee copies it server side. An
+// upload refused because the file is already there (a retry) is fine.
+async function uploadKioskSignupPhoto(companyId, employeeId, localUri) {
+  const photoRef = ref(storage, `companies/${companyId}/kioskSignups/${employeeId}/reference.jpg`);
+  try {
+    await withTimeout(uploadLocalFileToStorage(photoRef, localUri, "image/jpeg"), PHOTO_UPLOAD_TIMEOUT_MS, "kioskSignupUpload");
+  } catch (err) {
+    if (!isAlreadyUploaded(err)) throw err;
+  }
+}
+
+function parseProof(raw) {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
 async function syncOne(sqlite, item, companyId) {
   const syncStart = Date.now();
-  const photoUrl = await uploadReferencePhoto(companyId, item.employeeId, item.photoLocalUri);
+  const isKiosk = item.mode === "kiosk";
+  let photoUrl = "";
+  if (isKiosk) await uploadKioskSignupPhoto(companyId, item.employeeId, item.photoLocalUri);
+  else photoUrl = await uploadReferencePhoto(companyId, item.employeeId, item.photoLocalUri);
 
   const createEmployeeFn = httpsCallable(functions, "createEmployee");
   const result = await createEmployeeFn({
@@ -103,8 +128,20 @@ async function syncOne(sqlite, item, companyId) {
     photoNoticeShownAt: item.photoNoticeShownAt ?? null,
     // When the employee was created on this phone, not when it synced.
     clientCreatedAt: item.createdAt,
+    ...(item.dob ? { dob: item.dob } : {}),
+    ...(isKiosk && item.adminProof ? { adminProof: parseProof(item.adminProof) } : {}),
   });
   const { pin, pinChanged } = result.data;
+  if (isKiosk) {
+    await FileSystem.deleteAsync(item.photoLocalUri, { idempotent: true });
+    await runExclusive(() =>
+      sqlite.runAsync(
+        "UPDATE employee_queue SET syncStatus = 'synced', clientPin = '', syncedAt = ? WHERE localId = ?",
+        [Date.now(), item.localId]
+      )
+    );
+    return { pin, pinChanged };
+  }
 
   await FileSystem.deleteAsync(item.photoLocalUri, { idempotent: true });
   await runExclusive(() =>
@@ -138,6 +175,15 @@ async function syncOne(sqlite, item, companyId) {
 }
 
 async function markTerminal(sqlite, item, message) {
+  if (item.mode === "kiosk") {
+    // Kiosk: no supervisor pin_cache / event_queue to touch. The row shows
+    // as failed in Kiosk Settings -> Waiting to sync.
+    await FileSystem.deleteAsync(item.photoLocalUri, { idempotent: true });
+    await runExclusive(() =>
+      sqlite.runAsync("UPDATE employee_queue SET syncStatus = 'rejected', lastError = ? WHERE localId = ?", [message, item.localId])
+    );
+    return;
+  }
   // Rejected rows never retry, so the local photo is done being useful -
   // clean it up now instead of leaving it on device until cleanupEmployeeQueue's
   // retention window deletes the row (see queueSync.js's own delete-on-success

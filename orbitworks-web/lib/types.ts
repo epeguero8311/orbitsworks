@@ -192,6 +192,8 @@ export interface Employee {
   // Server-written only (setEmployeeRole / acceptInvite). Never counted,
   // never in any employee list but the Team page (lib/kiosk.ts).
   kiosk?: boolean;
+  // Task 5 v2 (A): the website account-type radio (lib/accountType.ts).
+  appType?: "employee" | "supervisor" | "kiosk" | "none";
   // Employee App "Delete account" (functions/src/employeeAccount.ts
   // deleteMyEmployeeAccount). Server-written only. Set when the employee
   // deleted their own app login: the row stays (deactivated) as the
@@ -310,6 +312,8 @@ export interface Invite {
   // trusted (there's no prior record to snapshot from).
   name?: string;
   status: "pending" | "accepted";
+  acceptedByUid?: string;
+  createdAt?: Timestamp | null;
   emailStatus: "pending" | "sent" | "failed";
   emailSentAt?: Timestamp | null;
   emailError?: string | null;
@@ -492,7 +496,7 @@ export interface ClockEvent {
 // The role picked in the Employees page invite form (H1 a). "employee" =
 // an Employee App invite (employeeInvites, createEmployeeInvite);
 // "supervisor" / "admin" = a website/supervisor app invite (invites).
-export type InviteRole = "employee" | "supervisor" | "admin";
+export type InviteRole = "employee" | "supervisor" | "kiosk" | "admin";
 
 // ---- Employee App Phase 8: leaving the job site ----
 //

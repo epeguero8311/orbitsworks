@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import type { Job } from "@/lib/types";
 
 export function EmployeeDetailsFields({
@@ -24,11 +25,7 @@ export function EmployeeDetailsFields({
   onPromoteToSupervisorChange,
   promoteEmail,
   onPromoteEmailChange,
-  isAdmin,
-  onIsAdminChange,
-  onOpenPermissions,
-  isSupervisorAccess,
-  onIsSupervisorAccessChange,
+  accountTypeSlot,
   dob,
   onDobChange,
 }: {
@@ -53,12 +50,8 @@ export function EmployeeDetailsFields({
   onPromoteToSupervisorChange: (value: boolean) => void;
   promoteEmail: string;
   onPromoteEmailChange: (value: string) => void;
-  isAdmin: boolean;
-  onIsAdminChange: (value: boolean) => void;
-  // Task 4: shown for a saved admin when the viewer is owner / Full access.
-  onOpenPermissions?: () => void;
-  isSupervisorAccess: boolean;
-  onIsSupervisorAccessChange: (value: boolean) => void;
+  // Task 5 v2 (A): AccountTypeField for a linked login.
+  accountTypeSlot: React.ReactNode;
   dob: string;
   onDobChange: (value: string) => void;
 }) {
@@ -165,67 +158,7 @@ export function EmployeeDetailsFields({
         />
 
         {isLinked ? (
-          <div className="mt-3 space-y-3 rounded-lg border border-gray-200 px-3.5 py-2.5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-950">Supervisor access</p>
-                <p className="text-xs text-gray-600">
-                  Can override clock-ins and manage breaks on mobile.
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isSupervisorAccess}
-                onClick={() => onIsSupervisorAccessChange(!isSupervisorAccess)}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                  isSupervisorAccess ? "bg-accent" : "bg-gray-200"
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    isSupervisorAccess ? "translate-x-6" : "translate-x-1"
-                  }`}
-                />
-              </button>
-            </div>
-            <div className="flex items-center justify-between border-t border-gray-100 pt-3">
-              <div>
-                <p className="text-sm font-medium text-gray-950">Admin access</p>
-                <p className="text-xs text-gray-600">
-                  Web dashboard access. New admins start with no access until you set their permissions.
-                </p>
-                {onOpenPermissions && (
-                  <button
-                    type="button"
-                    onClick={onOpenPermissions}
-                    className="mt-1 text-xs font-medium text-accent hover:underline"
-                  >
-                    Permissions
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={isAdmin}
-                onClick={() => onIsAdminChange(!isAdmin)}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-                  isAdmin ? "bg-accent" : "bg-gray-200"
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    isAdmin ? "translate-x-6" : "translate-x-1"
-                  }`}
-                />
-              </button>
-            </div>
-            <p className="border-t border-gray-100 pt-3 text-xs text-gray-600">
-              Login email:{" "}
-              <span className="text-gray-950">{promoteEmail || "No email on file"}</span>
-            </p>
-          </div>
+          accountTypeSlot
         ) : (
           <div className="mt-3 rounded-lg border border-gray-200 px-3.5 py-2.5">
             <div className="flex items-center justify-between">

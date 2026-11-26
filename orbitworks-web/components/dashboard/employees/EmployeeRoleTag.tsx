@@ -1,6 +1,6 @@
 import { employeeRoleTag, type EmployeeRoleFlags, type EmployeeRoleTagKind } from "@/lib/employeeRoleTag";
 
-const TAGS: Record<EmployeeRoleTagKind, { label: string; className: string }> = {
+export const ROLE_TAGS: Record<EmployeeRoleTagKind, { label: string; className: string }> = {
   kiosk: { label: "Kiosk", className: "bg-teal-50 text-teal-700" },
   admin: { label: "Admin", className: "bg-purple-50 text-purple-700" },
   supervisor: { label: "Supervisor", className: "bg-blue-50 text-blue-700" },
@@ -13,10 +13,16 @@ const TAGS: Record<EmployeeRoleTagKind, { label: string; className: string }> = 
 export function EmployeeRoleTag({ employee, className = "" }: { employee: EmployeeRoleFlags; className?: string }) {
   const kind = employeeRoleTag(employee);
   if (!kind) return null;
-  const tag = TAGS[kind];
+  const tag = ROLE_TAGS[kind];
   return (
     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${tag.className} ${className}`.trim()}>
       {tag.label}
     </span>
   );
+}
+
+// Task 5 v2 (2): one pill for a given kind (Invites shows several).
+export function RoleTagPill({ kind }: { kind: EmployeeRoleTagKind }) {
+  const tag = ROLE_TAGS[kind];
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${tag.className}`}>{tag.label}</span>;
 }

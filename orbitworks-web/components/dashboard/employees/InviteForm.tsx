@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useStaffInviteSend } from "@/lib/hooks/useStaffInviteSend";
 import { INVITE_ROLES, inviteRoleBlock, seatsText } from "@/lib/inviteRoles";
+import { KIOSK_ENABLED } from "@/lib/kiosk";
 import { inviteFormSchema } from "@/lib/validators/employeeInvite";
 import type { InviteActionResult } from "@/lib/hooks/useEmployeeInvites";
 import type { EmployeeInviteCreateInput } from "@/lib/validators/employeeInvite";
@@ -30,7 +31,7 @@ interface InviteFormProps {
 }
 
 export function InviteForm({ sites, createAppInvite }: InviteFormProps) {
-  const { canUseInvites, pastDue, seatsLeft, activeCap, loading } = useCompanySettings();
+  const { canUseInvites, pastDue, seatsLeft, activeCap, loading, isPro } = useCompanySettings();
   const staff = useStaffInviteSend();
   const [role, setRole] = useState<InviteRole>("employee");
   const [email, setEmail] = useState("");
@@ -39,7 +40,7 @@ export function InviteForm({ sites, createAppInvite }: InviteFormProps) {
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null);
 
-  const plan = { canUseAppInvites: canUseInvites, pastDue, seatsLeft };
+  const plan = { canUseAppInvites: canUseInvites, pastDue, seatsLeft, isPro };
   const block = loading ? null : inviteRoleBlock(role, plan);
   const showSeats = seatsText(seatsLeft, activeCap);
   const busy = sending || staff.sending;
@@ -76,7 +77,7 @@ export function InviteForm({ sites, createAppInvite }: InviteFormProps) {
     <form onSubmit={handleSubmit} className="rounded-xl border border-gray-200 bg-white p-6">
       <h2 className="text-base font-semibold text-gray-950">Invite someone</h2>
       <p className="mt-1 text-sm text-gray-600">
-        Pick what they are. Employees get the employee app; supervisors get the supervisor app; admins get the website. To give an existing
+        Pick what they are. Employees get the employee app; supervisors get the supervisor app; a kiosk is a shared tablet; admins get the website. To give an existing
         employee the app or supervisor access, open their record.
       </p>
 
@@ -84,7 +85,7 @@ export function InviteForm({ sites, createAppInvite }: InviteFormProps) {
         <div>
           <label htmlFor="inviteRole" className={labelClass}>Role</label>
           <select id="inviteRole" value={role} onChange={(e) => { setRole(e.target.value as InviteRole); setMessage(null); }} className={inputClass}>
-            {INVITE_ROLES.map((r) => {
+            {INVITE_ROLES.filter((r) => r.role !== "kiosk" || KIOSK_ENABLED).map((r) => {
               const why = loading ? null : inviteRoleBlock(r.role, plan);
               return (
                 <option key={r.role} value={r.role} disabled={!!why && r.role !== role}>
@@ -131,9 +132,16 @@ export function InviteForm({ sites, createAppInvite }: InviteFormProps) {
         </div>
       )}
 
+      {role === "kiosk" && (
+        <p className="mt-5 text-sm text-gray-600">
+          A shared tablet. The email link asks only for a password and a device name (no selfie or birthday). Sign in with it on the tablet to
+          open Kiosk mode. To remove it later, deactivate it.
+        </p>
+      )}
+
       {role === "admin" && <p className="mt-5 text-sm text-gray-600">Admins get full website access - employees, sites, timesheets and everything else except billing.</p>}
 
-      {showSeats && <p className="mt-4 text-xs text-gray-600">{showSeats}</p>}
+      {showSeats && role !== "kiosk" && <p className="mt-4 text-xs text-gray-600">{showSeats}</p>}
       {block && <p className="mt-4 text-sm text-amber-700">{block}</p>}
       {message && <p className={`mt-4 text-sm ${message.isError ? "text-red-600" : "text-green-700"}`}>{message.text}</p>}
 

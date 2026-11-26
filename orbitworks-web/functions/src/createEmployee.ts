@@ -3,7 +3,36 @@ import * as admin from "firebase-admin";
 import { db, isOverActiveCap, isOverTotalCap, EmployeeCapFields } from "./shared";
 import { createPinChangedAlert } from "./alerts";
 import { employeeDocPinOnCreate, employeePinData, employeePinRef, readEmployeePin } from "./lib/employeePin";
-import { requirePermissionIfAdmin } from "./adminAccess";
+import {
+  adminProofSchema,
+  birthdaySchema,
+  duplicateError,
+  findDuplicateEmployee,
+  pinFreeFor,
+  requireCreateCaller,
+} from "./employeeCreateExtras";
+import { z } from "zod";
+import { copySelfieToPhoto } from "./lib/signupShared";
+
+const createEmployeeExtrasSchema = z.object({ dob: birthdaySchema.optional(), adminProof: adminProofSchema.optional() }).strict();
+
+// Task 5 v2 (G): the kiosk's Create account photo, uploaded by the kiosk to
+// kioskSignups/{employeeId}/reference.jpg (storage.rules: kiosk create
+// only, never read). Must be an image made in the last day.
+async function kioskReferencePhoto(companyId: string, employeeId: string): Promise<string> {
+  const src = `companies/${companyId}/kioskSignups/${employeeId}/reference.jpg`;
+  const file = admin.storage().bucket().file(src);
+  const [exists] = await file.exists();
+  if (!exists) throw new HttpsError("failed-precondition", "The photo didn't upload. Try again.", { reason: "noPhoto" });
+  const [meta] = await file.getMetadata();
+  const created = meta.timeCreated ? Date.parse(String(meta.timeCreated)) : 0;
+  if (!String(meta.contentType ?? "").startsWith("image/") || Date.now() - created > 24 * 60 * 60 * 1000) {
+    throw new HttpsError("failed-precondition", "The photo didn't upload. Try again.", { reason: "noPhoto" });
+  }
+  const url = await copySelfieToPhoto(src, `companies/${companyId}/employees/${employeeId}/reference.jpg`);
+  await file.delete().catch(() => undefined);
+  return url;
+}
 
 // Mirrors orbitworks-app/lib/validators/createEmployee.js's JUNK_PINS - keep
 // both in sync by hand (no shared package across the app/web boundary, same
@@ -56,7 +85,7 @@ export function requireCreatorAuth(request: { auth?: { uid: string; token: Recor
 // but tries the caller's own on-device guess first (so the PIN already shown
 // to the person offline usually survives sync unchanged), and skips the
 // junk list entirely for both that guess and every fallback candidate.
-export async function reserveNonJunkPin(companyId: string, clientPin: string | null): Promise<string> {
+export async function reserveNonJunkPin(companyId: string, clientPin: string | null, holderUid?: string): Promise<string> {
   const pinsRef = db.collection("companies").doc(companyId).collection("pins");
   const maxAttempts = 20;
 
@@ -64,7 +93,9 @@ export async function reserveNonJunkPin(companyId: string, clientPin: string | n
     const candidateRef = pinsRef.doc(candidate);
     return db.runTransaction(async (tx) => {
       const snap = await tx.get(candidateRef);
-      if (snap.exists) return false;
+      // Task 5 v2 (E): this caller's own PIN hold (reserveEmployeePin), or
+      // an expired hold, counts as free.
+      if (snap.exists && !(holderUid && pinFreeFor(snap.data(), holderUid, Date.now()))) return false;
       tx.set(candidateRef, { employeeId: null, updatedAt: admin.firestore.Timestamp.now() });
       return true;
     });
@@ -101,11 +132,16 @@ export async function reserveNonJunkPin(companyId: string, clientPin: string | n
 // have in queueSync.js) - the local queue retries this same call until the
 // employee doc actually exists.
 export const createEmployee = onCall(async (request) => {
-  const { companyId, uid } = requireCreatorAuth(request);
-  // Task 4: an admin needs "Create / edit employees" (supervisors unchanged).
-  await requirePermissionIfAdmin(request, "employees");
-
   const data = request.data ?? {};
+  // Task 5 v2: birthday (new app builds always send it; old 1.1.5 builds
+  // don't, so it stays optional here) + the kiosk's admin proof.
+  const extras = createEmployeeExtrasSchema.safeParse({ dob: data.dob ?? undefined, adminProof: data.adminProof ?? undefined });
+  if (!extras.success) throw new HttpsError("invalid-argument", extras.error.issues[0]?.message ?? "Invalid request.");
+  const dob = extras.data.dob ?? null;
+  // Task 4: an admin needs "Create / edit employees" (supervisors unchanged).
+  // Task 5 v2 (G): a kiosk with Create account on (+ admin PIN if required).
+  const { companyId, uid, kind } = await requireCreateCaller(request, extras.data.adminProof);
+
   const employeeId = typeof data.employeeId === "string" ? data.employeeId.trim() : "";
   const name = typeof data.name === "string" ? data.name.trim() : "";
   const photoUrl = typeof data.photoUrl === "string" ? data.photoUrl.trim() : "";
@@ -128,7 +164,7 @@ export const createEmployee = onCall(async (request) => {
   if (!name || name.length > NAME_MAX_LENGTH) {
     throw new HttpsError("invalid-argument", "A valid name is required.");
   }
-  if (!photoUrl) {
+  if (!photoUrl && kind !== "kiosk") {
     throw new HttpsError("invalid-argument", "A reference photo is required.");
   }
   // Confirms the URL actually points at THIS employee's own reference photo
@@ -137,7 +173,7 @@ export const createEmployee = onCall(async (request) => {
   const expectedPathFragment = encodeURIComponent(
     `companies/${companyId}/employees/${employeeId}/reference.jpg`
   );
-  if (!photoUrl.includes(expectedPathFragment)) {
+  if (kind !== "kiosk" && !photoUrl.includes(expectedPathFragment)) {
     throw new HttpsError("invalid-argument", "photoUrl does not match the expected path.");
   }
 
@@ -189,12 +225,20 @@ export const createEmployee = onCall(async (request) => {
     );
   }
 
-  const pin = await reserveNonJunkPin(companyId, clientPin);
+  if (dob && (await findDuplicateEmployee(companyId, name, dob, employeeId))) throw duplicateError();
+
+  // A kiosk can't read Storage: it uploads to kioskSignups/{id}/ (create
+  // only) and the server copies that to reference.jpg here.
+  const finalPhotoUrl = kind === "kiosk" ? await kioskReferencePhoto(companyId, employeeId) : photoUrl;
+
+  const pin = await reserveNonJunkPin(companyId, clientPin, uid);
 
   const batch = db.batch();
   batch.set(employeeRef, {
     name,
-    photoUrl,
+    photoUrl: finalPhotoUrl,
+    ...(dob ? { dob } : {}),
+    ...(kind === "kiosk" ? { createdVia: "kiosk" } : {}),
     active: true,
     faceStatus: "not_enrolled",
     assignedSiteIds: [],
@@ -203,16 +247,12 @@ export const createEmployee = onCall(async (request) => {
     createdAt,
     syncedAt: admin.firestore.FieldValue.serverTimestamp(),
     // Per-field edit times for last-edit-wins (see updateEmployeeProfile).
-    fieldEditedAt: { name: createdAt, photoUrl: createdAt, pin: createdAt },
+    fieldEditedAt: { name: createdAt, photoUrl: createdAt, pin: createdAt, ...(dob ? { dob: createdAt } : {}) },
     ...(photoNoticeShownAtMs
       ? { photoNoticeAck: { uid, shownAt: admin.firestore.Timestamp.fromMillis(photoNoticeShownAtMs) } }
       : {}),
   });
-  batch.set(
-    companyRef.collection("pins").doc(pin),
-    { employeeId, updatedAt: admin.firestore.Timestamp.now() },
-    { merge: true }
-  );
+  batch.set(companyRef.collection("pins").doc(pin), { employeeId, updatedAt: admin.firestore.Timestamp.now() });
   batch.set(employeePinRef(companyId, employeeId), employeePinData(pin));
   await batch.commit();
 

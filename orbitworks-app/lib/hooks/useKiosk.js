@@ -5,6 +5,7 @@ import { useAuth } from "../AuthContext";
 import { getKioskTableSnapshot, loadKioskTable, subscribeKioskTable, syncKioskTable } from "../kioskPinStore";
 import { addKioskPunch, getKioskMeta, listKioskPunches, subscribeKioskQueue } from "../kioskQueue";
 import { syncKioskQueue } from "../kioskQueueSync";
+import { drainEmployeeQueue } from "../employeeQueueSync";
 import { punchClockFields } from "../clockAnchor";
 import { currentStatus, kioskCommentFor } from "../kioskLogic";
 import { newRequestId } from "../employeeClockApi";
@@ -46,7 +47,15 @@ export function KioskProvider({ children }) {
   }, [uid]);
 
   const refreshTable = useCallback(() => (uid ? syncKioskTable(uid) : Promise.resolve(null)), [uid]);
-  const sendNow = useCallback(() => (uid ? syncKioskQueue(uid).catch(() => {}) : Promise.resolve()), [uid]);
+  // Task 5 v2 (5): also sends Create account rows saved offline (same
+  // employee_queue as the supervisor app, kiosk rows only for this login).
+  const sendNow = useCallback(
+    () =>
+      uid
+        ? Promise.all([syncKioskQueue(uid).catch(() => {}), companyId ? drainEmployeeQueue(companyId).catch(() => {}) : null])
+        : Promise.resolve(),
+    [uid, companyId]
+  );
 
   // Pro job-site auto-detect needs a location fix on each punch: ask once
   // (only while the iPad has never been asked). Kiosk Settings shows it.
@@ -126,6 +135,8 @@ export function KioskProvider({ children }) {
       table,
       tableStatus: snap.status,
       isPro: table ? table.isPro : true,
+      createAccount: !!table && table.isPro && table.createAccount === true,
+      requireAdminPin: !!table && table.requireAdminPin === true,
       kioskName: table?.kioskName || userData?.name || "Kiosk",
       items,
       unsentCount: unsent.length,

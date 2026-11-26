@@ -1,3 +1,4 @@
+import { isEmployeeAppToken } from "./employeeAccess";
 import * as admin from "firebase-admin";
 import { onCall, HttpsError, type CallableRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
@@ -42,7 +43,7 @@ export function employeeClaims(request: CallableRequest): { companyId: string; e
   const role = request.auth.token.role as string | undefined;
   const companyId = request.auth.token.companyId as string | undefined;
   const employeeId = request.auth.token.employeeId as string | undefined;
-  if (role !== "employee" || !companyId || !employeeId) {
+  if (!isEmployeeAppToken({ role, appMode: request.auth.token.appMode }) || !companyId || !employeeId) {
     throw new HttpsError("permission-denied", "Only an employee app login can do this.");
   }
   return { companyId, employeeId };

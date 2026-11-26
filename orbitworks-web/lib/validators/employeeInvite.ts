@@ -35,6 +35,7 @@ export type EmployeeInviteCreateInput = z.infer<typeof employeeInviteCreateSchem
 export const inviteFormSchema = z.discriminatedUnion("role", [
   z.object({ role: z.literal("employee"), email: emailField, siteId: idField.nullable() }),
   z.object({ role: z.literal("supervisor"), email: emailField, siteIds: z.array(idField).max(200) }),
+  z.object({ role: z.literal("kiosk"), email: emailField }),
   z.object({ role: z.literal("admin"), email: emailField }),
 ]);
 

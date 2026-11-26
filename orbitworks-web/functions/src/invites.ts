@@ -31,7 +31,7 @@ async function deliverInviteEmail(inviteRef: admin.firestore.DocumentReference, 
   const companyLogoUrl = companyData?.logoUrl ?? undefined;
 
   // Dev site on dev, orbitsworks.com on prod (lib/appUrls.ts).
-  const joinLink = supervisorJoinLink(invite.email, inviteRef.id);
+  const joinLink = supervisorJoinLink(invite.email, inviteRef.id, undefined, invite.role === "kiosk");
   if (!joinLink) {
     await recordInviteEmailFailure(inviteRef, NO_SITE_FOR_PROJECT);
     return;

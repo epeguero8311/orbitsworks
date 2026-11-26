@@ -15,6 +15,7 @@ import {
 import { createEmployeeUpdatedAlert, createPinChangedAlert } from "./alerts";
 import { readEmployeePin } from "./lib/employeePin";
 import { requirePermissionIfAdmin } from "./adminAccess";
+import { birthdaySchema, duplicateError, findDuplicateEmployee } from "./employeeCreateExtras";
 
 const UPDATED_BY_NAME_MAX_LENGTH = 100;
 const RETAINED_PHOTO_MS = 30 * 24 * 60 * 60 * 1000;
@@ -31,7 +32,13 @@ type UpdateEmployeeDoc = {
   active?: boolean;
   lastUpdateId?: string;
   lastPinUpdateId?: string;
-  fieldEditedAt?: { name?: admin.firestore.Timestamp; photoUrl?: admin.firestore.Timestamp; pin?: admin.firestore.Timestamp };
+  dob?: string;
+  fieldEditedAt?: {
+    name?: admin.firestore.Timestamp;
+    photoUrl?: admin.firestore.Timestamp;
+    pin?: admin.firestore.Timestamp;
+    dob?: admin.firestore.Timestamp;
+  };
   faceReference?: { status?: string; photoUrl?: string };
 };
 
@@ -83,6 +90,12 @@ export const updateEmployeeProfile = onCall(
     // with a new unique one rather than rejected, since an offline phone
     // already let the person use it.
     const pin = data.pin !== undefined && data.pin !== null ? String(data.pin).trim() : undefined;
+    // Task 5 v2 (F): birthday (YYYY-MM-DD). Old app builds never send it.
+    const dobParsed = data.dob === undefined || data.dob === null ? null : birthdaySchema.safeParse(data.dob);
+    if (dobParsed && !dobParsed.success) {
+      throw new HttpsError("invalid-argument", dobParsed.error.issues[0]?.message ?? "Enter a real birthday.");
+    }
+    const dob = dobParsed?.success ? dobParsed.data : undefined;
     const role = request.auth?.token.role as string | undefined;
     // Task 4: an admin needs "Create / edit employees" (supervisors unchanged).
     await requirePermissionIfAdmin(request, "employees");
@@ -120,7 +133,7 @@ export const updateEmployeeProfile = onCall(
         throw new HttpsError("invalid-argument", "PIN must be exactly 4 digits.");
       }
     }
-    if (name === undefined && photoUrl === undefined && pin === undefined) {
+    if (name === undefined && photoUrl === undefined && pin === undefined && dob === undefined) {
       throw new HttpsError("invalid-argument", "Nothing to update.");
     }
 
@@ -165,7 +178,7 @@ export const updateEmployeeProfile = onCall(
     // newer value and skip this one. fieldEditedAt is written by every
     // edit path (here, createEmployee, setEmployeePin, the web edit form);
     // a field with no recorded time has nothing newer to protect.
-    const isStale = (field: "name" | "photoUrl" | "pin") => {
+    const isStale = (field: "name" | "photoUrl" | "pin" | "dob") => {
       const t = employee.fieldEditedAt?.[field];
       return !!t && typeof t.toMillis === "function" && t.toMillis() > editedAt.toMillis();
     };
@@ -175,6 +188,13 @@ export const updateEmployeeProfile = onCall(
     if (pin !== undefined && pin !== employee.pin && isStale("pin")) skippedFields.push("pin");
 
     const nameChanged = name !== undefined && name !== employee.name && !skippedFields.includes("name");
+    const dobChanged = dob !== undefined && dob !== employee.dob && !isStale("dob");
+    // Task 5 v2 (F a): block a name + birthday that matches someone else.
+    const finalDob = dobChanged ? dob : employee.dob;
+    if ((nameChanged || dobChanged) && finalDob) {
+      const finalName = nameChanged ? (name as string) : employee.name ?? "";
+      if (await findDuplicateEmployee(companyId, finalName, finalDob, employeeId)) throw duplicateError();
+    }
     const photoChanged =
       photoUrl !== undefined && photoUrl !== employee.photoUrl && !skippedFields.includes("photo");
 
@@ -212,6 +232,10 @@ export const updateEmployeeProfile = onCall(
       ...(photoChanged ? (["photo"] as const) : []),
     ];
     if (changedFields.length === 0) {
+      if (dobChanged) {
+        await employeeRef.update({ dob, "fieldEditedAt.dob": editedAt, lastUpdateId: updateId, updatedByUid: uid });
+        return { employeeId, updated: true, ...pinFields, skippedFields };
+      }
       if (pin !== undefined || skippedFields.length > 0) {
         // Still record that this edit was handled, so a retry replays.
         await employeeRef.update({ lastUpdateId: updateId }).catch(() => {});
@@ -261,6 +285,7 @@ export const updateEmployeeProfile = onCall(
     const batch = db.batch();
     batch.update(employeeRef, {
       ...(nameChanged ? { name, "fieldEditedAt.name": editedAt } : {}),
+      ...(dobChanged ? { dob, "fieldEditedAt.dob": editedAt } : {}),
       ...(photoChanged ? { photoUrl, "fieldEditedAt.photoUrl": editedAt } : {}),
       ...(photoChanged && photoNoticeShownAtMs
         ? { photoNoticeAck: { uid, shownAt: admin.firestore.Timestamp.fromMillis(photoNoticeShownAtMs) } }

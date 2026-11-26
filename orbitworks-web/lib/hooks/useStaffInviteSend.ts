@@ -18,7 +18,7 @@ export function useStaffInviteSend() {
   const { currentUser, userData } = useAuth();
   const [sending, setSending] = useState(false);
 
-  async function send(role: "supervisor" | "admin", email: string, siteIds: string[]): Promise<StaffInviteResult> {
+  async function send(role: "supervisor" | "admin" | "kiosk", email: string, siteIds: string[]): Promise<StaffInviteResult> {
     if (!userData?.companyId || !currentUser) return { ok: false, message: "You must be signed in." };
     setSending(true);
     try {

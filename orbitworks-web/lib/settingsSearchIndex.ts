@@ -226,6 +226,18 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["job site", "clock in", "device"],
   },
   {
+    id: "kiosk-create-account",
+    label: "Kiosk: Create account",
+    tab: "mobile",
+    keywords: ["kiosk", "create", "account", "employee", "tablet"],
+  },
+  {
+    id: "kiosk-require-admin-pin",
+    label: "Kiosk: Require admin PIN",
+    tab: "mobile",
+    keywords: ["kiosk", "admin", "pin", "create", "account"],
+  },
+  {
     id: "devices",
     label: "Devices",
     tab: "mobile",

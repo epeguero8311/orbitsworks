@@ -8,6 +8,7 @@ import { auth, db } from "./firebase";
 import {
   REFRESH_RETRY_MS,
   claimsFields,
+  usersDocAppRole,
   leftoverNotice,
   mergeUserData,
   needsRoleRefresh,
@@ -178,12 +179,12 @@ export function AuthProvider({ children }) {
           if (!needsRoleRefresh({ claims: cur, usersDoc: docNow, handledChangeMs: handledChangeRef.current })) continue;
           if (!(await isOnline())) return;
 
-          const plan = transitionPlan(cur.role, docNow.role);
+          const plan = transitionPlan(cur.role, usersDocAppRole(docNow));
           Sentry.addBreadcrumb({
             category: "roleSync",
             message: "roleChange:start",
             level: "info",
-            data: { from: cur.role, to: docNow.role, kind: plan.kind },
+            data: { from: cur.role, to: usersDocAppRole(docNow), kind: plan.kind },
           });
 
           // 1. Send what the old role saved here, with the old token.
@@ -203,7 +204,7 @@ export function AuthProvider({ children }) {
             } catch {
               break; // offline / network: stay as we are, try again later
             }
-            if (next && next.role === usersDocRef.current?.role) break;
+            if (next && next.role === usersDocAppRole(usersDocRef.current)) break;
           }
           handledChangeRef.current = toMillis(usersDocRef.current?.roleChangedAt);
 
@@ -217,9 +218,9 @@ export function AuthProvider({ children }) {
             category: "roleSync",
             message: "roleChange:done",
             level: "info",
-            data: { from: cur.role, to: next?.role ?? null, wanted: docNow.role, leftover },
+            data: { from: cur.role, to: next?.role ?? null, wanted: usersDocAppRole(docNow), leftover },
           });
-          if (next && next.role !== usersDocRef.current?.role) {
+          if (next && next.role !== usersDocAppRole(usersDocRef.current)) {
             Sentry.captureMessage("roleSync:claimsLag", {
               level: "warning",
               tags: { area: "roleSync" },
@@ -375,7 +376,10 @@ export function AuthProvider({ children }) {
     const uid = currentUser.uid;
     if (
       !userData ||
-      (userData.role !== "supervisor" && userData.role !== "admin" && userData.role !== "employee") ||
+      (userData.role !== "supervisor" &&
+        userData.role !== "admin" &&
+        userData.role !== "employee" &&
+        userData.role !== "websiteOnly") ||
       !userData.companyId
     ) {
       // No linked-employee check for this account: nothing to wait for.

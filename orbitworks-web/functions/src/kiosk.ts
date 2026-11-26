@@ -175,6 +175,8 @@ export const getKioskPinTable = onCall(async (request): Promise<KioskPinTable> =
     sites,
     hasLocatedSites,
     serverNowMs: Date.now(),
+    createAccount: company.appSettings?.kioskCreateAccount === true,
+    requireAdminPin: company.appSettings?.kioskCreateAccount === true && company.appSettings?.kioskRequireAdminPin === true,
   };
 });
 

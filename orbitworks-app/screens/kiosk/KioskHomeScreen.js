@@ -102,6 +102,25 @@ export default function KioskHomeScreen({ navigation }) {
     );
   }
 
+  // Task 5 v2 (5): only when the website's Mobile App Settings -> Kiosk ->
+  // Create account is on (Pro). With Require admin PIN, an admin's PIN
+  // (Settings / Full access) comes first - never the exit key.
+  const openCreateAccount = () => {
+    if (kiosk.requireAdminPin) navigation.navigate("KioskUnlock", { purpose: "createAccount" });
+    else navigation.navigate("KioskCreateAccount", { mode: "kiosk" });
+  };
+  const createButton =
+    kiosk.createAccount && !blockedReason && !noTable && !notPro ? (
+      <TouchableOpacity
+        onPress={openCreateAccount}
+        accessibilityLabel="Create account"
+        style={[styles.createBtn, { borderColor: colors.accent }]}
+      >
+        <Feather name="user-plus" size={18} color={colors.accent} />
+        <Text style={[styles.createText, { color: colors.accent }]}>Create account</Text>
+      </TouchableOpacity>
+    ) : null;
+
   const gear = (
     <TouchableOpacity
       onPress={() => navigation.navigate("KioskUnlock")}
@@ -133,6 +152,7 @@ export default function KioskHomeScreen({ navigation }) {
           <Text style={[styles.wideTime, { color: colors.text }]}>{timeText}</Text>
           <Text style={[styles.wideDate, { color: colors.subtext }]}>{dateText}</Text>
           <View style={styles.widePill}>{pill}</View>
+          {createButton ? <View style={styles.wideCreate}>{createButton}</View> : null}
         </View>
         <View style={styles.wideRight}>{body}</View>
         <View style={[styles.wideGear, { top: insets.top + 12 }]}>{gear}</View>
@@ -154,6 +174,8 @@ export default function KioskHomeScreen({ navigation }) {
       {pill}
 
       {body}
+
+      {createButton ? <View style={[styles.bottomCreate, { paddingBottom: insets.bottom + 16 }]}>{createButton}</View> : null}
     </View>
   );
 }
@@ -179,4 +201,8 @@ const styles = StyleSheet.create({
   wideDate: { fontSize: 22 },
   wideGear: { position: "absolute", right: 24 },
   widePill: { alignSelf: "flex-start" },
+  wideCreate: { alignSelf: "flex-start", marginTop: 16 },
+  bottomCreate: { alignItems: "center" },
+  createBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1.5, borderRadius: 24, paddingHorizontal: 20, paddingVertical: 12 },
+  createText: { fontSize: 16, fontWeight: "700" },
 });

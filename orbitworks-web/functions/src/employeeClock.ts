@@ -8,6 +8,7 @@ import { isAccurateEnoughToDetect, isSiteMismatch, loadDetectableSites, pickDete
 import { PIN_REVEAL_MAX, PIN_REVEAL_WINDOW_MS, type MyPinResult } from "./employeePinTypes";
 import { fenceForClockIn, fenceForNewClockIn } from "./employeeSiteExits";
 import { punchCallerKind } from "./promotedCaller";
+import { isEmployeeAppToken } from "./employeeAccess";
 import { makePinVerifier, PinVerifierResult } from "./lib/pinVerifier";
 import { queuedPinCheck, readPinHistory } from "./lib/pinHistory";
 import { pinHistoryRef } from "./pins";
@@ -430,7 +431,7 @@ export const employeeClockPunch = onCall(async (request) => {
   const role = request.auth.token.role as string | undefined;
   const companyId = request.auth.token.companyId as string | undefined;
   const employeeId = request.auth.token.employeeId as string | undefined;
-  const callerKind = punchCallerKind(role);
+  const callerKind = punchCallerKind(role, request.auth.token.appMode);
   if (!callerKind || !companyId || !employeeId) throw clockError("wrongAccount");
 
   // 2. input
@@ -810,7 +811,7 @@ export const getEmployeeHomeSite = onCall(async (request) => {
   const role = request.auth.token.role as string | undefined;
   const companyId = request.auth.token.companyId as string | undefined;
   const employeeId = request.auth.token.employeeId as string | undefined;
-  if (role !== "employee" || !companyId || !employeeId) throw clockError("wrongAccount");
+  if (!isEmployeeAppToken({ role, appMode: request.auth.token.appMode }) || !companyId || !employeeId) throw clockError("wrongAccount");
 
   const employeeSnap = await db.collection("companies").doc(companyId).collection("employees").doc(employeeId).get();
   const employee = employeeSnap.data() as EmployeeDoc | undefined;
@@ -836,7 +837,7 @@ export const getMyPinVerifier = onCall(async (request): Promise<PinVerifierResul
   const role = request.auth.token.role as string | undefined;
   const companyId = request.auth.token.companyId as string | undefined;
   const employeeId = request.auth.token.employeeId as string | undefined;
-  if (role !== "employee" || !companyId || !employeeId) throw clockError("wrongAccount");
+  if (!isEmployeeAppToken({ role, appMode: request.auth.token.appMode }) || !companyId || !employeeId) throw clockError("wrongAccount");
   const parsed = getMyPinVerifierSchema.safeParse(request.data ?? {});
   if (!parsed.success) throw clockError("invalid");
 
@@ -864,7 +865,7 @@ export const getMyPin = onCall(async (request): Promise<MyPinResult> => {
   const role = request.auth.token.role as string | undefined;
   const companyId = request.auth.token.companyId as string | undefined;
   const employeeId = request.auth.token.employeeId as string | undefined;
-  if (role !== "employee" || !companyId || !employeeId) throw clockError("wrongAccount");
+  if (!isEmployeeAppToken({ role, appMode: request.auth.token.appMode }) || !companyId || !employeeId) throw clockError("wrongAccount");
   const parsed = getMyPinSchema.safeParse(request.data ?? {});
   if (!parsed.success) throw clockError("invalid");
 

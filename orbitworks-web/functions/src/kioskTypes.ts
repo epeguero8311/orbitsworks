@@ -51,6 +51,10 @@ export type KioskPinTable = {
   }>;
   hasLocatedSites: boolean;
   serverNowMs: number;
+  // Task 5 v2 (3): website Mobile App Settings -> Kiosk. Missing on older
+  // servers = both off.
+  createAccount?: boolean;
+  requireAdminPin?: boolean;
 };
 
 function isPro(planTier: unknown): boolean {

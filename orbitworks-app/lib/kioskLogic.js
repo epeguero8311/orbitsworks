@@ -52,6 +52,9 @@ function parsePinTable(data) {
     unlockers,
     sites: data.sites.filter((s) => s && ID.test(s.id)),
     hasLocatedSites: data.hasLocatedSites === true,
+    // Task 5 v2 (3): website Mobile App Settings -> Kiosk.
+    createAccount: data.createAccount === true,
+    requireAdminPin: data.createAccount === true && data.requireAdminPin === true,
     syncedAtMs: Number.isFinite(data.serverNowMs) ? data.serverNowMs : null,
   };
 }

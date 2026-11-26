@@ -147,3 +147,53 @@ test("RC1: deactivating an employee whose login has no users doc never creates o
   await funcs.setEmployeeActive.run({ data: { employeeId: "emp1", active: false }, auth: ownerAuth(c), rawRequest: {} });
   assert.equal((await db.doc(`users/${uid}`).get()).exists, false);
 });
+
+// ---- Task 5 v2 (A): account type = one app type + Admin on top ----
+test("appModeFor / loginRoleFor / isEmployeeAppToken", () => {
+  const { appModeFor, loginRoleFor, isEmployeeAppToken } = require("../lib/employeeAccess.js");
+  // legacy records keep their old mode
+  assert.equal(appModeFor({ isAdmin: true }), "supervisor");
+  assert.equal(appModeFor({ appAccess: true }), "employee");
+  assert.equal(appModeFor({ isSupervisor: true, appAccess: true }), "supervisor");
+  assert.equal(appModeFor({}), "supervisor");
+  // explicit app type wins
+  assert.equal(appModeFor({ isAdmin: true, appType: "employee", appAccess: true }), "employee");
+  assert.equal(appModeFor({ isAdmin: true, appType: "none" }), "none");
+  assert.equal(appModeFor({ appType: "none" }), "supervisor"); // none only with admin
+  assert.equal(appModeFor({ kiosk: true, appType: "employee" }), "kiosk");
+  // role claim
+  assert.equal(loginRoleFor({ isAdmin: true, appType: "employee" }), "admin");
+  assert.equal(loginRoleFor({ appType: "employee", appAccess: true }), "employee");
+  assert.equal(loginRoleFor({ appType: "supervisor", appAccess: true }), "supervisor");
+  assert.equal(loginRoleFor({ kiosk: true, isAdmin: true }), "kiosk");
+  // employee-app callers
+  assert.equal(isEmployeeAppToken({ role: "employee" }), true);
+  assert.equal(isEmployeeAppToken({ role: "admin", appMode: "employee" }), true);
+  assert.equal(isEmployeeAppToken({ role: "admin" }), false);
+  assert.equal(isEmployeeAppToken({ role: "supervisor", appMode: "employee" }), false);
+  assert.equal(isEmployeeAppToken({ role: "kiosk", appMode: "employee" }), false);
+});
+
+test("setEmployeeRoleSchema: kiosk + admin refused, no app + no admin refused", () => {
+  const { setEmployeeRoleSchema } = require("../lib/employeeRoleValidators.js");
+  assert.equal(setEmployeeRoleSchema.safeParse({ employeeId: "e1", appType: "kiosk", isAdmin: true }).success, false);
+  assert.equal(setEmployeeRoleSchema.safeParse({ employeeId: "e1", appType: "none", isAdmin: false }).success, false);
+  assert.equal(setEmployeeRoleSchema.safeParse({ employeeId: "e1", appType: "none", isAdmin: true }).success, true);
+  assert.equal(setEmployeeRoleSchema.safeParse({ employeeId: "e1", appType: "employee", isAdmin: true }).success, true);
+  // old website payload still accepted
+  assert.equal(setEmployeeRoleSchema.safeParse({ employeeId: "e1", isAdmin: true, isSupervisor: false }).success, true);
+  assert.equal(setEmployeeRoleSchema.safeParse({ employeeId: "e1", appType: "boss" }).success, false);
+  assert.equal(setEmployeeRoleSchema.safeParse({ employeeId: "e1", extra: 1 }).success, false);
+});
+
+test("pinFreeFor: own live hold or an expired hold is free; assigned never", () => {
+  const { pinFreeFor } = require("../lib/employeeCreateExtras.js");
+  const ts = (ms) => ({ toMillis: () => ms });
+  const now = 1_000_000;
+  assert.equal(pinFreeFor(undefined, "u1", now), true);
+  assert.equal(pinFreeFor({ employeeId: "e9" }, "u1", now), false);
+  assert.equal(pinFreeFor({ employeeId: null }, "u1", now), false); // old placeholder
+  assert.equal(pinFreeFor({ employeeId: null, heldByUid: "u1", heldUntil: ts(now + 5000) }, "u1", now), true);
+  assert.equal(pinFreeFor({ employeeId: null, heldByUid: "u2", heldUntil: ts(now + 5000) }, "u1", now), false);
+  assert.equal(pinFreeFor({ employeeId: null, heldByUid: "u2", heldUntil: ts(now - 1) }, "u1", now), true);
+});

@@ -44,11 +44,13 @@ export function siteFor(projectId: string = currentProjectId()): SiteConfig | nu
 // used to always point at prod, even on dev).
 // inviteId pins acceptInvite to THIS invite (not any pending invite for the
 // email) - see functions/src/staffInviteValidators.ts.
-export function supervisorJoinLink(email: string, inviteId?: string, projectId?: string): string | null {
+// Task 5 v2 (2): kiosk=1 makes /join ask for a device name instead of a
+// person's name (display only - acceptInvite reads the role from the invite).
+export function supervisorJoinLink(email: string, inviteId?: string, projectId?: string, kiosk?: boolean): string | null {
   const site = siteFor(projectId);
   if (!site) return null;
   const invite = inviteId ? `&invite=${encodeURIComponent(inviteId)}` : "";
-  return `${site.baseUrl}/join?email=${encodeURIComponent(email)}${invite}`;
+  return `${site.baseUrl}/join?email=${encodeURIComponent(email)}${invite}${kiosk ? "&kiosk=1" : ""}`;
 }
 
 // Employee App email invite: the /i/{token} landing page, which the app

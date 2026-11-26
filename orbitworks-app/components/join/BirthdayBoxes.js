@@ -3,7 +3,10 @@ import { View, TextInput, Text, StyleSheet } from "react-native";
 
 // Birthday as three number boxes: MM / DD / YYYY. Filling a box jumps to
 // the next; backspace in an empty box jumps back. value = { mm, dd, yyyy }.
-export default function BirthdayBoxes({ value, onChange, editable = true }) {
+// Task 5 v2: colors (optional) = the app theme for Create / Edit Employee;
+// sign-up keeps its fixed light look.
+export default function BirthdayBoxes({ value, onChange, editable = true, colors = null }) {
+  const themed = colors ? { borderColor: colors.border, color: colors.text, backgroundColor: colors.card } : null;
   const ddRef = useRef(null);
   const yyyyRef = useRef(null);
   const mmRef = useRef(null);
@@ -24,7 +27,7 @@ export default function BirthdayBoxes({ value, onChange, editable = true }) {
     <View style={styles.row}>
       <TextInput
         ref={mmRef}
-        style={[styles.box, styles.small]}
+        style={[styles.box, styles.small, themed]}
         value={value.mm}
         onChangeText={(t) => setPart("mm", t, 2, ddRef)}
         placeholder="MM"
@@ -35,10 +38,10 @@ export default function BirthdayBoxes({ value, onChange, editable = true }) {
         accessibilityLabel="Birth month"
         returnKeyType="next"
       />
-      <Text style={styles.slash}>/</Text>
+      <Text style={[styles.slash, colors && { color: colors.subtext }]}>/</Text>
       <TextInput
         ref={ddRef}
-        style={[styles.box, styles.small]}
+        style={[styles.box, styles.small, themed]}
         value={value.dd}
         onChangeText={(t) => setPart("dd", t, 2, yyyyRef)}
         onKeyPress={backTo(mmRef, value.dd)}
@@ -50,10 +53,10 @@ export default function BirthdayBoxes({ value, onChange, editable = true }) {
         accessibilityLabel="Birth day"
         returnKeyType="next"
       />
-      <Text style={styles.slash}>/</Text>
+      <Text style={[styles.slash, colors && { color: colors.subtext }]}>/</Text>
       <TextInput
         ref={yyyyRef}
-        style={[styles.box, styles.year]}
+        style={[styles.box, styles.year, themed]}
         value={value.yyyy}
         onChangeText={(t) => setPart("yyyy", t, 4, null)}
         onKeyPress={backTo(ddRef, value.yyyy)}
