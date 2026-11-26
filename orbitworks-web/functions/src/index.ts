@@ -91,6 +91,7 @@ export { employeeClockPunch, getEmployeeHomeSite, getMyPin, getMyPinVerifier } f
 
 // Task 5: Kiosk mode (shared wall tablet, Pro).
 export { getKioskPinTable, kioskPunch, checkKioskUnlock, renameKioskDevice, createKioskExitKey } from "./kiosk";
+export { reportAppVersion } from "./appVersions";
 
 export { runAutoClockOut } from "./autoClockOut";
 

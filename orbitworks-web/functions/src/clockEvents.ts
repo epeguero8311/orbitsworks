@@ -14,6 +14,7 @@ import { MAPBOX_TOKEN, haversineMeters, reverseGeocode } from "./geocoding";
 import { classifyGeofence, geofenceForDetectedSite, geofenceForKeptSite, isSiteMismatch, loadDetectableSites, pickDetectedClockInSite, GeofenceStatus } from "./geofencing";
 import { checkLateClockIn, checkEarlyClockOut, checkOutsideGeofence, checkSiteMismatch, createAlertIfNew } from "./alerts";
 import { closeOpenSiteExits } from "./employeeSiteExits";
+import { APP_VERSION_REGEX } from "./appVersions";
 import { checkFaceMatch, REKOGNITION_ACCESS_KEY_ID, REKOGNITION_SECRET_ACCESS_KEY } from "./rekognition";
 import { correctClockEventSchema, CORRECTION_FUTURE_SLACK_MS, findCorrectionConflict, correctionConflictMessage } from "./clockCorrectionValidators";
 import { reassignClockSessionSchema, collectSessionEvents, findOverlap, overlapMessage, type SessionEvent } from "./sessionReassignValidators";
@@ -95,10 +96,17 @@ async function handleDeviceTracking(
         return;
       }
 
-      tx.update(deviceRef, {
+      const update: Record<string, unknown> = {
         lastSeenAt: eventTimestamp,
         lastUserUid: (data.createdByUid as string | undefined) ?? null,
-      });
+      };
+      // Task 6: the app version the punch came from (1.1.6+ sends it).
+      if (typeof data.appVersion === "string" && APP_VERSION_REGEX.test(data.appVersion)) {
+        update.appVersion = data.appVersion;
+        if (data.appPlatform === "ios" || data.appPlatform === "android") update.appPlatform = data.appPlatform;
+        update.appVersionAt = eventTimestamp;
+      }
+      tx.update(deviceRef, update);
     });
   } catch (err) {
     console.warn("Device tracking failed for clock event", eventId, companyId, err);

@@ -11,6 +11,8 @@ import { deviceNameSchema, DEVICE_NAME_MAX_LENGTH } from "@/lib/validators/devic
 import type { Device } from "@/lib/types";
 import { BillingLink } from "@/components/BillingLink";
 import { toastIfPermissionDenied } from "@/lib/permissionErrors";
+import { useAppVersions } from "@/lib/hooks/useAppVersions";
+import { deviceVersionLabel } from "@/lib/appVersions";
 
 interface DeviceRow {
   id: string;
@@ -20,6 +22,9 @@ interface DeviceRow {
   locked: boolean;
   // Task 5 (K19): Kiosk iPad or Supervisor app.
   kiosk: boolean;
+  // Task 6: app version (null = a build before 1.1.6) + its platform.
+  appVersion: string | null;
+  platform: string | null;
   lockedByUid?: string;
   lockedAt?: Timestamp;
 }
@@ -32,6 +37,8 @@ function buildRows(devices: Device[], unnamed: UnnamedDevice[]): DeviceRow[] {
     lastUsedByUid: d.lastUserUid ?? null,
     locked: d.locked,
     kiosk: !!d.kioskEmployeeId,
+    appVersion: d.appVersion ?? null,
+    platform: d.appPlatform ?? d.platform ?? null,
     lockedByUid: d.lockedByUid,
     lockedAt: d.lockedAt,
   }));
@@ -44,6 +51,8 @@ function buildRows(devices: Device[], unnamed: UnnamedDevice[]): DeviceRow[] {
     lastUsedByUid: null,
     locked: false,
     kiosk: u.kiosk === true,
+    appVersion: u.appVersion ?? null,
+    platform: u.appPlatform ?? null,
   }));
   unnamedRows.sort((a, b) => (b.lastSeen?.toMillis() ?? 0) - (a.lastSeen?.toMillis() ?? 0));
 
@@ -68,6 +77,7 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
   const { userData, currentUser } = useAuth();
   const { devices, unnamedDevices, loading, error } = useDevices();
   const { employees } = useEmployees({ includeKiosks: true });
+  const appVersions = useAppVersions();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -245,16 +255,18 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
         <div className="mt-4 w-full overflow-x-auto">
           <table className="w-full table-fixed text-left text-sm">
             <colgroup>
-              <col style={{ width: "40%" }} />
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "16%" }} />
+              <col style={{ width: "34%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "12%" }} />
             </colgroup>
             <thead className="border-b border-gray-200 text-gray-600">
               <tr>
                 <th className="px-4 py-2.5 font-medium">Device name</th>
                 <th className="px-4 py-2.5 font-medium">Last seen</th>
                 <th className="px-4 py-2.5 font-medium">Last used by</th>
+                <th className="px-4 py-2.5 font-medium">App version</th>
                 <th className="px-4 py-2.5 font-medium">Lock</th>
               </tr>
             </thead>
@@ -349,6 +361,21 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
                     </td>
                     <td className="px-4 py-3 text-gray-600">{formatLastSeen(row.lastSeen)}</td>
                     <td className="px-4 py-3 text-gray-600">{lastUsedByName}</td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {(() => {
+                        const v = deviceVersionLabel(row.appVersion, row.platform, appVersions);
+                        return (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span>{v.text}</span>
+                            {v.outdated && (
+                              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                                Outdated
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td className="px-4 py-3">
                       {row.name !== null && (
                         <button

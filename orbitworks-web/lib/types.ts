@@ -568,6 +568,11 @@ export interface Device {
   // Task 5 (K19): set by renameKioskDevice (server) when a Kiosk iPad names
   // itself - the Devices list shows a Kiosk tag instead of Supervisor.
   kioskEmployeeId?: string;
+  // Task 6: the app version last seen on this device (server-written by
+  // reportAppVersion / onClockEventCreated). Missing = a build before 1.1.6.
+  appVersion?: string;
+  appPlatform?: "ios" | "android";
+  appVersionAt?: Timestamp;
 }
 
 // ---- Alerts ----

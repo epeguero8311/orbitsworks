@@ -7,6 +7,7 @@ import { APP_RUN_ID, uptimeNow, withAnchor } from "./clockAnchor";
 import { fastWaitMs, withTimeout } from "./punchQueueLogic";
 import { isAlreadyUploaded, kioskCommentFor, kioskFailKind } from "./kioskLogic";
 import { getOrCreateDeviceId } from "./deviceId";
+import { appVersionFields } from "./appVersionInfo";
 import {
   cleanupKioskQueue,
   getKioskPin,
@@ -67,6 +68,7 @@ async function sendOne(item, deviceId) {
   if (Number.isFinite(item.lastServerMs) && item.lastServerMs > 0) data.lastServerMs = Math.round(item.lastServerMs);
   if (Number.isFinite(item.expectedAtMs)) data.expectedAtMs = Math.round(item.expectedAtMs);
   if (item.location !== undefined) data.location = item.location;
+  Object.assign(data, appVersionFields()); // Task 6: Devices list app version
   const comment = kioskCommentFor(item.action, item.employeeComment);
   if (comment) data.employeeComment = comment;
   try {

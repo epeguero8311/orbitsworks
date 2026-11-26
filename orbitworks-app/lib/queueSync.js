@@ -9,6 +9,7 @@ import { notifyQueueChange } from "./queueEvents";
 import { isFaultActive, resolveTimeoutMs, hangForever, fakePermissionDeniedError } from "./syncFaults";
 import { uploadLocalFileToStorage } from "./storageUpload";
 import { cleanEmployeeComment } from "./validators/employeeComment";
+import { appVersionFields } from "./appVersionInfo";
 import { ownerOf, isOwnRow, OWN_ROW_SQL, ownParams } from "./queueOwnerLogic";
 
 // Logout fix (2026-11-21): the signed-in login's owner key. A drain sends
@@ -371,6 +372,9 @@ function buildEventPayload(item, photoState) {
     overrideEventId: item.overrideEventId ?? null,
     deviceId: item.deviceId ?? null,
     deviceNameSnapshot: item.deviceNameSnapshot ?? null,
+    // Task 6: this build's version (website Devices list). Left out when
+    // unknown; firestore.rules isValidAppVersionFields checks the shape.
+    ...appVersionFields(),
     // Omitted entirely (not even null) for a Core-plan company, where
     // clockQueue.js never attempts a fix at all - that's what makes the
     // dashboard show nothing for these, same as a pre-feature event.

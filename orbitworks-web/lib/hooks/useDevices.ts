@@ -11,6 +11,9 @@ import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 export interface UnnamedDevice {
   // Task 5 (K19): seen on a kiosk punch (source "kiosk").
   kiosk?: boolean;
+  // Task 6: the version on its newest punch (none = a build before 1.1.6).
+  appVersion?: string;
+  appPlatform?: string;
   deviceId: string;
   lastSeen: Timestamp | null;
 }
@@ -30,6 +33,7 @@ export function useDevices() {
   const [devicesError, setDevicesError] = useState(false);
   const [seenDeviceIds, setSeenDeviceIds] = useState<Map<string, Timestamp | null>>(new Map());
   const [kioskDeviceIds, setKioskDeviceIds] = useState<Set<string>>(new Set());
+  const [versionByDeviceId, setVersionByDeviceId] = useState<Map<string, { appVersion?: string; appPlatform?: string }>>(new Map());
 
   useEffect(() => {
     if (!userData?.companyId) return;
@@ -68,16 +72,23 @@ export function useDevices() {
       (snapshot) => {
         const seen = new Map<string, Timestamp | null>();
         const kiosks = new Set<string>();
+        const versions = new Map<string, { appVersion?: string; appPlatform?: string }>();
         snapshot.docs.forEach((d) => {
           const data = d.data();
           const deviceId = data.deviceId;
           if (typeof deviceId === "string" && deviceId && !seen.has(deviceId)) {
             seen.set(deviceId, (data.timestamp as Timestamp | undefined) ?? null);
+            // newest first: the device's newest punch says its version
+            versions.set(deviceId, {
+              appVersion: typeof data.appVersion === "string" ? data.appVersion : undefined,
+              appPlatform: typeof data.appPlatform === "string" ? data.appPlatform : undefined,
+            });
           }
           if (typeof deviceId === "string" && data.source === "kiosk") kiosks.add(deviceId);
         });
         setSeenDeviceIds(seen);
         setKioskDeviceIds(kiosks);
+        setVersionByDeviceId(versions);
       },
       (err) => {
         // Unnamed-device discovery is a nice-to-have on top of the named
@@ -94,8 +105,8 @@ export function useDevices() {
     const namedIds = new Set(devices.map((d) => d.id));
     return Array.from(seenDeviceIds.entries())
       .filter(([deviceId]) => !namedIds.has(deviceId))
-      .map(([deviceId, lastSeen]) => ({ deviceId, lastSeen, kiosk: kioskDeviceIds.has(deviceId) }));
-  }, [devices, seenDeviceIds, kioskDeviceIds]);
+      .map(([deviceId, lastSeen]) => ({ deviceId, lastSeen, kiosk: kioskDeviceIds.has(deviceId), ...versionByDeviceId.get(deviceId) }));
+  }, [devices, seenDeviceIds, kioskDeviceIds, versionByDeviceId]);
 
   return {
     devices,

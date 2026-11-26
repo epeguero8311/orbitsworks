@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EMPLOYEE_CLOCK_ACTIONS, punchLocationSchema } from "./employeeClockValidators";
+import { appPlatformField, appVersionField } from "./appVersions";
 
 // ---- Task 5 Kiosk mode (shared wall tablet, Pro) - callable inputs ----
 //
@@ -40,6 +41,10 @@ export const kioskPunchSchema = z
     // the supervisor app's camera Comment button). In/out only, 1-500
     // chars - firestore.rules isValidEmployeeComment's limits.
     employeeComment: z.string().trim().min(1).max(500, "Comment must be 500 characters or fewer").optional(),
+    // Task 6: the tablet's app version (Devices list). A bad value is
+    // dropped, never a refused punch.
+    appVersion: appVersionField.optional().catch(undefined),
+    appPlatform: appPlatformField.optional().catch(undefined),
   })
   .strict()
   .refine(

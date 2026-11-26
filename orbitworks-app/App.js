@@ -11,6 +11,8 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import * as Device from "expo-device";
 import { shouldLockPortrait } from "./lib/tabletLayout";
 import { withMaxWidth } from "./components/MaxWidth";
+import UpdateBanner from "./components/UpdateBanner";
+import { useReportAppVersion } from "./lib/hooks/useReportAppVersion";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
 import { ThemeProvider, useTheme } from "./lib/ThemeContext";
 import { SiteSessionProvider } from "./lib/SiteSessionContext";
@@ -305,6 +307,9 @@ function RootNavigator() {
   const isKioskLogin = userData?.role === "kiosk";
   const backgroundSync = isEmployeeLogin || isKioskLogin ? null : <SupervisorBackgroundSync />;
   useJoinLink({ loggedIn: !!currentUser, navReady: navReady && splashAnimationDone });
+  // Task 6: shared devices (supervisor / admin / owner / kiosk) report their
+  // app version once per run for the website Devices list.
+  useReportAppVersion(currentUser?.uid, userData?.role);
 
   const onNativeSplashHandoff = useCallback(() => {
     // Native splash and our JS splash are the same solid blue, so
@@ -411,6 +416,8 @@ function RootNavigator() {
           </>
         )}
       </Stack.Navigator>
+      {/* Task 6: update banner / "Update to continue" over every mode. */}
+      {currentUser && !accountDisabled ? <UpdateBanner signedIn /> : null}
     </NavigationContainer>
   );
 }
