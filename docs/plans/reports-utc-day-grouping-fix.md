@@ -41,4 +41,8 @@ Not changed (left as is):
 - The report's date-range query still starts/ends at the browser's local midnight (`new Date(date + "T00:00:00")`). Same as company midnight when the browser is in the company time zone; fixing it needs a time-zone-to-instant helper, which this fix was told not to add.
 - Other pages that still use the UTC `dateKey`: Site Costs (`lib/siteCosts.ts`, `useSiteCosts.ts`), Approve Hours week navigation, dashboard day view, `lib/validators/dateRange.ts` presets. Not Reports; separate follow-up if wanted.
 
+## Known follow-ups (not fixed - Emilio, Nov 26)
+1. Still grouping by the UTC date (`lib/reportUtils.ts` `dateKey`): Approve Hours week navigation (`app/dashboard/timesheet-approvals/page.tsx`, `lib/hooks/useTimesheetApprovals.ts` fetch window), dashboard day view (`components/dashboard/ClockEventsDayView.tsx`), Site Costs (`lib/siteCosts.ts`, `lib/hooks/useSiteCosts.ts`), date presets (`lib/validators/dateRange.ts`).
+2. The report date query (`lib/hooks/useReports.ts`, also Time History) starts/ends at the browser's local midnight (`new Date(date + "T00:00:00")`), not company midnight. Only differs when the admin's browser is in another time zone than the company.
+
 Release notes: evening shifts (after ~6pm Chicago, 7pm in summer) in Overtime-OFF reports and exports now show on the day they started - old reports re-run will move those shifts back one day.
