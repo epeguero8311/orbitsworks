@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   collection,
   query,
@@ -47,6 +47,7 @@ import {
   computeAttendanceAndSiteReports,
 } from "@/lib/reportComputations";
 import { toastIfPermissionDenied } from "@/lib/permissionErrors";
+import { reportComputedWith, reportSettingsKey, type ReportComputedWith } from "@/lib/reportRunSettings";
 
 // Everything one report run produces (Task 4: computed once per source).
 export type ReportData = {
@@ -72,11 +73,16 @@ export type ReportData = {
   // Task 4 rule 2: a restricted admin's employee-days' FULL (all sites)
   // worked + OT minutes, "employeeId__date" -> totals. null otherwise.
   allSitesDayTotals: Map<string, { workedMinutes: number; overtimeMinutes: number }> | null;
+  // The settings this run was computed with - the downloads follow these,
+  // never the live settings (lib/reportRunSettings.ts).
+  computedWith: ReportComputedWith;
 };
 
 export function useReports() {
   const { userData } = useAuth();
-  const { settings } = useCompanySettings();
+  // settingsLoading: a report never runs on the default settings
+  // (Overtime OFF, Tips OFF) - runReport waits for the company doc.
+  const { settings, loading: settingsLoading } = useCompanySettings();
   const companyId = userData?.companyId;
   const { serverReads } = useAdminAccess();
 
@@ -146,6 +152,8 @@ export function useReports() {
   // Overtime toggle is ON. null = OFF - every section and export then uses
   // the existing (unchanged) data above.
   const [overtimeRows, setOvertimeRows] = useState<OvertimeReportRow[] | null>(null);
+  // The settings the report on screen was computed with (null = no run yet).
+  const [computedWith, setComputedWith] = useState<ReportComputedWith | null>(null);
 
   // Task 4 (D2/D4): one report computation, from a source - Firestore
   // directly ("direct"), or the server for an Admin limited to some sites:
@@ -160,6 +168,7 @@ export function useReports() {
     ): Promise<ReportData> => {
       if (!companyId) throw new Error("No company loaded.");
       const out = { allSitesDayTotals: null } as unknown as ReportData;
+      out.computedWith = reportComputedWith(settings);
         const start = new Date(startDate + "T00:00:00");
         const end = new Date(endDate + "T23:59:59");
 
@@ -498,6 +507,14 @@ export function useReports() {
   );
 
   const lastRun = useRef<{ startDate: string; endDate: string; companyFilter: CompanyFilter } | null>(null);
+  // The latest run asked for (kept even while it waits for the settings or
+  // fails) - re-run when a report setting changes.
+  const lastRequest = useRef<{ startDate: string; endDate: string; companyFilter: CompanyFilter } | null>(null);
+  // Asked for before the settings loaded: runs as soon as they do.
+  const waitingForSettings = useRef(false);
+  // Only the newest run may write its results (an older one that finishes
+  // later must not overwrite a re-run with the new settings).
+  const runSeq = useRef(0);
   const [allSitesDayTotals, setAllSitesDayTotals] = useState<ReportData["allSitesDayTotals"]>(null);
 
   const runReport = useCallback(
@@ -507,12 +524,20 @@ export function useReports() {
     // "All companies".
     async (startDate: string, endDate: string, companyFilter: CompanyFilter = ALL_COMPANIES) => {
       if (!companyId) return;
+      lastRequest.current = { startDate, endDate, companyFilter };
       setError("");
       setLoading(true);
       setSummaries(null);
       setOvertimeRows(null);
+      setComputedWith(null);
+      const seq = ++runSeq.current;
+      if (settingsLoading) {
+        waitingForSettings.current = true;
+        return;
+      }
       try {
         const d = await computeReport(startDate, endDate, companyFilter, serverReads ? "shifts" : "direct");
+        if (seq !== runSeq.current) return;
         lastRun.current = { startDate, endDate, companyFilter };
         setSummaries(d.summaries);
         setHoursByEmployeeDay(d.hoursByEmployeeDay);
@@ -534,16 +559,34 @@ export function useReports() {
         setEmployeesPerDay(d.employeesPerDay);
         setJobSiteReports(d.jobSiteReports);
         setAllSitesDayTotals(d.allSitesDayTotals ?? null);
+        setComputedWith(d.computedWith);
       } catch (err) {
+        if (seq !== runSeq.current) return;
         console.error("Report generation error:", err);
         if (toastIfPermissionDenied(err, { action: "view this report" })) return;
         setError("Couldn't generate the report. Try again.");
       } finally {
-        setLoading(false);
+        if (seq === runSeq.current) setLoading(false);
       }
     },
-    [companyId, computeReport, serverReads]
+    [companyId, computeReport, serverReads, settingsLoading]
   );
+
+  // Settings loaded: run the report that was waiting for them. A report
+  // setting changed later (Overtime, Tips, thresholds, rounding, time
+  // zone...): run the last report again with the same dates and company,
+  // so the screen and the downloads never show numbers from old settings.
+  const settingsKey = reportSettingsKey(settings);
+  const prevSettingsKey = useRef(settingsKey);
+  useEffect(() => {
+    if (settingsLoading) return;
+    const changed = prevSettingsKey.current !== settingsKey;
+    prevSettingsKey.current = settingsKey;
+    const request = lastRequest.current;
+    if (!request || (!waitingForSettings.current && !changed)) return;
+    waitingForSettings.current = false;
+    void runReport(request.startDate, request.endDate, request.companyFilter);
+  }, [settingsLoading, settingsKey, runReport]);
 
   // Task 4 (D4/D12): what the downloads use. Everyone except a restricted
   // admin: the report on screen. A restricted admin: the same report for
@@ -576,6 +619,7 @@ export function useReports() {
     tipsByEmployeeDay,
     approvedJobIdByEmployeeDay,
     overtimeRows,
+    computedWith,
     allSitesDayTotals,
     runReport,
     loadExportData,

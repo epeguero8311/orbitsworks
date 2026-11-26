@@ -15,6 +15,7 @@ import { toTimesheetsCsv, downloadCsv } from "@/lib/reportUtils";
 import { buildExportFilename, exportAllReportsExcel } from "@/lib/reportExcelUtils";
 import { buildDailyBreakdownRows, computeEmployeeRoundedTotals } from "@/lib/reportDailyBreakdown";
 import { applyOvertimeOverrides, computeOvertimeTotals } from "@/lib/reportOvertime";
+import { payrollExportOptions, type ReportComputedWith } from "@/lib/reportRunSettings";
 import AttendanceCards from "@/components/reports/AttendanceCards";
 import TimeTrendsCharts from "@/components/reports/TimeTrendsCharts";
 import PayrollTable from "@/components/reports/PayrollTable";
@@ -23,6 +24,9 @@ import ShiftNotesTable from "@/components/reports/ShiftNotesTable";
 import ExportMenu, { ExportDropdown } from "@/components/reports/ExportMenu";
 import CompanyFilterSelect from "@/components/reports/CompanyFilterSelect";
 import SiteExitsReportTable from "@/components/reports/SiteExitsReportTable";
+
+// Placeholder before the first run finishes (Export is hidden until then).
+const NOT_RUN_YET: ReportComputedWith = { overtimeEnabled: false, tipsEnabled: false, overtimeMultiplier: 1.5 };
 
 const ROUNDING_LABELS: Record<number, string> = {
   0: "Off",
@@ -36,7 +40,7 @@ const ROUNDING_LABELS: Record<number, string> = {
 // export (H9 a/a) and the "Job site exits" table + Excel data (H7 a).
 export default function ReportsPageView() {
   const { userData } = useAuth();
-  const { settings } = useCompanySettings();
+  const { settings, loading: settingsLoading } = useCompanySettings();
   const { roundDailyMinutes, roundTotalMinutes, automaticBreakMinutes, minimumShiftHours } =
     settings.exportSettings;
   const [companyName, setCompanyName] = useState("OrbitWorks");
@@ -84,6 +88,7 @@ export default function ReportsPageView() {
     employeeJobIdById,
     approvedJobIdByEmployeeDay,
     overtimeRows,
+    computedWith,
     allSitesDayTotals,
     runReport,
     loadExportData,
@@ -106,7 +111,13 @@ export default function ReportsPageView() {
       cancelled = true;
     };
   }, [serverReads, canExport, summaries, loadExportData]);
-  const exportReady = canExport && (!serverReads || serverExport?.forSummaries === summaries);
+  // Never export before the settings and the report run they belong to are
+  // loaded (the first run used to go out on the default settings).
+  const exportReady =
+    canExport &&
+    !settingsLoading &&
+    computedWith !== null &&
+    (!serverReads || serverExport?.forSummaries === summaries);
   // What the downloads use: the all-sites set (restricted) or the screen's.
   const ex: Omit<ReportData, "allSitesDayTotals"> =
     serverReads && serverExport
@@ -131,25 +142,32 @@ export default function ReportsPageView() {
           tipsByEmployeeDay,
           approvedJobIdByEmployeeDay,
           overtimeRows,
+          computedWith: computedWith ?? NOT_RUN_YET,
         };
   // Tips (Task 3): Tips columns everywhere only while the toggle is ON
-  // (OFF = useReports reads no tips, so every number is as before).
-  const tipsEnabled = settings.tipsEnabled;
+  // (OFF = useReports reads no tips, so every number is as before). Taken
+  // from the settings the report was run with, not the live ones, so the
+  // Tips column and the tips in it always come from the same run.
+  const tipsEnabled = computedWith?.tipsEnabled ?? false;
 
   // Overtime (Task 1): only non-null with the Overtime toggle ON. Every
   // section and export below falls back to today's data when it's null.
-  const overtimeMultiplier = settings.overtimeMultiplier;
+  const overtimeMultiplier = computedWith?.overtimeMultiplier ?? settings.overtimeMultiplier;
   // The downloads' overtime view (same overrides) - from `ex`.
   const exportOvertimeView = useMemo(() => {
     if (!ex.overtimeRows) return null;
-    const rows = applyOvertimeOverrides(ex.overtimeRows, overrides, ex.jobs, settings.overtimeMultiplier);
+    const multiplier = ex.computedWith.overtimeMultiplier;
+    const rows = applyOvertimeOverrides(ex.overtimeRows, overrides, ex.jobs, multiplier);
     return {
       baseRows: ex.overtimeRows,
       rows,
       totals: computeOvertimeTotals(rows, roundTotalMinutes),
-      multiplier: settings.overtimeMultiplier,
+      multiplier,
     };
-  }, [ex.overtimeRows, ex.jobs, overrides, settings.overtimeMultiplier, roundTotalMinutes]);
+  }, [ex.overtimeRows, ex.jobs, ex.computedWith.overtimeMultiplier, overrides, roundTotalMinutes]);
+  // Overtime layout + Tips column for the downloads, from the export data's
+  // own run (lib/reportRunSettings.ts).
+  const exportPayroll = payrollExportOptions(ex);
 
   const overtimeView = useMemo(() => {
     if (!overtimeRows) return null;
@@ -245,8 +263,8 @@ export default function ReportsPageView() {
                 startDate,
                 endDate,
                 ex.siteExits,
-                exportOvertimeView ? { rows: exportOvertimeView.baseRows, multiplier: exportOvertimeView.multiplier } : null,
-                tipsEnabled ? { byEmployeeDay: ex.tipsByEmployeeDay } : null
+                exportPayroll.overtime,
+                exportPayroll.tips
               )
             }
             onCsv={() =>
@@ -359,7 +377,7 @@ export default function ReportsPageView() {
               siteExits={ex.siteExits}
               overtime={exportOvertimeView}
               tipsByEmployeeDay={ex.tipsByEmployeeDay}
-              tipsEnabled={tipsEnabled}
+              tipsEnabled={ex.computedWith.tipsEnabled}
             />
           )}
           {serverReads && (
