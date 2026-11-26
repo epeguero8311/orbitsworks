@@ -50,3 +50,10 @@ Build 33 from feature/tablet-landscape (9a0c69b). Dev functions + dev website up
    - Other screens (Employee list, Settings, Kiosk Settings, Action screen): centered column, not stretched edge to edge.
    - Clock photo upright in BOTH orientations (kiosk + supervisor camera): take one in each; website photo upright, face check result normal.
    - iPhone (supervisor or employee login): stays portrait when the phone is turned sideways.
+
+## Task 6 checks (next dev build, from feature/update-banner)
+Dev appConfig/versions: ios/android latest "1.1.7", min unset (scripts/devSeedAppVersions.js).
+1. Kiosk, supervisor and employee logins on 1.1.6: banner "A new version is available (1.1.7) / You're on 1.1.6" with Update + x. Update opens TestFlight (dev app).
+2. x -> gone; close + reopen the app the same day -> still gone; next day -> back.
+3. Website Devices (owner): the iPad + supervisor phones show "1.1.6" + amber Outdated; a phone still on an older build shows "Older than 1.1.6" + Outdated. Employee phones never listed.
+4. Forced (optional): set ios.min = "1.1.7" in the Firebase console (dev) -> full-screen "Update to continue", no way past it; a punch queued before it still sends. Remove min after.
