@@ -251,6 +251,26 @@ test("getShiftData shifts: a restricted admin gets only their sites' shifts + FU
   assert.deepEqual([none.clockEvents.length, none.approvals.length], [0, 0]);
 });
 
+test("getShiftData shifts: offline-synced punches (supervisor PIN, Employee App, kiosk) show on Time Tracking's day range (bug 11/26)", async () => {
+  const u = await seed();
+  // Punched in airplane mode Nov 16 ~10:00, synced ~10:05 (createdAt later).
+  const synced = admin.firestore.Timestamp.fromMillis(Date.parse("2026-11-16T10:05:00-06:00"));
+  const base = { siteId: "siteA", siteName: "Site A", type: "in", createdAt: synced, createdByUid: "device" };
+  await company().collection("clockEvents").doc("off-pin").set({ ...base, employeeId: "e1", employeeName: "E1", source: "pin", localId: "L1", clientTimestamp: Date.parse("2026-11-16T10:00:00-06:00"), timestamp: ct(16, "10:00") });
+  await company().collection("clockEvents").doc("off-emp").set({ ...base, employeeId: "e2", employeeName: "E2", source: "employeeApp", requestId: "R1", timestamp: ct(16, "10:01") });
+  await company().collection("clockEvents").doc("off-kiosk").set({ ...base, employeeId: "e3", employeeName: "E3", source: "kiosk", kioskEmployeeId: "k1", requestId: "R2", timestamp: ct(16, "10:02") });
+  // Time Tracking's request: day before -> day after.
+  const day = { startMs: Date.parse("2026-11-15T00:00:00-06:00"), endMs: Date.parse("2026-11-17T23:59:59-06:00"), want: { clockEvents: true } };
+  const ids = (r) => r.clockEvents.map((e) => e.id).filter((id) => id.startsWith("off-")).sort();
+  const OFF = ["off-emp", "off-kiosk", "off-pin"];
+  assert.deepEqual(ids(await read({ purpose: "shifts", ...day }, u.owner)), OFF, "owner");
+  assert.deepEqual(ids(await read({ purpose: "shifts", ...day }, u.plain)), OFF, "all-sites admin");
+  assert.deepEqual(ids(await read({ purpose: "shifts", ...day }, u.restricted)), OFF, "Site A admin");
+  // Rule 1: an admin without Site A doesn't see them on Time Tracking...
+  await run("setAdminAccess", accessBody("plain", { sites: ["unassigned"] }), u.owner);
+  assert.deepEqual(ids(await read({ purpose: "shifts", ...day }, u.plain)), [], "Unassigned-only admin");
+});
+
 test("getShiftData export / analytics need their permission and return every site (rules 3 + 5)", async () => {
   const u = await seed();
   await assert.rejects(read({ purpose: "export", ...RANGE, want: { clockEvents: true } }, u.restricted), denied);

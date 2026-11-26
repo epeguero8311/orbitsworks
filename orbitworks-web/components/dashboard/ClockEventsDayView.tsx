@@ -4,6 +4,9 @@ import { useState } from "react";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import { useClockEventsByDay } from "@/lib/hooks/useClockEventsByDay";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
+import { useSites } from "@/lib/hooks/useSites";
+import { UNASSIGNED_SITE } from "@/lib/adminAccess";
 import { useShiftCommentsByClockIn } from "@/lib/hooks/useShiftCommentsByClockIn";
 import { useSiteExitsByClockIn } from "@/lib/hooks/useSiteExitsByClockIn";
 import { clockInIds, commentsForEvent } from "@/lib/shiftComments";
@@ -38,6 +41,15 @@ export default function ClockEventsDayView({
   // a shift crossing midnight pairs in the detail window.
   const { events: allEvents, pairingEvents, loading, error } = useClockEventsByDay(companyId, currentDate);
   const { isPro } = useCompanySettings();
+  // Bug 11/26: an Admin limited to some job sites only sees shifts on those
+  // sites here (rule 1) - while Overview shows every site (D13). Say so, so
+  // an empty day never looks like lost punches.
+  const { serverReads, access } = useAdminAccess();
+  const { sites } = useSites();
+  const scopeNames =
+    serverReads && Array.isArray(access.sites)
+      ? access.sites.map((id) => (id === UNASSIGNED_SITE ? "Unassigned shifts" : sites.find((s) => s.id === id)?.name ?? "a removed site"))
+      : [];
   // Employee comments shown in each clock-in row's Note cell.
   const { commentsByClockIn, error: commentsError } = useShiftCommentsByClockIn(companyId, clockInIds(allEvents));
   // Phase 8: "Left the job site" lines in the same cell (clock-in rows).
@@ -128,6 +140,13 @@ export default function ClockEventsDayView({
         </div>
       )}
 
+      {serverReads && (
+        <p className="border-b border-gray-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+          {scopeNames.length
+            ? `Showing only shifts on your job sites: ${scopeNames.join(", ")}. Shifts on other sites are hidden here (Overview shows every site).`
+            : "You don't have any job sites yet, so no shifts are shown here. Ask the owner to give you sites."}
+        </p>
+      )}
       {commentsError && <p className="border-b border-gray-200 px-4 py-2 text-xs text-red-600">{commentsError}</p>}
       {exitsError && <p className="border-b border-gray-200 px-4 py-2 text-xs text-red-600">{exitsError}</p>}
 

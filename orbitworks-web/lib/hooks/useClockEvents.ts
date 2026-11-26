@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
   onSnapshot,
@@ -21,6 +21,7 @@ import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { deriveStatus, ClockStatus } from "@/lib/clockStatus";
 import { isSameDay } from "@/lib/dashboardOverviewUtils";
 import type { ClockEvent, Employee, JobSite } from "@/lib/types";
+import { toClockEvents } from "@/lib/clockEventDocs";
 
 export type ClockDirection = "in" | "out" | "breakStart" | "breakEnd";
 
@@ -40,26 +41,27 @@ export function useClockEvents() {
   // shifts from the server (last 8 days), refreshed every 30 s.
   const { serverReads } = useAdminAccess();
   const [refreshTick, setRefreshTick] = useState(0);
+  // Bug 11/26: only the newest server response is applied.
+  const requestSeq = useRef(0);
 
   useEffect(() => {
     if (!userData?.companyId) return;
     if (serverReads) {
       let cancelled = false;
-      const load = () =>
-        fetchShiftData({ purpose: "shifts", startMs: Date.now() - 8 * 86400000, endMs: Date.now() + 60000, want: { clockEvents: true } })
+      const load = () => {
+        const seq = ++requestSeq.current;
+        const isLatest = () => !cancelled && seq === requestSeq.current;
+        return fetchShiftData({ purpose: "shifts", startMs: Date.now() - 8 * 86400000, endMs: Date.now() + 60000, want: { clockEvents: true } })
           .then((res) => {
-            if (cancelled) return;
-            const evs = res.clockEvents
-              .map((d) => ({ id: d.id, ...(d.data() as Omit<ClockEvent, "id">) }))
-              .sort((a, b) => (b.timestamp?.toMillis() ?? 0) - (a.timestamp?.toMillis() ?? 0))
-              .slice(0, 50);
-            setRecentEvents(evs);
+            if (!isLatest()) return;
+            setRecentEvents(toClockEvents(res.clockEvents, "Clock status").slice(0, 50));
             setLoading(false);
           })
           .catch((err) => {
             console.error("Clock events server load error:", err);
-            if (!cancelled) setLoading(false);
+            if (isLatest()) setLoading(false);
           });
+      };
       load();
       const timer = setInterval(load, SERVER_REFRESH_MS);
       return () => {

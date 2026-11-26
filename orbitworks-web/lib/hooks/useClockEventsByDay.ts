@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { collection, onSnapshot, orderBy, query, where, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 import { fetchShiftData, SERVER_REFRESH_MS } from "@/lib/shiftData";
 import { ClockEvent } from "@/lib/types";
+import { eventsInDay, toClockEvents } from "@/lib/clockEventDocs";
 
 // Live-listens to one calendar day's clock events (browser-local day, as
 // before - company-time day edges are a Phase 10 item).
@@ -16,6 +17,10 @@ import { ClockEvent } from "@/lib/types";
 // only the picked day (events). Range filter + orderBy on the same field
 // (timestamp): no composite index. State is set only in the listener
 // callbacks (no setState in the effect body).
+// Bug 11/26: only the LATEST server response is applied (a slow older one -
+// e.g. the 30 s refresh overlapping the first load - never overwrites a
+// newer one), and one bad doc is skipped with a console.warn instead of
+// blanking the page (lib/clockEventDocs.ts).
 // -> { events (the day), pairingEvents (day before -> day after), loading, error }
 type Loaded = { key: string; all: ClockEvent[]; error: string };
 
@@ -34,6 +39,8 @@ export function useClockEventsByDay(companyId: string | undefined, dateStr: stri
   const [loaded, setLoaded] = useState<Loaded>({ key: "", all: [], error: "" });
   // Task 4 (D2): a restricted admin loads their sites' shifts from the server.
   const { serverReads } = useAdminAccess();
+  // Request counter: a response is applied only if it is the newest request.
+  const requestSeq = useRef(0);
 
   useEffect(() => {
     if (!companyId || !dateStr) return;
@@ -41,19 +48,19 @@ export function useClockEventsByDay(companyId: string | undefined, dateStr: stri
     if (serverReads) {
       const myKey = `${companyId}|${dateStr}`;
       let cancelled = false;
-      const load = () =>
-        fetchShiftData({ purpose: "shifts", startMs: before.getTime(), endMs: after.getTime(), want: { clockEvents: true } })
+      const load = () => {
+        const seq = ++requestSeq.current;
+        const isLatest = () => !cancelled && seq === requestSeq.current;
+        return fetchShiftData({ purpose: "shifts", startMs: before.getTime(), endMs: after.getTime(), want: { clockEvents: true } })
           .then((res) => {
-            if (cancelled) return;
-            const all = res.clockEvents
-              .map((d) => ({ id: d.id, ...(d.data() as Omit<ClockEvent, "id">) }))
-              .sort((a, b) => (b.timestamp?.toMillis() ?? 0) - (a.timestamp?.toMillis() ?? 0));
-            setLoaded({ key: myKey, all, error: "" });
+            if (!isLatest()) return;
+            setLoaded({ key: myKey, all: toClockEvents(res.clockEvents, "Time Tracking"), error: "" });
           })
           .catch((err) => {
             console.error("Clock events by day server load error:", err);
-            if (!cancelled) setLoaded({ key: myKey, all: [], error: "Couldn't load clock events for this day." });
+            if (isLatest()) setLoaded({ key: myKey, all: [], error: "Couldn't load clock events for this day." });
           });
+      };
       load();
       const timer = setInterval(load, SERVER_REFRESH_MS);
       return () => {
@@ -71,8 +78,7 @@ export function useClockEventsByDay(companyId: string | undefined, dateStr: stri
     return onSnapshot(
       q,
       (snapshot) => {
-        const all = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ClockEvent, "id">) }));
-        setLoaded({ key: myKey, all, error: "" });
+        setLoaded({ key: myKey, all: toClockEvents(snapshot.docs, "Time Tracking"), error: "" });
       },
       (err) => {
         console.error("Clock events by day listener error:", err);
@@ -84,10 +90,7 @@ export function useClockEventsByDay(companyId: string | undefined, dateStr: stri
   return useMemo(() => {
     const current = loaded.key === key ? loaded : { key, all: [], error: "" };
     const { startMs, endMs } = dayBounds(dateStr);
-    const events = current.all.filter((e) => {
-      const ms = e.timestamp ? e.timestamp.toMillis() : null;
-      return ms !== null && ms >= startMs && ms <= endMs;
-    });
+    const events = eventsInDay(current.all, startMs, endMs);
     return { events, pairingEvents: current.all, loading: loaded.key !== key, error: current.error };
   }, [loaded, key, dateStr]);
 }
