@@ -353,7 +353,8 @@ export function useReports() {
           settings.exportSettings.automaticBreakMinutes,
           settings.exportSettings.minimumShiftHours,
           autoBreakByClockInId,
-          tipCentsByClockInId
+          tipCentsByClockInId,
+          settings.timeZone
         );
         out.summaries = (payroll.summaries);
         out.hoursByEmployeeDay = (payroll.hoursByEmployeeDay);
@@ -370,7 +371,8 @@ export function useReports() {
           subcontractorByEmployeeId,
           settings.businessHours.open,
           settings.attendanceRules.gracePeriodMinutes ?? 0,
-          payroll.breakHoursByEmployeeDay
+          payroll.breakHoursByEmployeeDay,
+          settings.timeZone
         );
         // ---- Overtime (Task 1), only with the Overtime toggle ON ----
         // Weekly OT needs the whole week, so this loads from the start of

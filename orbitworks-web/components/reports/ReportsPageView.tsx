@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -10,7 +10,7 @@ import { useReports, type ReportData } from "@/lib/hooks/useReports";
 import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 import { useSubcontractors } from "@/lib/hooks/useSubcontractors";
 import { ALL_COMPANIES, type CompanyFilter } from "@/lib/reportCompanyFilter";
-import { dateKey, startOfWeek } from "@/lib/reportUtils";
+import { defaultReportRange } from "@/lib/reportUtils";
 import { toTimesheetsCsv, downloadCsv } from "@/lib/reportUtils";
 import { buildExportFilename, exportAllReportsExcel } from "@/lib/reportExcelUtils";
 import { buildDailyBreakdownRows, computeEmployeeRoundedTotals } from "@/lib/reportDailyBreakdown";
@@ -56,11 +56,10 @@ export default function ReportsPageView() {
     return unsubscribe;
   }, [userData?.companyId]);
 
-  const today = dateKey(new Date());
-  const weekStart = dateKey(startOfWeek(new Date()));
-
-  const [startDate, setStartDate] = useState(weekStart);
-  const [endDate, setEndDate] = useState(today);
+  // This week to today in the company time zone. Set again (with the
+  // company's own time zone) when the settings load, before the first run.
+  const [startDate, setStartDate] = useState(() => defaultReportRange(settings.timeZone).start);
+  const [endDate, setEndDate] = useState(() => defaultReportRange(settings.timeZone).end);
 
   // Report-time-only job overrides, keyed "employeeId__yyyy-mm-dd" -> jobId.
   // Never touches clock sessions.
@@ -190,12 +189,18 @@ export default function ReportsPageView() {
     handleRunReport(startDate, endDate, filter);
   }
 
-  // First run when the page opens (overrides start empty, so nothing to
-  // reset here). Later runs go through handleRunReport.
+  // First run once the settings have loaded (overrides start empty, so
+  // nothing to reset here): the default range needs the company time zone.
+  // Later runs go through handleRunReport.
+  const firstRunDone = useRef(false);
   useEffect(() => {
-    runReport(startDate, endDate, ALL_COMPANIES);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (settingsLoading || firstRunDone.current) return;
+    firstRunDone.current = true;
+    const range = defaultReportRange(settings.timeZone);
+    setStartDate(range.start);
+    setEndDate(range.end);
+    runReport(range.start, range.end, ALL_COMPANIES);
+  }, [settingsLoading, settings.timeZone, runReport]);
 
   function handleOverrideChange(employeeId: string, date: string, jobId: string) {
     const key = `${employeeId}__${date}`;

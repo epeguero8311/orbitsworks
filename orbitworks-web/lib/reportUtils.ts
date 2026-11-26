@@ -1,3 +1,4 @@
+import { overtimeDayKey, overtimeWeekKey } from "@/lib/overtime";
 import type {
   EmployeeSummary,
   SessionRecord,
@@ -68,6 +69,15 @@ export function parseTimeToMinutes(hhmm: string): number {
 
 export function minutesSinceMidnight(d: Date): number {
   return d.getHours() * 60 + d.getMinutes();
+}
+
+// Reports page default range: this week (Monday start, as before) to
+// today, both in the company time zone - the same day key the reports
+// group shifts by (overtimeDayKey). It used to be the UTC date, so after
+// ~6pm Chicago "today" was already tomorrow.
+export function defaultReportRange(timeZone: string, nowMs: number = Date.now()): { start: string; end: string } {
+  const today = overtimeDayKey(nowMs, timeZone);
+  return { start: overtimeWeekKey(today, 1), end: today };
 }
 
 export function dateKey(d: Date): string {

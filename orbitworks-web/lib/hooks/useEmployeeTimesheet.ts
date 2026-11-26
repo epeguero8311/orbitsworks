@@ -16,9 +16,8 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { useCompanySettings, overtimeSettingsFrom } from "@/lib/hooks/useCompanySettings";
 import type { ClockEvent, Job, TimesheetApproval } from "@/lib/types";
-import { dateKey, startOfWeek } from "@/lib/reportUtils";
 import { applyAutoBreak } from "@/lib/autoBreak";
-import { computeOvertime, overtimeWeekKey, type OvertimeShiftInput } from "@/lib/overtime";
+import { computeOvertime, overtimeDayKey, overtimeWeekKey, type OvertimeShiftInput } from "@/lib/overtime";
 import { effectiveOvertimeRate } from "@/lib/reportOvertime";
 import type { EmployeeHistoryOvertimeExport } from "@/lib/reportExcelUtils";
 import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
@@ -228,7 +227,10 @@ export function useEmployeeTimesheet() {
                 autoBreakMinutes,
                 minShiftHours
               );
-              const weekKey = dateKey(startOfWeek(pendingIn.timestamp.toDate()));
+              // Monday-start week (same as before) of the shift's start day
+              // in the company time zone - was the browser's week turned
+              // into a UTC date.
+              const weekKey = overtimeWeekKey(overtimeDayKey(pendingIn.timestamp.toMillis(), settings.timeZone), 1);
               weeklyMs.set(weekKey, (weeklyMs.get(weekKey) ?? 0) + netMs);
 
               const row: EmployeeHistoryDayRow = {

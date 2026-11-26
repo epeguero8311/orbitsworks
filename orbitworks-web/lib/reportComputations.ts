@@ -13,7 +13,6 @@ import type {
   Job,
 } from "@/lib/types";
 import {
-  dateKey,
   localDateKey,
   minutesSinceMidnight,
   parseTimeToMinutes,
@@ -21,6 +20,7 @@ import {
   APPROVALS_CUTOVER_DATE,
 } from "@/lib/reportUtils";
 import { applyAutoBreak } from "@/lib/autoBreak";
+import { DEFAULT_OVERTIME_TIME_ZONE, overtimeDayKey } from "@/lib/overtime";
 
 export type EventWithDate = ClockEvent & { timestamp: Timestamp };
 
@@ -208,7 +208,13 @@ export function computePayrollAndSessions(
   // Tips (Task 3): whole cents per clock-in event id (empty while the Tips
   // toggle is OFF). A tip counts only on a closed session that counts here,
   // so it follows its hours exactly (decision D6: pending = left out).
-  tipCentsByClockInId: Map<string, number> = new Map()
+  tipCentsByClockInId: Map<string, number> = new Map(),
+  // Company time zone (settings.timeZone: the company's timezone field,
+  // else America/Chicago). A shift belongs to the day it STARTED in this
+  // zone - same day key as the Overtime path (overtimeDayKey), Approve
+  // Hours and timesheetApprovals.date. It used to be the UTC date, which
+  // put every evening shift (after ~6pm Chicago) on the next day.
+  timeZone: string = DEFAULT_OVERTIME_TIME_ZONE
 ): {
   summaries: EmployeeSummary[];
   sessions: SessionRecord[];
@@ -337,7 +343,7 @@ export function computePayrollAndSessions(
             geofenceReason: pendingIn.reason,
           });
 
-          const dayKey = dateKey(pendingIn.timestamp.toDate());
+          const dayKey = overtimeDayKey(pendingIn.timestamp.toMillis(), timeZone);
           dailyHoursTotals.set(dayKey, (dailyHoursTotals.get(dayKey) ?? 0) + hrs);
           const empSet = dailyHoursEmployees.get(dayKey) ?? new Set<string>();
           empSet.add(employeeId);
@@ -457,7 +463,10 @@ export function computeAttendanceAndSiteReports(
   subcontractorByEmployeeId: Map<string, SubcontractorInfo>,
   businessOpenTime: string,
   gracePeriodMinutes: number,
-  breakHoursByEmployeeDay: Map<string, number>
+  breakHoursByEmployeeDay: Map<string, number>,
+  // Same company-time-zone day as computePayrollAndSessions (the break
+  // lookup below is keyed by it).
+  timeZone: string = DEFAULT_OVERTIME_TIME_ZONE
 ): {
   attendance: AttendanceStats;
   employeesPerDay: EmployeesPerDayPoint[];
@@ -466,7 +475,7 @@ export function computeAttendanceAndSiteReports(
 } {
   const byEmployeeDay = new Map<string, EventWithDate[]>();
   for (const event of gatedEvents) {
-    const day = dateKey(event.timestamp.toDate());
+    const day = overtimeDayKey(event.timestamp.toMillis(), timeZone);
     const key = `${event.employeeId}__${day}`;
     const list = byEmployeeDay.get(key) ?? [];
     list.push(event);
