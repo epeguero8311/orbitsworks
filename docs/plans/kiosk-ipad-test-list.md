@@ -36,6 +36,7 @@ Exit key: website as owner or Kiosk Admin -> Settings -> Mobile app tab -> Kiosk
 - The kiosk login on the website (sign in with it) -> "This is a Kiosk login" page, never the dashboard.
 
 ## Round 2 retest - build 1.1.6 (33) (iPad round 1 fixes + Task 7)
+Nov 25: run this on dev build 1.1.6 (34) instead (EAS 96545cfe, commit 6d7114c) - same fixes + Task 6 (update banner: dev appConfig/versions latest 1.1.7, so the banner shows).
 Build 33 from feature/tablet-landscape (9a0c69b). Dev functions + dev website updated Nov 25 (kioskPunch comment, permission toasts).
 1. Comment: PIN 2581 -> Clock in -> camera -> Comment (top right) -> type "Traffic" -> Save Comment (button shows a check) -> Use photo.
    Website: Approve Hours -> Ava's shift -> Session review shows "Employee comment: Traffic" on the clock-in, same as a supervisor-app comment. Breaks have no Comment button.
