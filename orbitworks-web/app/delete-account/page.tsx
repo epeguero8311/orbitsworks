@@ -13,7 +13,8 @@ import { deleteAccountErrorMessage, deleteAccountLoginKind } from "@/lib/deleteA
 // (Apple 5.1.1(v) - the app's Settings > Delete account row opens this
 // page). Sign in -> confirm -> the server deletes it
 // (deleteMyEmployeeAccount). Clock events and timesheets are never deleted.
-// Supervisor, admin and kiosk logins can't delete themselves here.
+// Supervisor, admin (incl. an admin on the Employee app - final audit B)
+// and kiosk logins can't delete themselves here.
 
 type Step = "signIn" | "confirm" | "notEmployee" | "kiosk" | "done";
 
@@ -135,7 +136,7 @@ export default function DeleteAccountPage() {
             <>
               <h1 className="text-xl font-semibold text-gray-950">This account can&apos;t be deleted here</h1>
               <p className="mt-2 text-sm leading-relaxed text-gray-600">
-                {signedInEmail} is a supervisor or admin login. Ask your company admin to remove it, or email{" "}
+                {signedInEmail} is a supervisor or admin login. Ask the owner or your company admin to remove it, or email{" "}
                 <a href="mailto:info@orbitsworks.com" className="font-medium text-accent hover:underline">info@orbitsworks.com</a>.
               </p>
               <button type="button" onClick={handleCancel} className="mt-6 text-sm font-medium text-accent hover:underline">Sign in with another account</button>

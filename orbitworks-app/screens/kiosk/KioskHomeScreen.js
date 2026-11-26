@@ -8,7 +8,7 @@ import { useTheme } from "../../lib/ThemeContext";
 import { useKiosk } from "../../lib/hooks/useKiosk";
 import { useKioskPinPad } from "../../lib/hooks/useKioskPinPad";
 import { useIsOffline } from "../../lib/hooks/useIsOffline";
-import { lookupKioskPin } from "../../lib/kioskPinStore";
+import { lookupKioskPin, pinProofForPin } from "../../lib/kioskPinStore";
 import PinPad from "../../components/employee/PinPad";
 import { KIOSK_PAD_SCALE } from "../../lib/kioskLayout";
 import Spinner from "../../components/Spinner";
@@ -61,9 +61,12 @@ export default function KioskHomeScreen({ navigation }) {
         setMessage("PIN not recognized");
         return false;
       }
+      // Final audit A: from here on only the salted proof, never the PIN.
+      const pinProof = await pinProofForPin(pin);
+      if (!pinProof) return false;
       Haptics.selectionAsync().catch(() => {});
       setMessage("");
-      navigation.navigate("KioskAction", { employeeId: employee.id, pin });
+      navigation.navigate("KioskAction", { employeeId: employee.id, pinProof });
       return true;
     },
     [navigation]

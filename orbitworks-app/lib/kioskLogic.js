@@ -144,6 +144,28 @@ function kioskBreakView(status, sinceMs, startedHereMs) {
   return { mode: "notIn", sinceMs: null };
 }
 
+// ---- what a queued punch keeps instead of the PIN (final audit A) ----
+// New punches keep JSON { salt, hash }. A punch queued by an older build
+// (dev 34/35) kept the 4 typed digits - still sent as { pin } so it isn't
+// lost. Anything else = null (the punch can't be sent).
+function serializePinProof(proof) {
+  return JSON.stringify({ salt: proof.salt, hash: proof.hash });
+}
+
+function storedPinPayload(raw) {
+  if (typeof raw !== "string" || !raw) return null;
+  if (/^\d{4}$/.test(raw)) return { pin: raw };
+  try {
+    const p = JSON.parse(raw);
+    if (p && typeof p.salt === "string" && p.salt && typeof p.hash === "string" && /^[0-9a-f]{64}$/i.test(p.hash)) {
+      return { pinProof: { salt: p.salt, hash: p.hash } };
+    }
+  } catch {
+    // not JSON
+  }
+  return null;
+}
+
 // ---- SecureStore chunks ----
 function toChunks(text, size = SECURE_CHUNK_CHARS) {
   const out = [];
@@ -252,6 +274,8 @@ module.exports = {
   hashInput,
   isAlreadyUploaded,
   kioskActions,
+  serializePinProof,
+  storedPinPayload,
   kioskBreakView,
   kioskFailKind,
   lockAfterRight,

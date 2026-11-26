@@ -101,8 +101,9 @@ export function KioskProvider({ children }) {
   // Saves a punch (every kiosk punch is queued first, like the supervisor
   // app) and starts sending it. location: a fix from startPunchFix().take().
   const recordPunch = useCallback(
-    async ({ employee, action, pin, photoUri, location, comment }) => {
+    async ({ employee, action, pinProof, photoUri, location, comment }) => {
       if (!uid || !companyId) throw new Error("Not signed in");
+      if (!pinProof) throw new Error("No PIN proof");
       const requestId = newRequestId();
       const clock = await punchClockFields();
       await addKioskPunch({
@@ -112,7 +113,7 @@ export function KioskProvider({ children }) {
         employeeId: employee.id,
         employeeName: employee.name,
         action,
-        pin,
+        pinProof,
         photoUri: photoUri || null,
         location: location === undefined ? null : location,
         clock,

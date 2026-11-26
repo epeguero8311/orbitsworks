@@ -11,6 +11,15 @@ const requestIdField = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "Invalid request id");
 const pinField = z.string().regex(/^\d{4}$/, "Enter your 4-digit PIN.");
+// Final audit (A): the kiosk app sends { salt, hash } (its PIN table's salt +
+// sha256(salt:pin)) instead of the PIN. `pin` stays accepted for tablets on
+// an older dev build (34/35); prod never had a kiosk build before this.
+const pinProofField = z
+  .object({
+    salt: z.string().min(8).max(64).regex(/^[A-Za-z0-9_+/=-]+$/),
+    hash: z.string().regex(/^[0-9a-f]{64}$/i),
+  })
+  .strict();
 const idField = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const photoPathField = z
   .string()
@@ -27,7 +36,8 @@ export const kioskPunchSchema = z
     action: z.enum(EMPLOYEE_CLOCK_ACTIONS),
     requestId: requestIdField,
     employeeId: idField,
-    pin: pinField,
+    pin: pinField.optional(),
+    pinProof: pinProofField.optional(),
     photoPath: photoPathField.optional(),
     deviceId: deviceIdField.optional(),
     checkPinOnly: z.literal(true).optional(),
@@ -47,6 +57,10 @@ export const kioskPunchSchema = z
     appPlatform: appPlatformField.optional().catch(undefined),
   })
   .strict()
+  .refine((v) => (v.pin === undefined) !== (v.pinProof === undefined), {
+    message: "Enter your 4-digit PIN.",
+    path: ["pin"],
+  })
   .refine(
     (v) => v.queuedAtMs !== undefined || (v.waitMs === undefined && v.expectedAtMs === undefined && v.lastServerMs === undefined),
     { message: "waitMs, expectedAtMs and lastServerMs only come with a queued time.", path: ["waitMs"] }

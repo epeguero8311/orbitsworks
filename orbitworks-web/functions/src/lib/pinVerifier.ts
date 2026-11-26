@@ -32,3 +32,18 @@ export function makePinVerifier(pin: unknown): PinVerifierResult {
   const salt = randomBytes(SALT_BYTES).toString("base64url");
   return { status: "ok", v: PIN_VERIFIER_VERSION, salt, hash: pinVerifierHash(salt, pin) };
 }
+
+// Final audit (2026-11-27, A): a kiosk never keeps or sends the typed PIN.
+// Its queued punch carries { salt, hash } = this salted SHA-256 made with
+// its PIN table's salt. The server finds the 4-digit PIN behind it (10,000
+// tries, ~10 ms) so every existing check - current PIN, an earlier PIN from
+// employeePinHistory, wrong-PIN counts and locks - runs exactly as with a
+// typed PIN. null = no 4-digit PIN gives that hash. Never logs either value.
+export function pinFromVerifierProof(proof: { salt: string; hash: string }): string | null {
+  const want = proof.hash.toLowerCase();
+  for (let i = 0; i < 10000; i++) {
+    const pin = String(i).padStart(4, "0");
+    if (pinVerifierHash(proof.salt, pin) === want) return pin;
+  }
+  return null;
+}

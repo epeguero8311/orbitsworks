@@ -105,6 +105,18 @@ test("Break screen: Start break when clocked in, timer when on a break, never st
   assert.deepEqual(k.kioskBreakView("in", 1000, 9000), { mode: "onBreak", sinceMs: 9000 });
 });
 
+test("final audit A: a queued punch keeps { salt, hash }, never the PIN; old 4-digit entries still send", () => {
+  const proof = { salt: "c2FsdA", hash: "a".repeat(64) };
+  const raw = k.serializePinProof(proof);
+  assert.equal(raw.includes("1234"), false);
+  assert.deepEqual(k.storedPinPayload(raw), { pinProof: proof });
+  assert.deepEqual(k.storedPinPayload("1234"), { pin: "1234" }); // queued by dev build 34/35
+  assert.equal(k.storedPinPayload(""), null);
+  assert.equal(k.storedPinPayload(null), null);
+  assert.equal(k.storedPinPayload("{\"salt\":\"x\",\"hash\":\"short\"}"), null);
+  assert.equal(k.storedPinPayload("not json"), null);
+});
+
 test("chunks stay under the SecureStore size and join back", () => {
   const text = "x".repeat(4000);
   const chunks = k.toChunks(text);

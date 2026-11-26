@@ -14,7 +14,7 @@ import { useNow } from "../../lib/hooks/useNow";
 // (cleanup 2026-11-26): it opens the Break screen, where Start break / End
 // break are. Break while clocked out is BLOCKED with "Please clock in
 // first" (spec); clocking out while on a break says end the break first.
-// Breaks never take a photo. Back to Home by itself after 15 s untouched.
+// Breaks never take a photo. Back to Home by itself after 8 s untouched.
 // iPad round 1: on a break, "Break started 12:05 PM - 18 min" (live) sits
 // above the buttons, so the employee sees how long before [End break].
 
@@ -26,7 +26,7 @@ export default function KioskActionScreen({ navigation, route }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const kiosk = useKiosk();
-  const { employeeId, pin } = route.params;
+  const { employeeId, pinProof } = route.params;
   const employee = kiosk.table?.employees.find((e) => e.id === employeeId) || null;
   const [blocked, setBlocked] = useState("");
   const touch = useKioskIdle(navigation, KIOSK_IDLE_ACTION_MS);
@@ -53,13 +53,13 @@ export default function KioskActionScreen({ navigation, route }) {
   function onClock() {
     touch();
     if (actions.clockBlocked) return setBlocked(actions.clockBlocked);
-    navigation.replace("KioskCamera", { employeeId, pin, action: actions.clock });
+    navigation.replace("KioskCamera", { employeeId, pinProof, action: actions.clock });
   }
 
   function onBreak() {
     touch();
     if (actions.breakBlocked) return setBlocked(actions.breakBlocked);
-    navigation.replace("KioskBreak", { employeeId, pin });
+    navigation.replace("KioskBreak", { employeeId, pinProof });
   }
 
   return (

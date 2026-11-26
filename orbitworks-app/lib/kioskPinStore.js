@@ -157,6 +157,16 @@ export async function adminProofForPin(pin) {
   return unlocker ? { employeeId: unlocker.id, salt: table.salt, hash } : null;
 }
 
+// Final audit (A, 2026-11-27): an employee's PIN -> { salt, hash } (this
+// table's salt + the salted sha256). Taken right at the PIN pad; screens,
+// the queue and kioskPunch only ever see this, never the PIN. null = no
+// table yet.
+export async function pinProofForPin(pin) {
+  const table = current ? current.table : null;
+  if (!table) return null;
+  return { salt: table.salt, hash: await hashPin(table.salt, pin) };
+}
+
 // K17: an admin's own PIN that opens Kiosk Settings, or null.
 export async function lookupKioskUnlocker(pin) {
   const table = current ? current.table : null;

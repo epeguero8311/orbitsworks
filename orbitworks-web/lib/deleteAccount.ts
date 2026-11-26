@@ -6,10 +6,12 @@
 
 export type DeleteAccountLogin = "employeeApp" | "staff" | "kiosk";
 
-// Same test as the server's isEmployeeAppToken (functions/src/employeeAccess.ts):
-// an Employee App login, or an admin whose app type is the Employee app.
+// Only a plain Employee App login (role "employee") can delete itself here.
+// An admin - even one whose app type is the Employee app - is "staff"
+// (final audit B: it would also end their website admin access); the
+// server (deleteMyEmployeeAccount) refuses them too.
 export function deleteAccountLoginKind(claims: { role?: unknown; appMode?: unknown }): DeleteAccountLogin {
-  if (claims.role === "employee" || (claims.role === "admin" && claims.appMode === "employee")) return "employeeApp";
+  if (claims.role === "employee") return "employeeApp";
   if (claims.role === "kiosk") return "kiosk";
   return "staff";
 }

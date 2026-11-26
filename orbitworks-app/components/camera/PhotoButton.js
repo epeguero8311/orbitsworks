@@ -10,7 +10,7 @@ import FullScreenCamera from "./FullScreenCamera";
 // turns the whole screen into the camera. The identity-verification notice
 // (Terms Section 4.1) shows first, every time. onPhoto(uri, noticeShownAt).
 // onOpenChange(open): the notice or the camera is showing (the kiosk pauses
-// its 15 s timeout meanwhile).
+// its 8 s timeout meanwhile).
 export default function PhotoButton({ photoUri, currentPhotoUrl, name, onPhoto, onOpenChange, disabled = false }) {
   const { colors } = useTheme();
   const [noticeOpen, setNoticeOpen] = useState(false);

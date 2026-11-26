@@ -14,7 +14,7 @@ import {
 
 test("login kind matches the server's isEmployeeAppToken", () => {
   assert.equal(deleteAccountLoginKind({ role: "employee" }), "employeeApp");
-  assert.equal(deleteAccountLoginKind({ role: "admin", appMode: "employee" }), "employeeApp");
+  assert.equal(deleteAccountLoginKind({ role: "admin", appMode: "employee" }), "staff"); // final audit B
   assert.equal(deleteAccountLoginKind({ role: "admin" }), "staff");
   assert.equal(deleteAccountLoginKind({ role: "admin", appMode: "kiosk" }), "staff");
   assert.equal(deleteAccountLoginKind({ role: "supervisor" }), "staff");

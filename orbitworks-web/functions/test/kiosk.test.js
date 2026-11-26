@@ -195,6 +195,22 @@ test("kioskPunch: a break needs a clock-in first; PIN on every action; no photo 
   await rejects(run("kioskPunch", { action: "breakStart", requestId: randomUUID(), employeeId: "emp1", pin: "1234", photoPath: "companies/p2/clockEvents/emp1/x.jpg" }, kioskAuth("p2")), "invalid");
 });
 
+test("kioskPunch: final audit A - a salted PIN proof works like the PIN; never both, never neither", async () => {
+  await seed("pp");
+  const salt = "c2FsdHNhbHRzYWx0";
+  const proof = (pin) => ({ salt, hash: createHash("sha256").update(`${salt}:${pin}`, "utf8").digest("hex") });
+  const { pinFromVerifierProof } = require("../lib/lib/pinVerifier.js");
+  assert.equal(pinFromVerifierProof(proof("1234")), "1234");
+  assert.equal(pinFromVerifierProof(proof("0007")), "0007");
+  assert.equal(pinFromVerifierProof({ salt, hash: "0".repeat(64) }), null);
+  const r = await punch("pp", "in", { pin: undefined, pinProof: proof("1234"), queuedAtMs: Date.now() - 1000 });
+  assert.equal(r.status, "in");
+  await rejects(punch("pp", "breakStart", { pin: undefined, pinProof: proof("0000") }), "wrongPin");
+  await rejects(punch("pp", "breakStart", { pinProof: proof("1234") }), "invalid"); // pin + proof
+  await rejects(punch("pp", "breakStart", { pin: undefined, pinProof: { salt, hash: "nothex" } }), "invalid");
+  assert.equal((await punch("pp", "breakStart", { pin: undefined, pinProof: proof("1234") })).status, "break");
+});
+
 test("kioskPunch: 5 wrong PINs a minute locks the kiosk (server side), right PINs never count", async () => {
   await seed("p3");
   for (let i = 0; i < 4; i++) await rejects(punch("p3", "in", { pin: "0000" }), "wrongPin");

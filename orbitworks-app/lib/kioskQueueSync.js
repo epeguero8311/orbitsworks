@@ -10,7 +10,7 @@ import { getOrCreateDeviceId } from "./deviceId";
 import { appVersionFields } from "./appVersionInfo";
 import {
   cleanupKioskQueue,
-  getKioskPin,
+  getKioskPinPayload,
   listKioskPunches,
   markKioskFailed,
   markKioskPhotoUploaded,
@@ -50,8 +50,8 @@ function refusedText(err) {
 }
 
 async function sendOne(item, deviceId) {
-  const pin = await getKioskPin(item.requestId);
-  if (!pin) {
+  const pinPayload = await getKioskPinPayload(item.requestId);
+  if (!pinPayload) {
     await markKioskFailed(item, "Not recorded (the PIN was lost on this iPad). Tell your admin.");
     return "failed";
   }
@@ -61,7 +61,7 @@ async function sendOne(item, deviceId) {
     action: item.action,
     requestId: item.requestId,
     employeeId: item.employeeId,
-    pin,
+    ...pinPayload, // { pinProof } - never the PIN (final audit A); { pin } only from an older build
     queuedAtMs: Math.round(item.queuedAtMs),
   };
   if (deviceId) data.deviceId = deviceId;

@@ -1,6 +1,7 @@
 import * as SQLite from "expo-sqlite";
 import * as SecureStore from "expo-secure-store";
 import * as FileSystem from "expo-file-system/legacy";
+import { serializePinProof, storedPinPayload } from "./kioskLogic";
 
 // Task 5 Kiosk mode - punches made on the iPad, kept until the server has
 // them. Like the supervisor app, EVERY kiosk punch is saved here first and
@@ -9,9 +10,9 @@ import * as FileSystem from "expo-file-system/legacy";
 // (orbitworks.db) and the Employee App queue (employee_punches.db) are never
 // touched.
 //
-// The typed PIN of a saved punch goes ONLY into SecureStore under the
-// punch's own key and is deleted when it is sent or refused for good.
-// Never in SQLite, never logged. The photo is copied into the app's own
+// A saved punch keeps only its PIN proof ({ salt, hash }, final audit A -
+// never the PIN) in SecureStore under the punch's own key, deleted when it
+// is sent or refused for good. Never in SQLite, never logged. The photo is copied into the app's own
 // folder so iOS can't clean it up first.
 //
 // kiosk_queue.status: waiting | syncing | synced | failed
@@ -141,9 +142,9 @@ async function deleteFile(uri) {
 // Saves one kiosk punch (PIN always - spec: PIN on every action; photo only
 // for clock in/out). clock = punchClockFields() (lib/clockAnchor.js).
 // employeeComment: already cleaned (kioskCommentFor) - in/out only.
-export async function addKioskPunch({ requestId, companyId, kioskUid, employeeId, employeeName, action, pin, photoUri, location, clock, employeeComment }) {
+export async function addKioskPunch({ requestId, companyId, kioskUid, employeeId, employeeName, action, pinProof, photoUri, location, clock, employeeComment }) {
   const photoLocalUri = photoUri ? await keepPhoto(requestId, photoUri) : null;
-  await SecureStore.setItemAsync(pinKey(requestId), pin, SECURE_OPTS);
+  await SecureStore.setItemAsync(pinKey(requestId), serializePinProof(pinProof), SECURE_OPTS);
   const db = await getDb();
   const now = Date.now();
   await runWrite(() =>
@@ -168,9 +169,10 @@ export async function listKioskPunches(kioskUid) {
   return rows.map(toItem);
 }
 
-export async function getKioskPin(requestId) {
+// { pinProof } (or { pin } from an older build), or null.
+export async function getKioskPinPayload(requestId) {
   try {
-    return await SecureStore.getItemAsync(pinKey(requestId), SECURE_OPTS);
+    return storedPinPayload(await SecureStore.getItemAsync(pinKey(requestId), SECURE_OPTS));
   } catch {
     return null;
   }

@@ -7,7 +7,7 @@ import { createAlertIfNew, resolveFaceBadReferenceAlert } from "./alerts";
 import { deleteEmployeeFacePhotos, markConsentFaceDataDeleted } from "./facePhotos";
 import { employeePinRef, readEmployeePin } from "./lib/employeePin";
 import { pinHistoryRef } from "./pins";
-import { DELETE_ACCOUNT_OPEN_SHIFT_MESSAGE, deleteMyEmployeeAccountSchema } from "./employeeAccountValidators";
+import { ADMIN_DELETE_REFUSED_MESSAGE, DELETE_ACCOUNT_OPEN_SHIFT_MESSAGE, deleteMyEmployeeAccountSchema } from "./employeeAccountValidators";
 
 // ---- Employee App "Delete account" (Apple account deletion) - biometric audit b ----
 //
@@ -80,6 +80,12 @@ async function deleteLogin(uid: string): Promise<void> {
 export const deleteMyEmployeeAccount = onCall(async (request) => {
   const { companyId, employeeId } = employeeClaims(request);
   const uid = request.auth!.uid;
+  // Final audit (B, 2026-11-27): an admin whose app type is the Employee app
+  // passes employeeClaims, but deleting the login would also end their
+  // website admin access - refused like supervisors and other admins.
+  if (request.auth!.token.role !== "employee") {
+    throw new HttpsError("permission-denied", ADMIN_DELETE_REFUSED_MESSAGE, { reason: "admin" });
+  }
   const parsed = deleteMyEmployeeAccountSchema.safeParse(request.data);
   if (!parsed.success) {
     throw new HttpsError("invalid-argument", "confirm is required.");

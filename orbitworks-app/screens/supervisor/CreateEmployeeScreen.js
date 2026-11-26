@@ -23,7 +23,7 @@ import { KIOSK_IDLE_ACTION_MS } from "../../lib/kioskLayout";
 // which also blocks a same name + birthday duplicate); offline it is a
 // local guess and the create waits in the queue like before.
 // route.params: { mode: "kiosk", adminProof } for the kiosk.
-// Kiosk only (cleanup 2026-11-26): back to Home after 15 s with no tap or
+// Kiosk only (cleanup 2026-11-26): back to Home after 8 s with no tap or
 // keystroke, paused while the photo notice / camera or the PIN modal is up
 // (they must press OK) and while the account is being created.
 

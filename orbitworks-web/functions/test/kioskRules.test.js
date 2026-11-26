@@ -144,6 +144,10 @@ test("staff can't forge kiosk punches, the kiosk field, or planTierChangedAt", a
   await assertFails(updateDoc(doc(db, "companies", A, "employees", "kiosk1"), { kiosk: false }));
   await assertSucceeds(updateDoc(doc(db, "companies", A, "employees", "kiosk1"), { name: "Lobby iPad" }));
   await assertFails(setDoc(doc(db, "companies", A, "employees", "new1"), { name: "N", active: false, kiosk: true }));
+  // Final audit: appType (which app / login role a linked record gets) is
+  // server-only - setEmployeeRole checks Invites + the admin hierarchy.
+  await assertFails(updateDoc(doc(db, "companies", A, "employees", "emp1"), { appType: "supervisor" }));
+  await assertFails(setDoc(doc(db, "companies", A, "employees", "new2"), { name: "N", active: false, appType: "employee" }));
   await assertFails(updateDoc(doc(db, "companies", A), { planTierChangedAt: serverTimestamp() }));
   await assertFails(getDoc(doc(db, "companies", A, "kioskExitKeys", "k1")));
   await assertFails(getDoc(doc(db, "companies", A, "kioskPinAttempts", "kiosk1")));

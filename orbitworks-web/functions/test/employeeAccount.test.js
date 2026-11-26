@@ -188,6 +188,11 @@ test("deleteMyEmployeeAccount: employee login only, own row only, confirm requir
     call({ confirm: true }, { uid, token: { role: "supervisor", companyId: c, employeeId: "emp1" } }),
     /Only an employee app login/
   );
+  // Final audit B: an admin whose app type is the Employee app is refused too.
+  await assert.rejects(
+    call({ confirm: true }, { uid, token: { role: "admin", appMode: "employee", companyId: c, employeeId: "emp1" } }),
+    /Admin logins can't be deleted here/
+  );
   await assert.rejects(call({}, employeeAuth(c, uid)), /confirm/);
   await assert.rejects(call({ confirm: true, employeeId: "emp1" }, employeeAuth(c, uid)), /confirm/);
   await assert.rejects(call({ confirm: true }, employeeAuth(c, "someone-else")), /isn't linked/);

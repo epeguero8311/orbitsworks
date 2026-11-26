@@ -14,7 +14,7 @@ import ClockCommentModal from "../../components/ClockCommentModal";
 // App: front camera, Retake / Use photo). The photo goes with the punch; the
 // Pro face check runs on the server like every other punch. Saved first,
 // sent right after (never blocked by signal). Back to Home after 60 s idle
-// (never the 15 s, and paused while the photo is being saved - cleanup 11/26).
+// (never the 8 s, and paused while the photo is being saved - cleanup 11/26).
 // iPad round 1: the same optional Comment button as the supervisor app's
 // camera (top right). The comment is saved on the punch (employeeComment)
 // and shows in Session review like a supervisor-app comment.
@@ -22,7 +22,7 @@ export default function KioskCameraScreen({ navigation, route }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const kiosk = useKiosk();
-  const { employeeId, pin, action } = route.params;
+  const { employeeId, pinProof, action } = route.params;
   const employee = kiosk.table?.employees.find((e) => e.id === employeeId) || null;
   const [error, setError] = useState("");
   const [comment, setComment] = useState("");
@@ -43,7 +43,7 @@ export default function KioskCameraScreen({ navigation, route }) {
     setBusy(true);
     try {
       const location = fix.current ? fix.current.take(Date.now()) : null;
-      const { atMs } = await kiosk.recordPunch({ employee, action, pin, photoUri: uri, location, comment });
+      const { atMs } = await kiosk.recordPunch({ employee, action, pinProof, photoUri: uri, location, comment });
       navigation.replace("KioskDone", { name: employee.name, action, atMs });
     } catch {
       saving.current = false;

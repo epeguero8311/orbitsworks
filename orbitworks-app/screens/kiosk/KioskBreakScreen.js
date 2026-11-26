@@ -14,7 +14,7 @@ import { KIOSK_IDLE_ACTION_MS } from "../../lib/kioskLayout";
 //   Not on break: [Start break] [Back]. Start break saves the punch (no
 //   photo; queued offline like every kiosk punch) and shows the timer.
 //   On a break: the timer + [End break] [Back]. End break -> Home.
-// Back, or 15 s with no touch, returns Home; a started break keeps running.
+// Back, or 8 s with no touch, returns Home; a started break keeps running.
 
 function mmss(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -25,7 +25,7 @@ export default function KioskBreakScreen({ navigation, route }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const kiosk = useKiosk();
-  const { employeeId, pin } = route.params;
+  const { employeeId, pinProof } = route.params;
   const employee = kiosk.table?.employees.find((e) => e.id === employeeId) || null;
   const [startedHereMs, setStartedHereMs] = useState(undefined);
   const [error, setError] = useState("");
@@ -48,7 +48,7 @@ export default function KioskBreakScreen({ navigation, route }) {
     setError("");
     try {
       const location = fix.current ? fix.current.take(Date.now()) : null;
-      const { atMs } = await kiosk.recordPunch({ employee, action, pin, location });
+      const { atMs } = await kiosk.recordPunch({ employee, action, pinProof, location });
       if (action === "breakEnd") {
         navigation.popToTop();
         return;

@@ -4,7 +4,7 @@ import { randomBytes, randomInt } from "crypto";
 import { db } from "./shared";
 import { KIOSK_ENABLED } from "./flags";
 import { clockError, runClockPunch, type EmployeeDoc } from "./employeeClock";
-import { pinVerifierHash } from "./lib/pinVerifier";
+import { pinFromVerifierProof, pinVerifierHash } from "./lib/pinVerifier";
 import { isProPlan } from "./lib/signupShared";
 import { JUNK_PINS } from "./createEmployee";
 import { readCompanyPins } from "./lib/employeePin";
@@ -236,7 +236,10 @@ export const kioskPunch = onCall(async (request) => {
     if (left > 0) throw lockedError(left);
   }
 
-  const { employeeId: _target, deviceId, employeeComment, appVersion, appPlatform, ...rest } = input;
+  const { employeeId: _target, deviceId, employeeComment, appVersion, appPlatform, pinProof, ...restIn } = input;
+  // Final audit (A): a proof -> the PIN behind it, then the same checks as a
+  // typed PIN. No match = "----", which matches no PIN (counted as wrong).
+  const rest = { ...restIn, pin: restIn.pin ?? (pinProof ? pinFromVerifierProof(pinProof) : null) ?? "----" };
   const deviceNameSnapshot = await deviceNameFor(caller, deviceId);
   const extraEventFields: Record<string, unknown> = { kioskEmployeeId: caller.kioskEmployeeId };
   // Same field the supervisor app writes (Session review shows it).

@@ -15,3 +15,4 @@ export type DeleteMyEmployeeAccountInput = z.infer<typeof deleteMyEmployeeAccoun
 // The refusal text (the website maps the code to its own words,
 // lib/deleteAccount.ts).
 export const DELETE_ACCOUNT_OPEN_SHIFT_MESSAGE = "Clock out first, then delete your account.";
+export const ADMIN_DELETE_REFUSED_MESSAGE = "Admin logins can't be deleted here. Ask the owner to remove your access, or email info@orbitsworks.com.";

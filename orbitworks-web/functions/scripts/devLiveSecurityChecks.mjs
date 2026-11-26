@@ -137,7 +137,7 @@ console.log("claims:", JSON.stringify({ restricted: ra.claims.allSites, legacy: 
   await denied(G, "direct write users/self.adminAccess", () => updateDoc(doc(s.db, "users", s.uid), { adminAccess: { level: "full", sites: "all" } }));
   await denied(G, "direct write users/self.role = owner", () => updateDoc(doc(s.db, "users", s.uid), { role: "owner" }));
   await denied(G, "setSiteAdmins (add self to site C)", () => call(s, "setSiteAdmins", { siteId: "site-c", adminUids: [s.uid] }));
-  await denied(G, "setEmployeeRole on own employee record -> admin (re-role self)", () => call(s, "setEmployeeRole", { employeeId: "sec-admin-a", role: "admin" }));
+  await denied(G, "setEmployeeRole on own employee record -> admin (re-role self)", () => call(s, "setEmployeeRole", { employeeId: "sec-admin-a", appType: "supervisor", isAdmin: true }));
   // the owner + other admins
   await denied(G, "setAdminAccess on the owner", () => call(s, "setAdminAccess", { targetUid: ownerUid, level: "admin", sites: [], permissions: NOPERM }));
   await denied(G, "direct write users/{owner}", () => updateDoc(doc(s.db, "users", ownerUid), { role: "admin" }));
