@@ -34,3 +34,19 @@ Exit key: website as owner or Kiosk Admin -> Settings -> Mobile app tab -> Kiosk
 - Reports / Payroll CSV + Excel / Full Report: Ava, Ben, Cal rows; no "Front iPad" row anywhere.
 - Employee App invites, Temp Link and crew pickers: no Front iPad.
 - The kiosk login on the website (sign in with it) -> "This is a Kiosk login" page, never the dashboard.
+
+## Round 2 retest - build 1.1.6 (33) (iPad round 1 fixes + Task 7)
+Build 33 from feature/tablet-landscape (9a0c69b). Dev functions + dev website updated Nov 25 (kioskPunch comment, permission toasts).
+1. Comment: PIN 2581 -> Clock in -> camera -> Comment (top right) -> type "Traffic" -> Save Comment (button shows a check) -> Use photo.
+   Website: Approve Hours -> Ava's shift -> Session review shows "Employee comment: Traffic" on the clock-in, same as a supervisor-app comment. Breaks have no Comment button.
+2. PIN pad 1.4x on Home and on the gear pad; iPad portrait: whole pad + message visible, no scrolling.
+3. Break line: PIN 2581 -> Start break -> Back. PIN 2581 again -> "On a break" + "Break started 12:05 PM - 0 min" above [End break]; wait 1+ min, it counts up without leaving the screen.
+4. Sync list: gear -> 8024 -> scroll under Exit Kiosk -> "Waiting to sync". Nothing waiting: "All synced, last synced X ago". Airplane mode, PIN 3692 -> Clock in -> photo; gear -> 8024: Ben / Clock in / time / Waiting. Reconnect -> Sync now -> row goes, "All synced, last synced just now". No row can be edited or removed.
+5. Idle: after a PIN, leave the Action screen untouched -> Home after 25 s (was 30). Same on the break timer screen. Camera (60 s), gear pad (30 s) and Kiosk Settings (2 min) unchanged.
+6. Website toasts (dev site, Kiosk Admin login = Settings only): Employees -> Add employee -> toast "You don't have permission to add employees. Ask the owner or a Full access admin." (no inline "Couldn't add the employee"). Also try: approve a shift, edit a job title/rate, send an invite -> each a toast naming what's missing. Owner: the same actions work, no toast.
+7. Landscape (Task 7), iPad on its side:
+   - Kiosk Home: clock on the left, PIN pad on the right, fits without scrolling (1.4x pad). Rotate back -> portrait layout.
+   - Supervisor login (dev) Home: 4 cards in a 2x2 grid (blue Active card | Quick Actions / Breaks | Create + Update Employee). Portrait: stacked as before.
+   - Other screens (Employee list, Settings, Kiosk Settings, Action screen): centered column, not stretched edge to edge.
+   - Clock photo upright in BOTH orientations (kiosk + supervisor camera): take one in each; website photo upright, face check result normal.
+   - iPhone (supervisor or employee login): stays portrait when the phone is turned sideways.
