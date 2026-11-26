@@ -21,6 +21,8 @@ import { drainEmployeeQueue } from "../../lib/employeeQueueSync";
 import OfflineBanner from "../../components/OfflineBanner";
 import Avatar from "../../components/Avatar";
 import Spinner from "../../components/Spinner";
+import { useTabletLayout } from "../../lib/hooks/useTabletLayout";
+import { gridRows } from "../../lib/tabletLayout";
 
 // "5:14 PM" today, "Oct 30, 5:14 PM" on an earlier day.
 function formatSavedAt(ms) {
@@ -46,6 +48,7 @@ export default function DashboardScreen({ navigation }) {
   const employeeSyncAlertCount = useEmployeeSyncAlertCount();
   const tabBarSpace = useTabBarSpace();
   const [refreshing, setRefreshing] = useState(false);
+  const { grid } = useTabletLayout();
 
   // Create Employee (mobile) - supervisors and admins only, and only while
   // the company's toggle is on (Settings > App Settings on the web
@@ -141,34 +144,10 @@ export default function DashboardScreen({ navigation }) {
     }
   };
 
-  return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView
-        contentContainerStyle={[styles.container, { paddingBottom: tabBarSpace }]}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />
-        }
-      >
-        <View style={styles.header}>
-          <Avatar name={displayName} photoUrl={avatarPhotoUrl} size={48} />
-          <View style={{ flex: 1, marginLeft: 12 }}>
-            <Text style={[styles.greeting, { color: colors.subtext }]}>Welcome</Text>
-            <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
-          </View>
-          {employeeSyncAlertCount > 0 && (
-            <TouchableOpacity
-              style={styles.bellButton}
-              onPress={() => navigation.navigate("EmployeeSyncAlerts")}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Feather name="alert-triangle" size={22} color={colors.red} />
-              <View style={[styles.badge, { backgroundColor: colors.red }]}>
-                <Text style={styles.badgeText}>{employeeSyncAlertCount > 9 ? "9+" : employeeSyncAlertCount}</Text>
-              </View>
-            </TouchableOpacity>
-          )}
-        </View>
-
+  // Task 7: the Home cards. Stacked on a phone / iPad portrait; a 2x2 grid
+  // on a tablet in landscape (lib/tabletLayout.js).
+  const blueCell = (
+      <>
         <View style={[styles.blueCard, { backgroundColor: colors.accent }]}>
           <TouchableOpacity style={styles.sitePill} onPress={() => navigation.navigate("SiteSelect")}>
             <Text style={styles.sitePillText}>{siteLabel}</Text>
@@ -188,6 +167,9 @@ export default function DashboardScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
+      </>);
+  const quickCell = (
+      <>
         <Text style={[styles.sectionLabel, { color: colors.subtext }]}>Quick Actions</Text>
 
         <View style={styles.quickRow}>
@@ -208,6 +190,9 @@ export default function DashboardScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
+      </>);
+  const breaksCell = (
+      <>
         <TouchableOpacity
           style={[styles.statCard, { backgroundColor: colors.accent }]}
           onPress={() => navigation.navigate("BreaksPinEntry")}
@@ -225,6 +210,10 @@ export default function DashboardScreen({ navigation }) {
           <Feather name="chevron-right" size={22} color="#fff" />
         </TouchableOpacity>
 
+      </>);
+  const manageCell =
+    canCreateEmployee || canUpdateEmployee ? (
+      <>
         {canCreateEmployee && (
           <TouchableOpacity
             style={[styles.createEmployeeCard, { borderColor: colors.border, backgroundColor: colors.card }]}
@@ -253,6 +242,53 @@ export default function DashboardScreen({ navigation }) {
           </TouchableOpacity>
         )}
 
+      </>) : null;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScrollView
+        contentContainerStyle={[styles.container, grid && styles.containerWide, { paddingBottom: tabBarSpace }]}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} />
+        }
+      >
+        <View style={styles.header}>
+          <Avatar name={displayName} photoUrl={avatarPhotoUrl} size={48} />
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={[styles.greeting, { color: colors.subtext }]}>Welcome</Text>
+            <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>{displayName}</Text>
+          </View>
+          {employeeSyncAlertCount > 0 && (
+            <TouchableOpacity
+              style={styles.bellButton}
+              onPress={() => navigation.navigate("EmployeeSyncAlerts")}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Feather name="alert-triangle" size={22} color={colors.red} />
+              <View style={[styles.badge, { backgroundColor: colors.red }]}>
+                <Text style={styles.badgeText}>{employeeSyncAlertCount > 9 ? "9+" : employeeSyncAlertCount}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {grid ? (
+          gridRows([blueCell, quickCell, breaksCell, manageCell]).map((row, i) => (
+            <View key={i} style={styles.gridRow}>
+              {row.map((cell, j) => (
+                <View key={j} style={styles.gridCell}>{cell}</View>
+              ))}
+            </View>
+          ))
+        ) : (
+          <>
+            {blueCell}
+            {quickCell}
+            {breaksCell}
+            {manageCell}
+          </>
+        )}
+
         <View style={[styles.hoursRow, { borderColor: colors.border }]}>
           <Feather name="clock" size={14} color={colors.subtext} />
           <Text style={[styles.hoursText, { color: colors.subtext }]}>
@@ -268,6 +304,9 @@ export default function DashboardScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flexGrow: 1, paddingHorizontal: 20 },
+  containerWide: { width: "100%", maxWidth: 1100, alignSelf: "center", paddingHorizontal: 32 },
+  gridRow: { flexDirection: "row", gap: 20, alignItems: "stretch" },
+  gridCell: { flex: 1, minWidth: 0 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: { flexDirection: "row", alignItems: "center", paddingTop: 60, marginBottom: 20 },
   bellButton: { marginRight: 18 },

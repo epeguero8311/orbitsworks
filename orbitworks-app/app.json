@@ -3,7 +3,7 @@
     "name": "OrbitsWorks",
     "slug": "orbitworks",
     "version": "1.1.6",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
@@ -71,6 +71,12 @@
         }
       ],
       "expo-secure-store",
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "DEFAULT"
+        }
+      ],
       [
         "expo-notifications",
         {

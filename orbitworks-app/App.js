@@ -7,6 +7,10 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
+import * as ScreenOrientation from "expo-screen-orientation";
+import * as Device from "expo-device";
+import { shouldLockPortrait } from "./lib/tabletLayout";
+import { withMaxWidth } from "./components/MaxWidth";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
 import { ThemeProvider, useTheme } from "./lib/ThemeContext";
 import { SiteSessionProvider } from "./lib/SiteSessionContext";
@@ -118,6 +122,38 @@ Sentry.init({
 // fast it read as one continuous screen).
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
+// Task 7 (L1): phones stay portrait; tablets (iPad, Split View) may rotate.
+// app.json orientation is "default", so this lock is what keeps a phone
+// upright - done at start, before the first screen.
+if (shouldLockPortrait(Device.deviceType, Device.DeviceType)) {
+  ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+}
+
+// Task 7: these screens keep a centered max width on a tablet (no effect
+// on a phone). Not the cameras or the full-color confirmation screens.
+const W = {
+  Alerts: withMaxWidth(AlertsScreen),
+  SyncQueue: withMaxWidth(SyncQueueScreen),
+  Settings: withMaxWidth(SettingsScreen),
+  EmployeeList: withMaxWidth(EmployeeListScreen),
+  SiteSelect: withMaxWidth(SiteSelectScreen),
+  Notes: withMaxWidth(NotesScreen),
+  PinEntry: withMaxWidth(PinEntryScreen),
+  DeclinedAlerts: withMaxWidth(DeclinedAlertsScreen),
+  BreaksPinEntry: withMaxWidth(BreaksPinEntryScreen),
+  BreaksEmployeeList: withMaxWidth(BreaksEmployeeListScreen),
+  OverridePinEntry: withMaxWidth(OverridePinEntryScreen),
+  OverrideEmployeeList: withMaxWidth(OverrideEmployeeListScreen),
+  OverrideReason: withMaxWidth(OverrideReasonScreen),
+  CreateEmployee: withMaxWidth(CreateEmployeeScreen),
+  UpdateEmployee: withMaxWidth(UpdateEmployeeScreen),
+  EditEmployee: withMaxWidth(EditEmployeeScreen),
+  EmployeeSyncAlerts: withMaxWidth(EmployeeSyncAlertsScreen),
+  KioskAction: withMaxWidth(KioskActionScreen),
+  KioskBreak: withMaxWidth(KioskBreakScreen),
+  KioskUnlock: withMaxWidth(KioskUnlockScreen),
+};
+
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
@@ -133,15 +169,15 @@ function MainTabs() {
       <Tab.Screen name="Home" component={DashboardScreen} />
       <Tab.Screen
         name="Alerts"
-        component={AlertsScreen}
+        component={W.Alerts}
         options={{ tabBarBadge: unreadCount > 0 ? unreadCount : undefined }}
       />
       <Tab.Screen
         name="SyncQueue"
-        component={SyncQueueScreen}
+        component={W.SyncQueue}
         options={{ tabBarLabel: "Sync Queue", tabBarBadge: pendingCount > 0 ? pendingCount : undefined }}
       />
-      <Tab.Screen name="Settings" component={SettingsScreen} />
+      <Tab.Screen name="Settings" component={W.Settings} />
     </Tab.Navigator>
   );
 }
@@ -226,11 +262,11 @@ function KioskRoot() {
     <KioskProvider>
       <KioskStack.Navigator screenOptions={{ headerShown: false, gestureEnabled: false, contentStyle: { backgroundColor: colors.background } }}>
         <KioskStack.Screen name="KioskHome" component={KioskHomeScreen} />
-        <KioskStack.Screen name="KioskAction" component={KioskActionScreen} />
+        <KioskStack.Screen name="KioskAction" component={W.KioskAction} />
         <KioskStack.Screen name="KioskCamera" component={KioskCameraScreen} />
-        <KioskStack.Screen name="KioskBreak" component={KioskBreakScreen} />
+        <KioskStack.Screen name="KioskBreak" component={W.KioskBreak} />
         <KioskStack.Screen name="KioskDone" component={KioskDoneScreen} options={{ animation: "fade" }} />
-        <KioskStack.Screen name="KioskUnlock" component={KioskUnlockScreen} />
+        <KioskStack.Screen name="KioskUnlock" component={W.KioskUnlock} />
         <KioskStack.Screen name="KioskSettings" component={KioskSettingsScreen} />
       </KioskStack.Navigator>
     </KioskProvider>
@@ -348,23 +384,23 @@ function RootNavigator() {
         ) : currentUser ? (
           <>
             <Stack.Screen name="MainTabs" component={MainTabs} options={{ freezeOnBlur: false }} />
-            <Stack.Screen name="EmployeeList" component={EmployeeListScreen} />
-            <Stack.Screen name="SiteSelect" component={SiteSelectScreen} />
-            <Stack.Screen name="Notes" component={NotesScreen} />
-            <Stack.Screen name="PinEntry" component={PinEntryScreen} />
+            <Stack.Screen name="EmployeeList" component={W.EmployeeList} />
+            <Stack.Screen name="SiteSelect" component={W.SiteSelect} />
+            <Stack.Screen name="Notes" component={W.Notes} />
+            <Stack.Screen name="PinEntry" component={W.PinEntry} />
             <Stack.Screen name="ClockCamera" component={ClockCameraScreen} />
             <Stack.Screen name="ClockConfirm" component={ClockConfirmScreen} />
             <Stack.Screen name="ClockDeclined" component={ClockDeclinedScreen} />
-            <Stack.Screen name="DeclinedAlerts" component={DeclinedAlertsScreen} />
-            <Stack.Screen name="BreaksPinEntry" component={BreaksPinEntryScreen} />
-            <Stack.Screen name="BreaksEmployeeList" component={BreaksEmployeeListScreen} />
-            <Stack.Screen name="OverridePinEntry" component={OverridePinEntryScreen} />
-            <Stack.Screen name="OverrideEmployeeList" component={OverrideEmployeeListScreen} />
-            <Stack.Screen name="OverrideReason" component={OverrideReasonScreen} />
-            <Stack.Screen name="CreateEmployee" component={CreateEmployeeScreen} />
-            <Stack.Screen name="UpdateEmployee" component={UpdateEmployeeScreen} />
-            <Stack.Screen name="EditEmployee" component={EditEmployeeScreen} />
-            <Stack.Screen name="EmployeeSyncAlerts" component={EmployeeSyncAlertsScreen} />
+            <Stack.Screen name="DeclinedAlerts" component={W.DeclinedAlerts} />
+            <Stack.Screen name="BreaksPinEntry" component={W.BreaksPinEntry} />
+            <Stack.Screen name="BreaksEmployeeList" component={W.BreaksEmployeeList} />
+            <Stack.Screen name="OverridePinEntry" component={W.OverridePinEntry} />
+            <Stack.Screen name="OverrideEmployeeList" component={W.OverrideEmployeeList} />
+            <Stack.Screen name="OverrideReason" component={W.OverrideReason} />
+            <Stack.Screen name="CreateEmployee" component={W.CreateEmployee} />
+            <Stack.Screen name="UpdateEmployee" component={W.UpdateEmployee} />
+            <Stack.Screen name="EditEmployee" component={W.EditEmployee} />
+            <Stack.Screen name="EmployeeSyncAlerts" component={W.EmployeeSyncAlerts} />
           </>
         ) : (
           <>

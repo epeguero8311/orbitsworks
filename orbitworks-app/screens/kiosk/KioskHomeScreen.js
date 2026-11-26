@@ -12,6 +12,7 @@ import { lookupKioskPin } from "../../lib/kioskPinStore";
 import PinPad from "../../components/employee/PinPad";
 import { KIOSK_PAD_SCALE } from "../../lib/kioskLayout";
 import Spinner from "../../components/Spinner";
+import { useTabletLayout } from "../../lib/hooks/useTabletLayout";
 
 // Task 5 Kiosk mode - Home. The wall iPad's resting screen: the time, the
 // PIN pad, and a gear for Kiosk Settings (admin PIN or exit key only).
@@ -41,6 +42,7 @@ export default function KioskHomeScreen({ navigation }) {
   const offline = useIsOffline();
   const now = useClock();
   const [message, setMessage] = useState("");
+  const { grid } = useTabletLayout();
 
   // Coming back to Home = a natural moment to pick up PIN changes.
   useFocusEffect(
@@ -100,35 +102,56 @@ export default function KioskHomeScreen({ navigation }) {
     );
   }
 
+  const gear = (
+    <TouchableOpacity
+      onPress={() => navigation.navigate("KioskUnlock")}
+      accessibilityLabel="Kiosk settings"
+      style={[styles.gear, { borderColor: colors.border }]}
+    >
+      <Feather name="settings" size={22} color={colors.subtext} />
+    </TouchableOpacity>
+  );
+  const pill =
+    offline || kiosk.unsentCount > 0 ? (
+      <View style={[styles.pill, { backgroundColor: colors.orangeSoft }]}>
+        <Feather name={offline ? "wifi-off" : "upload-cloud"} size={14} color={colors.orangeText} />
+        <Text style={[styles.pillText, { color: colors.orangeText }]}>
+          {offline ? "Offline - punches are saved and sent later" : `Sending ${kiosk.unsentCount} punch${kiosk.unsentCount === 1 ? "" : "es"}...`}
+        </Text>
+      </View>
+    ) : null;
+  const dateText = now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  const timeText = now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+  // Task 7: a tablet on its side - the clock on the left, the PIN pad on the
+  // right (lib/tabletLayout.js). Portrait / Split View: stacked as before.
+  if (grid) {
+    return (
+      <View style={[styles.container, styles.wide, { backgroundColor: colors.background, paddingTop: insets.top + 12 }]}>
+        <View style={styles.wideLeft}>
+          <Text style={[styles.wideName, { color: colors.text }]} numberOfLines={2}>{kiosk.kioskName}</Text>
+          <Text style={[styles.wideTime, { color: colors.text }]}>{timeText}</Text>
+          <Text style={[styles.wideDate, { color: colors.subtext }]}>{dateText}</Text>
+          <View style={styles.widePill}>{pill}</View>
+        </View>
+        <View style={styles.wideRight}>{body}</View>
+        <View style={[styles.wideGear, { top: insets.top + 12 }]}>{gear}</View>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top + 12 }]}>
       <View style={styles.header}>
         <View>
           <Text style={[styles.kioskName, { color: colors.text }]} numberOfLines={1}>{kiosk.kioskName}</Text>
-          <Text style={[styles.sub, { color: colors.subtext }]}>
-            {now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
-          </Text>
+          <Text style={[styles.sub, { color: colors.subtext }]}>{dateText}</Text>
         </View>
-        <Text style={[styles.time, { color: colors.text }]}>
-          {now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
-        </Text>
-        <TouchableOpacity
-          onPress={() => navigation.navigate("KioskUnlock")}
-          accessibilityLabel="Kiosk settings"
-          style={[styles.gear, { borderColor: colors.border }]}
-        >
-          <Feather name="settings" size={22} color={colors.subtext} />
-        </TouchableOpacity>
+        <Text style={[styles.time, { color: colors.text }]}>{timeText}</Text>
+        {gear}
       </View>
 
-      {(offline || kiosk.unsentCount > 0) && (
-        <View style={[styles.pill, { backgroundColor: colors.orangeSoft }]}>
-          <Feather name={offline ? "wifi-off" : "upload-cloud"} size={14} color={colors.orangeText} />
-          <Text style={[styles.pillText, { color: colors.orangeText }]}>
-            {offline ? "Offline - punches are saved and sent later" : `Sending ${kiosk.unsentCount} punch${kiosk.unsentCount === 1 ? "" : "es"}...`}
-          </Text>
-        </View>
-      )}
+      {pill}
 
       {body}
     </View>
@@ -148,4 +171,12 @@ const styles = StyleSheet.create({
   sub: { fontSize: 14, marginTop: 2, textAlign: "center" },
   notice: { flex: 1, textAlign: "center", textAlignVertical: "center", fontSize: 20, fontWeight: "600", marginTop: 120 },
   error: { marginTop: 8, fontSize: 15, fontWeight: "600" },
+  wide: { flexDirection: "row", paddingHorizontal: 48, gap: 48 },
+  wideLeft: { flex: 1, justifyContent: "center", gap: 8 },
+  wideRight: { flex: 1, justifyContent: "center" },
+  wideName: { fontSize: 28, fontWeight: "700" },
+  wideTime: { fontSize: 88, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  wideDate: { fontSize: 22 },
+  wideGear: { position: "absolute", right: 24 },
+  widePill: { alignSelf: "flex-start" },
 });
