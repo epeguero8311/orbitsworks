@@ -6,6 +6,7 @@ import { functions } from "@/lib/firebase";
 import { useClockEventDetail } from "@/lib/hooks/useClockEventDetail";
 import type { ApprovalRow } from "@/lib/hooks/useTimesheetApprovals";
 import type { ReassignClockSessionInput } from "@/lib/types";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 function fmt(ms: number): string {
   return new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -67,6 +68,7 @@ export function useSessionReview(row: ApprovalRow, status: "pending" | "approved
       await fn({ clockInEventId: row.eventId, newEmployeeId: pendingEmployeeId, ...(reason ? { reason } : {}) });
       setPendingEmployeeId(null);
     } catch (err) {
+      if (toastIfPermissionDenied(err, { action: "reassign sessions", permission: "approveHours" })) return;
       setReassignError(reassignErrorText(err));
     } finally {
       setReassignSubmitting(false);

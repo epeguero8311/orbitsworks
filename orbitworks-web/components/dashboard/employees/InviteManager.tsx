@@ -5,6 +5,7 @@ import { httpsCallable } from "firebase/functions";
 import { functions } from "@/lib/firebase";
 import { useInvites } from "@/lib/hooks/useInvites";
 import type { Invite, JobSite } from "@/lib/types";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 const RESEND_COOLDOWN_MS = 60_000;
 
@@ -89,6 +90,7 @@ export function InviteManager({
         [inviteId]: { text: "Sent!", isError: false },
       }));
     } catch (err) {
+      if (toastIfPermissionDenied(err, { action: "resend invites", permission: "invites" })) return;
       const message =
         err instanceof Error ? err.message : "Couldn't resend the invite.";
       setResendMessages((prev) => ({
@@ -115,6 +117,7 @@ export function InviteManager({
       await cancelInvite(inviteId);
     } catch (err) {
       console.error("Cancel invite error:", err);
+      if (toastIfPermissionDenied(err, { action: "remove invites", permission: "invites" })) return;
       setDeleteError("Couldn't remove that invite. Try again.");
     } finally {
       setDeletingId(null);

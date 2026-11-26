@@ -44,7 +44,7 @@ export function EmployeeAppInviteSection({ employee, invite, api, planOk }: { em
     setMessage(null);
     const res = await api.create({ kind: "existingEmployee", employeeId: employee.id, email });
     setSending(false);
-    setMessage(res.ok ? { text: `Invite sent to ${email.trim().toLowerCase()}.`, isError: false } : { text: res.message, isError: true });
+    setMessage(res.ok ? { text: `Invite sent to ${email.trim().toLowerCase()}.`, isError: false } : res.message ? { text: res.message, isError: true } : null);
   }
 
   return (

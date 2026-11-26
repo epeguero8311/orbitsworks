@@ -8,6 +8,7 @@ import { functions } from "@/lib/firebase";
 import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 import { formatKeyCountdown } from "@/lib/kiosk";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 type IssuedKey = { key: string; expiresAtMs: number };
 
@@ -46,6 +47,7 @@ export function KioskExitKeysCard() {
       setIssued((prev) => ({ ...prev, [kioskEmployeeId]: data }));
     } catch (err) {
       console.error("createKioskExitKey failed:", err);
+      if (toastIfPermissionDenied(err, { action: "make kiosk exit keys", permission: "settings" })) return;
       setError((err as { message?: string })?.message || "Couldn't make a key. Try again.");
     } finally {
       setBusyId(null);

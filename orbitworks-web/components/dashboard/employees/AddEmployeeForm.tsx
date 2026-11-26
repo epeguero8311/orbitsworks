@@ -8,6 +8,7 @@ import { db, storage, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import type { JobSite, Job, Subcontractor } from "@/lib/types";
 import { UpgradeToast } from "@/components/UpgradeToast";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 export function AddEmployeeForm({
   sites,
@@ -106,7 +107,7 @@ export function AddEmployeeForm({
         setShowUpgradeToast(true);
       } else if (err?.code === "functions/failed-precondition") {
         setError(err.message || "Subscription is past due.");
-      } else {
+      } else if (!toastIfPermissionDenied(err, { action: "add employees", permission: "employees" })) {
         setError("Couldn't add the employee. Try again.");
       }
     } finally {

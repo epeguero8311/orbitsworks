@@ -7,6 +7,7 @@ import {
   useClockEvents,
   type ClockDirection,
 } from "@/lib/hooks/useClockEvents";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 export default function ManualClockForm() {
   const { employees: allEmployees } = useEmployees();
@@ -141,6 +142,7 @@ export default function ManualClockForm() {
       setNote("");
     } catch (err) {
       console.error("Manual clock event error:", err);
+      if (toastIfPermissionDenied(err, { action: "clock employees in or out", permission: "approveHours" })) return;
       setError("Couldn't record the clock event. Try again.");
     } finally {
       setIsSubmitting(false);

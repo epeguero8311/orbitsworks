@@ -5,6 +5,7 @@ import { dateKey } from "@/lib/reportUtils";
 import { isBelowOvertimeFloor, overtimeRateFloor, parseOvertimeRateInput } from "@/lib/jobOvertimeRate";
 import type { OvertimeRateChange } from "@/lib/hooks/useJobs";
 import type { Job } from "@/lib/types";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 type RateChange = { previousRate: number; previousHistory?: Job["rateHistory"]; effectiveFrom: string };
 
@@ -58,6 +59,7 @@ export function EditJobModal({
       onClose();
     } catch (err) {
       console.error(failText, err);
+      if (toastIfPermissionDenied(err, { action: "edit job titles and pay rates", permission: "editPay" })) return;
       setError(failText);
     } finally {
       setBusy(false);

@@ -15,6 +15,7 @@ import {
   isOptionalApprovalsColumn,
   type OptionalApprovalsColumnKey,
 } from "@/lib/approvalsColumns";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // Approve Hours Columns modal (Task 2). Show/hide only, saved per company.
 // - Name + Status: always on.
@@ -61,8 +62,9 @@ export default function ColumnsModal({
       onClose();
     } catch (err) {
       console.error("Failed to save Approve Hours columns:", err);
-      setErrorMsg(err instanceof Error ? err.message : "Couldn't save the columns.");
       setSaving(false);
+      if (toastIfPermissionDenied(err, { action: "change the Approve Hours columns", permission: "settings" })) return;
+      setErrorMsg(err instanceof Error ? err.message : "Couldn't save the columns.");
     }
   }
 

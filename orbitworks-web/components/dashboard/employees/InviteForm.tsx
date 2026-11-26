@@ -68,7 +68,7 @@ export function InviteForm({ sites, createAppInvite }: InviteFormProps) {
       setSiteId("");
       setSiteIds([]);
     } else {
-      setMessage({ text: res.message, isError: true });
+      setMessage(res.message ? { text: res.message, isError: true } : null);
     }
   }
 

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "@/lib/firebase";
 import type { Employee } from "@/lib/types";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // Phase 9 (H4 a / H5 a): the possible-duplicate flag sign-up writes when a
 // new employee's name + birthday match someone already here (crew code or
@@ -39,8 +40,8 @@ export function DuplicateSection({ employee, employees, onOpenEmployee }: { empl
     setError("");
     try {
       await dismissFn({ employeeId: employee.id });
-    } catch {
-      setError("Couldn't dismiss. Try again.");
+    } catch (err) {
+      if (!toastIfPermissionDenied(err, { action: "edit employees", permission: "employees" })) setError("Couldn't dismiss. Try again.");
     } finally {
       setBusy(false);
     }

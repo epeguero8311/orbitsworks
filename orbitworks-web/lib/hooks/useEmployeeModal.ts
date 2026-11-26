@@ -19,6 +19,8 @@ import { isValidPinFormat } from "@/lib/pinUtils";
 import { dateKey } from "@/lib/reportUtils";
 import { appendRateHistory } from "@/lib/rateHistory";
 import type { Employee, Job, Subcontractor } from "@/lib/types";
+import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
+import { firstMissingPermission, toastIfPermissionDenied, type PermissionContext } from "@/lib/permissionErrors";
 
 export function useEmployeeModal({
   employee,
@@ -188,6 +190,7 @@ export function useEmployeeModal({
   // been deactivated, so it does not disappear from the dropdown.
   const selectableJobs = jobs.filter((j) => j.active || j.id === employee.jobId);
   const selectedJob = jobs.find((j) => j.id === jobId) ?? null;
+  const adminAccess = useAdminAccess();
 
   // Same idea for subcontractors - keep the employee's current one
   // selectable even if it has since been deactivated.
@@ -229,6 +232,7 @@ export function useEmployeeModal({
       setPhotoPreview(null);
     } catch (err) {
       console.error("Remove photo error:", err);
+      if (toastIfPermissionDenied(err, { action: "remove employee photos", permission: "employees" })) return;
       setRemovePhotoError("Couldn't remove the photo. Try again.");
     } finally {
       setIsRemovingPhoto(false);
@@ -271,6 +275,7 @@ export function useEmployeeModal({
       setPendingCompanyChange(false);
       setCompanyReason("");
     } catch (err) {
+      if (toastIfPermissionDenied(err, { action: "change an employee's company", permission: "employees" })) return;
       setCompanyError(
         err instanceof Error ? err.message : "Failed to change company."
       );
@@ -373,7 +378,7 @@ export function useEmployeeModal({
         setEditingPin(false);
       } catch (err) {
         console.error("Update PIN error:", err);
-        setPinError(
+        if (!toastIfPermissionDenied(err, { action: "change PINs", permission: "employees" })) setPinError(
           err instanceof Error ? err.message : "Couldn't save this PIN. Try again."
         );
         setIsSaving(false);
@@ -381,6 +386,16 @@ export function useEmployeeModal({
       }
     }
 
+    // iPad round 1 item 6: which permission the current step needs, for the
+    // "You don't have permission to ..." toast (rules errors carry none).
+    let saveStep: PermissionContext = {
+      action: "edit employees",
+      permission: firstMissingPermission(
+        (selectedJob ? null : nextCustomRate) !== (employee.hourlyRate ?? null) ? ["employees", "editPay"] : ["employees"],
+        adminAccess.can
+      ),
+    };
+    if (saveStep.permission === "editPay") saveStep = { action: "change pay rates", permission: "editPay" };
     try {
       const employeeRef = doc(db, "companies", companyId, "employees", employee.id);
 
@@ -426,6 +441,8 @@ export function useEmployeeModal({
       if (updates.photoUrl) updates["fieldEditedAt.photoUrl"] = serverTimestamp();
 
       await updateDoc(employeeRef, updates);
+      // What's being saved next (names the permission if it's refused).
+      saveStep = { action: "change admin, supervisor or kiosk access", permission: "invites" };
 
       // isAdmin/isSupervisor/linkedUserId are role-like fields, blocked
       // from the plain updateDoc above by firestore.rules - they only
@@ -490,6 +507,7 @@ export function useEmployeeModal({
       setSuccess("Saved.");
     } catch (err) {
       console.error("Update employee error:", err);
+      if (toastIfPermissionDenied(err, saveStep)) return;
       // Task 5: the kiosk checks (clocked in, Employee App login, Pro, cap)
       // explain themselves; anything else keeps the generic message.
       const code = (err as { code?: string })?.code;
@@ -521,8 +539,9 @@ export function useEmployeeModal({
       onClose();
     } catch (err) {
       console.error("Delete employee error:", err);
-      setDeleteError("Couldn't delete this employee. Try again.");
       setIsDeleting(false);
+      if (toastIfPermissionDenied(err, { action: "delete employees", permission: "employees" })) return;
+      setDeleteError("Couldn't delete this employee. Try again.");
     }
   }
 

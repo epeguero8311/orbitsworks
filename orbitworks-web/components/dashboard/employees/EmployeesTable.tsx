@@ -11,6 +11,7 @@ import { EmployeeInviteStatusPill } from "@/components/dashboard/employees/Emplo
 import { ShowMoreButton } from "@/components/dashboard/ShowMoreButton";
 import { useShowMore } from "@/lib/hooks/useShowMore";
 import { EMPLOYEES_PAGE_SIZE, employeeMatchesSearch, splitByActive } from "@/lib/listPaging";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // Falls back to an initial instead of the browser's broken-image icon
 // when photoUrl points at a Storage object that is missing, empty, or
@@ -107,6 +108,8 @@ export function EmployeesTable({
         setShowUpgradeToast(true);
       } else if (code === "functions/failed-precondition") {
         setShowPastDueToast(true);
+      } else {
+        toastIfPermissionDenied(err, { action: employee.active ? "deactivate employees" : "activate employees", permission: "employees" });
       }
     }
   }

@@ -15,6 +15,7 @@ import {
   type Permissions,
 } from "@/lib/adminAccess";
 import { setAdminAccessSchema } from "@/lib/validators/adminAccess";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // Admin Permissions (Task 4): Team -> admin -> Permissions. Saves through
 // setAdminAccess (the only way to change access; the server enforces the
@@ -94,8 +95,9 @@ export default function PermissionsModal({
       onClose();
     } catch (err) {
       console.error("Save admin access error:", err);
-      setError(err instanceof Error ? err.message : "Couldn't save the permissions.");
       setSaving(false);
+      if (toastIfPermissionDenied(err, { action: "change admin permissions" })) return;
+      setError(err instanceof Error ? err.message : "Couldn't save the permissions.");
     }
   }
 

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Info } from "lucide-react";
 import { useTipHistory } from "@/lib/hooks/useTipHistory";
 import { formatTipCents, tipAmountSchema } from "@/lib/validators/shiftTip";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // Tips (Task 3): the shift's tip in Session review (admin/owner only, shown
 // only while the Tips toggle is ON). Editable before AND after approval -
@@ -51,6 +52,7 @@ export function SessionTips({
       setVersion((v) => v + 1);
     } catch (err) {
       console.error("Failed to save tip:", err);
+      if (toastIfPermissionDenied(err, { action: "edit tips", permission: "editPay" })) return;
       setError("Couldn't save the tip. Try again.");
     } finally {
       setSaving(false);

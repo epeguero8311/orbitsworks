@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { useSites } from "@/lib/hooks/useSites";
 import { isProPlan } from "@/lib/stripe/tiers";
 import type { ActiveTempLink, TempLinkDuration, TempLinkHistoryEntry, TempLinkHistoryPage } from "@/lib/types";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 export type { ActiveTempLink, TempLinkDuration, TempLinkHistoryEntry };
 
@@ -104,6 +105,7 @@ export function useTempClockLinkPage() {
       await Promise.all([refreshLinks(), refreshHistory()]);
     } catch (err) {
       console.error("Failed to generate temp clock-in link:", err);
+      if (toastIfPermissionDenied(err, { action: "make Quick Links", permission: "approveHours" })) return;
       setError((err as { message?: string })?.message ?? "Something went wrong. Try again.");
     } finally {
       setGenerating(false);
@@ -134,6 +136,7 @@ export function useTempClockLinkPage() {
       setHistory((prev) => prev.map((h) => (h.token === token ? { ...h, revoked: true } : h)));
     } catch (err) {
       console.error("Failed to revoke temp clock-in link:", err);
+      toastIfPermissionDenied(err, { action: "revoke Quick Links", permission: "approveHours" });
     }
   }
 

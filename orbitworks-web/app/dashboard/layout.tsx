@@ -28,6 +28,7 @@ import { isAppOnlyRole, useAuth } from "@/lib/AuthContext";
 import { isProPlan } from "@/lib/stripe/tiers";
 import { PastDueBanner } from "@/components/PastDueBanner";
 import { HelpChat } from "@/components/help-chat/HelpChat";
+import { PermissionToastHost } from "@/components/PermissionToastHost";
 import { TermsReacceptModal } from "@/components/dashboard/TermsReacceptModal";
 import { TERMS_VERSION } from "@/components/legal/TermsContent";
 import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
@@ -281,6 +282,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             children
           )}
         </div>
+        <PermissionToastHost />
         <HelpChat isSubscribed={subscriptionStatus === "active" && planTier !== "free"} />
       </main>
 

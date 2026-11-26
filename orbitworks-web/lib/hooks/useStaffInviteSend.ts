@@ -4,6 +4,7 @@ import { useState } from "react";
 import { addDoc, collection, getDocs, query, serverTimestamp, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // Phase 9 (H1 a): sending a supervisor or admin invite - moved here from
 // InviteManager.tsx so the one invite form (InviteForm.tsx) uses the same
@@ -43,6 +44,8 @@ export function useStaffInviteSend() {
       return { ok: true, email: normalizedEmail };
     } catch (err) {
       console.error("Invite error:", err);
+      // "" = shown as a permission toast already (iPad round 1 item 6).
+      if (toastIfPermissionDenied(err, { action: `invite ${role}s`, permission: "invites" })) return { ok: false, message: "" };
       return { ok: false, message: "Couldn't create the invite. Try again." };
     } finally {
       setSending(false);

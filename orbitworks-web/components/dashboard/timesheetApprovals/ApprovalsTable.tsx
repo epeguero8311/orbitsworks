@@ -19,6 +19,7 @@ import {
 import { formatTipCents } from "@/lib/validators/shiftTip";
 import { clockDeviceLabel, clockTypeLabel } from "@/lib/approvalsClockInfo";
 import { clockOutSiteNote } from "@/lib/clockOutSite";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // Rounds to whole minutes first, so a value a hair under the hour
 // (4.99999h from subtracting hours) shows "5h 0m", never "4h 60m".
@@ -227,6 +228,7 @@ export function ApprovalsTable({
       setSelectedKeys(new Set());
     } catch (err) {
       console.error("Failed to approve selected rows:", err);
+      toastIfPermissionDenied(err, { action: "approve hours", permission: "approveHours" });
       setOptimisticStatus((prev) => {
         const next = new Map(prev);
         keys.forEach((key) => next.delete(key));
@@ -243,6 +245,7 @@ export function ApprovalsTable({
       await onSetStatus(row.eventId, status, status === "approved" ? effectiveJobId(row) || null : undefined);
     } catch (err) {
       console.error("Failed to update approval status:", err);
+      toastIfPermissionDenied(err, { action: "approve hours", permission: "approveHours" });
       setOptimisticStatus((prev) => {
         const next = new Map(prev);
         next.delete(row.key);
@@ -261,6 +264,7 @@ export function ApprovalsTable({
         await onSetStatus(row.eventId, "approved", jobId || null);
       } catch (err) {
         console.error("Failed to save job for approved row:", err);
+        toastIfPermissionDenied(err, { action: "approve hours", permission: "approveHours" });
       }
     }
   }

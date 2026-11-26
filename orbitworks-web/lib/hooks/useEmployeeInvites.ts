@@ -9,6 +9,7 @@ import { employeeInviteConverter } from "@/lib/firebase/converters";
 import { employeeInviteCreateSchema, employeeInviteTokenSchema, type EmployeeInviteCreateInput } from "@/lib/validators/employeeInvite";
 import { employeeInviteLink, latestInviteByEmployee } from "@/lib/employeeInvites/status";
 import type { EmployeeInvite } from "@/lib/types";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // Employee App email invites (Phase 3B) for the Employees page.
 // - invites: live list for the caller's company (firestore.rules lets
@@ -23,7 +24,10 @@ import type { EmployeeInvite } from "@/lib/types";
 
 export type InviteActionResult = { ok: true; token?: string } | { ok: false; message: string };
 
+// "" = a permission refusal already shown as a toast (iPad round 1 item 6);
+// callers show nothing inline then.
 function messageOf(err: unknown, fallback: string): string {
+  if (toastIfPermissionDenied(err, { action: "send Employee App invites", permission: "employees" })) return "";
   const m = err instanceof Error ? err.message : "";
   // Callable errors carry the server's plain message; "internal" alone
   // means the request never got a real answer.

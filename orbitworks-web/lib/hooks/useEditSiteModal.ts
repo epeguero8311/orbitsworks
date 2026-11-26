@@ -6,6 +6,7 @@ import { AddressNotVerifiedError, type PickedLocation } from "@/lib/hooks/useSit
 import { radiusInputFromSite, DEFAULT_GEOFENCE_RADIUS_FT } from "@/lib/geo";
 import type { JobSite } from "@/lib/types";
 import type { PickedAddress } from "@/components/dashboard/sites/AddressAutocomplete";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 interface EditSiteFormState {
   name: string;
@@ -150,6 +151,7 @@ export function useEditSiteModal({
       onClose();
     } catch (err) {
       console.error("Edit site error:", err);
+      if (toastIfPermissionDenied(err, { action: "edit job sites", permission: "settings" })) return;
       setSaveError(
         err instanceof AddressNotVerifiedError ? err.message : "Couldn't save changes. Try again."
       );
@@ -165,6 +167,7 @@ export function useEditSiteModal({
       onClose();
     } catch (err) {
       console.error("Delete site error:", err);
+      if (toastIfPermissionDenied(err, { action: "delete job sites", permission: "settings" })) return;
       setDeleteError("Couldn't delete the site. Try again.");
     } finally {
       setIsDeleting(false);

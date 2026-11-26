@@ -15,6 +15,7 @@ import { useShowMore } from "@/lib/hooks/useShowMore";
 import { SITES_PAGE_SIZE } from "@/lib/listPaging";
 import SiteAdminsPicker from "@/components/dashboard/sites/SiteAdminsPicker";
 import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 export default function SitesSection() {
   const {
@@ -116,6 +117,7 @@ export default function SitesSection() {
       setRadiusUnit("ft");
     } catch (err) {
       console.error("Add site error:", err);
+      if (toastIfPermissionDenied(err, { action: "add job sites", permission: "settings" })) return;
       setSiteError(
         err instanceof AddressNotVerifiedError ? err.message : "Couldn't add the site. Try again."
       );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 export default function ConfirmDeleteSessionModal({
   employeeName,
@@ -23,8 +24,9 @@ export default function ConfirmDeleteSessionModal({
       await onConfirm();
       onClose();
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Failed to delete this session.");
       setSubmitting(false);
+      if (toastIfPermissionDenied(err, { action: "delete sessions", permission: "approveHours" })) return;
+      setErrorMsg(err instanceof Error ? err.message : "Failed to delete this session.");
     }
   }
 

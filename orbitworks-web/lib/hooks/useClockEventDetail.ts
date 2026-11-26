@@ -12,6 +12,7 @@ import {
 } from "@/lib/clockEventDetailUtils";
 import { findSession } from "@/lib/clockPairing";
 import { reviewCorrection, type CorrectionNeighbours } from "@/lib/clockCorrection";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // A correction waiting for the admin's confirm (same two-step as reassign).
 export interface PendingCorrection {
@@ -120,6 +121,7 @@ export function useClockEventDetail({
       setReasonValue("");
     } catch (err) {
       setPendingCorrection(null);
+      if (toastIfPermissionDenied(err, { action: "edit time", permission: "approveHours" })) return;
       setErrorMsg(
         err instanceof Error ? err.message : "Failed to save correction."
       );
@@ -151,6 +153,7 @@ export function useClockEventDetail({
       });
       setPendingNewEmployeeId(null);
     } catch (err) {
+      if (toastIfPermissionDenied(err, { action: "reassign clock events", permission: "approveHours" })) return;
       setReassignError(
         err instanceof Error ? err.message : "Failed to reassign this event."
       );

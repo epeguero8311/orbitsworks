@@ -23,6 +23,7 @@ import { effectiveOvertimeRate } from "@/lib/reportOvertime";
 import type { EmployeeHistoryOvertimeExport } from "@/lib/reportExcelUtils";
 import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 import { fetchShiftData } from "@/lib/shiftData";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 export type EmployeeHistoryDayRow = {
   dateLabel: string;
@@ -388,7 +389,9 @@ export function useEmployeeTimesheet() {
             firebaseCode: (err as { code?: string })?.code ?? "none",
           },
         });
-        setError("Couldn't build this employee's timesheet. Try again.");
+        if (!toastIfPermissionDenied(err, { action: "view this employee's timesheet" })) {
+          setError("Couldn't build this employee's timesheet. Try again.");
+        }
         return null;
       } finally {
         setLoading(false);

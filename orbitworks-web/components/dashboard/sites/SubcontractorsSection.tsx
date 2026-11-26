@@ -3,6 +3,7 @@
 import { useState, FormEvent } from "react";
 import { useSubcontractors, SubcontractorInputError } from "@/lib/hooks/useSubcontractors";
 import type { Subcontractor } from "@/lib/types";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // Available on every plan. Removing a subcontractor is Deactivate
 // (active: false) - never a hard delete, so old records keep the name.
@@ -56,6 +57,7 @@ export default function SubcontractorsSection() {
       setSubAddress("");
     } catch (err) {
       console.error("Add subcontractor error:", err);
+      if (toastIfPermissionDenied(err, { action: "add subcontractors", permission: "employees" })) return;
       setSubError(
         err instanceof SubcontractorInputError ? err.message : "Couldn't add the subcontractor. Try again."
       );
@@ -97,6 +99,7 @@ export default function SubcontractorsSection() {
       setEditSubError("");
     } catch (err) {
       console.error("Edit subcontractor error:", err);
+      if (toastIfPermissionDenied(err, { action: "edit subcontractors", permission: "employees" })) return;
       setEditSubError(
         err instanceof SubcontractorInputError ? err.message : "Couldn't save changes. Try again."
       );
@@ -109,6 +112,7 @@ export default function SubcontractorsSection() {
       await toggleSubcontractorActive(subcontractor);
     } catch (err) {
       console.error("Toggle subcontractor error:", err);
+      if (toastIfPermissionDenied(err, { action: "change subcontractors", permission: "employees" })) return;
       setToggleError("Couldn't update the subcontractor. Try again.");
     }
   }

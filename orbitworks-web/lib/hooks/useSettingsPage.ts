@@ -26,6 +26,7 @@ import { overtimeSettingsSchema } from "@/lib/validators/overtimeSettings";
 import { tipsEnabledSchema } from "@/lib/validators/shiftTip";
 import type { SettingsTabId } from "@/lib/hooks/useSettingsTabs";
 import type { ExportSettings } from "@/lib/types";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 export type AuthMode = "individual" | "shared";
 
@@ -334,6 +335,7 @@ export function useSettingsPage() {
       });
     } catch (err) {
       console.error("Save company error:", err);
+      if (toastIfPermissionDenied(err, { action: "change settings", permission: "settings" })) return;
       setError("Couldn't save changes. Try again.");
     } finally {
       setIsSaving(false);

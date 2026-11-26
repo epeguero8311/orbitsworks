@@ -10,6 +10,7 @@ import { useEmployees } from "@/lib/hooks/useEmployees";
 import { deviceNameSchema, DEVICE_NAME_MAX_LENGTH } from "@/lib/validators/device";
 import type { Device } from "@/lib/types";
 import { BillingLink } from "@/components/BillingLink";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 interface DeviceRow {
   id: string;
@@ -187,6 +188,7 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
       cancelEditing();
     } catch (err) {
       console.error("Failed to save device name:", err);
+      if (toastIfPermissionDenied(err, { action: "rename devices", permission: "settings" })) return;
       setDraftError("Couldn't save. Try again.");
     } finally {
       setSavingId(null);
@@ -205,6 +207,7 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
       });
     } catch (err) {
       console.error("Failed to toggle device lock:", err);
+      toastIfPermissionDenied(err, { action: "lock devices", permission: "settings" });
     } finally {
       setSavingId(null);
     }

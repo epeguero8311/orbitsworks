@@ -7,6 +7,7 @@ import { TITLES_PAGE_SIZE } from "@/lib/listPaging";
 import { ShowMoreButton } from "@/components/dashboard/ShowMoreButton";
 import { EditJobModal } from "@/components/dashboard/sites/EditJobModal";
 import { isBelowOvertimeFloor, overtimeRateFloor, parseOvertimeRateInput } from "@/lib/jobOvertimeRate";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 export default function JobsSection() {
   const {
@@ -67,6 +68,7 @@ export default function JobsSection() {
       setJobOtRate("");
     } catch (err) {
       console.error("Add job title error:", err);
+      if (toastIfPermissionDenied(err, { action: "add job titles and pay rates", permission: "editPay" })) return;
       setJobError("Couldn't add the title. Try again.");
     } finally {
       setIsSubmittingJob(false);

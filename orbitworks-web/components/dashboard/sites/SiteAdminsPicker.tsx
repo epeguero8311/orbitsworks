@@ -7,6 +7,7 @@ import { db, functions } from "@/lib/firebase";
 import { useAuth } from "@/lib/AuthContext";
 import { resolveAdminAccess } from "@/lib/adminAccess";
 import { setSiteAdminsSchema } from "@/lib/validators/adminAccess";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // Admin Permissions (Task 4, D6 / D17): right after a new job site is
 // created, the owner / a Full access admin picks which admins limited to
@@ -76,8 +77,9 @@ export default function SiteAdminsPicker({
       onClose();
     } catch (err) {
       console.error("Save site admins error:", err);
-      setError("Couldn't save. Try again.");
       setSaving(false);
+      if (toastIfPermissionDenied(err, { action: "pick who sees a job site" })) return;
+      setError("Couldn't save. Try again.");
     }
   }
 

@@ -25,6 +25,7 @@ import { AutoDetectedTag } from "@/components/time/AutoDetectedTag";
 import { SyncedLateTag } from "@/components/time/SyncedLateTag";
 import { EventNoteCell } from "@/components/time/ShiftCommentsNote";
 import { Toast } from "@/components/Toast";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 export default function ClockEventLookup() {
   const { userData } = useAuth();
@@ -153,6 +154,7 @@ export default function ClockEventLookup() {
           firebaseCode: (err as { code?: string })?.code ?? "none",
         },
       });
+      if (toastIfPermissionDenied(err, { action: "export payroll", permission: "exportPayroll" })) return;
       setTimesheetToast(
         "We couldn't export this employee's report. Please try again, or contact support if it keeps happening."
       );

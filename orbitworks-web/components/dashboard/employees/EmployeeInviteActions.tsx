@@ -50,16 +50,16 @@ export function EmployeeInviteActions({ invite, api }: { invite: EmployeeInvite;
     if (kind === "resend") {
       setCoolingDown(true);
       later(() => setCoolingDown(false), RESEND_COOLDOWN_MS);
-      setMessage(res.ok ? { text: "Sent!", isError: false } : { text: res.message, isError: true });
+      setMessage(res.ok ? { text: "Sent!", isError: false } : res.message ? { text: res.message, isError: true } : null);
     } else if (!res.ok) {
-      setMessage({ text: res.message, isError: true });
+      setMessage(res.message ? { text: res.message, isError: true } : null);
     }
   }
 
   async function copy() {
     const res = await api.copyLink(invite.id);
     if (!res.ok) {
-      setMessage({ text: res.message, isError: true });
+      setMessage(res.message ? { text: res.message, isError: true } : null);
       return;
     }
     setCopied(true);

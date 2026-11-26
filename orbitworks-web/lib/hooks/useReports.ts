@@ -46,6 +46,7 @@ import {
   computePayrollAndSessions,
   computeAttendanceAndSiteReports,
 } from "@/lib/reportComputations";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // Everything one report run produces (Task 4: computed once per source).
 export type ReportData = {
@@ -535,6 +536,7 @@ export function useReports() {
         setAllSitesDayTotals(d.allSitesDayTotals ?? null);
       } catch (err) {
         console.error("Report generation error:", err);
+        if (toastIfPermissionDenied(err, { action: "view this report" })) return;
         setError("Couldn't generate the report. Try again.");
       } finally {
         setLoading(false);

@@ -15,6 +15,7 @@ import { sortWarningsBySeverity, type SessionWarning, type WarningSeverity } fro
 import type { ClockEvent, JobSite, OverrideEvent, SiteExit } from "@/lib/types";
 import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 import { fetchShiftData } from "@/lib/shiftData";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 // Session review's right column. One card per warning (red first, then
 // yellow): a title and one short detail line. The evidence the old
@@ -110,6 +111,7 @@ function NoSiteAssign({ sites, onAssign, disabled }: { sites: JobSite[]; onAssig
       await onAssign(siteId);
     } catch (err) {
       console.error("Assign session site error:", err);
+      if (toastIfPermissionDenied(err, { action: "assign a site to a shift", permission: "approveHours" })) return;
       setError("Couldn't assign a site. Try again.");
     } finally {
       setSaving(false);

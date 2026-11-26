@@ -7,6 +7,7 @@ import { useSites } from "@/lib/hooks/useSites";
 import { useSubcontractors } from "@/lib/hooks/useSubcontractors";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import type { ManualTimestampParams } from "@/lib/hooks/useTimesheetApprovals";
+import { isPermissionDenied, toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 type Props = {
   defaultDate: string;
@@ -121,12 +122,14 @@ export default function AddTimestampModal({ defaultDate, minDate, onClose, onSub
         try {
           await onSubmit(params);
         } catch (err) {
+          if (isPermissionDenied(err)) throw err;
           const message = err instanceof Error ? err.message : "Failed to add timestamp.";
           throw new Error(`${emp.name}: ${message}`);
         }
       }
       onClose();
     } catch (err) {
+      if (toastIfPermissionDenied(err, { action: "add timestamps", permission: "approveHours" })) return;
       setErrorMsg(err instanceof Error ? err.message : "Failed to add timestamp.");
     } finally {
       setSubmitting(false);

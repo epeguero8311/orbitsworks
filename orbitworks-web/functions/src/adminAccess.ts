@@ -53,7 +53,9 @@ export async function loadAdminCaller(request: Pick<CallableRequest, "auth">): P
 
 export function requirePermission(caller: AdminCaller, key: PermissionKey): void {
   if (!hasPermission(caller.access, key)) {
-    throw new HttpsError("permission-denied", `You don't have the "${PERMISSION_LABELS[key]}" permission.`);
+    // details.permission lets the website name the permission in its toast
+    // (lib/permissionErrors.ts); older clients only read the message.
+    throw new HttpsError("permission-denied", `You don't have the "${PERMISSION_LABELS[key]}" permission.`, { reason: "permission", permission: key });
   }
 }
 
@@ -61,7 +63,7 @@ export const NOT_YOUR_SITE_MESSAGE = "This shift is on a job site you don't have
 
 export function requireSite(caller: AdminCaller, siteId: string | null | undefined): void {
   if (!canAccessSite(caller.access, siteId)) {
-    throw new HttpsError("permission-denied", NOT_YOUR_SITE_MESSAGE);
+    throw new HttpsError("permission-denied", NOT_YOUR_SITE_MESSAGE, { reason: "notYourSite" });
   }
 }
 

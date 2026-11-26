@@ -113,8 +113,9 @@ test("restricted admin: approve / tip / delete / edit only their sites' shifts",
   assert.equal((await approval("sA")).status, "pending");
   // Tips: Edit pay + site (D7).
   await run("setShiftTip", { eventId: "sA", amountCents: 500 }, u.restricted);
-  await assert.rejects(run("setShiftTip", { eventId: "sC", amountCents: 500 }, u.restricted), denied);
-  await assert.rejects(run("setShiftTip", { eventId: "sA", amountCents: 600 }, u.plain), denied); // no Edit pay
+  await assert.rejects(run("setShiftTip", { eventId: "sC", amountCents: 500 }, u.restricted), (e) => denied(e) && e.details?.reason === "notYourSite");
+  // no Edit pay - details name the permission (website toast, iPad round 1 item 6)
+  await assert.rejects(run("setShiftTip", { eventId: "sA", amountCents: 600 }, u.plain), (e) => denied(e) && e.details?.reason === "permission" && e.details?.permission === "editPay");
   // Time edits = Approve hours + site (D10).
   await assert.rejects(run("correctClockEvent", { eventId: "sC-out", newTimestamp: ct(16, "22:00").toMillis() }, u.restricted), denied);
   await assert.rejects(run("deleteTimesheetSession", { approvalId: "sC", eventIds: ["sC", "sC-out"] }, u.restricted), denied);

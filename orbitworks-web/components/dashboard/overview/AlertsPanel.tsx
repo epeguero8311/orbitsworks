@@ -21,6 +21,7 @@ import {
   effectiveDate,
   toDatetimeLocalValue,
 } from "@/lib/dashboardOverviewUtils";
+import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 
 const SEVERITY_DOT_CLASSES: Record<AlertSeverity, string> = {
   urgent: "bg-red-500",
@@ -134,6 +135,7 @@ export default function AlertsPanel({
       await ignoreAll(visibleAlertItems.filter((a) => a.alertType !== "faceBadReference"));
     } catch (err) {
       console.error("Ignore all alerts error:", err);
+      if (toastIfPermissionDenied(err, { action: "ignore alerts", permission: "approveHours" })) return;
       setAlertActionError("Couldn't ignore all alerts. Try again.");
     } finally {
       setIgnoringAll(false);
@@ -147,6 +149,7 @@ export default function AlertsPanel({
       await ignoreAlert(alert);
     } catch (err) {
       console.error("Ignore alert error:", err);
+      if (toastIfPermissionDenied(err, { action: "ignore alerts", permission: "approveHours" })) return;
       setAlertActionError("Couldn't ignore this alert. Try again.");
     } finally {
       setAlertActionSubmitting(null);
@@ -160,6 +163,7 @@ export default function AlertsPanel({
       await clockOutFromAlert(alert);
     } catch (err) {
       console.error("Clock out from alert error:", err);
+      if (toastIfPermissionDenied(err, { action: "clock employees out", permission: "approveHours" })) return;
       setAlertActionError("Couldn't clock out. Try again.");
     } finally {
       setAlertActionSubmitting(null);
@@ -173,6 +177,7 @@ export default function AlertsPanel({
       await confirmFaceMatchFromAlert(alert);
     } catch (err) {
       console.error("Confirm face match error:", err);
+      if (toastIfPermissionDenied(err, { action: "confirm face matches", permission: "approveHours" })) return;
       setAlertActionError("Couldn't confirm. Try again.");
     } finally {
       setAlertActionSubmitting(null);
@@ -186,6 +191,7 @@ export default function AlertsPanel({
       await endBreakFromAlert(alert);
     } catch (err) {
       console.error("End break from alert error:", err);
+      if (toastIfPermissionDenied(err, { action: "end breaks", permission: "approveHours" })) return;
       setAlertActionError("Couldn't end break. Try again.");
     } finally {
       setAlertActionSubmitting(null);
@@ -233,6 +239,7 @@ export default function AlertsPanel({
       setEditTimeValue("");
     } catch (err) {
       console.error("Edit time from alert error:", err);
+      if (toastIfPermissionDenied(err, { action: "edit time", permission: "approveHours" })) return;
       setAlertActionError(
         err instanceof Error ? err.message : "Couldn't save this time."
       );
