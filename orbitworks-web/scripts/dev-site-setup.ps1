@@ -73,7 +73,7 @@ Step "2. Set environment name '$EnvName'" {
 $envVals = Read-DotEnv (Join-Path $Web ".env.local")
 $devVals = Read-DotEnv (Join-Path $Web ".env.development.local")
 foreach ($k in $devVals.Keys) { $envVals[$k] = $devVals[$k] }
-$Secrets = @("FIREBASE_ADMIN_PROJECT_ID", "FIREBASE_ADMIN_CLIENT_EMAIL", "FIREBASE_ADMIN_PRIVATE_KEY", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "ANTHROPIC_API_KEY", "GOOGLE_PLACES_API_KEY")
+$Secrets = @("FIREBASE_ADMIN_PROJECT_ID", "FIREBASE_ADMIN_CLIENT_EMAIL", "FIREBASE_ADMIN_PRIVATE_KEY", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "GOOGLE_PLACES_API_KEY")
 
 Step "3a. Local secret values are dev/test only" {
   foreach ($name in $Secrets) {

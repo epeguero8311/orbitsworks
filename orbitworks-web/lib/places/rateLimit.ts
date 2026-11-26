@@ -2,10 +2,10 @@ import "server-only";
 import { adminDb } from "@/lib/firebase/admin";
 import { Timestamp } from "firebase-admin/firestore";
 
-// Adapted from lib/help-chat/rateLimit.ts's transaction pattern, but tuned
+// A Firestore-transaction cooldown + daily cap, tuned
 // for a debounced-keystroke caller: autocomplete fires roughly once per
 // pause in typing (every few hundred ms while an admin types an address),
-// not once per explicit send action like help-chat's cooldown assumes - so
+// not once per explicit send action - so
 // this cooldown is much shorter and the daily caps are much higher.
 const USER_DAILY_LIMIT = 300;
 const COMPANY_DAILY_LIMIT = 1000;

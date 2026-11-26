@@ -7,12 +7,14 @@ import { useKiosk } from "../../lib/hooks/useKiosk";
 import { useKioskIdle } from "../../lib/hooks/useKioskIdle";
 import { startPunchFix } from "../../lib/punchLocation";
 import PunchCamera from "../../components/employee/PunchCamera";
+import { KIOSK_IDLE_CAMERA_MS } from "../../lib/kioskLayout";
 import ClockCommentModal from "../../components/ClockCommentModal";
 
 // Task 5 Kiosk mode - the clock in/out photo (same camera as the Employee
 // App: front camera, Retake / Use photo). The photo goes with the punch; the
 // Pro face check runs on the server like every other punch. Saved first,
-// sent right after (never blocked by signal). Back to Home after 60 s idle.
+// sent right after (never blocked by signal). Back to Home after 60 s idle
+// (never the 15 s, and paused while the photo is being saved - cleanup 11/26).
 // iPad round 1: the same optional Comment button as the supervisor app's
 // camera (top right). The comment is saved on the punch (employeeComment)
 // and shows in Session review like a supervisor-app comment.
@@ -26,8 +28,9 @@ export default function KioskCameraScreen({ navigation, route }) {
   const [comment, setComment] = useState("");
   const [commentOpen, setCommentOpen] = useState(false);
   const saving = useRef(false);
+  const [busy, setBusy] = useState(false);
   const fix = useRef(null);
-  const touch = useKioskIdle(navigation, 60000);
+  const touch = useKioskIdle(navigation, KIOSK_IDLE_CAMERA_MS, busy);
 
   useEffect(() => {
     fix.current = startPunchFix();
@@ -37,12 +40,14 @@ export default function KioskCameraScreen({ navigation, route }) {
     touch();
     if (saving.current || !employee) return;
     saving.current = true;
+    setBusy(true);
     try {
       const location = fix.current ? fix.current.take(Date.now()) : null;
       const { atMs } = await kiosk.recordPunch({ employee, action, pin, photoUri: uri, location, comment });
       navigation.replace("KioskDone", { name: employee.name, action, atMs });
     } catch {
       saving.current = false;
+      setBusy(false);
       setError("Couldn't save that punch. Try again.");
     }
   }

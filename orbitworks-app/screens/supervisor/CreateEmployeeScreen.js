@@ -13,6 +13,8 @@ import BirthdayBoxes from "../../components/join/BirthdayBoxes";
 import PhotoButton from "../../components/camera/PhotoButton";
 import NewPinModal from "../../components/supervisor/NewPinModal";
 import Spinner from "../../components/Spinner";
+import { useKioskIdle } from "../../lib/hooks/useKioskIdle";
+import { KIOSK_IDLE_ACTION_MS } from "../../lib/kioskLayout";
 
 // Create Employee (supervisor app) and Create account (Kiosk, Task 5 v2):
 //   Name, Birthday (MM/DD/YYYY), Photo (full-screen camera, retake / use)
@@ -21,6 +23,9 @@ import Spinner from "../../components/Spinner";
 // which also blocks a same name + birthday duplicate); offline it is a
 // local guess and the create waits in the queue like before.
 // route.params: { mode: "kiosk", adminProof } for the kiosk.
+// Kiosk only (cleanup 2026-11-26): back to Home after 15 s with no tap or
+// keystroke, paused while the photo notice / camera or the PIN modal is up
+// (they must press OK) and while the account is being created.
 
 const ONLINE_ATTEMPT_TIMEOUT_MS = 10000;
 
@@ -52,6 +57,8 @@ export default function CreateEmployeeScreen({ navigation, route }) {
   const [submitError, setSubmitError] = useState(null);
   const [pending, setPending] = useState(null); // { name, dob, pin } waiting for OK
   const [creating, setCreating] = useState(false);
+  const [photoOpen, setPhotoOpen] = useState(false);
+  const touch = useKioskIdle(navigation, isKiosk ? KIOSK_IDLE_ACTION_MS : null, photoOpen || !!pending || creating || preparing);
 
   const canContinue = !!validateEmployeeName(name).valid && !!photoUri && !preparing;
 
@@ -120,13 +127,18 @@ export default function CreateEmployeeScreen({ navigation, route }) {
   }
 
   return (
-    <KeyboardAvoidingView style={[styles.container, { backgroundColor: colors.background }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      onTouchStart={touch}
+    >
       <ScreenHeader title={isKiosk ? "Create account" : "Create Employee"} onBack={() => (isKiosk ? navigation.popToTop() : navigation.goBack())} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={[styles.label, { color: colors.subtext }]}>Name</Text>
         <TextInput
           value={name}
           onChangeText={(text) => {
+            touch();
             setName(text);
             setNameError(null);
           }}
@@ -141,6 +153,7 @@ export default function CreateEmployeeScreen({ navigation, route }) {
         <BirthdayBoxes
           value={birthday}
           onChange={(b) => {
+            touch();
             setBirthday(b);
             setBirthdayError(null);
           }}
@@ -153,6 +166,7 @@ export default function CreateEmployeeScreen({ navigation, route }) {
         <PhotoButton
           photoUri={photoUri}
           name={name}
+          onOpenChange={setPhotoOpen}
           onPhoto={(uri, noticeAt) => {
             setPhotoUri(uri);
             setPhotoNoticeShownAt(noticeAt);

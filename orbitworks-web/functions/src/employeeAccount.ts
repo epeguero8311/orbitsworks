@@ -11,8 +11,9 @@ import { DELETE_ACCOUNT_OPEN_SHIFT_MESSAGE, deleteMyEmployeeAccountSchema } from
 
 // ---- Employee App "Delete account" (Apple account deletion) - biometric audit b ----
 //
-// The signed-in employee deletes their own app account from Settings. Same
-// on Core and Pro.
+// The signed-in employee deletes their own app account on the website's
+// /delete-account page (cleanup 2026-11-26 - the app only links there; it
+// never calls this any more). Same on Core and Pro.
 //
 // Deleted: the Auth login, users/{uid}, the reference photo and every copy
 // (sign-up selfie, supervisor-app updates - facePhotos.ts), the PIN (the
@@ -29,9 +30,8 @@ import { DELETE_ACCOUNT_OPEN_SHIFT_MESSAGE, deleteMyEmployeeAccountSchema } from
 // follow the 90-day schedule like everyone else's.
 //
 // Refused while the employee is clocked in or on a break (decision Q1 B):
-// no automatic clock-out. The app also refuses while anything is still
-// waiting to sync on the phone (decision Q4 A) - that check is on the phone,
-// where the queue lives.
+// no automatic clock-out. The page tells the employee to let the app sync
+// first (the queue lives on the phone, which the website can't see).
 //
 // The admin gets a website-only alert (never pushed). The Auth login goes
 // last, so a failure anywhere before it leaves the employee signed in to

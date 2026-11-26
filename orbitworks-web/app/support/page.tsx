@@ -127,9 +127,14 @@ export default function SupportPage() {
                     Delete your account and data
                   </h3>
                   <p className="mt-1.5 text-sm leading-relaxed text-gray-600">
-                    To request deletion of your account and associated
+                    Employee App users: delete your app account yourself at{" "}
+                    <Link href="/delete-account" className="font-medium text-accent hover:underline">orbitsworks.com/delete-account</Link>.
+                    Your clock-in history stays with your employer.
+                  </p>
+                  <p className="mt-3 text-sm leading-relaxed text-gray-600">
+                    Company owners: to request deletion of your account and associated
                     company data, email{" "}
-                    <Link href="mailto:epeguero8311@gmail.com" className="font-medium text-accent hover:underline">epeguero8311@gmail.com</Link>{" "}
+                    <Link href="mailto:info@orbitsworks.com" className="font-medium text-accent hover:underline">info@orbitsworks.com</Link>{" "}
                     from the email address associated with your account,
                     with the subject line "Delete my account." Include your
                     company name so we can locate your records.
@@ -151,7 +156,7 @@ export default function SupportPage() {
               <p className="mt-3 flex items-center gap-2 text-sm text-gray-600">
                 <Mail className="h-4 w-4 text-accent" />
                 Contact{" "}
-                <Link href="mailto:epeguero8311@gmail.com" className="font-medium text-accent hover:underline">epeguero8311@gmail.com</Link>{" "}
+                <Link href="mailto:info@orbitsworks.com" className="font-medium text-accent hover:underline">info@orbitsworks.com</Link>{" "}
                 with any questions.
               </p>
             </section>

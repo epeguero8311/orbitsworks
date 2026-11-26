@@ -4,9 +4,8 @@ import { reverseGeocodeRequestSchema } from "@/lib/validators/geocode";
 import { isStaffRole } from "@/lib/roles";
 
 // Nominatim's usage policy requires a descriptive User-Agent naming the
-// app and a real contact - same support address the help-chat fallback
-// already points to.
-const NOMINATIM_USER_AGENT = "OrbitsWorks/1.0 (contact: epeguero8311@gmail.com)";
+// app and a real contact - the public support address.
+const NOMINATIM_USER_AGENT = "OrbitsWorks/1.0 (contact: info@orbitsworks.com)";
 
 export async function POST(request: NextRequest) {
   try {

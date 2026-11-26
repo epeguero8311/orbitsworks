@@ -269,6 +269,8 @@ test("getShiftData shifts: offline-synced punches (supervisor PIN, Employee App,
   // Rule 1: an admin without Site A doesn't see them on Time Tracking...
   await run("setAdminAccess", accessBody("plain", { sites: ["unassigned"] }), u.owner);
   assert.deepEqual(ids(await read({ purpose: "shifts", ...day }, u.plain)), [], "Unassigned-only admin");
+  // Clean up: later tests count every Site A event in RANGE.
+  await Promise.all(OFF.map((id) => company().collection("clockEvents").doc(id).delete()));
 });
 
 test("getShiftData export / analytics need their permission and return every site (rules 3 + 5)", async () => {

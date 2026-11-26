@@ -131,6 +131,19 @@ function kioskActions(status) {
   return { clock: "in", clockBlocked: null, breakAction: "breakStart", breakBlocked: "Please clock in first." };
 }
 
+// ---- the kiosk Break screen (cleanup 2026-11-26) ----
+// [Break] on the Action screen only opens this screen. What it shows:
+// "start" = [Start break] [Back]; "onBreak" = the timer + [End break]
+// [Back]; "notIn" = "Please clock in first." + [Back] (the status changed
+// under us). startedHereMs = the break this screen just started (shown at
+// once, before the queued punch shows up in the status).
+function kioskBreakView(status, sinceMs, startedHereMs) {
+  if (Number.isFinite(startedHereMs)) return { mode: "onBreak", sinceMs: startedHereMs };
+  if (status === "break") return { mode: "onBreak", sinceMs: Number.isFinite(sinceMs) ? sinceMs : null };
+  if (status === "in") return { mode: "start", sinceMs: null };
+  return { mode: "notIn", sinceMs: null };
+}
+
 // ---- SecureStore chunks ----
 function toChunks(text, size = SECURE_CHUNK_CHARS) {
   const out = [];
@@ -239,6 +252,7 @@ module.exports = {
   hashInput,
   isAlreadyUploaded,
   kioskActions,
+  kioskBreakView,
   kioskFailKind,
   lockAfterRight,
   lockAfterWrong,

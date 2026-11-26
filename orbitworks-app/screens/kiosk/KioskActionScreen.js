@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -8,23 +8,18 @@ import { useKioskIdle } from "../../lib/hooks/useKioskIdle";
 import { breakStartedLine, kioskActions } from "../../lib/kioskLogic";
 import { KIOSK_IDLE_ACTION_MS } from "../../lib/kioskLayout";
 import { useNow } from "../../lib/hooks/useNow";
-import { startPunchFix } from "../../lib/punchLocation";
 
 // Task 5 Kiosk mode - after a right PIN: who it is, where they stand, and
-// two buttons. Clock in/out -> photo -> done. Start break -> timer screen.
-// End break -> done. A break while clocked out is BLOCKED with "Please clock
-// in first" (spec); clocking out while on a break says end the break first.
-// Breaks never take a photo. Back to Home by itself after 25 s untouched.
+// two buttons. Clock in/out -> photo -> done. [Break] never starts a break
+// (cleanup 2026-11-26): it opens the Break screen, where Start break / End
+// break are. Break while clocked out is BLOCKED with "Please clock in
+// first" (spec); clocking out while on a break says end the break first.
+// Breaks never take a photo. Back to Home by itself after 15 s untouched.
 // iPad round 1: on a break, "Break started 12:05 PM - 18 min" (live) sits
 // above the buttons, so the employee sees how long before [End break].
 
 function timeText(ms) {
   return ms ? new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
-}
-
-// The location fix for a punch made now (null = none yet).
-function takeFix(f) {
-  return f ? f.take(Date.now()) : null;
 }
 
 export default function KioskActionScreen({ navigation, route }) {
@@ -34,15 +29,8 @@ export default function KioskActionScreen({ navigation, route }) {
   const { employeeId, pin } = route.params;
   const employee = kiosk.table?.employees.find((e) => e.id === employeeId) || null;
   const [blocked, setBlocked] = useState("");
-  const [saving, setSaving] = useState(false);
-  const fix = useRef(null);
   const touch = useKioskIdle(navigation, KIOSK_IDLE_ACTION_MS);
   const now = useNow(1000);
-
-  // Location for the punch (Pro job-site auto-detect happens on the server).
-  useEffect(() => {
-    fix.current = startPunchFix();
-  }, []);
 
   if (!employee) {
     return (
@@ -68,23 +56,10 @@ export default function KioskActionScreen({ navigation, route }) {
     navigation.replace("KioskCamera", { employeeId, pin, action: actions.clock });
   }
 
-  async function onBreak() {
+  function onBreak() {
     touch();
     if (actions.breakBlocked) return setBlocked(actions.breakBlocked);
-    if (saving) return;
-    setSaving(true);
-    try {
-      const location = takeFix(fix.current);
-      const { atMs } = await kiosk.recordPunch({ employee, action: actions.breakAction, pin, location });
-      if (actions.breakAction === "breakStart") {
-        navigation.replace("KioskBreak", { employeeId, pin, startedAtMs: atMs });
-      } else {
-        navigation.replace("KioskDone", { name: employee.name, action: "breakEnd", atMs });
-      }
-    } catch {
-      setBlocked("Couldn't save that. Try again.");
-      setSaving(false);
-    }
+    navigation.replace("KioskBreak", { employeeId, pin });
   }
 
   return (
@@ -114,11 +89,11 @@ export default function KioskActionScreen({ navigation, route }) {
           </TouchableOpacity>
           <TouchableOpacity
             onPress={onBreak}
-            disabled={saving}
+            accessibilityLabel="Break"
             style={[styles.big, { backgroundColor: colors.orange }, actions.breakBlocked && styles.dim]}
           >
             <Feather name="coffee" size={30} color={colors.onColor} />
-            <Text style={[styles.bigText, { color: colors.onColor }]}>{actions.breakAction === "breakStart" ? "Start break" : "End break"}</Text>
+            <Text style={[styles.bigText, { color: colors.onColor }]}>Break</Text>
           </TouchableOpacity>
         </View>
 

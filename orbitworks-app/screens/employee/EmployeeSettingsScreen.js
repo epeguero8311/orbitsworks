@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { View, Text, Switch, StyleSheet, Linking } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import Constants from "expo-constants";
@@ -14,17 +14,11 @@ import { useSavedPin } from "../../lib/hooks/useSavedPin";
 import { usePunchQueue } from "../../lib/hooks/usePunchQueue";
 import { useNow } from "../../lib/hooks/useNow";
 import { formatWhen } from "../../lib/punchQueueLogic";
-import {
-  DELETE_ACCOUNT_OPEN_SHIFT,
-  deleteAccountOpenShift,
-  settingsRows,
-} from "../../lib/employeeSettings";
-import { useEmployeeSelfView } from "../../lib/hooks/useEmployeeSelfView";
-import { deleteMyEmployeeAccount } from "../../lib/employeeAccountApi";
+import { deleteAccountUrl, settingsRows } from "../../lib/employeeSettings";
+import { getJoinLinks } from "../../lib/pendingJoin";
 import { savedPinText } from "../../lib/savedPin";
 import TabPage from "../../components/ui/TabPage";
 import ListRow from "../../components/ui/ListRow";
-import ConfirmModal from "../../components/ui/ConfirmModal";
 import Avatar from "../../components/Avatar";
 import DevPunchTimings from "../../components/employee/DevPunchTimings";
 import { signOutEmployee } from "../../lib/employeeSignOut";
@@ -50,10 +44,9 @@ import { unsentMessage } from "../../lib/queueOwnerLogic";
 // Logout fix (2026-11-21): the warning is LogoutUnsentModal - "N punches
 // haven't sent yet", Send now (then logs out if all went) or Log out
 // anyway; never deletes anything.
-// Last, Delete account (biometric audit b, Apple account deletion): refused
-// while clocked in or on a break ("Clock out first..."), else a red confirm
-// box; Yes syncs everything first, then the server deletes the login, photo,
-// selfie and PIN (lib/employeeAccountApi.js) and the phone signs out.
+// Last, Delete account (Apple 5.1.1(v)): only a link - it opens the
+// website's /delete-account page in the browser, where the employee signs
+// in and confirms. Nothing is deleted from inside the app (cleanup 11/26).
 export default function EmployeeSettingsScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const styles = useStyles();
@@ -67,11 +60,6 @@ export default function EmployeeSettingsScreen() {
   const savedPin = useSavedPin(companyId, employeeId);
   const queue = usePunchQueue(companyId, employeeId);
   const now = useNow(60000);
-  const { view } = useEmployeeSelfView(companyId, employeeId);
-  // null | "openShift" | "confirm"
-  const [deleteStep, setDeleteStep] = useState(null);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState(null);
   const version = Constants.expoConfig?.version ?? "";
   const lastSynced = queue.lastSyncedMs ? formatWhen(queue.lastSyncedMs, now, timezone) : "Never";
 
@@ -101,26 +89,7 @@ export default function EmployeeSettingsScreen() {
   const onLogout = () => unsent.start();
 
   const onDeleteAccount = () => {
-    setDeleteError(null);
-    setDeleteStep(deleteAccountOpenShift(view, queue.all, companyId, employeeId, Date.now()) ? "openShift" : "confirm");
-  };
-  const closeDelete = () => {
-    if (deleting) return;
-    setDeleteStep(null);
-    setDeleteError(null);
-  };
-  const confirmDelete = async () => {
-    setDeleting(true);
-    setDeleteError(null);
-    const res = await deleteMyEmployeeAccount(companyId, employeeId);
-    if (res.ok) {
-      // The login is gone on the server: clear this phone and sign out.
-      await logOut();
-      return;
-    }
-    setDeleting(false);
-    if (res.error === DELETE_ACCOUNT_OPEN_SHIFT) setDeleteStep("openShift");
-    else setDeleteError(res.error);
+    Linking.openURL(deleteAccountUrl(getJoinLinks())).catch(() => {});
   };
 
   return (
@@ -191,7 +160,7 @@ export default function EmployeeSettingsScreen() {
           divider={false}
           onPress={onDeleteAccount}
           accessibilityLabel="Delete account"
-          right={<Feather name="trash-2" size={20} color={colors.redStrong} />}
+          right={<Feather name="external-link" size={20} color={colors.redStrong} />}
         >
           <Text style={styles.logout}>Delete account</Text>
         </ListRow>
@@ -208,30 +177,6 @@ export default function EmployeeSettingsScreen() {
         onCancel={unsent.cancel}
       />
 
-      <ConfirmModal
-        visible={deleteStep === "openShift"}
-        title={DELETE_ACCOUNT_OPEN_SHIFT}
-        confirmLabel="OK"
-        cancelLabel={null}
-        onConfirm={closeDelete}
-        onCancel={closeDelete}
-      />
-
-      <ConfirmModal
-        visible={deleteStep === "confirm"}
-        title="Delete your account?"
-        message={
-          "This deletes your login, your selfie and profile photo, and your PIN. It can't be undone.\n\n" +
-          "Your clock-in and clock-out times stay with your employer as their records."
-        }
-        confirmLabel="Delete account"
-        confirmTone="red"
-        cancelLabel="Keep my account"
-        error={deleteError}
-        busy={deleting}
-        onConfirm={confirmDelete}
-        onCancel={closeDelete}
-      />
     </TabPage>
   );
 }

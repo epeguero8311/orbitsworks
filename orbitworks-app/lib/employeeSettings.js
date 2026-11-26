@@ -15,8 +15,7 @@
 // the phone's own permission (permissionToggleAction); no push token.
 
 const { pendingSiteExitCount } = require("./siteExitLogic");
-const { badgeCount, foldQueuedEvents } = require("./punchQueueLogic");
-const { deriveHomeState } = require("./employeeHome");
+const { badgeCount } = require("./punchQueueLogic");
 const { PIN_NOT_LOADED } = require("./savedPin");
 
 const NOT_SET = "Not set";
@@ -123,50 +122,16 @@ function logoutWarning(punches, comments, siteExits) {
   return w ? `${w.list} ${w.total === 1 ? "is" : "are"} not synced yet` : null;
 }
 
-// ---- Delete account (biometric audit b; functions/src/employeeAccount.ts) ----
-// Decisions 2026-11-17: Q1 B - refused while clocked in or on a break, no
-// automatic clock-out; Q4 A - the phone syncs first and refuses while
-// anything is still waiting (it would be lost with the login).
+// ---- Delete account (Apple 5.1.1(v)) ----
+// The app never deletes an account itself (cleanup 2026-11-26): the
+// Settings row opens the website's /delete-account page in the browser,
+// where the employee signs in and confirms (server-side delete,
+// functions/src/employeeAccount.ts). The dev build opens the dev website.
+const DELETE_ACCOUNT_SITE = "https://orbitsworks.com";
 
-const DELETE_ACCOUNT_OPEN_SHIFT = "Clock out first, then delete your account.";
-const DELETE_ACCOUNT_FAILED = "Couldn't delete your account. Try again.";
-const DELETE_ACCOUNT_OFFLINE = "No connection. Connect to the internet and try again.";
-
-// Clocked in or on a break, from the self view's last event plus any punch
-// still on the phone (an offline clock-in counts at once). The server checks
-// again before deleting anything.
-function deleteAccountOpenShift(view, queuedItems, companyId, employeeId, nowMs) {
-  const server =
-    view && view.lastEventType ? [{ id: "self-view-last", type: view.lastEventType, timestamp: view.lastEventTimestamp }] : [];
-  const events = foldQueuedEvents(server, queuedItems || [], companyId, employeeId, nowMs);
-  const status = deriveHomeState(events, nowMs, "UTC").status;
-  return status === "in" || status === "break";
-}
-
-// What is still waiting to sync for this employee (waiting or syncing).
-// "Not synced" punches/comments (failed - the server already refused them,
-// they never sync by themselves) don't block, or they could block forever.
-function deleteAccountWaitingCounts(punches, comments, siteExits, companyId, employeeId) {
-  const waiting = (items) =>
-    (items || []).filter(
-      (i) => i.companyId === companyId && i.employeeId === employeeId && (i.status === "waiting" || i.status === "syncing")
-    ).length;
-  return { punches: waiting(punches), comments: waiting(comments), siteExits: waiting(siteExits) };
-}
-
-// After the sync: null, or why the account can't be deleted yet.
-function deleteAccountWaitingMessage(punches, comments, siteExits) {
-  const w = waitingList(punches, comments, siteExits);
-  if (!w) return null;
-  return `${w.list} ${w.total === 1 ? "hasn't" : "haven't"} synced yet. Connect to the internet and try again.`;
-}
-
-// The callable's error -> what the confirm box shows.
-function deleteAccountErrorMessage(err) {
-  const code = err && typeof err.code === "string" ? err.code.replace(/^functions\//, "") : "";
-  if (code === "failed-precondition") return DELETE_ACCOUNT_OPEN_SHIFT;
-  if (code === "unavailable" || code === "deadline-exceeded") return DELETE_ACCOUNT_OFFLINE;
-  return DELETE_ACCOUNT_FAILED;
+function deleteAccountUrl(joinLinks) {
+  const base = joinLinks && typeof joinLinks.appUrl === "string" && joinLinks.appUrl.startsWith("https://") ? joinLinks.appUrl : DELETE_ACCOUNT_SITE;
+  return base.replace(/\/+$/, "") + "/delete-account";
 }
 
 module.exports = {
@@ -178,9 +143,5 @@ module.exports = {
   permissionToggleAction,
   logoutWarning,
   logoutCounts,
-  DELETE_ACCOUNT_OPEN_SHIFT,
-  deleteAccountOpenShift,
-  deleteAccountWaitingCounts,
-  deleteAccountWaitingMessage,
-  deleteAccountErrorMessage,
+  deleteAccountUrl,
 };

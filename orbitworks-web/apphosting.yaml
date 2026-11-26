@@ -119,8 +119,6 @@ env:
     secret: STRIPE_WEBHOOK_SECRET
   - variable: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
     secret: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-  - variable: ANTHROPIC_API_KEY
-    secret: ANTHROPIC_API_KEY
   - variable: GOOGLE_PLACES_API_KEY
     secret: GOOGLE_PLACES_API_KEY
   # Employee App crew code (/j/) and email invite (/i/) links, served from

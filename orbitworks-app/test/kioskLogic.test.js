@@ -96,6 +96,15 @@ test("buttons: break blocked while out ('Please clock in first'), clock out bloc
   assert.ok(k.kioskActions("break").clockBlocked);
 });
 
+test("Break screen: Start break when clocked in, timer when on a break, never starts one by itself", () => {
+  assert.deepEqual(k.kioskBreakView("in", 1000, undefined), { mode: "start", sinceMs: null });
+  assert.deepEqual(k.kioskBreakView("break", 5000, undefined), { mode: "onBreak", sinceMs: 5000 });
+  assert.deepEqual(k.kioskBreakView("break", undefined, undefined), { mode: "onBreak", sinceMs: null });
+  assert.deepEqual(k.kioskBreakView("out", null, undefined), { mode: "notIn", sinceMs: null });
+  // just started here: the timer shows at once, even before the status catches up
+  assert.deepEqual(k.kioskBreakView("in", 1000, 9000), { mode: "onBreak", sinceMs: 9000 });
+});
+
 test("chunks stay under the SecureStore size and join back", () => {
   const text = "x".repeat(4000);
   const chunks = k.toChunks(text);

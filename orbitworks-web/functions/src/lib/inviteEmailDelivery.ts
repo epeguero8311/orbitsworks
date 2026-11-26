@@ -7,7 +7,7 @@ import { resend } from "./resend";
 // Callers bind RESEND_API_KEY in their function's secrets.
 
 export const INVITE_FROM = "OrbitsWorks <noreply@send.orbitsworks.com>";
-export const INVITE_REPLY_TO = "epeguero8311@gmail.com";
+export const INVITE_REPLY_TO = "info@orbitsworks.com";
 
 export interface InviteEmailMessage {
   to: string;

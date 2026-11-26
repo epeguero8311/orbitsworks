@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, Image, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "../../lib/ThemeContext";
@@ -9,11 +9,17 @@ import FullScreenCamera from "./FullScreenCamera";
 // Task 5 v2 (6): a photo button (like Edit Employee's Change photo) that
 // turns the whole screen into the camera. The identity-verification notice
 // (Terms Section 4.1) shows first, every time. onPhoto(uri, noticeShownAt).
-export default function PhotoButton({ photoUri, currentPhotoUrl, name, onPhoto, disabled = false }) {
+// onOpenChange(open): the notice or the camera is showing (the kiosk pauses
+// its 15 s timeout meanwhile).
+export default function PhotoButton({ photoUri, currentPhotoUrl, name, onPhoto, onOpenChange, disabled = false }) {
   const { colors } = useTheme();
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [noticeAt, setNoticeAt] = useState(null);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const open = noticeOpen || cameraOpen;
+  useEffect(() => {
+    if (onOpenChange) onOpenChange(open);
+  }, [open, onOpenChange]);
   const hasPhoto = !!photoUri || !!currentPhotoUrl;
   const label = photoUri ? "Retake" : currentPhotoUrl ? "Change photo" : "Take photo";
 

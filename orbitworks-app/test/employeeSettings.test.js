@@ -164,66 +164,14 @@ test("Phase 8: log out warning counts leave tracking rows too", () => {
   assert.equal(s.logoutCounts([], [], "co1", "emp1").siteExits, 0);
 });
 
-// ---- Delete account (biometric audit b) ----
+// ---- Delete account: a link to the website only (cleanup 2026-11-26) ----
 
-test("delete account: clocked in or on break (self view or a punch still on the phone) blocks it", () => {
-  const now = Date.UTC(2026, 10, 17, 15, 0);
-  const at = (min) => now - min * 60000;
-  const view = (lastEventType, min = 30) => ({ lastEventType, lastEventTimestamp: { seconds: at(min) / 1000, nanoseconds: 0 } });
-  const punch = (action, min, status = "waiting") => ({
-    companyId: "c1",
-    employeeId: "e1",
-    requestId: `r-${action}-${min}`,
-    action,
-    queuedAtMs: at(min),
-    createdAt: at(min),
-    status,
-  });
-  const open = (v, q = []) => s.deleteAccountOpenShift(v, q, "c1", "e1", now);
-
-  assert.equal(open(null), false, "never clocked in");
-  assert.equal(open(view("out")), false);
-  assert.equal(open(view("in")), true);
-  assert.equal(open(view("breakStart")), true, "on a break");
-  assert.equal(open(view("breakEnd")), true);
-  assert.equal(open(view("out", 60), [punch("in", 5)]), true, "offline clock-in counts at once");
-  assert.equal(open(view("in", 60), [punch("out", 5)]), false, "offline clock-out counts too");
-  assert.equal(open(view("out", 60), [{ ...punch("in", 5), employeeId: "e2" }]), false, "another employee's punch");
-  assert.equal(s.DELETE_ACCOUNT_OPEN_SHIFT, "Clock out first, then delete your account.");
-});
-
-test("delete account: anything still waiting after the sync blocks it", () => {
-  assert.equal(s.deleteAccountWaitingMessage(0, 0, 0), null);
-  assert.equal(s.deleteAccountWaitingMessage(1, 0, 0), "1 punch hasn't synced yet. Connect to the internet and try again.");
-  assert.equal(
-    s.deleteAccountWaitingMessage(2, 1, 0),
-    "2 punches and 1 comment haven't synced yet. Connect to the internet and try again."
-  );
-  assert.equal(
-    s.deleteAccountWaitingMessage(0, 0, 3),
-    "3 job site records haven't synced yet. Connect to the internet and try again."
-  );
-  // Log out's wording is unchanged.
-  assert.equal(s.logoutWarning(2, 1, 0), "2 punches and 1 comment are not synced yet");
-});
-
-test("delete account: server errors -> what the box shows", () => {
-  assert.equal(s.deleteAccountErrorMessage({ code: "functions/failed-precondition" }), "Clock out first, then delete your account.");
-  assert.equal(s.deleteAccountErrorMessage({ code: "functions/unavailable" }), "No connection. Connect to the internet and try again.");
-  assert.equal(s.deleteAccountErrorMessage({ code: "functions/deadline-exceeded" }), "No connection. Connect to the internet and try again.");
-  assert.equal(s.deleteAccountErrorMessage({ code: "functions/internal" }), "Couldn't delete your account. Try again.");
-  assert.equal(s.deleteAccountErrorMessage(null), "Couldn't delete your account. Try again.");
-});
-
-test("delete account: counts only this employee's waiting/syncing rows (Not synced never blocks)", () => {
-  const row = (status, employeeId = "e1") => ({ companyId: "c1", employeeId, status });
-  const counts = s.deleteAccountWaitingCounts(
-    [row("waiting"), row("syncing"), row("synced"), row("failed"), row("waiting", "e2")],
-    [row("waiting"), row("failed")],
-    [row("syncing"), row("synced")],
-    "c1",
-    "e1"
-  );
-  assert.deepEqual(counts, { punches: 2, comments: 1, siteExits: 1 });
-  assert.deepEqual(s.deleteAccountWaitingCounts(null, undefined, [], "c1", "e1"), { punches: 0, comments: 0, siteExits: 0 });
+test("delete account: opens the website page (dev build -> dev website)", () => {
+  assert.equal(s.deleteAccountUrl(null), "https://orbitsworks.com/delete-account");
+  assert.equal(s.deleteAccountUrl({ appUrl: "https://orbitsworks.com", scheme: "orbitsworks" }), "https://orbitsworks.com/delete-account");
+  assert.equal(s.deleteAccountUrl({ appUrl: "https://dev.example.hosted.app/", scheme: "orbitsworks-dev" }), "https://dev.example.hosted.app/delete-account");
+  assert.equal(s.deleteAccountUrl({ appUrl: "http://bad", scheme: "x" }), "https://orbitsworks.com/delete-account");
+  // Nothing in the app deletes an account any more.
+  assert.equal(s.deleteAccountOpenShift, undefined);
+  assert.equal(s.deleteAccountErrorMessage, undefined);
 });
