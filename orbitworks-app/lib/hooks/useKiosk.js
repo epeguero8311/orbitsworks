@@ -6,7 +6,7 @@ import { getKioskTableSnapshot, loadKioskTable, subscribeKioskTable, syncKioskTa
 import { addKioskPunch, getKioskMeta, listKioskPunches, subscribeKioskQueue } from "../kioskQueue";
 import { syncKioskQueue } from "../kioskQueueSync";
 import { punchClockFields } from "../clockAnchor";
-import { currentStatus } from "../kioskLogic";
+import { currentStatus, kioskCommentFor } from "../kioskLogic";
 import { newRequestId } from "../employeeClockApi";
 import { getLocationPermissionStatus, requestLocationPermission } from "../locationPermission";
 
@@ -92,7 +92,7 @@ export function KioskProvider({ children }) {
   // Saves a punch (every kiosk punch is queued first, like the supervisor
   // app) and starts sending it. location: a fix from startPunchFix().take().
   const recordPunch = useCallback(
-    async ({ employee, action, pin, photoUri, location }) => {
+    async ({ employee, action, pin, photoUri, location, comment }) => {
       if (!uid || !companyId) throw new Error("Not signed in");
       const requestId = newRequestId();
       const clock = await punchClockFields();
@@ -107,6 +107,7 @@ export function KioskProvider({ children }) {
         photoUri: photoUri || null,
         location: location === undefined ? null : location,
         clock,
+        employeeComment: kioskCommentFor(action, comment),
       });
       sendNow();
       return { requestId, atMs: Date.now() };

@@ -10,6 +10,7 @@ import { useKioskIdle } from "../../lib/hooks/useKioskIdle";
 import { lookupKioskUnlocker } from "../../lib/kioskPinStore";
 import { isOnline } from "../../lib/employeeClockApi";
 import PinPad from "../../components/employee/PinPad";
+import { KIOSK_PAD_SCALE } from "../../lib/kioskLayout";
 
 // Task 5 (K17) - the way into Kiosk Settings: an admin's OWN PIN (admins
 // with Settings or Full access; checked on the iPad, works offline) OR the
@@ -64,7 +65,7 @@ export default function KioskUnlockScreen({ navigation }) {
       <View style={styles.center}>
         <Text style={[styles.title, { color: colors.text }]}>Kiosk settings</Text>
         <Text style={[styles.sub, { color: colors.subtext }]}>Admin PIN or exit key</Text>
-        <PinPad length={pad.pin.length} onDigit={pad.onDigit} onDelete={pad.onDelete} disabled={pad.locked || pad.checking} />
+        <PinPad length={pad.pin.length} onDigit={pad.onDigit} onDelete={pad.onDelete} disabled={pad.locked || pad.checking} scale={KIOSK_PAD_SCALE} />
         {pad.locked ? (
           <Text style={[styles.error, { color: colors.red }]}>Too many wrong tries. Try again in {pad.lockLeft} s.</Text>
         ) : message ? (

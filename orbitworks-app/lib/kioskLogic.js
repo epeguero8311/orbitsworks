@@ -155,7 +155,77 @@ function isAlreadyUploaded(err) {
   return /status 403\b/.test(message);
 }
 
+// ---- break timer on the after-PIN screen (iPad round 1, item 3) ----
+// Whole minutes since the break started: "0 min", "18 min", "1 h 05 min".
+function breakElapsedText(sinceMs, nowMs) {
+  if (!Number.isFinite(sinceMs) || !Number.isFinite(nowMs)) return "";
+  const mins = Math.max(0, Math.floor((nowMs - sinceMs) / 60000));
+  if (mins < 60) return `${mins} min`;
+  return `${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, "0")} min`;
+}
+
+// "Break started 12:05 PM - 18 min". timeText(ms) formats the clock time
+// (the screen passes toLocaleTimeString; tests pass a fixed one).
+function breakStartedLine(sinceMs, nowMs, timeText) {
+  if (!Number.isFinite(sinceMs)) return "";
+  return `Break started ${timeText(sinceMs)} - ${breakElapsedText(sinceMs, nowMs)}`;
+}
+
+// ---- comment on a kiosk clock in/out (iPad round 1, item 1) ----
+// Same limits as the supervisor app's camera comment (validators/
+// employeeComment.js, firestore.rules isValidEmployeeComment): trimmed,
+// 1-500 chars, clock in/out only. null = send no comment.
+const KIOSK_COMMENT_MAX = 500;
+function kioskCommentFor(action, text) {
+  if (action !== "in" && action !== "out") return null;
+  if (typeof text !== "string") return null;
+  const trimmed = text.trim();
+  return trimmed ? trimmed.slice(0, KIOSK_COMMENT_MAX) : null;
+}
+
+// ---- Kiosk Settings "Waiting to sync" list (iPad round 1, item 4) ----
+// Read-only. Every punch not yet on the server (waiting / sending) plus the
+// ones the server refused in the last FAILED_SHOWN_MS (with the reason),
+// oldest first. Synced punches never show.
+const FAILED_SHOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const ACTION_TEXT = { in: "Clock in", out: "Clock out", breakStart: "Break start", breakEnd: "Break end" };
+const STATUS_TEXT = { waiting: "Waiting", syncing: "Sending", failed: "Failed" };
+
+function kioskSyncRows(items, nowMs) {
+  return (items || [])
+    .filter((i) => i && (i.status === "waiting" || i.status === "syncing" || (i.status === "failed" && nowMs - i.queuedAtMs <= FAILED_SHOWN_MS)))
+    .sort((a, b) => a.queuedAtMs - b.queuedAtMs)
+    .map((i) => ({
+      requestId: i.requestId,
+      employeeName: i.employeeName || "Employee",
+      actionText: ACTION_TEXT[i.action] || i.action,
+      queuedAtMs: i.queuedAtMs,
+      status: i.status,
+      statusText: STATUS_TEXT[i.status],
+      reason: i.status === "failed" ? i.failMessage || "Not recorded. Tell your admin." : "",
+    }));
+}
+
+// "just now", "5 min ago", "2 h ago", "3 days ago"; "never" without a time.
+function agoText(ms, nowMs) {
+  if (!Number.isFinite(ms) || ms <= 0) return "never";
+  const mins = Math.floor(Math.max(0, nowMs - ms) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
 module.exports = {
+  FAILED_SHOWN_MS,
+  KIOSK_COMMENT_MAX,
+  agoText,
+  breakElapsedText,
+  breakStartedLine,
+  kioskCommentFor,
+  kioskSyncRows,
   KIOSK_LOCK_MS,
   KIOSK_MAX_WRONG,
   PIN_TABLE_VERSION,

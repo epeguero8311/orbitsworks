@@ -36,6 +36,10 @@ export const kioskPunchSchema = z
     lastServerMs: z.number().int().positive().optional(),
     photoMissing: z.literal(true).optional(),
     location: punchLocationSchema.nullable().optional().catch(null),
+    // The employee's optional comment typed on the photo screen (same as
+    // the supervisor app's camera Comment button). In/out only, 1-500
+    // chars - firestore.rules isValidEmployeeComment's limits.
+    employeeComment: z.string().trim().min(1).max(500, "Comment must be 500 characters or fewer").optional(),
   })
   .strict()
   .refine(
@@ -57,7 +61,11 @@ export const kioskPunchSchema = z
   .refine(
     (v) => ((v.action === "in" || v.action === "out") && v.checkPinOnly !== true && v.photoMissing !== true) === (v.photoPath !== undefined),
     { message: "A photo is needed to clock in or out, and never for a break or a PIN check.", path: ["photoPath"] }
-  );
+  )
+  .refine((v) => v.employeeComment === undefined || ((v.action === "in" || v.action === "out") && v.checkPinOnly !== true), {
+    message: "A comment only goes on a clock in or out.",
+    path: ["employeeComment"],
+  });
 
 export type KioskPunchInput = z.infer<typeof kioskPunchSchema>;
 

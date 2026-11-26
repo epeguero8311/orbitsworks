@@ -5,17 +5,26 @@ import { Feather } from "@expo/vector-icons";
 import { useTheme } from "../../lib/ThemeContext";
 import { useKiosk } from "../../lib/hooks/useKiosk";
 import { useKioskIdle } from "../../lib/hooks/useKioskIdle";
-import { kioskActions } from "../../lib/kioskLogic";
+import { breakStartedLine, kioskActions } from "../../lib/kioskLogic";
+import { KIOSK_IDLE_ACTION_MS } from "../../lib/kioskLayout";
+import { useNow } from "../../lib/hooks/useNow";
 import { startPunchFix } from "../../lib/punchLocation";
 
 // Task 5 Kiosk mode - after a right PIN: who it is, where they stand, and
 // two buttons. Clock in/out -> photo -> done. Start break -> timer screen.
 // End break -> done. A break while clocked out is BLOCKED with "Please clock
 // in first" (spec); clocking out while on a break says end the break first.
-// Breaks never take a photo. Back to Home by itself after 30 s.
+// Breaks never take a photo. Back to Home by itself after 25 s untouched.
+// iPad round 1: on a break, "Break started 12:05 PM - 18 min" (live) sits
+// above the buttons, so the employee sees how long before [End break].
 
 function timeText(ms) {
   return ms ? new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
+}
+
+// The location fix for a punch made now (null = none yet).
+function takeFix(f) {
+  return f ? f.take(Date.now()) : null;
 }
 
 export default function KioskActionScreen({ navigation, route }) {
@@ -27,7 +36,8 @@ export default function KioskActionScreen({ navigation, route }) {
   const [blocked, setBlocked] = useState("");
   const [saving, setSaving] = useState(false);
   const fix = useRef(null);
-  const touch = useKioskIdle(navigation, 30000);
+  const touch = useKioskIdle(navigation, KIOSK_IDLE_ACTION_MS);
+  const now = useNow(1000);
 
   // Location for the punch (Pro job-site auto-detect happens on the server).
   useEffect(() => {
@@ -49,7 +59,7 @@ export default function KioskActionScreen({ navigation, route }) {
   const actions = kioskActions(status);
   const statusLine =
     status === "in" ? `Clocked in${sinceMs ? ` since ${timeText(sinceMs)}` : ""}` :
-    status === "break" ? `On a break${sinceMs ? ` since ${timeText(sinceMs)}` : ""}` :
+    status === "break" ? "On a break" :
     "Clocked out";
 
   function onClock() {
@@ -64,7 +74,7 @@ export default function KioskActionScreen({ navigation, route }) {
     if (saving) return;
     setSaving(true);
     try {
-      const location = fix.current ? fix.current.take(Date.now()) : null;
+      const location = takeFix(fix.current);
       const { atMs } = await kiosk.recordPunch({ employee, action: actions.breakAction, pin, location });
       if (actions.breakAction === "breakStart") {
         navigation.replace("KioskBreak", { employeeId, pin, startedAtMs: atMs });
@@ -86,7 +96,13 @@ export default function KioskActionScreen({ navigation, route }) {
 
       <View style={styles.center}>
         <Text style={[styles.name, { color: colors.text }]}>{employee.name || "Employee"}</Text>
-        <Text style={[styles.status, { color: colors.subtext }]}>{statusLine}</Text>
+        <Text style={[styles.status, status === "break" && styles.statusTight, { color: colors.subtext }]}>{statusLine}</Text>
+        {status === "break" && sinceMs ? (
+          <View style={[styles.breakBox, { backgroundColor: colors.orangeSoft }]}>
+            <Feather name="coffee" size={20} color={colors.orangeText} />
+            <Text style={[styles.breakText, { color: colors.orangeText }]}>{breakStartedLine(sinceMs, now, timeText)}</Text>
+          </View>
+        ) : null}
 
         <View style={styles.buttons}>
           <TouchableOpacity
@@ -118,6 +134,9 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10 },
   name: { fontSize: 30, fontWeight: "700", textAlign: "center" },
   status: { fontSize: 17, marginBottom: 24 },
+  statusTight: { marginBottom: 4 },
+  breakBox: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 14, marginBottom: 24 },
+  breakText: { fontSize: 22, fontWeight: "700", fontVariant: ["tabular-nums"] },
   buttons: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 20 },
   big: { width: 220, height: 150, borderRadius: 20, alignItems: "center", justifyContent: "center", gap: 10 },
   bigText: { fontSize: 22, fontWeight: "700" },

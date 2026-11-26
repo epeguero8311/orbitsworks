@@ -5,9 +5,10 @@ import { useTheme } from "../../lib/ThemeContext";
 import { useKiosk } from "../../lib/hooks/useKiosk";
 import { useKioskIdle } from "../../lib/hooks/useKioskIdle";
 import { startPunchFix } from "../../lib/punchLocation";
+import { KIOSK_IDLE_ACTION_MS } from "../../lib/kioskLayout";
 
 // Task 5 Kiosk mode - right after Start break: the break timer with
-// [End break] and [Back] (spec). Back (or 30 s with no touch) returns to
+// [End break] and [Back] (spec). Back (or 25 s with no touch) returns to
 // Home with the break still running; ending it later is PIN -> End break.
 
 function mmss(ms) {
@@ -25,7 +26,7 @@ export default function KioskBreakScreen({ navigation, route }) {
   const [error, setError] = useState("");
   const saving = useRef(false);
   const fix = useRef(null);
-  const touch = useKioskIdle(navigation, 30000);
+  const touch = useKioskIdle(navigation, KIOSK_IDLE_ACTION_MS);
 
   useEffect(() => {
     fix.current = startPunchFix();

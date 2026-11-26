@@ -55,6 +55,12 @@ function getDb() {
         );
         CREATE TABLE IF NOT EXISTS kiosk_meta (key TEXT PRIMARY KEY, value TEXT);
       `);
+      // iPad round 1: the employee's optional clock in/out comment. Added to
+      // tables made by build 32 (no rebuild, no row lost).
+      const cols = await db.getAllAsync("PRAGMA table_info(kiosk_queue)");
+      if (!cols.some((c) => c.name === "employeeComment")) {
+        await db.execAsync("ALTER TABLE kiosk_queue ADD COLUMN employeeComment TEXT");
+      }
       return db;
     })().catch((e) => {
       dbPromise = null;
@@ -102,6 +108,7 @@ function toItem(row) {
     employeeId: row.employeeId,
     employeeName: row.employeeName || "",
     action: row.action,
+    employeeComment: row.employeeComment || null,
     queuedAtMs: row.queuedAtMs,
     photoLocalUri: row.photoLocalUri || null,
     photoUploaded: row.photoUploaded === 1,
@@ -133,7 +140,8 @@ async function deleteFile(uri) {
 
 // Saves one kiosk punch (PIN always - spec: PIN on every action; photo only
 // for clock in/out). clock = punchClockFields() (lib/clockAnchor.js).
-export async function addKioskPunch({ requestId, companyId, kioskUid, employeeId, employeeName, action, pin, photoUri, location, clock }) {
+// employeeComment: already cleaned (kioskCommentFor) - in/out only.
+export async function addKioskPunch({ requestId, companyId, kioskUid, employeeId, employeeName, action, pin, photoUri, location, clock, employeeComment }) {
   const photoLocalUri = photoUri ? await keepPhoto(requestId, photoUri) : null;
   await SecureStore.setItemAsync(pinKey(requestId), pin, SECURE_OPTS);
   const db = await getDb();
@@ -141,12 +149,13 @@ export async function addKioskPunch({ requestId, companyId, kioskUid, employeeId
   await runWrite(() =>
     db.runAsync(
       `INSERT OR IGNORE INTO kiosk_queue
-        (requestId, companyId, kioskUid, employeeId, employeeName, action, queuedAtMs, photoLocalUri, locationJson, uptimeAtMs, expectedAtMs, lastServerMs, sessionId, status, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?)`,
+        (requestId, companyId, kioskUid, employeeId, employeeName, action, queuedAtMs, photoLocalUri, locationJson, uptimeAtMs, expectedAtMs, lastServerMs, sessionId, status, createdAt, employeeComment)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, ?)`,
       [
         requestId, companyId, kioskUid, employeeId, employeeName || "", action, now, photoLocalUri,
         location === undefined ? null : JSON.stringify(location),
         clock?.uptimeAtMs ?? null, clock?.expectedAtMs ?? null, clock?.lastServerMs ?? null, clock?.sessionId ?? null, now,
+        employeeComment || null,
       ]
     )
   );

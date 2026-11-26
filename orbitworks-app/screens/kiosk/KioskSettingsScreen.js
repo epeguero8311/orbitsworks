@@ -14,6 +14,9 @@ import { forgetKioskTable } from "../../lib/kioskPinStore";
 import { getCachedDeviceName, getOrCreateDeviceId, setCachedDeviceName } from "../../lib/deviceId";
 import { getLocationPermissionStatus, openLocationSettings, requestLocationPermission } from "../../lib/locationPermission";
 import ConfirmModal from "../../components/ui/ConfirmModal";
+import Spinner from "../../components/Spinner";
+import { agoText, kioskSyncRows } from "../../lib/kioskLogic";
+import { useNow } from "../../lib/hooks/useNow";
 
 // Task 5 (K17/K18) - Kiosk Settings, opened only with an admin's own PIN or
 // a 10-minute exit key (KioskUnlockScreen). Logged in as | Device name
@@ -21,6 +24,10 @@ import ConfirmModal from "../../components/ui/ConfirmModal";
 // plus Exit Kiosk - the only way out of Kiosk mode (no normal Log out).
 // Exit is refused while punches are still waiting to send, so a punch is
 // never lost. Closes itself back to Home after 2 minutes untouched.
+// iPad round 1: under Exit Kiosk, a read-only "Waiting to sync" list (each
+// punch not on the server yet: employee, action, punch time, Waiting /
+// Sending / Failed + reason) with a Sync now button; "All synced, last
+// synced X ago" when nothing waits. Nothing can be edited or removed here.
 
 const APP_VERSION = Constants.expoConfig?.version ?? "-";
 const renameFn = httpsCallable(functions, "renameKioskDevice", { timeout: 15000 });
@@ -41,6 +48,9 @@ export default function KioskSettingsScreen({ navigation }) {
   const [locStatus, setLocStatus] = useState(null);
   const [exitMsg, setExitMsg] = useState("");
   const [confirmExit, setConfirmExit] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const now = useNow(15000);
+  const syncRows = kioskSyncRows(kiosk.items, now);
 
   useEffect(() => {
     getCachedDeviceName(kiosk.companyId).then((n) => setDeviceName(n || ""));
@@ -78,6 +88,17 @@ export default function KioskSettingsScreen({ navigation }) {
       return;
     }
     setConfirmExit(true);
+  }
+
+  async function syncNow() {
+    touch();
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      await Promise.all([kiosk.sendNow(), kiosk.refreshTable().catch(() => {})]);
+    } finally {
+      setSyncing(false);
+    }
   }
 
   async function exitKiosk() {
@@ -134,19 +155,6 @@ export default function KioskSettingsScreen({ navigation }) {
           </TouchableOpacity>
         )}
         {row("Last synced", whenText(kiosk.lastSyncedMs))}
-        {kiosk.unsentCount > 0 && row("Waiting to send", String(kiosk.unsentCount))}
-        {kiosk.failed.length > 0 && (
-          <View style={[styles.failBox, { backgroundColor: colors.orangeSoft }]}>
-            <Text style={[styles.failTitle, { color: colors.orangeText }]}>
-              {kiosk.failed.length} punch{kiosk.failed.length === 1 ? "" : "es"} not recorded
-            </Text>
-            {kiosk.failed.slice(-5).map((f) => (
-              <Text key={f.requestId} style={[styles.failLine, { color: colors.orangeText }]}>
-                {f.employeeName} - {whenText(f.queuedAtMs)}: {f.failMessage}
-              </Text>
-            ))}
-          </View>
-        )}
         {row("App version", APP_VERSION)}
 
         <TouchableOpacity onPress={tryExit} style={[styles.exit, { borderColor: colors.redStrong }]}>
@@ -154,6 +162,55 @@ export default function KioskSettingsScreen({ navigation }) {
           <Text style={[styles.exitText, { color: colors.redStrong }]}>Exit Kiosk</Text>
         </TouchableOpacity>
         {exitMsg ? <Text style={[styles.note, { color: colors.redStrong }]}>{exitMsg}</Text> : null}
+
+        <View style={styles.syncHead}>
+          <Text style={[styles.syncTitle, { color: colors.text }]}>Waiting to sync</Text>
+          <TouchableOpacity
+            onPress={syncNow}
+            disabled={syncing}
+            style={[styles.small, styles.syncButton, { backgroundColor: colors.accent }, syncing && styles.dim]}
+            accessibilityRole="button"
+            accessibilityLabel="Sync now"
+          >
+            {syncing ? <Spinner size={14} color="#fff" /> : <Feather name="refresh-cw" size={14} color="#fff" />}
+            <Text style={styles.smallText}>{syncing ? "Syncing..." : "Sync now"}</Text>
+          </TouchableOpacity>
+        </View>
+        {syncRows.length === 0 ? (
+          <View style={[styles.allSynced, { backgroundColor: colors.greenSoft }]}>
+            <Feather name="check-circle" size={16} color={colors.greenText} />
+            <Text style={[styles.allSyncedText, { color: colors.greenText }]}>
+              All synced, last synced {agoText(kiosk.lastSyncedMs, now)}
+            </Text>
+          </View>
+        ) : (
+          syncRows.map((r) => (
+            <View key={r.requestId} style={[styles.syncRow, { borderColor: colors.border }]}>
+              <View style={styles.syncMain}>
+                <Text style={[styles.syncName, { color: colors.text }]} numberOfLines={1}>{r.employeeName}</Text>
+                <Text style={[styles.syncSub, { color: colors.subtext }]}>
+                  {r.actionText} - {whenText(r.queuedAtMs)}
+                </Text>
+                {r.reason ? <Text style={[styles.syncReason, { color: colors.redStrong }]}>{r.reason}</Text> : null}
+              </View>
+              <View
+                style={[
+                  styles.badge,
+                  { backgroundColor: r.status === "failed" ? "rgba(220,38,38,0.14)" : r.status === "syncing" ? colors.accentSoft : colors.orangeSoft },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.badgeText,
+                    { color: r.status === "failed" ? colors.redStrong : r.status === "syncing" ? colors.accent : colors.orangeText },
+                  ]}
+                >
+                  {r.statusText}
+                </Text>
+              </View>
+            </View>
+          ))
+        )}
       </ScrollView>
 
       <ConfirmModal
@@ -183,9 +240,19 @@ const styles = StyleSheet.create({
   small: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
   smallText: { color: "#fff", fontWeight: "700" },
   note: { fontSize: 13, marginTop: 6 },
-  failBox: { borderRadius: 10, padding: 12, marginTop: 12, gap: 4 },
-  failTitle: { fontSize: 14, fontWeight: "700" },
-  failLine: { fontSize: 13 },
+  dim: { opacity: 0.6 },
+  syncHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 32, marginBottom: 8 },
+  syncTitle: { fontSize: 18, fontWeight: "700" },
+  syncButton: { flexDirection: "row", alignItems: "center", gap: 6 },
+  allSynced: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 10, padding: 12 },
+  allSyncedText: { fontSize: 15, fontWeight: "600" },
+  syncRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, gap: 12 },
+  syncMain: { flex: 1 },
+  syncName: { fontSize: 16, fontWeight: "600" },
+  syncSub: { fontSize: 14, marginTop: 2 },
+  syncReason: { fontSize: 13, marginTop: 4 },
+  badge: { borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
+  badgeText: { fontSize: 13, fontWeight: "700" },
   exit: { marginTop: 32, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderWidth: 1, borderRadius: 12, paddingVertical: 14 },
   exitText: { fontSize: 17, fontWeight: "700" },
 });

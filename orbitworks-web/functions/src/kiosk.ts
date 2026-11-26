@@ -234,9 +234,11 @@ export const kioskPunch = onCall(async (request) => {
     if (left > 0) throw lockedError(left);
   }
 
-  const { employeeId: _target, deviceId, ...rest } = input;
+  const { employeeId: _target, deviceId, employeeComment, ...rest } = input;
   const deviceNameSnapshot = await deviceNameFor(caller, deviceId);
   const extraEventFields: Record<string, unknown> = { kioskEmployeeId: caller.kioskEmployeeId };
+  // Same field the supervisor app writes (Session review shows it).
+  if (employeeComment) extraEventFields.employeeComment = employeeComment;
   if (deviceId) {
     extraEventFields.deviceId = deviceId;
     extraEventFields.deviceNameSnapshot = deviceNameSnapshot;

@@ -14,7 +14,9 @@ import { EMPLOYEE_COMMENT_MAX_LENGTH } from "../lib/validators/employeeComment";
 // the photo is taken - the comment rides on that clock event.
 // nextType: "in" | "out" | null (null while the screen is still working it
 // out - neutral copy).
-export default function ClockCommentModal({ visible, initialText, nextType, onSave, onClose }) {
+// onActivity (optional): called on each keystroke - the kiosk uses it to
+// keep its idle timer from closing the screen while someone types.
+export default function ClockCommentModal({ visible, initialText, nextType, onSave, onClose, onActivity }) {
   const { colors } = useTheme();
   const [text, setText] = useState(initialText ?? "");
 
@@ -55,7 +57,10 @@ export default function ClockCommentModal({ visible, initialText, nextType, onSa
             placeholder="e.g. Traffic on the highway, got in 15 min late"
             placeholderTextColor={colors.subtext}
             value={text}
-            onChangeText={setText}
+            onChangeText={(t) => {
+              setText(t);
+              if (onActivity) onActivity();
+            }}
             maxLength={EMPLOYEE_COMMENT_MAX_LENGTH}
             multiline
             autoFocus

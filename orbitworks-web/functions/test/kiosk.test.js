@@ -176,6 +176,18 @@ test("kioskPunch: in -> break (PIN) -> out; source kiosk, kiosk uid, device name
   assert.equal((await punch("p1", "out")).status, "out");
 });
 
+test("kioskPunch: optional comment on clock in/out is saved as employeeComment (trimmed); never on a break", async () => {
+  const co = await seed("pc");
+  const r = await punch("pc", "in", { employeeComment: "  Traffic, 10 min late  " });
+  assert.equal((await co.collection("clockEvents").doc(r.eventId).get()).get("employeeComment"), "Traffic, 10 min late");
+  await rejects(punch("pc", "breakStart", { employeeComment: "x" }), "invalid");
+  await rejects(punch("pc", "out", { employeeComment: "x".repeat(501) }), "invalid");
+  const o = await punch("pc", "out", { employeeComment: "   " }).catch((e) => e);
+  assert.equal(o.details?.reason, "invalid"); // blank after trim = refused (the app sends none instead)
+  const o2 = await punch("pc", "out");
+  assert.equal((await co.collection("clockEvents").doc(o2.eventId).get()).get("employeeComment"), undefined);
+});
+
 test("kioskPunch: a break needs a clock-in first; PIN on every action; no photo on a break", async () => {
   await seed("p2");
   await rejects(punch("p2", "breakStart"), "wrongState");

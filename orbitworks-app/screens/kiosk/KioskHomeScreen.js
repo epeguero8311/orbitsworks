@@ -10,6 +10,7 @@ import { useKioskPinPad } from "../../lib/hooks/useKioskPinPad";
 import { useIsOffline } from "../../lib/hooks/useIsOffline";
 import { lookupKioskPin } from "../../lib/kioskPinStore";
 import PinPad from "../../components/employee/PinPad";
+import { KIOSK_PAD_SCALE } from "../../lib/kioskLayout";
 import Spinner from "../../components/Spinner";
 
 // Task 5 Kiosk mode - Home. The wall iPad's resting screen: the time, the
@@ -89,7 +90,7 @@ export default function KioskHomeScreen({ navigation }) {
     body = (
       <View style={styles.center}>
         <Text style={[styles.title, { color: colors.text }]}>Enter your PIN</Text>
-        <PinPad length={pad.pin.length} onDigit={pad.onDigit} onDelete={pad.onDelete} disabled={pad.locked || pad.checking} />
+        <PinPad length={pad.pin.length} onDigit={pad.onDigit} onDelete={pad.onDelete} disabled={pad.locked || pad.checking} scale={KIOSK_PAD_SCALE} />
         {pad.locked ? (
           <Text style={[styles.error, { color: colors.red }]}>Too many wrong PINs. Try again in {pad.lockLeft} s.</Text>
         ) : message ? (

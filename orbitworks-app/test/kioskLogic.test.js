@@ -114,3 +114,53 @@ test("sync outcomes: lock = wait, refusals = failed, anything else = retry; 403 
   assert.equal(k.isAlreadyUploaded(new Error("Photo upload failed with status 403")), true);
   assert.equal(k.isAlreadyUploaded(new Error("Photo upload failed with status 500")), false);
 });
+
+// ---- iPad round 1 ----
+
+test("break line: start time + whole minutes, hours after 60 min", () => {
+  const t0 = 1_000_000;
+  const fmt = () => "12:05 PM";
+  assert.equal(k.breakStartedLine(t0, t0 + 18 * 60000 + 59000, fmt), "Break started 12:05 PM - 18 min");
+  assert.equal(k.breakElapsedText(t0, t0 + 30000), "0 min");
+  assert.equal(k.breakElapsedText(t0, t0 + 65 * 60000), "1 h 05 min");
+  assert.equal(k.breakElapsedText(t0, t0 - 5000), "0 min"); // clock skew never goes negative
+  assert.equal(k.breakStartedLine(null, t0, fmt), "");
+});
+
+test("kiosk comment: in/out only, trimmed, blank = none, capped at 500", () => {
+  assert.equal(k.kioskCommentFor("in", "  late, traffic "), "late, traffic");
+  assert.equal(k.kioskCommentFor("out", "   "), null);
+  assert.equal(k.kioskCommentFor("breakStart", "x"), null);
+  assert.equal(k.kioskCommentFor("in", null), null);
+  assert.equal(k.kioskCommentFor("in", "y".repeat(600)).length, 500);
+});
+
+test("sync list: waiting/sending + recent failed with reason, oldest first; synced and old failed hidden", () => {
+  const now = 10 * 24 * 3600 * 1000;
+  const rows = k.kioskSyncRows(
+    [
+      { requestId: "c", employeeName: "Cal", action: "out", queuedAtMs: now - 1000, status: "waiting" },
+      { requestId: "a", employeeName: "Ava", action: "in", queuedAtMs: now - 5000, status: "syncing" },
+      { requestId: "s", employeeName: "Sy", action: "in", queuedAtMs: now - 3000, status: "synced" },
+      { requestId: "f", employeeName: "Ben", action: "breakStart", queuedAtMs: now - 4000, status: "failed", failMessage: "This employee is inactive." },
+      { requestId: "old", employeeName: "Old", action: "in", queuedAtMs: now - k.FAILED_SHOWN_MS - 1, status: "failed", failMessage: "x" },
+    ],
+    now
+  );
+  assert.deepEqual(rows.map((r) => r.requestId), ["a", "f", "c"]);
+  assert.deepEqual(rows.map((r) => r.statusText), ["Sending", "Failed", "Waiting"]);
+  assert.equal(rows[0].actionText, "Clock in");
+  assert.equal(rows[1].actionText, "Break start");
+  assert.equal(rows[1].reason, "This employee is inactive.");
+  assert.equal(rows[2].reason, "");
+  assert.deepEqual(k.kioskSyncRows([], now), []);
+});
+
+test("agoText", () => {
+  const now = 100 * 3600 * 1000;
+  assert.equal(k.agoText(null, now), "never");
+  assert.equal(k.agoText(now - 20000, now), "just now");
+  assert.equal(k.agoText(now - 5 * 60000, now), "5 min ago");
+  assert.equal(k.agoText(now - 2 * 3600000, now), "2 h ago");
+  assert.equal(k.agoText(now - 49 * 3600000, now), "2 days ago");
+});

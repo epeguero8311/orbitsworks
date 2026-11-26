@@ -5,7 +5,7 @@ import { uploadLocalFileToStorage } from "./storageUpload";
 import { photoPathFor } from "./employeeHome";
 import { APP_RUN_ID, uptimeNow, withAnchor } from "./clockAnchor";
 import { fastWaitMs, withTimeout } from "./punchQueueLogic";
-import { isAlreadyUploaded, kioskFailKind } from "./kioskLogic";
+import { isAlreadyUploaded, kioskCommentFor, kioskFailKind } from "./kioskLogic";
 import { getOrCreateDeviceId } from "./deviceId";
 import {
   cleanupKioskQueue,
@@ -67,6 +67,8 @@ async function sendOne(item, deviceId) {
   if (Number.isFinite(item.lastServerMs) && item.lastServerMs > 0) data.lastServerMs = Math.round(item.lastServerMs);
   if (Number.isFinite(item.expectedAtMs)) data.expectedAtMs = Math.round(item.expectedAtMs);
   if (item.location !== undefined) data.location = item.location;
+  const comment = kioskCommentFor(item.action, item.employeeComment);
+  if (comment) data.employeeComment = comment;
   try {
     if (isInOut) {
       if (item.photoLocalUri && !item.photoUploaded) {
