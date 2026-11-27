@@ -150,10 +150,22 @@ env:
       - BUILD
       - RUNTIME
   # Universal links: /.well-known/apple-app-site-association lists the real
-  # app only. Android (assetlinks.json) stays off until there is an Android
-  # app and its Play signing certificate.
+  # app only.
   - variable: APP_LINKS_IOS_APP_IDS
     value: "6ZU7MHT284.com.orbitworks.app"
+    availability:
+      - BUILD
+      - RUNTIME
+  # Android App Links (/.well-known/assetlinks.json, app 1.1.6+): the real
+  # app and its Play App signing key (Play Console > App integrity > App
+  # signing). Not the upload key - Play re-signs every install with this one.
+  - variable: APP_LINKS_ANDROID_PACKAGE
+    value: "com.orbitworks.app"
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: APP_LINKS_ANDROID_SHA256
+    value: "0D:02:E0:A4:7B:DE:B8:BE:FA:2F:9B:37:E0:60:B6:4E:27:D6:07:47:CA:73:63:F7:2F:43:3B:2C:08:38:F6:A9"
     availability:
       - BUILD
       - RUNTIME

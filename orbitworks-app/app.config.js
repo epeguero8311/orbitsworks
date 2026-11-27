@@ -59,6 +59,26 @@ function linkOverrides(config, variant) {
   };
 }
 
+// Which phones may ask for "Always" location (leave tracking), read from the
+// expo-location plugin options in app.json so the native permission and the
+// app's own prompts can never disagree. Android is off until the Play
+// background location declaration is done; the app reads this through
+// lib/backgroundLocation.js and never shows the Always flow where it's false.
+function backgroundLocationFlags(config) {
+  const entry = (config.plugins || []).find((p) => Array.isArray(p) && p[0] === "expo-location");
+  const opts = (entry && entry[1]) || {};
+  return {
+    ios: opts.isIosBackgroundLocationEnabled === true,
+    android: opts.isAndroidBackgroundLocationEnabled === true,
+  };
+}
+
+// Firebase Android config for push (FCM). Only the real app: the file is the
+// prod project's (orbitworks-7ef59) and names com.orbitworks.app only, so
+// the dev app (com.orbitworks.app.dev) must not get it - its Gradle build
+// would fail on the package name, and it would point at the wrong project.
+const PROD_GOOGLE_SERVICES_FILE = "./google-services.json";
+
 function devOverrides(config) {
   const dev = VARIANTS.dev;
   return {
@@ -80,9 +100,12 @@ module.exports = ({ config }) => {
       adaptiveIcon: { ...config.android.adaptiveIcon, backgroundColor: "#3b6fe0" },
     },
   };
-  const named = variant.key === "dev" ? devOverrides(base) : base;
+  const named =
+    variant.key === "dev"
+      ? devOverrides(base)
+      : { ...base, android: { ...base.android, googleServicesFile: PROD_GOOGLE_SERVICES_FILE } };
   const out = variant.joinLinks ? linkOverrides(named, variant) : named;
-  const extra = { ...out.extra, appVariant: variant.key };
+  const extra = { ...out.extra, appVariant: variant.key, backgroundLocation: backgroundLocationFlags(out) };
   // Only builds that take crew codes get joinLinks (a null here comes out
   // of expo config as {}, so leave the key off entirely).
   if (variant.joinLinks) extra.joinLinks = variant.joinLinks;

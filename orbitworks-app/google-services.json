@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "248478616055",
+    "project_id": "orbitworks-7ef59",
+    "storage_bucket": "orbitworks-7ef59.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:248478616055:android:c7ca1a1fa6e509eb1ac6f2",
+        "android_client_info": {
+          "package_name": "com.orbitworks.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBEsSiJ98LBRLEPSsNsP1v1jq8bM3TbvkU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

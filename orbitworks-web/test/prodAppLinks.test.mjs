@@ -16,7 +16,10 @@ registerHooks({
     return next(specifier, context);
   },
 });
-const { buildAppleAppSiteAssociation, safeInstallUrl, getJoinLandingConfig } = await import("../lib/appLinks.ts");
+const { buildAppleAppSiteAssociation, buildAssetLinks, safeInstallUrl, getJoinLandingConfig } = await import("../lib/appLinks.ts");
+
+// Play Console > App integrity > App signing key for com.orbitworks.app.
+const PLAY_APP_SIGNING_SHA256 = "0D:02:E0:A4:7B:DE:B8:BE:FA:2F:9B:37:E0:60:B6:4E:27:D6:07:47:CA:73:63:F7:2F:43:3B:2C:08:38:F6:A9";
 
 function yamlValue(file, name) {
   const text = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
@@ -32,6 +35,21 @@ test("prod apphosting.yaml: AASA lists the real app for /j/ and /i/", () => {
   assert.doesNotMatch(body, /\.dev"/);
   assert.match(body, /\/j\//);
   assert.match(body, /\/i\//);
+});
+
+test("prod apphosting.yaml: assetlinks.json is the real Android app + Play signing key", () => {
+  const pkg = yamlValue("apphosting.yaml", "APP_LINKS_ANDROID_PACKAGE");
+  const sha = yamlValue("apphosting.yaml", "APP_LINKS_ANDROID_SHA256");
+  assert.equal(pkg, "com.orbitworks.app");
+  assert.equal(sha, PLAY_APP_SIGNING_SHA256);
+  assert.deepEqual(buildAssetLinks(pkg, sha), [
+    {
+      relation: ["delegate_permission/common.handle_all_urls"],
+      target: { namespace: "android_app", package_name: "com.orbitworks.app", sha256_cert_fingerprints: [PLAY_APP_SIGNING_SHA256] },
+    },
+  ]);
+  // The dev site never claims the real Android app.
+  assert.notEqual(yamlValue("apphosting.orbitworks_dev.yaml", "APP_LINKS_ANDROID_PACKAGE"), "com.orbitworks.app");
 });
 
 test("prod and dev claim different apps, schemes and hosts", () => {

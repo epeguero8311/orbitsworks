@@ -1,6 +1,7 @@
 // First import on purpose: its load time is "JS start" for launch timing.
 import { markLaunch } from "./lib/launchTiming";
 import { useEffect, useState, useCallback } from "react";
+import { BackHandler } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -261,6 +262,16 @@ const KioskStack = createNativeStackNavigator();
 
 function KioskRoot() {
   const { colors } = useTheme();
+  // Android hardware back does nothing anywhere in Kiosk mode: not out of the
+  // app from Home, not back past a punch step. Every screen has its own Back /
+  // Done button, and the only way out is Kiosk Settings (admin PIN or exit
+  // key). Added after NavigationContainer's own listener, so it runs first
+  // and stops it. Dialogs (RN Modal) still close on back via onRequestClose -
+  // that's a Cancel, never an exit. gestureEnabled: false is the iOS half.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => sub.remove();
+  }, []);
   return (
     <KioskProvider>
       <KioskStack.Navigator screenOptions={{ headerShown: false, gestureEnabled: false, contentStyle: { backgroundColor: colors.background } }}>

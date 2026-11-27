@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
 import { uptimeNow } from "./clockAnchor";
 import { readHomeCache } from "./employeeHomeCache";
-import { getAlwaysLocationStatus } from "./locationPermission";
+import { getAlwaysLocationStatus, isAlwaysLocationAvailable } from "./locationPermission";
 import { ensureAndroidChannel, ensureNotificationHandler, loadNotifications, NOTIFICATION_CHANNEL_ID } from "./notificationsModule";
 import { kickPunchSync } from "./punchQueueEvents";
 import { fetchShiftFence } from "./siteExitApi";
@@ -319,6 +319,14 @@ export function checkSiteTracking(home) {
       if (!clockedIn || !home.shiftInId) return;
 
       let state = await readFenceState(home.shiftInId);
+      // No background location in this build (Android 1.1.6): leave tracking
+      // never starts and no region is armed, so the shift has no "tracking
+      // off" rows and Home shows no banner pointing at an Always screen that
+      // can't work. The punch's own location (foreground) is saved as usual.
+      if (!isAlwaysLocationAvailable()) {
+        if (state && state.status === "tracking") await stopState(state);
+        return;
+      }
       if (!state) {
         if (!home.isPro || !madeOnThisPhone(home.shiftInId, home.punches || [])) return;
         await startFor(home);

@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { readHomeCache } from "./employeeHomeCache";
-import { getAlwaysLocationStatus } from "./locationPermission";
+import { getAlwaysLocationStatus, isAlwaysLocationAvailable } from "./locationPermission";
 import { isLocationConsentAccepted } from "./siteTracking";
 
 // Employee App Phase 8 (D19): ask for the location consent + "Always"
@@ -13,6 +13,8 @@ const ASKED_PREFIX = "alwaysLocationAsked:v1:";
 export async function shouldAskAlways(companyId, employeeId) {
   try {
     if (!companyId || !employeeId) return false;
+    // No background location in this build (Android 1.1.6): never ask.
+    if (!isAlwaysLocationAvailable()) return false;
     if (await AsyncStorage.getItem(`${ASKED_PREFIX}${companyId}:${employeeId}`)) return false;
     const [config, homeSite] = await Promise.all([readHomeCache("config", companyId, null), readHomeCache("homeSite", companyId, employeeId)]);
     if (!config || config.isPro !== true) return false;

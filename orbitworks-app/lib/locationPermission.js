@@ -1,4 +1,6 @@
-import { Alert, Linking } from "react-native";
+import { Alert, Linking, Platform } from "react-native";
+import Constants from "expo-constants";
+import { alwaysLocationAvailable } from "./backgroundLocationRule";
 
 // Lazily required, same reason as lib/location.js's own lazy require:
 // expo-location's native binding calls requireNativeModule() at import
@@ -94,13 +96,22 @@ export async function fixLocationPermission() {
 
 // ---- Employee App Phase 8: "Always" location (leave tracking, Pro) ----
 //
+// false = this build has no background location (Android 1.1.6, see
+// lib/backgroundLocationRule.js): no Always screen, no walk-through, no
+// geofence region. Punch locations (foreground) are not affected.
+export function isAlwaysLocationAvailable() {
+  return alwaysLocationAvailable(Platform.OS, Constants.expoConfig?.extra?.backgroundLocation);
+}
+
 // -> "always" | "whileUsing" | "off". Never throws. Settings shows it, and
 // leave tracking only runs on "always" (a region needs background location).
+// Without background location in the build it's never "always".
 export async function getAlwaysLocationStatus() {
   try {
     const Location = loadLocation();
     const fg = await Location.getForegroundPermissionsAsync();
     if (fg.status !== "granted") return "off";
+    if (!isAlwaysLocationAvailable()) return "whileUsing";
     const bg = await Location.getBackgroundPermissionsAsync();
     return bg.status === "granted" ? "always" : "whileUsing";
   } catch (err) {
@@ -115,6 +126,7 @@ export async function getAlwaysLocationStatus() {
 // screen says how). -> { status, canAskAgain } of the background step.
 // Never throws, never shows a dialog of its own.
 export async function requestAlwaysLocation() {
+  if (!isAlwaysLocationAvailable()) return { status: "denied", canAskAgain: false };
   try {
     const Location = loadLocation();
     const fg = await Location.getForegroundPermissionsAsync();

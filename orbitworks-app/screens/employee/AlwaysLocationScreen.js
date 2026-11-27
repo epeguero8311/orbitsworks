@@ -8,7 +8,7 @@ import { useTheme } from "../../lib/ThemeContext";
 import { makeStyles } from "../../lib/makeStyles";
 import { acceptLocationConsent, fetchLocationConsent } from "../../lib/siteExitApi";
 import { isLocationConsentAccepted, setLocationConsentAccepted } from "../../lib/siteTracking";
-import { getAlwaysLocationStatus, openLocationSettings, requestAlwaysLocation } from "../../lib/locationPermission";
+import { getAlwaysLocationStatus, isAlwaysLocationAvailable, openLocationSettings, requestAlwaysLocation } from "../../lib/locationPermission";
 import { kickTrackingCheck } from "../../lib/siteTrackingEvents";
 import { markAlwaysAsked } from "../../lib/alwaysLocationAsk";
 import { getJoinLinks } from "../../lib/pendingJoin";
@@ -57,6 +57,12 @@ export default function AlwaysLocationScreen({ navigation }) {
   // Which step to start on.
   useEffect(() => {
     let active = true;
+    // No background location in this build (Android 1.1.6): nothing this
+    // screen can turn on. Nothing navigates here then; this is the backstop.
+    if (!isAlwaysLocationAvailable()) {
+      finish();
+      return undefined;
+    }
     markAlwaysAsked(companyId, employeeId);
     (async () => {
       const info = await fetchLocationConsent();
@@ -76,7 +82,7 @@ export default function AlwaysLocationScreen({ navigation }) {
     return () => {
       active = false;
     };
-  }, [companyId, employeeId, afterConsent]);
+  }, [companyId, employeeId, afterConsent, finish]);
 
   // Back from the phone's Settings: Always now = done.
   useEffect(() => {

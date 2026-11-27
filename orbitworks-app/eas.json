@@ -68,6 +68,11 @@
       "ios": {
         "ascAppId": "6801155800"
       }
+    },
+    "playInternal": {
+      "android": {
+        "track": "internal"
+      }
     }
   }
 }
