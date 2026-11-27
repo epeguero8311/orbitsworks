@@ -408,7 +408,7 @@ export default function ClockEventLookup() {
                         <GeofenceBadge event={event} />
                       </td>
                       <td className="px-4 py-2.5">
-                        <FaceCheckBadge event={event} />
+                        <FaceCheckBadge event={event} isPro={isPro} />
                       </td>
                     </tr>
                   );
