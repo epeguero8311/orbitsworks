@@ -1,7 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar, SlidersHorizontal } from "lucide-react";
+import {
+  CLOCK_EVENTS_PAGE,
+  EMPTY_CLOCK_EVENT_FILTERS,
+  activeFilterCount,
+  filterClockEvents,
+  type ClockEventFilters,
+} from "@/lib/clockEventFilters";
+import { ClockEventsFilterPanel } from "@/components/dashboard/time/ClockEventsFilterPanel";
 import { useClockEventsByDay } from "@/lib/hooks/useClockEventsByDay";
 import { useCompanySettings } from "@/lib/hooks/useCompanySettings";
 import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
@@ -36,7 +44,17 @@ export default function ClockEventsDayView({
   const todayKey = dateKey(new Date());
   const [currentDate, setCurrentDate] = useState(todayKey);
   const [selectedEvent, setSelectedEvent] = useState<ClockEvent | null>(null);
-  const [outsideGeofenceOnly, setOutsideGeofenceOnly] = useState(false);
+  const [filters, setFilters] = useState<ClockEventFilters>(EMPTY_CLOCK_EVENT_FILTERS);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Show 20 rows, +20 per "Show more". Back to 20 whenever the day or the
+  // filters change (reset during render - no setState in an effect).
+  const [visibleCount, setVisibleCount] = useState(CLOCK_EVENTS_PAGE);
+  const pageKey = currentDate + "|" + JSON.stringify(filters);
+  const [seenPageKey, setSeenPageKey] = useState(pageKey);
+  if (pageKey !== seenPageKey) {
+    setSeenPageKey(pageKey);
+    setVisibleCount(CLOCK_EVENTS_PAGE);
+  }
   // Phase 9 (H10 a): pairingEvents also holds the day before and after, so
   // a shift crossing midnight pairs in the detail window.
   const { events: allEvents, pairingEvents, loading, error } = useClockEventsByDay(companyId, currentDate);
@@ -54,8 +72,17 @@ export default function ClockEventsDayView({
   const { commentsByClockIn, error: commentsError } = useShiftCommentsByClockIn(companyId, clockInIds(allEvents));
   // Phase 8: "Left the job site" lines in the same cell (clock-in rows).
   const { exitsByClockIn, error: exitsError } = useSiteExitsByClockIn(companyId, clockInIds(allEvents));
-  const events =
-    outsideGeofenceOnly ? allEvents.filter((e) => e.geofenceStatus === "outside") : allEvents;
+  const events = filterClockEvents(allEvents, filters, isPro);
+  const filterCount = activeFilterCount(filters, isPro);
+  const shownEvents = events.slice(0, visibleCount);
+  // Site choices: the company's sites plus any site name on this day's
+  // events (a removed site still shows on old punches).
+  const siteOptions = (() => {
+    const map = new Map<string, string>();
+    for (const s of sites) map.set(s.id, s.name);
+    for (const e of allEvents) if (e.siteId && !map.has(e.siteId)) map.set(e.siteId, e.siteName || "Removed site");
+    return [...map].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  })();
 
   const isToday = currentDate === todayKey;
   const isPairable = (t: ClockEvent["type"]) => t === "in" || t === "out";
@@ -76,7 +103,20 @@ export default function ClockEventsDayView({
   return (
     <div className="mt-6 overflow-hidden rounded-lg border border-gray-200 bg-white">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3">
-        <h2 className="text-sm font-semibold text-gray-950">Clock events</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-gray-950">Clock events</h2>
+          <button
+            type="button"
+            onClick={() => setFiltersOpen((v) => !v)}
+            aria-expanded={filtersOpen}
+            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:border-gray-300 ${
+              filterCount > 0 ? "border-accent text-accent" : "border-gray-200 text-gray-600"
+            }`}
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            Filter{filterCount > 0 ? ` (${filterCount})` : ""}
+          </button>
+        </div>
 
         <div className="flex items-center gap-2">
           {!isToday && (
@@ -126,18 +166,8 @@ export default function ClockEventsDayView({
         </div>
       </div>
 
-      {isPro && (
-        <div className="border-b border-gray-200 px-4 py-2">
-          <label className="flex items-center gap-2 text-xs font-medium text-gray-600">
-            <input
-              type="checkbox"
-              checked={outsideGeofenceOnly}
-              onChange={(e) => setOutsideGeofenceOnly(e.target.checked)}
-              className="rounded border-gray-300 text-accent focus:ring-accent"
-            />
-            Outside geofence only
-          </label>
-        </div>
+      {filtersOpen && (
+        <ClockEventsFilterPanel filters={filters} onChange={setFilters} siteOptions={siteOptions} isPro={isPro} />
       )}
 
       {serverReads && (
@@ -156,8 +186,8 @@ export default function ClockEventsDayView({
         <p className="p-4 text-sm text-gray-600">Loading...</p>
       ) : events.length === 0 ? (
         <p className="p-4 text-sm text-gray-600">
-          {outsideGeofenceOnly
-            ? `No events outside a geofence on ${dateLabel}.`
+          {filterCount > 0
+            ? `No clock events on ${dateLabel} match these filters.`
             : `No clock events on ${dateLabel}.`}
         </p>
       ) : (
@@ -177,7 +207,7 @@ export default function ClockEventsDayView({
             </tr>
           </thead>
           <tbody>
-            {events.map((event) => {
+            {shownEvents.map((event) => {
               const badge = sourceLabel(event.source);
               const typeBadge = typeLabel(event.type);
               const pairable = isPairable(event.type);
@@ -252,6 +282,23 @@ export default function ClockEventsDayView({
             })}
           </tbody>
         </table>
+      )}
+
+      {!error && !loading && events.length > 0 && (
+        <div className="flex items-center justify-between border-t border-gray-200 px-4 py-2.5 text-xs text-gray-600">
+          <span>
+            Showing {shownEvents.length} of {events.length}
+          </span>
+          {shownEvents.length < events.length && (
+            <button
+              type="button"
+              onClick={() => setVisibleCount((n) => n + CLOCK_EVENTS_PAGE)}
+              className="rounded-md border border-gray-200 px-3 py-1.5 font-medium text-gray-950 hover:border-gray-300"
+            >
+              Show {Math.min(CLOCK_EVENTS_PAGE, events.length - shownEvents.length)} more
+            </button>
+          )}
+        </div>
       )}
 
       {selectedEvent && (
