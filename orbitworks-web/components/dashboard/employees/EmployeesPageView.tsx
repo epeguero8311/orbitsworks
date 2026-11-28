@@ -11,7 +11,6 @@ import { useEmployeeInvites } from "@/lib/hooks/useEmployeeInvites";
 import { useEmployeePins } from "@/lib/hooks/useEmployeePins";
 import { AddEmployeeForm } from "@/components/dashboard/employees/AddEmployeeForm";
 import { EmployeesTable } from "@/components/dashboard/employees/EmployeesTable";
-import { KioskTabletsSection } from "@/components/dashboard/employees/KioskTabletsSection";
 import { EmployeeModal } from "@/components/dashboard/employees/EmployeeModal";
 import { InvitesSection } from "@/components/dashboard/employees/InvitesSection";
 import { InviteForm } from "@/components/dashboard/employees/InviteForm";
@@ -30,17 +29,11 @@ export function EmployeesPageView() {
   const { sites } = useSites();
   const { jobs } = useJobs();
   const { subcontractors } = useSubcontractors();
-  const { settings, isPro, canUseInvites, loading: settingsLoading, activeCap } = useCompanySettings();
+  const { settings, isPro, canUseInvites, loading: settingsLoading } = useCompanySettings();
   const appInvites = useEmployeeInvites();
   const companyName = settings.name || "Main company";
   const activeSites = sites.filter((s) => s.active);
-  // The plan's active-employee limit from the company doc (the same number
-  // addEmployee enforces) - "Active: 350 / 350". null = no limit shown.
-  const employeeLimit: number | undefined = settingsLoading ? undefined : activeCap ?? undefined;
-  // Kiosk tablets get their own folded list; "All employees" and its
-  // counts are people only (kiosks never use a seat).
-  const people = employees.filter((e) => e.kiosk !== true);
-  const kioskRecords = employees.filter((e) => e.kiosk === true);
+  const employeeLimit: number | undefined = undefined;
   // null while the plan loads, so neither the invite form nor the plan note flashes.
   const invitePlanOk = settingsLoading ? null : canUseInvites;
 
@@ -74,7 +67,7 @@ export function EmployeesPageView() {
       </div>
       <div className="mt-6">
         <EmployeesTable
-          employees={people}
+          employees={employees}
           sites={activeSites}
           jobs={jobs}
           subcontractors={subcontractors}
@@ -86,15 +79,6 @@ export function EmployeesPageView() {
           invitesByEmployee={appInvites.byEmployee}
         />
       </div>
-      {!loading && kioskRecords.length > 0 && (
-        <div className="mt-6">
-          <KioskTabletsSection
-            kiosks={kioskRecords}
-            onSelect={(employee: Employee) => setSelectedId(employee.id)}
-            onToggleActive={toggleEmployeeActive}
-          />
-        </div>
-      )}
       {/* Phase 9 (H1 a): one invite form with a role dropdown. */}
       <div className="mt-10">
         <InviteForm sites={activeSites} createAppInvite={appInvites.create} />

@@ -4,8 +4,8 @@ import { useState, type ReactNode } from "react";
 
 // A card whose body folds away behind its header - closed on every page
 // load, same look as the Invites section (InvitesSection.tsx). For long
-// lists that most visits don't need open: Settings -> Devices / Kiosks and
-// the Employees page's kiosk tablets (a 25-tablet company is a long scroll).
+// lists that most visits don't need open: Settings -> Devices / Kiosks
+// (a 25-tablet company is a long scroll).
 // `id` stays on the outer card so Settings search can still scroll to it.
 export function CollapsibleCard({
   id,
