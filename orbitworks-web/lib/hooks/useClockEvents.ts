@@ -22,6 +22,7 @@ import { deriveStatus, ClockStatus } from "@/lib/clockStatus";
 import { isSameDay } from "@/lib/dashboardOverviewUtils";
 import type { ClockEvent, Employee, JobSite } from "@/lib/types";
 import { toClockEvents } from "@/lib/clockEventDocs";
+import { STATUS_WINDOW_MS, mergeEvents, useOpenSessionBackfill } from "@/lib/hooks/useOpenSessionBackfill";
 
 export type ClockDirection = "in" | "out" | "breakStart" | "breakEnd";
 
@@ -35,7 +36,7 @@ export type ClockEventSearchFilters = {
 export function useClockEvents() {
   const { currentUser, userData } = useAuth();
   const { settings } = useCompanySettings();
-  const [recentEvents, setRecentEvents] = useState<ClockEvent[]>([]);
+  const [windowEvents, setWindowEvents] = useState<ClockEvent[]>([]);
   const [loading, setLoading] = useState(true);
   // Task 4 (D2): a restricted admin gets the latest events of their sites'
   // shifts from the server (last 8 days), refreshed every 30 s.
@@ -54,7 +55,9 @@ export function useClockEvents() {
         return fetchShiftData({ purpose: "shifts", startMs: Date.now() - 8 * 86400000, endMs: Date.now() + 60000, want: { clockEvents: true } })
           .then((res) => {
             if (!isLatest()) return;
-            setRecentEvents(toClockEvents(res.clockEvents, "Clock status").slice(0, 50));
+            // The whole 8-day window (it used to keep 50 events, so a big
+            // crew lost people's status).
+            setWindowEvents(toClockEvents(res.clockEvents, "Clock status"));
             setLoading(false);
           })
           .catch((err) => {
@@ -76,12 +79,17 @@ export function useClockEvents() {
       userData.companyId,
       "clockEvents"
     );
-    const q = query(eventsRef, orderBy("timestamp", "desc"), limit(50));
+    // Everything in the window, not the newest 50 (useOpenSessionBackfill).
+    const q = query(
+      eventsRef,
+      where("timestamp", ">=", Timestamp.fromMillis(Date.now() - STATUS_WINDOW_MS)),
+      orderBy("timestamp", "desc")
+    );
 
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        setRecentEvents(
+        setWindowEvents(
           snapshot.docs.map((d) => ({
             id: d.id,
             ...(d.data() as Omit<ClockEvent, "id">),
@@ -97,6 +105,10 @@ export function useClockEvents() {
 
     return unsubscribe;
   }, [userData?.companyId, serverReads, refreshTick]);
+
+  // + open shifts that started before the window (direct readers only).
+  const backfill = useOpenSessionBackfill(userData?.companyId, windowEvents, !serverReads);
+  const recentEvents = useMemo(() => mergeEvents(windowEvents, backfill), [windowEvents, backfill]);
 
   // Determine each employee's LATEST event by effective time
   // (adjustedTimestamp ?? timestamp), not by the order Firestore returned

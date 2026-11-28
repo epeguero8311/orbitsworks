@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
   onSnapshot,
   addDoc,
   query,
   orderBy,
-  limit,
   where,
   getDocs,
   serverTimestamp,
@@ -21,6 +20,7 @@ import { useEmployees } from "@/lib/hooks/useEmployees";
 import { ClockEvent } from "@/lib/types";
 import { deriveStatus, getAccumulatedWorkedMs } from "@/lib/clockStatus";
 import { DayAttendance, effectiveDate } from "@/lib/dashboardOverviewUtils";
+import { STATUS_WINDOW_MS, mergeEvents, useOpenSessionBackfill } from "@/lib/hooks/useOpenSessionBackfill";
 
 const DISPLAY_LIMIT = 8;
 
@@ -34,7 +34,7 @@ export type DeactivatedBackfill = {
 export function useDashboardStatus() {
   const { userData, currentUser } = useAuth();
   const { employees } = useEmployees();
-  const [events, setEvents] = useState<ClockEvent[]>([]);
+  const [windowEvents, setWindowEvents] = useState<ClockEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [weeklyAttendance, setWeeklyAttendance] = useState<DayAttendance[]>([]);
   const [loadingChart, setLoadingChart] = useState(true);
@@ -58,11 +58,13 @@ export function useDashboardStatus() {
         fetchShiftData({ purpose: "overview", startMs: Date.now() - 8 * 86400000, endMs: Date.now() + 60000, want: { clockEvents: true } })
           .then((res) => {
             if (cancelled) return;
-            setEvents(
+            setWindowEvents(
               res.clockEvents
                 .map((d) => ({ id: d.id, ...(d.data() as Omit<ClockEvent, "id">) }))
+                // The server sends the whole 8-day window - no head-count
+                // cap here (it used to keep 200 events, so a big crew lost
+                // people from "clocked in").
                 .sort((a, b) => (b.timestamp?.toMillis() ?? 0) - (a.timestamp?.toMillis() ?? 0))
-                .slice(0, 200)
             );
             setLoading(false);
           })
@@ -83,12 +85,17 @@ export function useDashboardStatus() {
       userData.companyId,
       "clockEvents"
     );
-    const q = query(eventsRef, orderBy("timestamp", "desc"), limit(200));
+    // Everything in the window, not the newest 200 (useOpenSessionBackfill).
+    const q = query(
+      eventsRef,
+      where("timestamp", ">=", Timestamp.fromMillis(Date.now() - STATUS_WINDOW_MS)),
+      orderBy("timestamp", "desc")
+    );
 
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        setEvents(
+        setWindowEvents(
           snapshot.docs.map((d) => ({
             id: d.id,
             ...(d.data() as Omit<ClockEvent, "id">),
@@ -172,6 +179,11 @@ export function useDashboardStatus() {
 
     loadWeeklyAttendance();
   }, [userData?.companyId, serverReads]);
+
+  // + open shifts that started before the window (owner / all-sites admins;
+  // the server's 8-day window covers restricted admins).
+  const backfill = useOpenSessionBackfill(userData?.companyId, windowEvents, !serverReads);
+  const events = useMemo(() => mergeEvents(windowEvents, backfill), [windowEvents, backfill]);
 
   // Determine each employee's latest event by EFFECTIVE time, not by the
   // order Firestore returned (which is raw-timestamp order). A back-dated
