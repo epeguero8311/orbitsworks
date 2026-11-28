@@ -13,6 +13,7 @@ import { BillingLink } from "@/components/BillingLink";
 import { toastIfPermissionDenied } from "@/lib/permissionErrors";
 import { useAppVersions } from "@/lib/hooks/useAppVersions";
 import { deviceVersionLabel } from "@/lib/appVersions";
+import { CollapsibleCard } from "@/components/dashboard/CollapsibleCard";
 
 interface DeviceRow {
   id: string;
@@ -234,25 +235,24 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
   }
 
   return (
-    <div id="devices" className="rounded-xl border border-gray-200 bg-white p-6">
-      <h2 className="text-base font-semibold text-gray-950">Devices</h2>
-      <p className="mt-1 text-xs text-gray-600">
-        Devices seen clocking in for this company. Rename them so Time Tracking shows who used
-        which device.
-      </p>
-
+    <CollapsibleCard
+      id="devices"
+      title="Devices"
+      count={loading ? null : rows.length}
+      description="Devices seen clocking in for this company. Rename them so Time Tracking shows who used which device."
+    >
       {loading ? (
-        <div className="mt-4 space-y-2">
+        <div className="space-y-2">
           {[0, 1, 2].map((i) => (
             <div key={i} className="h-11 animate-pulse rounded-lg bg-gray-100" />
           ))}
         </div>
       ) : isEmpty ? (
-        <p className="mt-4 text-sm text-gray-600">
+        <p className="text-sm text-gray-600">
           No devices yet. Devices appear here after someone clocks in from the mobile app.
         </p>
       ) : (
-        <div className="mt-4 w-full overflow-x-auto">
+        <div className="w-full overflow-x-auto">
           <table className="w-full table-fixed text-left text-sm">
             <colgroup>
               <col style={{ width: "34%" }} />
@@ -397,6 +397,6 @@ export function DevicesCard({ isPro }: { isPro: boolean }) {
           </table>
         </div>
       )}
-    </div>
+    </CollapsibleCard>
   );
 }

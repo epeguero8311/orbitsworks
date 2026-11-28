@@ -9,6 +9,7 @@ import { useEmployees } from "@/lib/hooks/useEmployees";
 import { useAdminAccess } from "@/lib/hooks/useAdminAccess";
 import { formatKeyCountdown } from "@/lib/kiosk";
 import { toastIfPermissionDenied } from "@/lib/permissionErrors";
+import { CollapsibleCard } from "@/components/dashboard/CollapsibleCard";
 
 type IssuedKey = { key: string; expiresAtMs: number };
 
@@ -55,18 +56,18 @@ export function KioskExitKeysCard() {
   }
 
   return (
-    <div id="kiosks" className="rounded-xl border border-gray-200 bg-white p-6">
-      <h2 className="text-base font-semibold text-gray-950">Kiosks</h2>
-      <p className="mt-1 text-sm text-gray-600">
-        To leave Kiosk mode on an iPad, make an exit key here and type it in the iPad&apos;s Kiosk Settings. A key works once, for 10 minutes.
-      </p>
-
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    <CollapsibleCard
+      id="kiosks"
+      title="Kiosks"
+      count={loading ? null : kiosks.length}
+      description={<>To leave Kiosk mode on an iPad, make an exit key here and type it in the iPad&apos;s Kiosk Settings. A key works once, for 10 minutes.</>}
+    >
+      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
 
       {loading ? (
-        <p className="mt-4 text-sm text-gray-600">Loading...</p>
+        <p className="text-sm text-gray-600">Loading...</p>
       ) : kiosks.length === 0 ? (
-        <p className="mt-4 text-sm text-gray-600">
+        <p className="text-sm text-gray-600">
           No kiosks yet. Turn on Kiosk access for a record in{" "}
           <Link href="/dashboard/employees" className="font-medium text-accent hover:underline">
             Employees
@@ -74,7 +75,7 @@ export function KioskExitKeysCard() {
           .
         </p>
       ) : (
-        <ul className="mt-4 divide-y divide-gray-100 rounded-lg border border-gray-200">
+        <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200">
           {kiosks.map((k) => {
             const key = issued[k.id];
             const msLeft = key ? key.expiresAtMs - now : 0;
@@ -106,6 +107,6 @@ export function KioskExitKeysCard() {
           })}
         </ul>
       )}
-    </div>
+    </CollapsibleCard>
   );
 }
